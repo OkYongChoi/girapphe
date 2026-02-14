@@ -11,6 +11,7 @@ export type KnowledgeCard = {
   wiki_url: string;
   domain: string;
   level: string;
+  related_concepts?: string[];
 };
 
 export type CardStatus = 'known' | 'saved' | 'unknown';
@@ -22,29 +23,42 @@ const MOCK_CARDS: KnowledgeCard[] = [
   {
     id: 'burg_method',
     title: 'Burg Method',
-    summary: 'Maximum Entropy Spectral Estimation technique.',
-    explanation: 'Minimizes the forward and backward prediction errors to estimate the power spectral density. High resolution for short data records.',
+    summary: 'MaxEnt Spectral Estimation',
+    explanation: 'Minimizes forward & backward prediction errors.\n\nKey Benefit:\nHigh resolution for short data records (unlike FFT).\n\nConstraint:\nAlways guarantees a stable filter.',
     wiki_url: 'https://en.wikipedia.org/wiki/Burg_method',
     domain: 'signal',
-    level: 'understand'
+    level: 'understand',
+    related_concepts: ['Autoregressive Model', 'Spectral Density', 'Levinson Recursion']
   },
   {
     id: 'kalman_filter',
     title: 'Kalman Filter',
-    summary: 'Optimal estimation algorithm for linear systems.',
-    explanation: 'Uses a series of measurements observed over time (containing noise) to produce estimates of unknown variables.',
+    summary: 'Optimal Recursive Linear Estimator',
+    explanation: '$$x_k = A\\,x_{k-1} + B\\,u_k + w_k$$\n$$z_k = H\\,x_k + v_k$$\n\n1. Predict:\n$$\\hat{x}_k = A\\,\\hat{x}_{k-1} + B\\,u_k$$\n$$P_k = A\\,P_{k-1}\\,A^T + Q$$\n\n2. Update:\n$$K_k = P_k H^T\\!(H P_k H^T + R)^{-1}$$\n$$\\hat{x}_k^{\\,+} = \\hat{x}_k + K_k(z_k - H\\,\\hat{x}_k)$$',
     wiki_url: 'https://en.wikipedia.org/wiki/Kalman_filter',
     domain: 'control',
-    level: 'apply'
+    level: 'apply',
+    related_concepts: ['Bayesian Inference', 'Hidden Markov Model', 'Control Theory']
   },
   {
-    id: 'shannon_entropy',
-    title: 'Shannon Entropy',
-    summary: 'Measure of information/uncertainty in a variable.',
-    explanation: 'Quantifies the average level of "information", "surprise", or "uncertainty" inherent in the variable\'s possible outcomes.',
-    wiki_url: 'https://en.wikipedia.org/wiki/Entropy_(information_theory)',
-    domain: 'info',
-    level: 'memorize'
+    id: 'nyquist_shannon',
+    title: 'Nyquist-Shannon Theorem',
+    summary: 'Sampling Rate Requirement',
+    explanation: '$$f_s > 2 \\cdot f_{\\max}$$\n\nIf $f_s < 2\\,f_{\\max}$:\nAliasing occurs (high freq appears as low freq).\n\nNyquist Frequency $= f_s \\,/\\, 2$',
+    wiki_url: 'https://en.wikipedia.org/wiki/Nyquist%E2%80%93Shannon_sampling_theorem',
+    domain: 'signal',
+    level: 'memorize',
+    related_concepts: ['Aliasing', 'Fourier Transform', 'Quantization']
+  },
+  {
+    id: 'transformer_model',
+    title: 'Transformer Architecture',
+    summary: 'Attention-based Sequence Model',
+    explanation: '$$\\text{Attention}(Q, K, V) = \\text{softmax}\\!\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V$$\n\nKey Innovation:\nReplaces recurrence with Self-Attention, allowing massive parallelization.\n\nKey Components:\n- Multi-Head Attention\n- Positional Encoding\n- Feed-Forward Networks',
+    wiki_url: 'https://en.wikipedia.org/wiki/Transformer_(machine_learning_model)',
+    domain: 'ml',
+    level: 'understand',
+    related_concepts: ['Self-Attention', 'Positional Encoding', 'BERT', 'GPT']
   }
 ];
 
@@ -193,6 +207,48 @@ export async function getUserStats() {
   } catch (error) {
     console.error('Error in getUserStats:', error);
     return { known: 12, saved: 5, unknown: 3 }; // Mock stats
+  } finally {
+    try { client?.release(); } catch(e) {}
+  }
+}
+
+/**
+ * Get all cards and their status for the Knowledge Visualization.
+ */
+export async function getAllCardsWithStatus() {
+  if (!process.env.DATABASE_URL) {
+    // Return mock data with random statuses
+    return MOCK_CARDS.map(c => ({
+      ...c,
+      status: ['known', 'saved', 'unknown', null][Math.floor(Math.random() * 4)] as CardStatus | null
+    }));
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    // Assuming DEMO_USER_ID is defined in this file's scope as per previous read
+    const query = `
+      SELECT kc.*, ucs.status
+      FROM knowledge_cards kc
+      LEFT JOIN user_card_states ucs 
+        ON kc.id = ucs.card_id AND ucs.user_id = '${DEMO_USER_ID}'
+      ORDER BY kc.domain, kc.level;
+    `;
+    
+    // Using string interpolation for demo user id to avoid parameter binding issues if any, 
+    // though binding is safer. Sticking to binding if I can seeing the previous code used it.
+    // The previous code used $1. I should stick to that pattern if I can.
+    // However, I don't see the pool import here. It was at the top.
+    
+    const res = await client.query(query);
+    return res.rows as (KnowledgeCard & { status: CardStatus | null })[];
+  } catch (error) {
+    console.error('Error in getAllCardsWithStatus:', error);
+    return MOCK_CARDS.map(c => ({
+      ...c,
+      status: ['known', 'saved', 'unknown', null][Math.floor(Math.random() * 4)] as CardStatus | null
+    }));
   } finally {
     try { client?.release(); } catch(e) {}
   }

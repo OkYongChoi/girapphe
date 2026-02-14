@@ -10,6 +10,7 @@ interface CardViewerProps {
 
 export default function CardViewer({ initialCard }: CardViewerProps) {
   const [card, setCard] = useState<KnowledgeCard | null>(initialCard);
+  const [history, setHistory] = useState<KnowledgeCard[]>([]);
   const [loading, setLoading] = useState(false);
 
   const handleAction = async (status: CardStatus) => {
@@ -17,14 +18,37 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
     
     setLoading(true);
     
+    // Push current to history before moving
+    setHistory(prev => [...prev, card]);
+
     // 1. Save state
     await saveCardState(card.id, status);
     
     // 2. Load next card
-    // In a real app, we might optimistic update or fetch beforehand
     const next = await getNextCard();
     setCard(next);
     
+    setLoading(false);
+  };
+
+  const handlePrevious = () => {
+    if (history.length === 0) return;
+    
+    const previousCard = history[history.length - 1];
+    setHistory(prev => prev.slice(0, -1)); // Pop from history
+    setCard(previousCard);
+  };
+
+  const handleSkip = async () => {
+    if (!card) return;
+    setLoading(true);
+    
+    // Push to history so we can go back
+    setHistory(prev => [...prev, card]);
+    
+    // Load next without saving state
+    const next = await getNextCard();
+    setCard(next);
     setLoading(false);
   };
 
@@ -39,6 +63,27 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
 
   return (
     <div className="flex flex-col items-center w-full max-w-md mx-auto">
+      {/* Navigation Controls (Top) */}
+      <div className="w-full flex justify-between items-center mb-4">
+         <button 
+           onClick={handlePrevious} 
+           disabled={history.length === 0}
+           className="text-sm text-gray-500 hover:text-gray-900 disabled:opacity-30 flex items-center gap-1 transition-colors"
+         >
+           &larr; Previous
+         </button>
+         <span className="text-xs text-gray-400 font-mono">
+           Stream
+         </span>
+         <button 
+           onClick={handleSkip}
+           disabled={loading}
+           className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors"
+         >
+           Next &rarr;
+         </button>
+      </div>
+
       <Card card={card} />
       
       <div className="flex w-full gap-3 mt-8">

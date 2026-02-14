@@ -30,7 +30,7 @@ export default async function SavedPage() {
                 <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">{card.summary}</p>
                 <div className="mt-auto flex justify-between items-center text-xs text-gray-400">
                     <span>{card.domain}</span>
-                    <span>Last seen: {new Date(card.last_seen).toLocaleDateString()}</span>
+                    <span>Last seen: {new Date(card.last_seen).toISOString().split('T')[0]}</span>
                 </div>
               </div>
             ))}

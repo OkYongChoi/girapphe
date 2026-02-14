@@ -13,6 +13,9 @@ export default function Navbar() {
         <Link href="/saved" className="hover:text-blue-600 transition-colors">
           Saved
         </Link>
+        <Link href="/knowledge" className="hover:text-blue-600 transition-colors">
+          Knowledge Map
+        </Link>
       </div>
     </nav>
   );

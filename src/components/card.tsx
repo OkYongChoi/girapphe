@@ -1,4 +1,5 @@
 import { KnowledgeCard } from '@/actions/card-actions';
+import MathText from './math-text';
 
 interface CardProps {
   card: KnowledgeCard;
@@ -33,8 +34,11 @@ export default function Card({ card }: CardProps) {
       </p>
 
       {card.explanation && (
-        <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg text-sm text-gray-600 dark:text-gray-400">
-           {card.explanation}
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/30 p-4 rounded-lg text-sm text-gray-800 dark:text-gray-200 mt-2">
+           <h3 className="text-xs font-bold text-yellow-800 dark:text-yellow-500 uppercase tracking-widest mb-2">
+             💡 Key Facts & Formulas
+           </h3>
+           <MathText text={card.explanation} className="text-sm leading-relaxed" />
         </div>
       )}
 
@@ -47,6 +51,21 @@ export default function Card({ card }: CardProps) {
         >
           View on Wikipedia &rarr;
         </a>
+      )}
+
+      {card.related_concepts && card.related_concepts.length > 0 && (
+         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+           <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-2">
+             Connected Concepts
+           </span>
+           <div className="flex flex-wrap gap-2">
+             {card.related_concepts.map((concept, i) => (
+               <span key={i} className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs rounded-md">
+                 {concept}
+               </span>
+             ))}
+           </div>
+         </div>
       )}
     </div>
   );
