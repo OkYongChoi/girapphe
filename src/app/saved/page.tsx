@@ -8,15 +8,39 @@ import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
-export default async function SavedPage() {
+type SavedPageProps = {
+  searchParams?: Promise<{
+    q?: string;
+    domain?: string;
+  }>;
+};
+
+function formatDate(value: string | Date) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'n/a';
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+export default async function SavedPage({ searchParams }: SavedPageProps) {
   const user = await getCurrentUser();
   if (!user) {
     redirect('/login');
   }
+  const params = (await searchParams) ?? {};
+  const query = (params.q ?? '').trim().toLowerCase();
+  const domainFilter = (params.domain ?? 'all').trim().toLowerCase();
+
   const savedCards = (await getSavedCards()) as (KnowledgeCard & {
     status: CardStatus;
     last_seen: string | Date;
   })[];
+  const allDomains = Array.from(new Set(savedCards.map((card) => card.domain))).sort();
+  const filteredCards = savedCards.filter((card) => {
+    const matchesDomain = domainFilter === 'all' || card.domain.toLowerCase() === domainFilter;
+    const haystack = `${card.title} ${card.summary} ${card.domain}`.toLowerCase();
+    const matchesQuery = !query || haystack.includes(query);
+    return matchesDomain && matchesQuery;
+  });
 
   return (
     <main className="min-h-screen bg-gray-50 flex flex-col">
@@ -26,12 +50,41 @@ export default async function SavedPage() {
         <div className="mb-6 flex items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">Saved Concepts</h1>
-            <p className="text-sm text-gray-500">{savedCards.length} saved for focused review</p>
+            <p className="text-sm text-gray-500">
+              {filteredCards.length} of {savedCards.length} saved for focused review
+            </p>
           </div>
           <Link href="/practice" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
             Continue practice
           </Link>
         </div>
+
+        <form className="mb-4 grid gap-2 rounded-lg border bg-white p-3 md:grid-cols-[1fr_auto]">
+          <input
+            type="text"
+            name="q"
+            defaultValue={params.q ?? ''}
+            placeholder="Search title, summary, or domain"
+            className="rounded-md border px-3 py-2 text-sm"
+          />
+          <div className="flex gap-2">
+            <select
+              name="domain"
+              defaultValue={domainFilter}
+              className="rounded-md border px-3 py-2 text-sm"
+            >
+              <option value="all">All domains</option>
+              {allDomains.map((domain) => (
+                <option key={domain} value={domain.toLowerCase()}>
+                  {domain}
+                </option>
+              ))}
+            </select>
+            <button type="submit" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
+              Apply
+            </button>
+          </div>
+        </form>
 
         {savedCards.length === 0 ? (
           <div className="rounded-lg border bg-white p-6 text-center">
@@ -40,9 +93,13 @@ export default async function SavedPage() {
               Go to practice
             </Link>
           </div>
+        ) : filteredCards.length === 0 ? (
+          <div className="rounded-lg border bg-white p-6 text-center text-gray-500">
+            No saved cards match the current filter.
+          </div>
         ) : (
           <div className="grid gap-4">
-            {savedCards.map((card) => (
+            {filteredCards.map((card) => (
               <div key={card.id} className="bg-white border rounded-lg p-4 flex flex-col hover:shadow-sm transition-shadow">
                 <div className="flex justify-between items-start mb-2">
                   <h3 className="font-bold text-lg">{card.title}</h3>
@@ -54,7 +111,7 @@ export default async function SavedPage() {
                 <div className="mt-auto flex justify-between items-center text-xs text-gray-400">
                   <span>{card.domain}</span>
                   <div className="flex items-center gap-3">
-                    <span>Last seen: {new Date(card.last_seen).toISOString().split('T')[0]}</span>
+                    <span>Last seen: {formatDate(card.last_seen)}</span>
                     <form
                       action={async () => {
                         'use server';

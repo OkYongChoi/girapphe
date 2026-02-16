@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx next build)",
+      "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")",
+      "Bash(export PATH=\"/opt/homebrew/bin:/usr/bin:$PATH\")",
+      "Bash(npx next dev:*)",
+      "Bash(curl:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(export PATH=\"/opt/homebrew/bin:/usr/bin:/usr/sbin:/sbin:$PATH\")",
+      "Bash(PATH=\"/opt/homebrew/bin:/usr/bin:/usr/sbin:/sbin:/bin:$PATH\" lsof:*)",
+      "Bash(PATH=\"/opt/homebrew/bin:/usr/bin:/usr/sbin:/sbin:/bin:$PATH\" xargs kill -9)",
+      "Bash(export PATH:*)",
+      "Bash(npm install:*)",
+      "Bash(node -e:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

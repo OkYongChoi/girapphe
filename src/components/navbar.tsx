@@ -50,6 +50,10 @@ export default async function Navbar() {
               My Knowledge
             </Link>
             <span className="text-slate-300">•</span>
+            <Link href="/ranking" className="hover:text-blue-600 transition-colors">
+              Ranking
+            </Link>
+            <span className="text-slate-300">•</span>
             <Link href="/knowledge" className="hover:text-blue-600 transition-colors">
               Knowledge Map
             </Link>

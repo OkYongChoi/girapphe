@@ -9,10 +9,12 @@ import {
   getUserKnowledgeState,
   setUserKnowledgeState,
   runGlobalDiffusion,
+  getLeaderboard,
 } from '@/lib/graph-store';
 import type { ForceGraphData, GraphNodeWithKnowledge } from '@/lib/graph-types';
 import { revalidatePath } from 'next/cache';
-import { requireCurrentUser } from '@/lib/auth';
+import { getCurrentUser, requireCurrentUser } from '@/lib/auth';
+import pool from '@/lib/db';
 
 async function getUserId() {
   const user = await requireCurrentUser();
@@ -122,4 +124,43 @@ export async function getGraphSummary() {
       2: nodes.filter((n) => n.level === 2).length,
     },
   };
+}
+
+export type LeaderboardData = {
+  userId: string;
+  email: string;
+  known: number;
+  avgScore: number;
+};
+
+export async function getLeaderboardData(): Promise<LeaderboardData[]> {
+  const leaderboard = getLeaderboard();
+  if (leaderboard.length === 0) return [];
+
+  const emailById = new Map<string, string>();
+  const ids = leaderboard.map((entry) => entry.userId);
+
+  if (process.env.DATABASE_URL) {
+    const placeholders = ids.map((_, index) => `$${index + 1}`).join(', ');
+    const authUsers = await pool.query<{ id: string; email: string }>(
+      `SELECT id, email FROM auth_users WHERE id IN (${placeholders})`,
+      ids
+    );
+
+    for (const row of authUsers.rows) {
+      emailById.set(row.id, row.email);
+    }
+  }
+
+  const currentUser = await getCurrentUser();
+  if (currentUser) {
+    emailById.set(currentUser.id, currentUser.email);
+  }
+
+  return leaderboard.map((entry) => ({
+    userId: entry.userId,
+    email: emailById.get(entry.userId) ?? `user-${entry.userId.slice(0, 8)}@unknown.local`,
+    known: entry.known,
+    avgScore: entry.avgKnowledge,
+  }));
 }

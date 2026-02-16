@@ -3,6 +3,8 @@
 import pool from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { requireCurrentUser } from '@/lib/auth';
+import { GRAPH_EDGES } from '@/data/graph-edges';
+import { GRAPH_NODES } from '@/data/graph-nodes';
 
 export type KnowledgeCard = {
   id: string;
@@ -17,7 +19,7 @@ export type KnowledgeCard = {
 
 export type CardStatus = 'known' | 'saved' | 'unknown';
 
-const MOCK_CARDS: KnowledgeCard[] = [
+const BASE_MOCK_CARDS: KnowledgeCard[] = [
   {
     id: 'burg_method',
     title: 'Burg Method',
@@ -64,6 +66,61 @@ const MOCK_CARDS: KnowledgeCard[] = [
   },
 ];
 
+const EDGE_MAP = GRAPH_EDGES.reduce<Record<string, string[]>>((acc, edge) => {
+  if (!acc[edge.source]) acc[edge.source] = [];
+  if (!acc[edge.target]) acc[edge.target] = [];
+  acc[edge.source].push(edge.target);
+  acc[edge.target].push(edge.source);
+  return acc;
+}, {});
+
+function mapGraphDomainToCardDomain(domain: string): KnowledgeCard['domain'] {
+  const key = domain.toLowerCase();
+  if (key.includes('control')) return 'control';
+  if (key.includes('signal')) return 'signal';
+  if (key.includes('machine') || key.includes('learning') || key.includes('intelligence')) return 'ml';
+  if (key.includes('algorithm') || key.includes('computer') || key.includes('data')) return 'info';
+  return 'other';
+}
+
+function mapDifficultyToLevel(difficulty: number): KnowledgeCard['level'] {
+  if (difficulty <= 1) return 'memorize';
+  if (difficulty <= 2) return 'understand';
+  if (difficulty <= 3) return 'connect';
+  return 'apply';
+}
+
+const GENERATED_MOCK_CARDS: KnowledgeCard[] = GRAPH_NODES
+  .filter((node) => node.level > 0)
+  .slice(0, 180)
+  .map((node) => {
+    const related = (EDGE_MAP[node.id] ?? [])
+      .map((id) => GRAPH_NODES.find((candidate) => candidate.id === id)?.label)
+      .filter((label): label is string => Boolean(label))
+      .slice(0, 4);
+
+    return {
+      id: `graph_${node.id}`,
+      title: node.label,
+      summary: `${node.type} in ${node.domain}`,
+      explanation: [
+        `Type: ${node.type}`,
+        `Domain: ${node.domain}`,
+        `Difficulty: ${node.difficulty}/5`,
+        `Use this card to connect the concept with at least one prerequisite and one downstream application.`,
+      ].join('\n'),
+      wiki_url: `https://en.wikipedia.org/wiki/${encodeURIComponent(node.label.replace(/\s+/g, '_'))}`,
+      domain: mapGraphDomainToCardDomain(node.domain),
+      level: mapDifficultyToLevel(node.difficulty),
+      related_concepts: related,
+    };
+  });
+
+const MOCK_CARDS: KnowledgeCard[] = [
+  ...BASE_MOCK_CARDS,
+  ...GENERATED_MOCK_CARDS.filter((generated) => !BASE_MOCK_CARDS.some((base) => base.id === generated.id)),
+];
+
 export async function getNextCard() {
   const user = await requireCurrentUser();
 
@@ -77,8 +134,15 @@ export async function getNextCard() {
       FROM knowledge_cards kc
       LEFT JOIN user_card_states ucs
         ON kc.id = ucs.card_id AND ucs.user_id = $1
-      WHERE ucs.card_id IS NULL
-      ORDER BY RANDOM()
+      ORDER BY
+        CASE
+          WHEN ucs.status = 'unknown' THEN 0
+          WHEN ucs.status = 'saved' THEN 1
+          WHEN ucs.card_id IS NULL THEN 2
+          ELSE 3
+        END,
+        ucs.last_seen ASC NULLS LAST,
+        RANDOM()
       LIMIT 1;
     `;
 

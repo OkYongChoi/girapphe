@@ -94,6 +94,7 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
       <div className="flex flex-col items-center justify-center p-12 text-center">
         <p className="text-xl font-medium text-gray-500">No more cards for now!</p>
         <p className="text-gray-400 mt-2">Great job. Check back later.</p>
+        <p className="text-xs text-gray-400 mt-3">Session reviewed: {reviewedCount}</p>
       </div>
     );
   }

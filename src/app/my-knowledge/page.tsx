@@ -11,13 +11,37 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export default async function MyKnowledgePage() {
+type MyKnowledgePageProps = {
+  searchParams?: Promise<{
+    q?: string;
+    topic?: string;
+    sort?: 'recent' | 'title';
+  }>;
+};
+
+export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageProps) {
   const user = await getCurrentUser();
   if (!user) {
     redirect('/login');
   }
+  const params = (await searchParams) ?? {};
+  const query = (params.q ?? '').trim().toLowerCase();
+  const topicFilter = (params.topic ?? 'all').trim().toLowerCase();
+  const sortBy = params.sort === 'title' ? 'title' : 'recent';
 
   const items = await getUserKnowledgeItems();
+  const topics = Array.from(new Set(items.map((item) => item.topic))).sort();
+  const filteredItems = items
+    .filter((item) => {
+      const matchesTopic = topicFilter === 'all' || item.topic.toLowerCase() === topicFilter;
+      const haystack = `${item.title} ${item.content} ${item.topic}`.toLowerCase();
+      const matchesQuery = !query || haystack.includes(query);
+      return matchesTopic && matchesQuery;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'title') return a.title.localeCompare(b.title);
+      return +new Date(b.updated_at) - +new Date(a.updated_at);
+    });
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -32,9 +56,34 @@ export default async function MyKnowledgePage() {
             </p>
           </div>
           <div className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-600">
-            {items.length} personal notes
+            {filteredItems.length} of {items.length} personal notes
           </div>
         </div>
+
+        <form className="mt-4 grid gap-2 rounded-xl border bg-white p-3 md:grid-cols-[1fr_auto_auto_auto]">
+          <input
+            type="text"
+            name="q"
+            defaultValue={params.q ?? ''}
+            placeholder="Search title, topic, or content"
+            className="rounded-lg border px-3 py-2 text-sm"
+          />
+          <select name="topic" defaultValue={topicFilter} className="rounded-lg border px-3 py-2 text-sm">
+            <option value="all">All topics</option>
+            {topics.map((topic) => (
+              <option key={topic} value={topic.toLowerCase()}>
+                {topic}
+              </option>
+            ))}
+          </select>
+          <select name="sort" defaultValue={sortBy} className="rounded-lg border px-3 py-2 text-sm">
+            <option value="recent">Recently updated</option>
+            <option value="title">Title A-Z</option>
+          </select>
+          <button type="submit" className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50">
+            Apply
+          </button>
+        </form>
 
         <form action={createKnowledgeItem} className="mt-6 rounded-xl border bg-white p-4 md:p-6">
           <h2 className="text-base font-semibold">Add knowledge item</h2>
@@ -75,8 +124,12 @@ export default async function MyKnowledgePage() {
             <div className="rounded-xl border bg-white p-6 text-sm text-gray-500">
               No knowledge items yet. Add your first one above.
             </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="rounded-xl border bg-white p-6 text-sm text-gray-500">
+              No knowledge items match your current filter.
+            </div>
           ) : (
-            items.map((item) => (
+            filteredItems.map((item) => (
               <details key={item.id} className="rounded-xl border bg-white p-4 md:p-5">
                 <summary className="flex cursor-pointer items-center justify-between gap-2 list-none">
                   <div>

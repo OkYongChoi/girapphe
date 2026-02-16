@@ -43,7 +43,17 @@ async function ensureSchema() {
 
 function normalizeTopic(input: string) {
   const trimmed = input.trim().toLowerCase();
-  return trimmed || 'general';
+  if (!trimmed) return 'general';
+  const normalized = trimmed.replace(/\s+/g, '-').replace(/[^a-z0-9-_]/g, '');
+  return normalized.slice(0, 48) || 'general';
+}
+
+function sanitizeTitle(input: string) {
+  return input.trim().slice(0, 120);
+}
+
+function sanitizeContent(input: string) {
+  return input.trim().slice(0, 6000);
 }
 
 export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
@@ -70,8 +80,8 @@ export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
 
 export async function createKnowledgeItem(formData: FormData): Promise<void> {
   const user = await requireCurrentUser();
-  const title = String(formData.get('title') ?? '').trim();
-  const content = String(formData.get('content') ?? '').trim();
+  const title = sanitizeTitle(String(formData.get('title') ?? ''));
+  const content = sanitizeContent(String(formData.get('content') ?? ''));
   const topic = normalizeTopic(String(formData.get('topic') ?? ''));
 
   if (!title) {
@@ -112,8 +122,8 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
 export async function updateKnowledgeItem(formData: FormData): Promise<void> {
   const user = await requireCurrentUser();
   const id = String(formData.get('id') ?? '').trim();
-  const title = String(formData.get('title') ?? '').trim();
-  const content = String(formData.get('content') ?? '').trim();
+  const title = sanitizeTitle(String(formData.get('title') ?? ''));
+  const content = sanitizeContent(String(formData.get('content') ?? ''));
   const topic = normalizeTopic(String(formData.get('topic') ?? ''));
 
   if (!id || !title) {
