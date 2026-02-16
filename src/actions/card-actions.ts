@@ -15,9 +15,23 @@ export type KnowledgeCard = {
   domain: string;
   level: string;
   related_concepts?: string[];
+  suggest_reason?: string;
 };
 
 export type CardStatus = 'known' | 'saved' | 'unknown';
+export type QuizChoiceSet = [string, string, string, string];
+
+export type NodeQuiz = {
+  nodeId: string;
+  question: string;
+  choices: QuizChoiceSet;
+  correctAnswerIndex: 0 | 1 | 2 | 3;
+};
+
+type CardWithStatusRow = KnowledgeCard & {
+  status: CardStatus | null;
+  last_seen?: Date | null;
+};
 
 const BASE_MOCK_CARDS: KnowledgeCard[] = [
   {
@@ -121,35 +135,150 @@ const MOCK_CARDS: KnowledgeCard[] = [
   ...GENERATED_MOCK_CARDS.filter((generated) => !BASE_MOCK_CARDS.some((base) => base.id === generated.id)),
 ];
 
+const NODE_BY_ID = new Map(GRAPH_NODES.map((node) => [node.id, node]));
+const CARDS_BY_ID = new Map(MOCK_CARDS.map((card) => [card.id, card]));
+const UNIQUE_DOMAINS = Array.from(new Set(GRAPH_NODES.map((node) => node.domain)));
+const PREREQ_INCOMING = new Map<string, string[]>();
+const PREREQ_OUTGOING = new Map<string, string[]>();
+
+for (const edge of GRAPH_EDGES) {
+  if (edge.type !== 'prerequisite') continue;
+  const incoming = PREREQ_INCOMING.get(edge.target) ?? [];
+  incoming.push(edge.source);
+  PREREQ_INCOMING.set(edge.target, incoming);
+
+  const outgoing = PREREQ_OUTGOING.get(edge.source) ?? [];
+  outgoing.push(edge.target);
+  PREREQ_OUTGOING.set(edge.source, outgoing);
+}
+
+function normalizeGraphNodeId(nodeId: string): string {
+  if (nodeId.startsWith('graph_')) {
+    return nodeId.slice('graph_'.length);
+  }
+  return nodeId;
+}
+
+function pickDistinctLabels(
+  pool: string[],
+  used: Set<string>,
+  count: number,
+  fallbackPrefix: string
+): string[] {
+  const picked: string[] = [];
+  for (const label of pool) {
+    if (!label || used.has(label)) continue;
+    picked.push(label);
+    used.add(label);
+    if (picked.length >= count) break;
+  }
+
+  let fallbackIndex = 1;
+  while (picked.length < count) {
+    const fallback = `${fallbackPrefix} ${fallbackIndex}`;
+    if (!used.has(fallback)) {
+      picked.push(fallback);
+      used.add(fallback);
+    }
+    fallbackIndex += 1;
+  }
+
+  return picked;
+}
+
+function shuffle<T>(values: T[]): T[] {
+  const copy = [...values];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
+  await requireCurrentUser();
+
+  const normalizedNodeId = normalizeGraphNodeId(nodeId);
+  const node = NODE_BY_ID.get(normalizedNodeId);
+  const card = CARDS_BY_ID.get(nodeId) ?? CARDS_BY_ID.get(`graph_${normalizedNodeId}`);
+
+  const title = node?.label ?? card?.title ?? nodeId.replace(/^graph_/, '').replace(/_/g, ' ');
+  const domain = node?.domain ?? card?.domain ?? 'General STEM';
+
+  const incomingPrereqs = (PREREQ_INCOMING.get(normalizedNodeId) ?? [])
+    .map((id) => NODE_BY_ID.get(id)?.label)
+    .filter((label): label is string => Boolean(label));
+  const outgoingDependents = (PREREQ_OUTGOING.get(normalizedNodeId) ?? [])
+    .map((id) => NODE_BY_ID.get(id)?.label)
+    .filter((label): label is string => Boolean(label));
+  const sameDomainLabels = GRAPH_NODES
+    .filter((candidate) => candidate.domain === domain && candidate.id !== normalizedNodeId)
+    .map((candidate) => candidate.label);
+
+  const used = new Set<string>();
+  let question = '';
+  let correctChoice = '';
+  let distractors: string[] = [];
+
+  if (incomingPrereqs.length > 0) {
+    correctChoice = incomingPrereqs[0];
+    used.add(correctChoice);
+    question = `Before mastering "${title}", which concept is the strongest prerequisite to review first?`;
+    const distractorPool = shuffle(sameDomainLabels.filter((label) => !incomingPrereqs.includes(label)));
+    distractors = pickDistinctLabels(distractorPool, used, 3, 'Unrelated prerequisite');
+  } else if (outgoingDependents.length > 0) {
+    correctChoice = outgoingDependents[0];
+    used.add(correctChoice);
+    question = `If you become confident in "${title}", which downstream topic is most directly unlocked next?`;
+    const distractorPool = shuffle(sameDomainLabels.filter((label) => !outgoingDependents.includes(label)));
+    distractors = pickDistinctLabels(distractorPool, used, 3, 'Indirect downstream topic');
+  } else {
+    correctChoice = domain;
+    used.add(correctChoice);
+    question = `What is the primary learning domain for "${title}"?`;
+    const otherDomains = shuffle(UNIQUE_DOMAINS.filter((candidateDomain) => candidateDomain !== domain));
+    distractors = pickDistinctLabels(otherDomains, used, 3, 'Other domain');
+  }
+
+  const choices = shuffle([correctChoice, ...distractors]) as QuizChoiceSet;
+  const correctAnswerIndex = choices.findIndex((choice) => choice === correctChoice) as 0 | 1 | 2 | 3;
+
+  return {
+    nodeId: normalizedNodeId,
+    question,
+    choices,
+    correctAnswerIndex,
+  };
+}
+
 export async function getNextCard() {
   const user = await requireCurrentUser();
 
   if (!process.env.DATABASE_URL) {
-    return MOCK_CARDS[Math.floor(Math.random() * MOCK_CARDS.length)];
+    const mockRows: CardWithStatusRow[] = MOCK_CARDS.map((card) => ({
+      ...card,
+      status: null,
+      last_seen: null,
+    }));
+
+    const selected = selectSmartSuggestedCard(mockRows);
+    return selected ?? MOCK_CARDS[Math.floor(Math.random() * MOCK_CARDS.length)];
   }
 
   try {
     const query = `
       SELECT kc.*
+           , ucs.status
+           , ucs.last_seen
       FROM knowledge_cards kc
       LEFT JOIN user_card_states ucs
         ON kc.id = ucs.card_id AND ucs.user_id = $1
-      ORDER BY
-        CASE
-          WHEN ucs.status = 'unknown' THEN 0
-          WHEN ucs.status = 'saved' THEN 1
-          WHEN ucs.card_id IS NULL THEN 2
-          ELSE 3
-        END,
-        ucs.last_seen ASC NULLS LAST,
-        RANDOM()
-      LIMIT 1;
     `;
 
     const res = await pool.query(query, [user.id]);
-
     if (res.rows.length > 0) {
-      return res.rows[0] as KnowledgeCard;
+      const selected = selectSmartSuggestedCard(res.rows as CardWithStatusRow[]);
+      if (selected) return selected;
     }
 
     const fallbackRes = await pool.query('SELECT * FROM knowledge_cards ORDER BY RANDOM() LIMIT 1;');
@@ -158,6 +287,68 @@ export async function getNextCard() {
     console.warn('Database query failed. Using mock data.', error);
     return MOCK_CARDS[Math.floor(Math.random() * MOCK_CARDS.length)];
   }
+}
+
+function selectSmartSuggestedCard(cards: CardWithStatusRow[]): KnowledgeCard | null {
+  if (cards.length === 0) return null;
+
+  const nodeStatusById = new Map<string, CardStatus | null>();
+  for (const card of cards) {
+    const nodeId = normalizeGraphNodeId(card.id);
+    nodeStatusById.set(nodeId, card.status ?? null);
+  }
+
+  const candidates = cards.map((card) => {
+    const nodeId = normalizeGraphNodeId(card.id);
+    const cardStatus = card.status ?? null;
+
+    let score = 0;
+    if (cardStatus === 'unknown') score += 70;
+    else if (cardStatus === 'saved') score += 45;
+    else if (cardStatus === null) score += 35;
+    else score -= 100;
+
+    const dependentNodeIds = PREREQ_OUTGOING.get(nodeId) ?? [];
+    const blockedDependents = dependentNodeIds.filter((dependentId) => {
+      const dependentStatus = nodeStatusById.get(dependentId) ?? null;
+      return dependentStatus !== 'known';
+    }).length;
+
+    if (cardStatus !== 'known') {
+      score += blockedDependents * 12;
+      score += dependentNodeIds.length * 4;
+    }
+
+    if (cardStatus === 'unknown' && blockedDependents > 0) {
+      score += 18;
+    }
+
+    const lastSeenTs = card.last_seen ? new Date(card.last_seen).getTime() : 0;
+
+    let suggest_reason = '';
+    if (blockedDependents > 0) {
+      suggest_reason = `Blocks ${blockedDependents} downstream concept${blockedDependents === 1 ? '' : 's'}`;
+    } else if (cardStatus === 'unknown') {
+      suggest_reason = 'New topic in your current path';
+    } else if (cardStatus === 'saved') {
+      suggest_reason = 'Reviewing your saved bookmarks';
+    }
+
+    return {
+      card: { ...card, suggest_reason },
+      score,
+      lastSeenTs,
+      randomTieBreaker: Math.random(),
+    };
+  });
+
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.lastSeenTs !== b.lastSeenTs) return a.lastSeenTs - b.lastSeenTs;
+    return a.randomTieBreaker - b.randomTieBreaker;
+  });
+
+  return candidates[0]?.card ?? null;
 }
 
 export async function saveCardState(cardId: string, status: CardStatus) {

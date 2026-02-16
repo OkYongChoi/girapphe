@@ -122,7 +122,7 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
          </button>
       </div>
 
-      <Card card={card} />
+      <Card key={card.id} card={card} />
       
       <div className="flex w-full gap-3 mt-8">
         <button

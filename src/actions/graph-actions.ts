@@ -3,7 +3,7 @@
 import {
   getGraphDataForUser,
   processQuizResult,
-  getUserGraphStats,
+  getUserGraphStats as getUserGraphStatsFromStore,
   getAllNodes,
   getAllEdges,
   getUserKnowledgeState,
@@ -60,7 +60,11 @@ export async function submitQuizResult(
 }
 
 export async function getKnowledgeStats() {
-  return getUserGraphStats(await getUserId());
+  return getUserGraphStatsFromStore(await getUserId());
+}
+
+export async function getUserGraphStats() {
+  return getUserGraphStatsFromStore(await getUserId());
 }
 
 export async function batchUpdateKnowledge(

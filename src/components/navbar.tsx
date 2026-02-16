@@ -57,6 +57,10 @@ export default async function Navbar() {
             <Link href="/knowledge" className="hover:text-blue-600 transition-colors">
               Knowledge Map
             </Link>
+            <span className="text-slate-300">•</span>
+            <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
+              Dashboard
+            </Link>
           </div>
         ) : null}
       </div>
