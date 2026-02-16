@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KnowledgeCard, saveCardState, getNextCard, CardStatus } from '@/actions/card-actions';
 import Card from './card';
 
@@ -12,45 +12,82 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
   const [card, setCard] = useState<KnowledgeCard | null>(initialCard);
   const [history, setHistory] = useState<KnowledgeCard[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastAction, setLastAction] = useState<CardStatus | 'skip' | null>(null);
 
-  const handleAction = async (status: CardStatus) => {
+  const reviewedCount = useMemo(() => history.length, [history.length]);
+
+  const handleAction = useCallback(async (status: CardStatus) => {
     if (!card) return;
-    
+
     setLoading(true);
-    
+    setError(null);
+
     // Push current to history before moving
     setHistory(prev => [...prev, card]);
 
-    // 1. Save state
-    await saveCardState(card.id, status);
-    
-    // 2. Load next card
-    const next = await getNextCard();
-    setCard(next);
-    
-    setLoading(false);
-  };
+    try {
+      // 1. Save state
+      const saveResult = await saveCardState(card.id, status);
+      if (!saveResult.success) {
+        setError('Could not save your answer. Please try again.');
+        return;
+      }
 
-  const handlePrevious = () => {
+      // 2. Load next card
+      const next = await getNextCard();
+      setCard(next);
+      setLastAction(status);
+    } catch (e) {
+      console.error('handleAction failed:', e);
+      setError('Something went wrong while loading the next card.');
+    } finally {
+      setLoading(false);
+    }
+  }, [card]);
+
+  const handlePrevious = useCallback(() => {
     if (history.length === 0) return;
     
     const previousCard = history[history.length - 1];
     setHistory(prev => prev.slice(0, -1)); // Pop from history
     setCard(previousCard);
-  };
+  }, [history]);
 
-  const handleSkip = async () => {
+  const handleSkip = useCallback(async () => {
     if (!card) return;
     setLoading(true);
-    
+    setError(null);
+
     // Push to history so we can go back
     setHistory(prev => [...prev, card]);
-    
-    // Load next without saving state
-    const next = await getNextCard();
-    setCard(next);
-    setLoading(false);
-  };
+
+    try {
+      // Load next without saving state
+      const next = await getNextCard();
+      setCard(next);
+      setLastAction('skip');
+    } catch (e) {
+      console.error('handleSkip failed:', e);
+      setError('Could not load the next card.');
+    } finally {
+      setLoading(false);
+    }
+  }, [card]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (loading || !card) return;
+      if (event.key === '1') void handleAction('known');
+      if (event.key === '2') void handleAction('saved');
+      if (event.key === '3') void handleAction('unknown');
+      if (event.key === 'ArrowRight') void handleSkip();
+      if (event.key === 'ArrowLeft') handlePrevious();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [loading, card, handleAction, handleSkip, handlePrevious]);
 
   if (!card) {
     return (
@@ -73,7 +110,7 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
            &larr; Previous
          </button>
          <span className="text-xs text-gray-400 font-mono">
-           Stream
+           Reviewed {reviewedCount}
          </span>
          <button 
            onClick={handleSkip}
@@ -92,24 +129,31 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
           disabled={loading}
           className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium rounded-lg transition-colors disabled:opacity-50"
         >
-          Known
+          Known (1)
         </button>
         <button
           onClick={() => handleAction('saved')} // saved = "Want to learn"
           disabled={loading}
           className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
         >
-          Save
+          Save (2)
         </button>
         <button
           onClick={() => handleAction('unknown')}
           disabled={loading}
           className="flex-1 py-3 bg-red-50 hover:bg-red-100 text-red-600 font-medium rounded-lg transition-colors disabled:opacity-50"
         >
-          Unknown
+          Unknown (3)
         </button>
       </div>
-      
+
+      <p className="mt-3 text-xs text-gray-400">Shortcuts: 1 known, 2 save, 3 unknown, ← previous, → next</p>
+      {lastAction ? (
+        <p className="mt-2 text-xs text-green-700">
+          Last action: {lastAction === 'skip' ? 'Skipped' : lastAction}
+        </p>
+      ) : null}
+      {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
       {loading && <p className="mt-4 text-sm text-gray-400 animate-pulse">Loading next...</p>}
     </div>
   );

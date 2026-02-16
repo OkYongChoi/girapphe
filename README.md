@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Personal STEM Brain - AI/CS Knowledge Graph MVP
 
-## Getting Started
+This project implements an AI/CS knowledge graph MVP with:
+- 200-400 core-node taxonomy target
+- Directed cyclic graph semantics (not strict DAG)
+- Tri-state per-node knowledge state (`0`, `0.5`, `1`)
+- Quiz-driven knowledge updates and diffusion
+- 3D force-graph friendly API payloads
 
-First, run the development server:
+## Core Architecture
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```text
+[Quiz Engine]
+    -> [Knowledge Update Layer]
+    -> [Graph Diffusion Engine]
+    -> [User Knowledge Vector]
+    -> [3D Force Visualization]
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Key Files
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Graph taxonomy: `/Users/a60157230/Projects/personal-stem-brain/src/data/graph-nodes.ts`
+- Graph edges: `/Users/a60157230/Projects/personal-stem-brain/src/data/graph-edges.ts`
+- Types/schema contracts: `/Users/a60157230/Projects/personal-stem-brain/src/lib/graph-types.ts`
+- In-memory graph store: `/Users/a60157230/Projects/personal-stem-brain/src/lib/graph-store.ts`
+- Diffusion engine: `/Users/a60157230/Projects/personal-stem-brain/src/lib/diffusion-engine.ts`
+- API routes:
+  - `/Users/a60157230/Projects/personal-stem-brain/src/app/api/graph/route.ts`
+  - `/Users/a60157230/Projects/personal-stem-brain/src/app/api/quiz_result/route.ts`
+- PostgreSQL schema: `/Users/a60157230/Projects/personal-stem-brain/schema.sql`
+- Full engineering spec: `/Users/a60157230/Projects/personal-stem-brain/docs/knowledge-graph-spec.md`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## API
 
-## Learn More
+### `GET /api/graph`
+Returns full graph payload (`nodes`, `links`) plus aggregate stats for the signed-in user.
 
-To learn more about Next.js, take a look at the following resources:
+### `POST /api/quiz_result`
+Body:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```json
+{
+  "node_id": "gradient_descent",
+  "result": 1
+}
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Flow:
+1. Direct node update
+2. Local propagation
+3. Global diffusion
+4. Return updated node summary
 
-## Deploy on Vercel
+## Development
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm install
+npm run dev
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Open [http://localhost:3000](http://localhost:3000).
+
+Core routes:
+- `/signup` (alias: `/register`)
+- `/login`
+- `/practice`
+- `/saved`
+- `/knowledge`
+- `/my-knowledge`
+
+## Auth Configuration
+
+Email/password auth works out of the box.  
+OAuth providers can be enabled with env vars:
+
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- `OPENAI_OAUTH_CLIENT_ID`, `OPENAI_OAUTH_CLIENT_SECRET`, `OPENAI_OAUTH_AUTH_URL`, `OPENAI_OAUTH_TOKEN_URL`, `OPENAI_OAUTH_USERINFO_URL`, optional `OPENAI_OAUTH_SCOPE`
+- `CLAUDE_OAUTH_CLIENT_ID`, `CLAUDE_OAUTH_CLIENT_SECRET`, `CLAUDE_OAUTH_AUTH_URL`, `CLAUDE_OAUTH_TOKEN_URL`, `CLAUDE_OAUTH_USERINFO_URL`, optional `CLAUDE_OAUTH_SCOPE`
+- `GROK_OAUTH_CLIENT_ID`, `GROK_OAUTH_CLIENT_SECRET`, `GROK_OAUTH_AUTH_URL`, `GROK_OAUTH_TOKEN_URL`, `GROK_OAUTH_USERINFO_URL`, optional `GROK_OAUTH_SCOPE`
+
+Set `APP_BASE_URL` in production so OAuth callbacks use the correct host.

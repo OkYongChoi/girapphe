@@ -1,67 +1,111 @@
-# 🚀 Deployment Guide
+# Deployment Guide
 
-## 1. Stack Overview
-- **Frontend**: Cloudflare Pages (Next.js)
-- **Database**: Neon (Serverless Postgres)
-- **Auth**: Clerk
-- **Storage**: Cloudflare R2 (S3-compatible)
+## What is live now
+- Email/password auth (built-in)
+- OAuth login buttons for Google/OpenAI/Claude/Grok
+- Per-user card/saved/graph state
+- Per-user custom knowledge CRUD at `/my-knowledge`
 
----
+## 1. Local Testing Checklist
 
-## 2. Database Setup (Neon)
+1. Install and run:
+```bash
+npm install
+npm run dev
+```
 
-1. Go to [Neon Console](https://console.neon.tech).
-2. Create a new project.
-3. Get the **Connection String** (Pooled connection recommended, usually ends with `?sslmode=require`).
-4. Run the schema creation SQL in the Neon SQL Editor (copy content from `schema.sql`).
+2. Open [http://localhost:3000](http://localhost:3000)
 
----
+3. Test auth:
+- Go to `/signup`
+- Create an account
+- Confirm redirect to `/practice`
+- Log out and log in again
 
-## 3. Auth Setup (Clerk)
+4. Test private routes:
+- Visit `/saved`, `/knowledge`, `/my-knowledge` while logged out
+- Confirm redirect to `/login`
 
-1. Go to [Clerk Dashboard](https://dashboard.clerk.com).
-2. Create an application.
-3. Get `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`.
+5. Test user knowledge CRUD:
+- Open `/my-knowledge`
+- Add item
+- Edit item
+- Delete item
 
----
+6. Test saved delete:
+- Save a card in `/practice`
+- Open `/saved`
+- Click `Delete`
 
-## 4. Storage Setup (Cloudflare R2)
+Note:
+- In local development, social buttons work even without OAuth keys using a dev-only bypass.
+- In production, real OAuth credentials are required.
 
-1. Go to Cloudflare Dashboard > R2.
-2. Create a bucket (e.g., `eng-cards-assets`).
-3. Manage R2 API Tokens > Create Token.
-   - Permissions: Admin Read/Write
-   - Copy `Account ID`, `Access Key ID`, `Secret Access Key`.
+## 2. Database Setup (Recommended: Neon Postgres)
 
----
+1. Create a Neon project.
+2. Copy pooled `DATABASE_URL`.
+3. Run `schema.sql` in Neon SQL editor.
 
-## 5. Deploy to Cloudflare Pages
+## 3. Google OAuth Setup
 
-1. **GitHub**: Push your code to a repository.
-2. **Cloudflare Dashboard**:
-   - Go to "Workers & Pages" > "Create Application" > "Pages" > "Connect to Git".
-   - Select your repo.
-3. **Build Settings**:
-   - **Framework Preset**: `Next.js`
-   - **Build Command**: `npx @cloudflare/next-on-pages@1`
-   - **Output Directory**: `.vercel/output/static` (Default for next-on-pages)
-   - *Note*: If the build fails, try adding `"pages:build": "npx @cloudflare/next-on-pages"` to your `package.json` scripts and use `npm run pages:build`.
+1. In Google Cloud Console, create OAuth credentials.
+2. Authorized redirect URI:
+- Local: `http://localhost:3000/api/auth/oauth/google/callback`
+- Prod: `https://YOUR_DOMAIN/api/auth/oauth/google/callback`
+3. Set env vars:
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+4. Restart the app after changing env:
+```bash
+npm run dev
+```
+5. Test:
+- Open `/login`
+- Click `Continue with Google`
 
-4. **Environment Variables** (Add these in Cloudflare Settings):
-   - `DATABASE_URL`: `postgres://...` (Neon)
-   - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`: `pk_test_...`
-   - `CLERK_SECRET_KEY`: `sk_test_...`
-   - `R2_ACCOUNT_ID`: `...`
-   - `R2_ACCESS_KEY_ID`: `...`
-   - `R2_SECRET_ACCESS_KEY`: `...`
-   - `NODE_VERSION`: `20` (Optional, good practice)
+## 4. Environment Variables
 
-5. **Deploy!**
+Use `.env.example` as the template.
 
----
+Required in production:
+- `DATABASE_URL`
+- `APP_BASE_URL`
 
-## 6. Local Development
+Optional providers:
+- Google via `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- OpenAI/Claude/Grok via `*_OAUTH_*` values
 
-To run locally with this stack:
-1. Create `.env.local` with all the above keys.
-2. `npm run dev`.
+## 5. Deploy to Vercel (fastest path)
+
+1. Push repo to GitHub.
+2. Import project in Vercel.
+3. Add env vars from `.env.example`.
+4. Deploy.
+
+Build settings:
+- Framework: Next.js
+- Build command: `next build`
+- Output: default
+
+## 6. Deploy to Cloudflare Pages (current stack compatible)
+
+1. Connect repo in Cloudflare Pages.
+2. Build command:
+```bash
+npx @cloudflare/next-on-pages@1
+```
+3. Output directory:
+```text
+.vercel/output/static
+```
+4. Add production env vars.
+
+## 7. Post-Deploy Smoke Test
+
+After deploy:
+1. Visit `/signup`
+2. Create account
+3. Add/edit/delete an item in `/my-knowledge`
+4. Save and delete a card in `/saved`
+5. Test Google login
