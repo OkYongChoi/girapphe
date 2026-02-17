@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
@@ -43,7 +45,6 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
   const [isClient, setIsClient] = useState(false);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const fgRef = useRef<any>(null);
 
   useEffect(() => {
@@ -150,7 +151,6 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
   );
 
   const handleNodeHover = useCallback((node: any) => {
-    setHoveredNode(node?.id ?? null);
     document.body.style.cursor = node ? 'pointer' : 'default';
   }, []);
 

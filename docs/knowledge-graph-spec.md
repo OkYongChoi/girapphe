@@ -26,8 +26,8 @@
   - Theoretical ML
 
 Current MVP data target is maintained in:
-- `/Users/a60157230/Projects/personal-stem-brain/src/data/graph-nodes.ts`
-- `/Users/a60157230/Projects/personal-stem-brain/src/data/graph-edges.ts`
+- `src/data/graph-nodes.ts`
+- `src/data/graph-edges.ts`
 
 ## 3. Graph Data Model
 

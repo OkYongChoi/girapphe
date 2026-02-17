@@ -83,6 +83,9 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
           <button type="submit" className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50">
             Apply
           </button>
+          <Link href="/my-knowledge" className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50">
+            Clear
+          </Link>
         </form>
 
         <form action={createKnowledgeItem} className="mt-6 rounded-xl border bg-white p-4 md:p-6">

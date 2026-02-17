@@ -1,111 +1,138 @@
-# Deployment Guide
+# Test/Dev/Prod Runbook
 
-## What is live now
-- Email/password auth (built-in)
-- OAuth login buttons for Google/OpenAI/Claude/Grok
-- Per-user card/saved/graph state
-- Per-user custom knowledge CRUD at `/my-knowledge`
+## 1. Environment Model
 
-## 1. Local Testing Checklist
+The app has two storage modes.
 
-1. Install and run:
+1. DB mode (`DATABASE_URL` set)
+- Auth users/sessions and app data are stored in Postgres.
+
+2. Local fallback mode (`DATABASE_URL` missing)
+- Auth data is stored in:
+  - `/.local/auth-store.json` (project root)
+- Session is stored in browser cookie:
+  - `psb_session`
+
+Use fallback only for local development.
+
+## 2. Local Dev
+
+1. Install
 ```bash
 npm install
-npm run dev
 ```
 
-2. Open [http://localhost:3000](http://localhost:3000)
+2. (Optional) create `.env.local`
+```bash
+cp .env.example .env.local
+```
 
-3. Test auth:
-- Go to `/signup`
-- Create an account
-- Confirm redirect to `/practice`
-- Log out and log in again
-
-4. Test private routes:
-- Visit `/saved`, `/knowledge`, `/my-knowledge` while logged out
-- Confirm redirect to `/login`
-
-5. Test user knowledge CRUD:
-- Open `/my-knowledge`
-- Add item
-- Edit item
-- Delete item
-
-6. Test saved delete:
-- Save a card in `/practice`
-- Open `/saved`
-- Click `Delete`
-
-Note:
-- In local development, social buttons work even without OAuth keys using a dev-only bypass.
-- In production, real OAuth credentials are required.
-
-## 2. Database Setup (Recommended: Neon Postgres)
-
-1. Create a Neon project.
-2. Copy pooled `DATABASE_URL`.
-3. Run `schema.sql` in Neon SQL editor.
-
-## 3. Google OAuth Setup
-
-1. In Google Cloud Console, create OAuth credentials.
-2. Authorized redirect URI:
-- Local: `http://localhost:3000/api/auth/oauth/google/callback`
-- Prod: `https://YOUR_DOMAIN/api/auth/oauth/google/callback`
-3. Set env vars:
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-4. Restart the app after changing env:
+3. Start
 ```bash
 npm run dev
 ```
-5. Test:
-- Open `/login`
-- Click `Continue with Google`
 
-## 4. Environment Variables
+4. Open
+- `http://localhost:3000`
 
-Use `.env.example` as the template.
+5. Quick checks
+```bash
+npm run check
+```
 
-Required in production:
+6. App smoke check (server must already be running)
+```bash
+npm run smoke
+```
+
+## 3. Test Strategy
+
+Use this order in CI/local:
+
+1. Static quality gate
+```bash
+npm run lint
+npm run typecheck
+```
+
+2. Runtime smoke
+```bash
+npm run dev
+npm run smoke
+```
+
+3. Health endpoint verification
+- `GET /api/health`
+- expected:
+  - `200` with `"status":"ok"` in local fallback or DB healthy
+  - `503` when DB configured but unavailable
+
+## 4. Production Required Config
+
+Required:
 - `DATABASE_URL`
 - `APP_BASE_URL`
 
-Optional providers:
-- Google via `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-- OpenAI/Claude/Grok via `*_OAUTH_*` values
+Optional (OAuth):
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- other providers via `*_OAUTH_*`
 
-## 5. Deploy to Vercel (fastest path)
+## 5. Production Deploy - Vercel
 
 1. Push repo to GitHub.
 2. Import project in Vercel.
-3. Add env vars from `.env.example`.
-4. Deploy.
+3. Configure env vars:
+- `DATABASE_URL`
+- `APP_BASE_URL`
+- OAuth vars (if used)
+4. Build command:
+- `npm run build`
+5. Deploy.
 
-Build settings:
-- Framework: Next.js
-- Build command: `next build`
-- Output: default
+Post deploy:
+```bash
+curl -sS https://YOUR_DOMAIN/api/health
+```
 
-## 6. Deploy to Cloudflare Pages (current stack compatible)
+## 6. Production Deploy - Cloudflare Pages
 
-1. Connect repo in Cloudflare Pages.
+1. Connect repository to Pages.
 2. Build command:
 ```bash
-npx @cloudflare/next-on-pages@1
+npm run build:cf
 ```
 3. Output directory:
 ```text
 .vercel/output/static
 ```
-4. Add production env vars.
+4. Set env vars in Pages project settings:
+- `DATABASE_URL`
+- `APP_BASE_URL`
+- OAuth vars (optional)
+5. Deploy.
 
-## 7. Post-Deploy Smoke Test
+## 7. Manual Steps You Must Do Yourself
 
-After deploy:
-1. Visit `/signup`
-2. Create account
-3. Add/edit/delete an item in `/my-knowledge`
-4. Save and delete a card in `/saved`
-5. Test Google login
+These cannot be completed automatically by code changes:
+
+1. Provision production DB and run `schema.sql`.
+2. Set production environment variables on hosting platform.
+3. Configure OAuth provider consoles with exact callback URLs.
+4. Add custom domain and HTTPS settings in hosting platform.
+5. Run live smoke test against real domain after each deploy.
+
+## 8. Manual Release Checklist
+
+1. `npm run check`
+2. `npm run build`
+3. Deploy to staging/prod
+4. Verify:
+- `/api/health`
+- signup/login/logout
+- `/practice`, `/saved`, `/my-knowledge`, `/knowledge`
+- `/knowledge` default opens 3D view
+- navbar active link highlight works on each route
+- saved/my-knowledge filter `Clear` resets query params
+5. Verify DB writes (new user/session row)
+6. Verify rollback plan (previous deployment available)

@@ -77,11 +77,13 @@ export default async function DashboardPage() {
   if (!user) redirect('/login');
 
   const stats = await getUserGraphStats();
-  const domainCards = [
-    getDomainProgress(stats.domains, 'Artificial Intelligence'),
-    getDomainProgress(stats.domains, 'Chemistry'),
-    getDomainProgress(stats.domains, 'Biology'),
-  ];
+  const topDomainNames = Object.entries(stats.domains)
+    .sort(([, a], [, b]) => b.total - a.total || b.avg - a.avg)
+    .slice(0, 3)
+    .map(([name]) => name);
+
+  const domainCards = (topDomainNames.length > 0 ? topDomainNames : ['Machine Learning'])
+    .map((name) => getDomainProgress(stats.domains, name));
 
   const totalKnowledgeScore = stats.avg_knowledge * 100;
   const nodesToMaster = stats.unknown + stats.partial;
@@ -94,7 +96,7 @@ export default async function DashboardPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Progress Dashboard</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Domain progress for AI, Chemistry, and Biology.
+              Your top domains by graph coverage and knowledge score.
             </p>
           </div>
           <div className="rounded-lg border bg-white px-4 py-3 text-sm text-slate-700">

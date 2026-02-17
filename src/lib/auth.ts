@@ -1,6 +1,8 @@
 import { cookies } from 'next/headers';
 import { randomBytes, randomUUID, scrypt as _scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import pool from '@/lib/db';
 
 const scrypt = promisify(_scrypt);
@@ -27,11 +29,63 @@ type MemorySession = {
 const memoryUsersByEmail = new Map<string, MemoryUser>();
 const memoryUsersById = new Map<string, MemoryUser>();
 const memorySessions = new Map<string, MemorySession>();
+const DEV_AUTH_STORE_PATH = path.join(process.cwd(), '.local', 'auth-store.json');
 
 let schemaReady = false;
+let memoryStoreLoaded = false;
 
 function hasDatabase() {
   return Boolean(process.env.DATABASE_URL);
+}
+
+type PersistedMemoryAuthStore = {
+  users: MemoryUser[];
+  sessions: Array<{ id: string; userId: string; expiresAt: number }>;
+};
+
+async function ensureMemoryStoreLoaded() {
+  if (hasDatabase() || memoryStoreLoaded) return;
+
+  try {
+    const raw = await readFile(DEV_AUTH_STORE_PATH, 'utf8');
+    const parsed = JSON.parse(raw) as PersistedMemoryAuthStore;
+
+    memoryUsersByEmail.clear();
+    memoryUsersById.clear();
+    memorySessions.clear();
+
+    for (const user of parsed.users ?? []) {
+      memoryUsersByEmail.set(user.email, user);
+      memoryUsersById.set(user.id, user);
+    }
+
+    for (const session of parsed.sessions ?? []) {
+      memorySessions.set(session.id, {
+        userId: session.userId,
+        expiresAt: session.expiresAt,
+      });
+    }
+  } catch {
+    // No local auth file yet is normal in dev.
+  } finally {
+    memoryStoreLoaded = true;
+  }
+}
+
+async function persistMemoryStore() {
+  if (hasDatabase()) return;
+
+  const data: PersistedMemoryAuthStore = {
+    users: Array.from(memoryUsersById.values()),
+    sessions: Array.from(memorySessions.entries()).map(([id, session]) => ({
+      id,
+      userId: session.userId,
+      expiresAt: session.expiresAt,
+    })),
+  };
+
+  await mkdir(path.dirname(DEV_AUTH_STORE_PATH), { recursive: true });
+  await writeFile(DEV_AUTH_STORE_PATH, JSON.stringify(data, null, 2), 'utf8');
 }
 
 async function hashPassword(password: string): Promise<string> {
@@ -167,6 +221,8 @@ export async function signUpWithPassword(email: string, password: string) {
     }
   }
 
+  await ensureMemoryStoreLoaded();
+
   if (memoryUsersByEmail.has(normalizedEmail)) {
     return { success: false as const, error: 'Email is already registered.' };
   }
@@ -183,6 +239,7 @@ export async function signUpWithPassword(email: string, password: string) {
 
   memoryUsersByEmail.set(normalizedEmail, user);
   memoryUsersById.set(userId, user);
+  await persistMemoryStore();
 
   await createSession(userId);
   return { success: true as const };
@@ -223,6 +280,8 @@ export async function signInWithPassword(email: string, password: string) {
     }
   }
 
+  await ensureMemoryStoreLoaded();
+
   const user = memoryUsersByEmail.get(normalizedEmail);
   if (!user) {
     return { success: false as const, error: 'Invalid email or password.' };
@@ -252,7 +311,9 @@ async function createSession(userId: string) {
       [sessionId, userId, expiresAt.toISOString()]
     );
   } else {
+    await ensureMemoryStoreLoaded();
     memorySessions.set(sessionId, { userId, expiresAt: expiresAt.getTime() });
+    await persistMemoryStore();
   }
 
   await setSessionCookie(sessionId, expiresAt);
@@ -321,11 +382,14 @@ export async function findOrCreateOAuthUser(params: {
     return { id: userId, email: normalizedEmail };
   }
 
+  await ensureMemoryStoreLoaded();
+
   const byEmail = memoryUsersByEmail.get(normalizedEmail);
   if (byEmail) {
     if (!byEmail.authProvider) {
       byEmail.authProvider = provider;
       byEmail.providerUserId = providerUserId;
+      await persistMemoryStore();
     }
     return { id: byEmail.id, email: byEmail.email };
   }
@@ -340,6 +404,7 @@ export async function findOrCreateOAuthUser(params: {
   };
   memoryUsersByEmail.set(normalizedEmail, user);
   memoryUsersById.set(userId, user);
+  await persistMemoryStore();
   return { id: userId, email: normalizedEmail };
 }
 
@@ -352,7 +417,9 @@ export async function signOutCurrentUser() {
       await ensureAuthSchema();
       await pool.query('DELETE FROM auth_sessions WHERE id = $1', [sessionId]);
     } else {
+      await ensureMemoryStoreLoaded();
       memorySessions.delete(sessionId);
+      await persistMemoryStore();
     }
   }
 
@@ -379,7 +446,10 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     );
 
     const row = result.rows[0];
-    if (!row) return null;
+    if (!row) {
+      await clearSessionCookie();
+      return null;
+    }
 
     if (new Date(row.expires_at).getTime() <= Date.now()) {
       await pool.query('DELETE FROM auth_sessions WHERE id = $1', [sessionId]);
@@ -390,17 +460,28 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     return { id: row.id, email: row.email };
   }
 
+  await ensureMemoryStoreLoaded();
+
   const session = memorySessions.get(sessionId);
-  if (!session) return null;
+  if (!session) {
+    await clearSessionCookie();
+    return null;
+  }
 
   if (session.expiresAt <= Date.now()) {
     memorySessions.delete(sessionId);
+    await persistMemoryStore();
     await clearSessionCookie();
     return null;
   }
 
   const user = memoryUsersById.get(session.userId);
-  if (!user) return null;
+  if (!user) {
+    memorySessions.delete(sessionId);
+    await persistMemoryStore();
+    await clearSessionCookie();
+    return null;
+  }
 
   return { id: user.id, email: user.email };
 }

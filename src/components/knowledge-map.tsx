@@ -12,7 +12,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
   const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
-  const [viewMode, setViewMode] = useState<'grid' | 'graph'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'graph'>('graph');
 
   // Group cards by domain
   const domains = Array.from(new Set(initialCards.map(c => c.domain)));
@@ -48,7 +48,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
           <div className="mb-8 flex flex-col md:flex-row gap-4 justify-between items-center">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Knowledge Map</h1>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="mt-1 text-sm text-gray-600">
                 Showing {filteredCards.length} of {initialCards.length} concepts
               </p>
             </div>
@@ -91,6 +91,17 @@ export default function KnowledgeMap({ initialCards }: Props) {
                 onChange={(e) => setFilter(e.target.value)}
                 className="p-2 border rounded flex-grow bg-white"
               />
+              <button
+                type="button"
+                onClick={() => {
+                  setFilter('');
+                  setSelectedDomain('all');
+                  setSelectedStatus('all');
+                }}
+                className="p-2 border rounded bg-white text-sm hover:bg-gray-50"
+              >
+                Reset
+              </button>
             </div>
           </div>
 
@@ -109,7 +120,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
             ))}
 
             {filteredCards.length === 0 && (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 text-gray-600">
                 No concepts found matching your criteria.
               </div>
             )}
@@ -142,22 +153,22 @@ function KnowledgeCardItem({ card }: { card: KnowledgeCard & { status: CardStatu
   return (
     <div className={`p-4 rounded-lg border shadow-sm transition-all hover:shadow-md ${getStatusColor(card.status)}`}>
       <div className="flex justify-between items-start mb-2">
-        <span className="text-xs uppercase tracking-wider opacity-70 font-semibold">
+        <span className="text-xs uppercase tracking-wider text-gray-700 font-semibold">
           {card.level}
         </span>
-        <span className={`text-xs px-2 py-0.5 rounded-full bg-white/60`}>
+        <span className={`text-xs px-2 py-0.5 rounded-full bg-white/80 text-gray-700`}>
           {getStatusLabel(card.status)}
         </span>
       </div>
       <h3 className="font-bold text-lg mb-1 leading-tight text-gray-900">{card.title}</h3>
-      <p className="text-sm opacity-80 line-clamp-2 mb-3">{card.summary}</p>
+      <p className="text-sm text-gray-700 line-clamp-2 mb-3">{card.summary}</p>
       
       {card.wiki_url && (
         <a 
           href={card.wiki_url} 
           target="_blank" 
           rel="noopener noreferrer"
-          className="text-xs hover:underline opacity-60 hover:opacity-100 transition-opacity"
+          className="text-xs text-blue-700 hover:text-blue-800 hover:underline transition-colors"
         >
           Wiki &rarr;
         </a>

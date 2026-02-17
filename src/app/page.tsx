@@ -1,11 +1,15 @@
 import Link from 'next/link';
 import Navbar from '@/components/navbar';
 import { getCurrentUser } from '@/lib/auth';
+import { getUserStats } from '@/actions/card-actions';
+import { getUserKnowledgeItems } from '@/actions/user-knowledge-actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
   const user = await getCurrentUser();
+  const userStats = user ? await getUserStats() : null;
+  const userKnowledgeItems = user ? await getUserKnowledgeItems() : [];
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 via-sky-50 to-white">
@@ -34,6 +38,12 @@ export default async function HomePage() {
                     Continue practicing
                   </Link>
                   <Link
+                    href="/knowledge"
+                    className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
+                  >
+                    Open 3D graph
+                  </Link>
+                  <Link
                     href="/my-knowledge"
                     className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
                   >
@@ -57,6 +67,19 @@ export default async function HomePage() {
                 </>
               )}
             </div>
+
+            {user && userStats ? (
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                  <span className="font-semibold text-slate-900">{userStats.known}</span> known ·{' '}
+                  <span className="font-semibold text-blue-700">{userStats.saved}</span> saved ·{' '}
+                  <span className="font-semibold text-red-700">{userStats.unknown}</span> unknown
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                  <span className="font-semibold text-slate-900">{userKnowledgeItems.length}</span> personal notes
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

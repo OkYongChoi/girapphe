@@ -92,9 +92,9 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
   if (!card) {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-center">
-        <p className="text-xl font-medium text-gray-500">No more cards for now!</p>
-        <p className="text-gray-400 mt-2">Great job. Check back later.</p>
-        <p className="text-xs text-gray-400 mt-3">Session reviewed: {reviewedCount}</p>
+        <p className="text-xl font-medium text-gray-700">No more cards for now!</p>
+        <p className="text-gray-600 mt-2">Great job. Check back later.</p>
+        <p className="text-xs text-gray-500 mt-3">Session reviewed: {reviewedCount}</p>
       </div>
     );
   }
@@ -106,17 +106,17 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
          <button 
            onClick={handlePrevious} 
            disabled={history.length === 0}
-           className="text-sm text-gray-500 hover:text-gray-900 disabled:opacity-30 flex items-center gap-1 transition-colors"
+           className="text-sm text-gray-700 hover:text-gray-900 disabled:opacity-40 flex items-center gap-1 transition-colors"
          >
            &larr; Previous
          </button>
-         <span className="text-xs text-gray-400 font-mono">
+         <span className="text-xs text-gray-500 font-mono">
            Reviewed {reviewedCount}
          </span>
          <button 
            onClick={handleSkip}
            disabled={loading}
-           className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors"
+           className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1 transition-colors"
          >
            Next &rarr;
          </button>
@@ -148,14 +148,14 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
         </button>
       </div>
 
-      <p className="mt-3 text-xs text-gray-400">Shortcuts: 1 known, 2 save, 3 unknown, ← previous, → next</p>
+      <p className="mt-3 text-xs text-gray-500">Shortcuts: 1 known, 2 save, 3 unknown, ← previous, → next</p>
       {lastAction ? (
         <p className="mt-2 text-xs text-green-700">
           Last action: {lastAction === 'skip' ? 'Skipped' : lastAction}
         </p>
       ) : null}
       {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
-      {loading && <p className="mt-4 text-sm text-gray-400 animate-pulse">Loading next...</p>}
+      {loading && <p className="mt-4 text-sm text-gray-600 animate-pulse">Loading next...</p>}
     </div>
   );
 }

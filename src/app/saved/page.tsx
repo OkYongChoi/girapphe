@@ -83,6 +83,9 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
             <button type="submit" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
               Apply
             </button>
+            <Link href="/saved" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
+              Clear
+            </Link>
           </div>
         </form>
 
@@ -108,7 +111,7 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
                   </span>
                 </div>
                 <p className="text-sm text-gray-600 mb-3">{card.summary}</p>
-                <div className="mt-auto flex justify-between items-center text-xs text-gray-400">
+                <div className="mt-auto flex justify-between items-center text-xs text-gray-600">
                   <span>{card.domain}</span>
                   <div className="flex items-center gap-3">
                     <span>Last seen: {formatDate(card.last_seen)}</span>
