@@ -110,5 +110,12 @@ Set `APP_BASE_URL` in production so OAuth callbacks use the correct host.
 
 ## Environments & Deployment
 
+Cloudflare Workers (OpenNext) commands:
+
+```bash
+npm run build:cf
+npm run deploy:cf
+```
+
 See full runbook:
 - `DEPLOY.md`

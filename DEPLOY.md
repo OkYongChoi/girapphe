@@ -95,22 +95,26 @@ Post deploy:
 curl -sS https://YOUR_DOMAIN/api/health
 ```
 
-## 6. Production Deploy - Cloudflare Pages
+## 6. Production Deploy - Cloudflare Workers (OpenNext)
 
-1. Connect repository to Pages.
-2. Build command:
+1. Ensure Cloudflare auth:
+```bash
+npx wrangler whoami
+```
+2. Build Next.js output for Cloudflare Workers:
 ```bash
 npm run build:cf
 ```
-3. Output directory:
-```text
-.vercel/output/static
+3. Deploy worker:
+```bash
+npm run deploy:cf
 ```
-4. Set env vars in Pages project settings:
+4. Set env vars in Worker settings:
 - `DATABASE_URL`
 - `APP_BASE_URL`
 - OAuth vars (optional)
-5. Deploy.
+5. Deploy via CI/CD (optional):
+- connect repository and run `npm run deploy:cf` in pipeline
 
 ## 7. Manual Steps You Must Do Yourself
 
