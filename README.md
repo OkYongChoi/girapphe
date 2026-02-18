@@ -17,7 +17,17 @@ This project implements an AI/CS knowledge graph MVP with:
     -> [3D Force Visualization]
 ```
 
-## Key Files
+## Documentation
+
+- Docs index: `/Users/a60157230/Projects/personal-stem-brain/docs/README.md`
+- Tech stack: `/Users/a60157230/Projects/personal-stem-brain/docs/tech-stack.md`
+- Architecture overview: `/Users/a60157230/Projects/personal-stem-brain/docs/architecture/overview.md`
+- API spec: `/Users/a60157230/Projects/personal-stem-brain/docs/reference/api-spec.md`
+- Data model: `/Users/a60157230/Projects/personal-stem-brain/docs/reference/data-model.md`
+- Knowledge graph spec: `/Users/a60157230/Projects/personal-stem-brain/docs/reference/knowledge-graph-spec.md`
+- Development/operations: `/Users/a60157230/Projects/personal-stem-brain/docs/operations/development.md`
+
+## Key Implementation Files
 
 - Graph taxonomy: `src/data/graph-nodes.ts`
 - Graph edges: `src/data/graph-edges.ts`
@@ -28,7 +38,6 @@ This project implements an AI/CS knowledge graph MVP with:
   - `src/app/api/graph/route.ts`
   - `src/app/api/quiz_result/route.ts`
 - PostgreSQL schema: `schema.sql`
-- Full engineering spec: `docs/knowledge-graph-spec.md`
 
 ## API
 
@@ -89,6 +98,14 @@ Smoke check (requires running app):
 npm run smoke
 ```
 
+Database migrations (Drizzle):
+
+```bash
+npm run db:generate
+npm run db:migrate
+npm run db:studio
+```
+
 ## UX Defaults
 
 - `/knowledge` opens in **3D Graph View** by default.
@@ -108,6 +125,16 @@ OAuth providers can be enabled with env vars:
 
 Set `APP_BASE_URL` in production so OAuth callbacks use the correct host.
 
+Email verification:
+- Password signup requires email verification before login.
+- Verification link route: `/api/auth/verify-email?token=...`
+- If `RESEND_API_KEY` and `EMAIL_FROM` are set, verification emails are sent via Resend.
+- Without those vars, verification links are logged to server logs in development.
+
+Google/email account linking:
+- Google OAuth and email/password accounts with the same email are linked to one user record.
+- If a Google-only account later signs up with password, password login is enabled on the same account.
+
 ## Environments & Deployment
 
 Cloudflare Workers (OpenNext) commands:
@@ -116,6 +143,10 @@ Cloudflare Workers (OpenNext) commands:
 npm run build:cf
 npm run deploy:cf
 ```
+
+GitHub Actions deployment template and required secrets are documented in:
+- `DEPLOY.md` (`6.1 GitHub Actions Template`)
+- `DEPLOY.md` (`6. Production Deploy - Cloudflare Workers (OpenNext)`)
 
 See full runbook:
 - `DEPLOY.md`

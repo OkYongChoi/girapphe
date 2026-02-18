@@ -43,6 +43,7 @@ function oauthErrorMessage(code?: string) {
   if (!code) return null;
   if (code === 'provider_not_configured') return 'This sign-in provider is not configured yet.';
   if (code === 'oauth_dev_login_failed') return 'Dev social login failed. Try email/password signup instead.';
+  if (code === 'email_verification_failed') return 'Email verification link is invalid or expired.';
   if (code.startsWith('oauth_')) return 'Social login failed. Please try again.';
   return null;
 }
@@ -126,6 +127,7 @@ export default function AuthForm({ mode, enabledProviders = [], oauthError }: Pr
         </div>
 
         {state.error ? <p className="text-sm text-red-600">{state.error}</p> : null}
+        {state.message ? <p className="text-sm text-green-700">{state.message}</p> : null}
 
         <SubmitButton mode={mode} />
       </form>

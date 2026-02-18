@@ -10,6 +10,9 @@
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck",
     "smoke": "node scripts/smoke-check.mjs",
+    "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
+    "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
     "build:cf": "opennextjs-cloudflare build",
     "preview:cf": "opennextjs-cloudflare build && wrangler dev",
     "deploy:cf": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
@@ -17,6 +20,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.987.0",
     "@neondatabase/serverless": "^1.0.2",
+    "drizzle-orm": "^0.44.5",
     "katex": "^0.16.28",
     "next": "16.1.6",
     "pg": "^8.18.0",
@@ -33,6 +37,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "esbuild": "^0.25.10",
+    "drizzle-kit": "^0.31.4",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",

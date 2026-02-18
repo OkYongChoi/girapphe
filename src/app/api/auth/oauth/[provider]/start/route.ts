@@ -16,8 +16,11 @@ export async function GET(
 ) {
   const { provider } = await params;
   const typedProvider = provider as OAuthProvider;
+  const config = getOAuthConfig(typedProvider);
 
-  if (process.env.NODE_ENV !== 'production') {
+  // In development, keep a fallback social-login path if OAuth credentials are not set.
+  // If credentials are configured, use the real OAuth flow.
+  if (process.env.NODE_ENV !== 'production' && !config) {
     try {
       const devEmail = `${provider}.dev@local.stembrain`;
       const user = await findOrCreateOAuthUser({
@@ -31,7 +34,6 @@ export async function GET(
       return NextResponse.redirect(new URL('/login?error=oauth_dev_login_failed', request.url));
     }
   }
-  const config = getOAuthConfig(typedProvider);
 
   if (!config) {
     return NextResponse.redirect(

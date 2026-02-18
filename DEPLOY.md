@@ -77,6 +77,7 @@ Optional (OAuth):
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - other providers via `*_OAUTH_*`
+- `RESEND_API_KEY` and `EMAIL_FROM` (if you want real email verification delivery)
 
 ## 5. Production Deploy - Vercel
 
@@ -115,6 +116,72 @@ npm run deploy:cf
 - OAuth vars (optional)
 5. Deploy via CI/CD (optional):
 - connect repository and run `npm run deploy:cf` in pipeline
+
+Drizzle migration step (required before deploy):
+```bash
+npm run db:migrate
+```
+
+Wrangler requirement:
+- Yes, Wrangler is required for Cloudflare deployment.
+- This repository already includes Wrangler as a dev dependency, so you do not need a global install.
+- Use project commands (`npm run deploy:cf`) or `npx wrangler ...`.
+
+### 6.1 GitHub Actions Template (Recommended)
+
+1. Create workflow file:
+- `.github/workflows/deploy-cloudflare.yml`
+
+2. Add:
+```yaml
+name: Deploy Cloudflare Worker
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Verify
+        run: npm run check
+
+      - name: Apply Drizzle migrations
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy
+        run: npm run deploy:cf
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+```
+
+3. Configure GitHub repository secrets and variables:
+- Secrets:
+  - `CLOUDFLARE_API_TOKEN`
+  - `CLOUDFLARE_ACCOUNT_ID`
+  - `DATABASE_URL`
+  - OAuth secrets (if used)
+- Variables:
+  - `APP_BASE_URL`
 
 ## 7. Manual Steps You Must Do Yourself
 
