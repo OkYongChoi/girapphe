@@ -149,3 +149,4 @@ GitHub Actions deployment template and required secrets are documented in:
 
 See full runbook:
 - `DEPLOY.md`
+- `ENVIRONMENTS.md`
