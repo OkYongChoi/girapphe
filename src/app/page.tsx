@@ -12,7 +12,7 @@ export default async function HomePage() {
   const userKnowledgeItems = user ? await getUserKnowledgeItems() : [];
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 via-sky-50 to-white">
+    <main id="main-content" className="min-h-screen bg-gradient-to-b from-slate-50 via-sky-50 to-white">
       <Navbar />
 
       <section className="mx-auto max-w-6xl px-6 py-20 md:py-28">
@@ -25,7 +25,7 @@ export default async function HomePage() {
               Build your own knowledge operating system.
             </h1>
             <p className="mt-5 text-base leading-7 text-slate-600 md:text-lg">
-              Practice cards daily, save weak concepts, and see your mastery graph evolve over time. Your data is scoped to your account.
+              Practice cards daily, save weak concepts, and watch your mastery graph grow over time. Everything is scoped to your account.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -35,19 +35,19 @@ export default async function HomePage() {
                     href="/practice"
                     className="rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                   >
-                    Continue practicing
+                    Keep practicing →
                   </Link>
                   <Link
                     href="/knowledge"
                     className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
                   >
-                    Open 3D graph
+                    View knowledge graph
                   </Link>
                   <Link
-                    href="/my-knowledge"
+                    href="/dashboard"
                     className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
                   >
-                    Open my knowledge
+                    Progress dashboard
                   </Link>
                 </>
               ) : (
@@ -56,7 +56,7 @@ export default async function HomePage() {
                     href="/signup"
                     className="rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                   >
-                    Create account
+                    Get started for free
                   </Link>
                   <Link
                     href="/login"
@@ -69,15 +69,14 @@ export default async function HomePage() {
             </div>
 
             {user && userStats ? (
-              <div className="mt-5 grid gap-2 sm:grid-cols-2">
-                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                  <span className="font-semibold text-slate-900">{userStats.known}</span> known ·{' '}
-                  <span className="font-semibold text-blue-700">{userStats.saved}</span> saved ·{' '}
-                  <span className="font-semibold text-red-700">{userStats.unknown}</span> unknown
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                  <span className="font-semibold text-slate-900">{userKnowledgeItems.length}</span> personal notes
-                </div>
+              <div
+                aria-label="Your learning stats"
+                className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4"
+              >
+                <StatBox value={userStats.known} label="Known" color="text-emerald-700" bg="bg-emerald-50 border-emerald-100" />
+                <StatBox value={userStats.saved} label="Saved" color="text-blue-700" bg="bg-blue-50 border-blue-100" />
+                <StatBox value={userStats.unknown} label="Unknown" color="text-red-700" bg="bg-red-50 border-red-100" />
+                <StatBox value={userKnowledgeItems.length} label="Notes" color="text-slate-700" bg="bg-slate-50 border-slate-200" />
               </div>
             ) : null}
           </div>
@@ -87,11 +86,11 @@ export default async function HomePage() {
               What you get
             </h2>
             <div className="mt-4 space-y-3">
-              <Feature title="Adaptive practice" description="Review what you do not know yet and keep what you know fresh." />
-              <Feature title="Saved concept queue" description="Pin concepts you want to revisit and track improvement." />
-              <Feature title="Personal knowledge vault" description="Create, edit, and delete your own private knowledge notes." />
-              <Feature title="Knowledge graph" description="Visualize how concepts connect and where your weak links are." />
-              <Feature title="Private progress" description="Every account has isolated knowledge states and stats." />
+              <Feature icon="🎯" title="Adaptive practice" description="Review what you don't know yet and reinforce what you do." />
+              <Feature icon="📌" title="Saved concept queue" description="Pin weak concepts and track your improvement over time." />
+              <Feature icon="📝" title="Personal knowledge vault" description="Write and manage your own private notes and frameworks." />
+              <Feature icon="🌐" title="Knowledge graph" description="See how concepts connect and spot your weak links visually." />
+              <Feature icon="🔒" title="Private by default" description="All data is isolated to your account — nothing is shared." />
             </div>
           </div>
         </div>
@@ -100,11 +99,33 @@ export default async function HomePage() {
   );
 }
 
-function Feature({ title, description }: { title: string; description: string }) {
+function StatBox({
+  value,
+  label,
+  color,
+  bg,
+}: {
+  value: number;
+  label: string;
+  color: string;
+  bg: string;
+}) {
   return (
-    <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
-      <p className="text-sm font-semibold text-slate-900">{title}</p>
-      <p className="mt-1 text-sm text-slate-600">{description}</p>
+    <div className={`rounded-lg border px-3 py-2 text-center ${bg}`}>
+      <span className={`block text-xl font-bold ${color}`}>{value}</span>
+      <span className="text-xs text-slate-500">{label}</span>
+    </div>
+  );
+}
+
+function Feature({ icon, title, description }: { icon: string; title: string; description: string }) {
+  return (
+    <div className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50 p-4">
+      <span className="text-lg leading-none mt-0.5" aria-hidden="true">{icon}</span>
+      <div>
+        <p className="text-sm font-semibold text-slate-900">{title}</p>
+        <p className="mt-0.5 text-sm text-slate-600">{description}</p>
+      </div>
     </div>
   );
 }
