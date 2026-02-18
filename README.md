@@ -115,25 +115,24 @@ npm run db:studio
 
 ## Auth Configuration
 
-Email/password auth works out of the box.  
-OAuth providers can be enabled with env vars:
+Authentication is powered by [Clerk](https://clerk.com). Configure these environment variables:
 
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-- `OPENAI_OAUTH_CLIENT_ID`, `OPENAI_OAUTH_CLIENT_SECRET`, `OPENAI_OAUTH_AUTH_URL`, `OPENAI_OAUTH_TOKEN_URL`, `OPENAI_OAUTH_USERINFO_URL`, optional `OPENAI_OAUTH_SCOPE`
-- `CLAUDE_OAUTH_CLIENT_ID`, `CLAUDE_OAUTH_CLIENT_SECRET`, `CLAUDE_OAUTH_AUTH_URL`, `CLAUDE_OAUTH_TOKEN_URL`, `CLAUDE_OAUTH_USERINFO_URL`, optional `CLAUDE_OAUTH_SCOPE`
-- `GROK_OAUTH_CLIENT_ID`, `GROK_OAUTH_CLIENT_SECRET`, `GROK_OAUTH_AUTH_URL`, `GROK_OAUTH_TOKEN_URL`, `GROK_OAUTH_USERINFO_URL`, optional `GROK_OAUTH_SCOPE`
+```
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/login
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/signup
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/practice
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/practice
+```
 
-Set `APP_BASE_URL` in production so OAuth callbacks use the correct host.
+Get your keys from the [Clerk dashboard](https://dashboard.clerk.com).
 
-Email verification:
-- Password signup requires email verification before login.
-- Verification link route: `/api/auth/verify-email?token=...`
-- If `RESEND_API_KEY` and `EMAIL_FROM` are set, verification emails are sent via Resend.
-- Without those vars, verification links are logged to server logs in development.
-
-Google/email account linking:
-- Google OAuth and email/password accounts with the same email are linked to one user record.
-- If a Google-only account later signs up with password, password login is enabled on the same account.
+Clerk handles:
+- Email/password sign-up and sign-in (with built-in email verification)
+- Social OAuth providers (Google, GitHub, etc. — configure in Clerk dashboard)
+- Session management and secure cookie handling
+- Multi-factor authentication (optional, configure in Clerk dashboard)
 
 ## Environments & Deployment
 

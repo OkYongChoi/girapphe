@@ -45,7 +45,15 @@
   - `prerequisite` is directional.
   - `related` and `equivalent_to` behave bidirectionally.
 
-### 6. Persistence Layer
+### 6. Authentication Layer
+
+- Powered by [Clerk](https://clerk.com).
+- `src/middleware.ts` enforces auth on all routes except `/`, `/login`, `/signup`, `/register`, `/api/health`.
+- `src/lib/auth.ts` exports `getCurrentUser()` and `requireCurrentUser()` as thin shims over Clerk's `auth()` and `currentUser()`.
+- All existing pages and actions use these shims unchanged.
+- User IDs from Clerk (format: `user_2abc123`) are stored as `text` in `user_knowledge_states.user_id` and related tables.
+
+### 7. Persistence Layer
 
 - Current default: in-memory for rapid development.
 - Target production: PostgreSQL schema (`graph_nodes`, `graph_edges`, `user_knowledge_states`).

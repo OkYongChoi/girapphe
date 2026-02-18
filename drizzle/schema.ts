@@ -8,17 +8,7 @@ import {
   text,
   timestamp,
   unique,
-  uniqueIndex,
-  uuid,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
-
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().default(sql`uuid_generate_v4()`),
-  clerkId: text("clerk_id").notNull().unique(),
-  email: text("email").notNull().unique(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
 
 export const knowledgeCards = pgTable("knowledge_cards", {
   id: text("id").primaryKey(),
@@ -34,7 +24,7 @@ export const knowledgeCards = pgTable("knowledge_cards", {
 ]);
 
 export const userCardStates = pgTable("user_card_states", {
-  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
   cardId: text("card_id").notNull().references(() => knowledgeCards.id, { onDelete: "cascade" }),
   status: text("status"),
   confidence: integer("confidence").default(0),
@@ -74,7 +64,7 @@ export const graphEdges = pgTable("graph_edges", {
 ]);
 
 export const userKnowledgeStates = pgTable("user_knowledge_states", {
-  userId: uuid("user_id").notNull(),
+  userId: text("user_id").notNull(),
   nodeId: text("node_id").notNull().references(() => graphNodes.id, { onDelete: "cascade" }),
   knowledgeState: real("knowledge_state").notNull().default(0),
   confidence: real("confidence").notNull().default(0),
@@ -84,26 +74,6 @@ export const userKnowledgeStates = pgTable("user_knowledge_states", {
   primaryKey({ columns: [t.userId, t.nodeId] }),
   index("idx_user_knowledge_states_user").on(t.userId),
   index("idx_user_knowledge_states_node").on(t.nodeId),
-]);
-
-export const authUsers = pgTable("auth_users", {
-  id: text("id").primaryKey(),
-  email: text("email").notNull().unique(),
-  passwordHash: text("password_hash"),
-  authProvider: text("auth_provider"),
-  providerUserId: text("provider_user_id"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-}, (t) => [
-  uniqueIndex("idx_auth_users_provider_identity").on(t.authProvider, t.providerUserId),
-]);
-
-export const authSessions = pgTable("auth_sessions", {
-  id: text("id").primaryKey(),
-  userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-}, (t) => [
-  index("idx_auth_sessions_user_id").on(t.userId),
 ]);
 
 export const userKnowledgeItems = pgTable("user_knowledge_items", {

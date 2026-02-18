@@ -5,20 +5,8 @@ import { getLeaderboardData } from '@/actions/graph-actions';
 
 export const dynamic = 'force-dynamic';
 
-function maskEmail(email: string): string {
-  const [localPart, domainPart] = email.toLowerCase().split('@');
-  if (!localPart || !domainPart) return 'hidden';
-
-  const visibleLocal = localPart.slice(0, 2);
-  const maskedLocal = `${visibleLocal}${'*'.repeat(Math.max(localPart.length - 2, 2))}`;
-
-  const domainSegments = domainPart.split('.');
-  const rootDomain = domainSegments[0] ?? '';
-  const suffix = domainSegments.slice(1).join('.');
-  const visibleDomain = rootDomain.slice(0, 1);
-  const maskedDomain = `${visibleDomain}${'*'.repeat(Math.max(rootDomain.length - 1, 2))}`;
-
-  return `${maskedLocal}@${maskedDomain}${suffix ? `.${suffix}` : ''}`;
+function truncateUserId(userId: string): string {
+  return userId.slice(0, 12) + '…';
 }
 
 export default async function RankingPage() {
@@ -65,7 +53,13 @@ export default async function RankingPage() {
                 rows.map((row, index) => (
                   <tr key={row.userId} className="border-t">
                     <td className="px-4 py-3 font-semibold text-gray-700">#{index + 1}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{maskEmail(row.email)}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700">
+                      {row.userId === user.id ? (
+                        <span className="font-semibold text-blue-600">You</span>
+                      ) : (
+                        truncateUserId(row.userId)
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-900">{row.known}</td>
                     <td className="px-4 py-3 text-gray-900">{(row.avgScore * 100).toFixed(1)}%</td>
                   </tr>

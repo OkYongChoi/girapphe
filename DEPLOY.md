@@ -5,15 +5,14 @@
 The app has two storage modes.
 
 1. DB mode (`DATABASE_URL` set)
-- Auth users/sessions and app data are stored in Postgres.
+- Knowledge state and app data are stored in Postgres.
 
 2. Local fallback mode (`DATABASE_URL` missing)
-- Auth data is stored in:
-  - `/.local/auth-store.json` (project root)
-- Session is stored in browser cookie:
-  - `psb_session`
+- Knowledge state is stored in memory only (resets on restart).
 
 Use fallback only for local development.
+
+Authentication is handled by [Clerk](https://clerk.com) in both modes.
 
 ## 2. Local Dev
 
@@ -22,9 +21,10 @@ Use fallback only for local development.
 npm install
 ```
 
-2. (Optional) create `.env.local`
+2. Create `.env.local`
 ```bash
 cp .env.example .env.local
+# Fill in your Clerk keys from https://dashboard.clerk.com
 ```
 
 3. Start
@@ -70,23 +70,29 @@ npm run smoke
 ## 4. Production Required Config
 
 Required:
-- `DATABASE_URL`
-- `APP_BASE_URL`
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` — from Clerk dashboard
+- `CLERK_SECRET_KEY` — from Clerk dashboard (add as secret, not plain env var)
+- `DATABASE_URL` — PostgreSQL connection string
 
-Optional (OAuth):
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- other providers via `*_OAUTH_*`
-- `RESEND_API_KEY` and `EMAIL_FROM` (if you want real email verification delivery)
+Clerk redirect URLs (set these too):
+- `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/login`
+- `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/signup`
+- `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/practice`
+- `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/practice`
+
+Clerk dashboard setup:
+- Enable desired social providers (Google, GitHub, etc.)
+- Add your production domain to "Allowed redirect URLs"
 
 ## 5. Production Deploy - Vercel
 
 1. Push repo to GitHub.
 2. Import project in Vercel.
 3. Configure env vars:
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
 - `DATABASE_URL`
-- `APP_BASE_URL`
-- OAuth vars (if used)
+- Clerk redirect URL vars (see section 4)
 4. Build command:
 - `npm run build`
 5. Deploy.
@@ -102,20 +108,28 @@ curl -sS https://YOUR_DOMAIN/api/health
 ```bash
 npx wrangler whoami
 ```
-2. Build Next.js output for Cloudflare Workers:
+2. Add Clerk secret key to Cloudflare Workers:
+```bash
+wrangler secret put CLERK_SECRET_KEY
+# Enter the value from your Clerk dashboard when prompted
+```
+3. Add publishable key to `wrangler.jsonc` under `vars` (it's safe to commit):
+```jsonc
+"vars": {
+  "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_..."
+}
+```
+4. Build Next.js output for Cloudflare Workers:
 ```bash
 npm run build:cf
 ```
-3. Deploy worker:
+5. Deploy worker:
 ```bash
 npm run deploy:cf
 ```
-4. Set env vars in Worker settings:
+6. Set remaining env vars in Worker settings:
 - `DATABASE_URL`
-- `APP_BASE_URL`
-- OAuth vars (optional)
-5. Deploy via CI/CD (optional):
-- connect repository and run `npm run deploy:cf` in pipeline
+- Clerk redirect URL vars
 
 Drizzle migration step (required before deploy):
 ```bash
@@ -171,7 +185,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
 ```
 
 3. Configure GitHub repository secrets and variables:
@@ -179,19 +192,18 @@ jobs:
   - `CLOUDFLARE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
   - `DATABASE_URL`
-  - OAuth secrets (if used)
-- Variables:
-  - `APP_BASE_URL`
+  - `CLERK_SECRET_KEY` (add to Cloudflare via `wrangler secret put`, not GitHub)
 
 ## 7. Manual Steps You Must Do Yourself
 
 These cannot be completed automatically by code changes:
 
-1. Provision production DB and run `schema.sql`.
-2. Set production environment variables on hosting platform.
-3. Configure OAuth provider consoles with exact callback URLs.
-4. Add custom domain and HTTPS settings in hosting platform.
-5. Run live smoke test against real domain after each deploy.
+1. Create a Clerk application at https://dashboard.clerk.com
+2. Configure social providers and redirect URLs in Clerk dashboard.
+3. Provision production DB and run `npm run db:migrate`.
+4. Set production environment variables on hosting platform.
+5. Add custom domain and HTTPS settings in hosting platform.
+6. Run live smoke test against real domain after each deploy.
 
 ## 8. Manual Release Checklist
 
@@ -200,10 +212,10 @@ These cannot be completed automatically by code changes:
 3. Deploy to staging/prod
 4. Verify:
 - `/api/health`
-- signup/login/logout
+- signup/login/logout (via Clerk UI)
 - `/practice`, `/saved`, `/my-knowledge`, `/knowledge`
 - `/knowledge` default opens 3D view
 - navbar active link highlight works on each route
 - saved/my-knowledge filter `Clear` resets query params
-5. Verify DB writes (new user/session row)
+5. Verify DB writes (new knowledge_state row after quiz)
 6. Verify rollback plan (previous deployment available)
