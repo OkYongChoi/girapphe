@@ -37,6 +37,27 @@ Always set:
 - Do not reuse dev keys for production domains.
 - Keep `main` for production and `dev` for integration/testing.
 
+## 4.1 Codebase-Enforced Separation
+
+This repository separates Cloudflare deployments by command and Wrangler environment:
+
+- Dev deploy: `npm run deploy:cf:dev`
+  - Wrangler env: `dev`
+  - Worker name: `girapphe-dev`
+  - Intended domain: `*.workers.dev` (or separate dev custom domain)
+- Prod deploy: `npm run deploy:cf:prod`
+  - Wrangler env: `prod`
+  - Worker name: `girapphe`
+  - Intended domains: `girapphe.com`, `www.girapphe.com`
+
+Backward compatibility:
+- `npm run deploy:cf` is mapped to `npm run deploy:cf:prod`.
+
+Recommended secret commands:
+
+- Dev secret: `npx wrangler secret put KEY --env dev`
+- Prod secret: `npx wrangler secret put KEY --env prod`
+
 ## 5. Google OAuth 400 (invalid_request) Checklist
 
 If Google signup/login shows `Error 400: invalid_request`, check:

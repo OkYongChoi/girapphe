@@ -140,7 +140,8 @@ Cloudflare Workers (OpenNext) commands:
 
 ```bash
 npm run build:cf
-npm run deploy:cf
+npm run deploy:cf:dev
+npm run deploy:cf:prod
 ```
 
 GitHub Actions deployment template and required secrets are documented in:
