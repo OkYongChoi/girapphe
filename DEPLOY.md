@@ -123,13 +123,24 @@ wrangler secret put CLERK_SECRET_KEY
 ```bash
 npm run build:cf
 ```
-5. Deploy worker:
+5. Deploy worker (prod):
 ```bash
-npm run deploy:cf
+npm run deploy:cf:prod
 ```
 6. Set remaining env vars in Worker settings:
 - `DATABASE_URL`
 - Clerk redirect URL vars
+
+Dev deploy command:
+```bash
+npm run deploy:cf:dev
+```
+
+Per-environment secret update:
+```bash
+npx wrangler secret put CLERK_SECRET_KEY --env dev
+npx wrangler secret put CLERK_SECRET_KEY --env prod
+```
 
 Drizzle migration step (required before deploy):
 ```bash
@@ -222,15 +233,18 @@ These cannot be completed automatically by code changes:
 
 ## 9. Command Clarification (Cloudflare)
 
-The Cloudflare deploy commands are unchanged:
+The Cloudflare deploy commands are:
 
 - `npm run build:cf`
-- `npm run deploy:cf`
+- `npm run deploy:cf` (alias to prod)
+- `npm run deploy:cf:dev`
+- `npm run deploy:cf:prod`
 
 How to use:
 
 - Use `npm run build:cf` when you only want to validate/build Cloudflare output.
-- Use `npm run deploy:cf` for real deployment. This script already runs build + deploy.
+- Use `npm run deploy:cf:prod` for production deployment. This script runs build + deploy.
+- Use `npm run deploy:cf:dev` for development deployment.
 - If you use raw Wrangler instead (`npx wrangler deploy`), you must build first:
   - `npm run build:cf && npx wrangler deploy`
 

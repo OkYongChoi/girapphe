@@ -14,8 +14,10 @@
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
     "build:cf": "opennextjs-cloudflare build",
-    "preview:cf": "opennextjs-cloudflare build && wrangler dev",
-    "deploy:cf": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "preview:cf": "opennextjs-cloudflare build && wrangler dev --env dev",
+    "deploy:cf": "npm run deploy:cf:prod",
+    "deploy:cf:dev": "opennextjs-cloudflare build && wrangler deploy --env dev .open-next/worker.js",
+    "deploy:cf:prod": "opennextjs-cloudflare build && wrangler deploy --env prod .open-next/worker.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.987.0",
