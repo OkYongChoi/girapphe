@@ -33,6 +33,12 @@ type CardWithStatusRow = KnowledgeCard & {
   last_seen?: Date | null;
 };
 
+type LeaderboardRow = {
+  user_id: string;
+  known_count: string;
+  total_count: string;
+};
+
 const BASE_MOCK_CARDS: KnowledgeCard[] = [
   {
     id: 'burg_method',
@@ -157,6 +163,12 @@ function normalizeGraphNodeId(nodeId: string): string {
     return nodeId.slice('graph_'.length);
   }
   return nodeId;
+}
+
+function mapCardStatusToKnowledge(status: CardStatus): { knowledge: 0 | 0.5 | 1; confidence: number } {
+  if (status === 'known') return { knowledge: 1, confidence: 0.8 };
+  if (status === 'saved') return { knowledge: 0.5, confidence: 0.45 };
+  return { knowledge: 0, confidence: 0.25 };
 }
 
 function pickDistinctLabels(
@@ -367,8 +379,33 @@ export async function saveCardState(cardId: string, status: CardStatus) {
     `;
     await pool.query(query, [user.id, cardId, status]);
 
+    const nodeId = normalizeGraphNodeId(cardId);
+    const mapped = mapCardStatusToKnowledge(status);
+
+    await pool.query(
+      `
+      INSERT INTO user_knowledge_states (user_id, node_id, knowledge_state, confidence, last_updated, first_known_at)
+      SELECT $1, $2, $3, $4, NOW(), CASE WHEN $3 = 1 THEN NOW() ELSE NULL END
+      WHERE EXISTS (SELECT 1 FROM graph_nodes WHERE id = $2)
+      ON CONFLICT (user_id, node_id)
+      DO UPDATE SET
+        knowledge_state = EXCLUDED.knowledge_state,
+        confidence = EXCLUDED.confidence,
+        last_updated = NOW(),
+        first_known_at = CASE
+          WHEN EXCLUDED.knowledge_state = 1
+            THEN COALESCE(user_knowledge_states.first_known_at, NOW())
+          ELSE user_knowledge_states.first_known_at
+        END;
+      `,
+      [user.id, nodeId, mapped.knowledge, mapped.confidence]
+    );
+
     revalidatePath('/practice');
     revalidatePath('/saved');
+    revalidatePath('/knowledge');
+    revalidatePath('/dashboard');
+    revalidatePath('/ranking');
 
     return { success: true };
   } catch (error) {
@@ -493,5 +530,119 @@ export async function getAllCardsWithStatus() {
         Math.floor(Math.random() * 4)
       ] as CardStatus | null,
     }));
+  }
+}
+
+export async function resetUserCardProgress() {
+  const user = await requireCurrentUser();
+
+  if (!process.env.DATABASE_URL) {
+    return { success: true, warning: 'Mock mode: not persisted' };
+  }
+
+  try {
+    await pool.query('DELETE FROM user_card_states WHERE user_id = $1;', [user.id]);
+    await pool.query('DELETE FROM user_knowledge_states WHERE user_id = $1;', [user.id]);
+
+    revalidatePath('/');
+    revalidatePath('/practice');
+    revalidatePath('/saved');
+    revalidatePath('/knowledge');
+    revalidatePath('/dashboard');
+    revalidatePath('/ranking');
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error in resetUserCardProgress:', error);
+    return { success: false };
+  }
+}
+
+export type CardLeaderboardEntry = {
+  userId: string;
+  known: number;
+  avgScore: number;
+};
+
+export type UserCardDomainProgress = {
+  domain: string;
+  reviewed: number;
+  known: number;
+  saved: number;
+  unknown: number;
+};
+
+export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
+  if (!process.env.DATABASE_URL) {
+    return [];
+  }
+
+  try {
+    const query = `
+      SELECT
+        user_id,
+        COUNT(*) FILTER (WHERE status = 'known') AS known_count,
+        COUNT(*) AS total_count
+      FROM user_card_states
+      GROUP BY user_id
+      ORDER BY known_count DESC, total_count DESC, user_id ASC
+      LIMIT 100;
+    `;
+
+    const res = await pool.query<LeaderboardRow>(query);
+    return res.rows.map((row) => {
+      const known = parseInt(row.known_count, 10);
+      const total = parseInt(row.total_count, 10);
+      return {
+        userId: row.user_id,
+        known,
+        avgScore: total > 0 ? known / total : 0,
+      };
+    });
+  } catch (error) {
+    console.error('Error in getCardLeaderboard:', error);
+    return [];
+  }
+}
+
+export async function getUserCardDomainProgress(): Promise<UserCardDomainProgress[]> {
+  const user = await requireCurrentUser();
+
+  if (!process.env.DATABASE_URL) {
+    return [];
+  }
+
+  try {
+    const query = `
+      SELECT
+        COALESCE(kc.domain, 'other') AS domain,
+        COUNT(*) AS reviewed,
+        COUNT(*) FILTER (WHERE ucs.status = 'known') AS known,
+        COUNT(*) FILTER (WHERE ucs.status = 'saved') AS saved,
+        COUNT(*) FILTER (WHERE ucs.status = 'unknown') AS unknown
+      FROM user_card_states ucs
+      JOIN knowledge_cards kc ON kc.id = ucs.card_id
+      WHERE ucs.user_id = $1
+      GROUP BY COALESCE(kc.domain, 'other')
+      ORDER BY reviewed DESC, domain ASC;
+    `;
+    const res = await pool.query<{
+      domain: string;
+      reviewed: string;
+      known: string;
+      saved: string;
+      unknown: string;
+    }>(query, [user.id]);
+
+    return res.rows.map((row) => ({
+      domain: row.domain,
+      reviewed: parseInt(row.reviewed, 10),
+      known: parseInt(row.known, 10),
+      saved: parseInt(row.saved, 10),
+      unknown: parseInt(row.unknown, 10),
+    }));
+  } catch (error) {
+    console.error('Error in getUserCardDomainProgress:', error);
+    return [];
   }
 }

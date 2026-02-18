@@ -1,5 +1,6 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
+import { hasValidClerkConfig } from '@/lib/clerk-env';
 
 export type AuthUser = {
   id: string;
@@ -7,6 +8,8 @@ export type AuthUser = {
 };
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
+  if (!hasValidClerkConfig()) return null;
+
   const { userId } = await auth();
   if (!userId) return null;
 

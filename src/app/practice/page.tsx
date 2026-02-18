@@ -1,4 +1,4 @@
-import { getNextCard, getUserStats } from '@/actions/card-actions';
+import { getNextCard, getUserStats, resetUserCardProgress } from '@/actions/card-actions';
 import CardViewer from '@/components/card-viewer';
 import Navbar from '@/components/navbar';
 import { getCurrentUser } from '@/lib/auth';
@@ -29,6 +29,19 @@ export default async function PracticePage() {
             <p className="text-sm text-gray-500">Answer quickly and keep momentum.</p>
           </div>
           <div className="flex gap-2">
+            <form
+              action={async () => {
+                'use server';
+                await resetUserCardProgress();
+              }}
+            >
+              <button
+                type="submit"
+                className="rounded-md border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors"
+              >
+                Reset progress
+              </button>
+            </form>
             <Link href="/saved" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 transition-colors">
               Saved queue
             </Link>

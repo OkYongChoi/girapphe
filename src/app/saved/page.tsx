@@ -1,6 +1,6 @@
 import { getSavedCards } from '@/actions/card-actions';
 import type { CardStatus, KnowledgeCard } from '@/actions/card-actions';
-import { removeSavedCard } from '@/actions/card-actions';
+import { removeSavedCard, resetUserCardProgress } from '@/actions/card-actions';
 import Navbar from '@/components/navbar';
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
@@ -64,9 +64,24 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
                 : `${savedCards.length} concept${savedCards.length !== 1 ? 's' : ''} saved for review`}
             </p>
           </div>
-          <Link href="/practice" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 transition-colors shrink-0">
-            Continue practice →
-          </Link>
+          <div className="flex gap-2">
+            <form
+              action={async () => {
+                'use server';
+                await resetUserCardProgress();
+              }}
+            >
+              <button
+                type="submit"
+                className="rounded-md border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors shrink-0"
+              >
+                Reset progress
+              </button>
+            </form>
+            <Link href="/practice" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 transition-colors shrink-0">
+              Continue practice →
+            </Link>
+          </div>
         </div>
 
         <form className="mb-4 rounded-lg border bg-white p-3 shadow-sm" role="search" aria-label="Filter saved concepts">

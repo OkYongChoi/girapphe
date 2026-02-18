@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import Navbar from '@/components/navbar';
 import { getCurrentUser } from '@/lib/auth';
-import { getLeaderboardData } from '@/actions/graph-actions';
+import { getCardLeaderboard } from '@/actions/card-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +16,7 @@ export default async function RankingPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
 
-  const rows = await getLeaderboardData();
+  const rows = await getCardLeaderboard();
 
   return (
     <main id="main-content" className="min-h-screen bg-gray-50">
@@ -27,7 +27,7 @@ export default async function RankingPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Ranking</h1>
             <p className="mt-1 text-sm text-gray-600">
-              Leaderboard based on known concepts and average graph score.
+              Leaderboard based on card progress (known ratio + known count).
             </p>
           </div>
           <div className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-600">
@@ -38,7 +38,7 @@ export default async function RankingPage() {
         <div className="mt-6 overflow-hidden rounded-xl border bg-white">
           <table className="min-w-full text-sm" aria-label="Knowledge leaderboard">
             <caption className="sr-only">
-              Knowledge leaderboard — ranked by number of known concepts and average score
+              Knowledge leaderboard — ranked by known cards and known ratio
             </caption>
             <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>

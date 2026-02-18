@@ -219,3 +219,63 @@ These cannot be completed automatically by code changes:
 - saved/my-knowledge filter `Clear` resets query params
 5. Verify DB writes (new knowledge_state row after quiz)
 6. Verify rollback plan (previous deployment available)
+
+## 9. Command Clarification (Cloudflare)
+
+The Cloudflare deploy commands are unchanged:
+
+- `npm run build:cf`
+- `npm run deploy:cf`
+
+How to use:
+
+- Use `npm run build:cf` when you only want to validate/build Cloudflare output.
+- Use `npm run deploy:cf` for real deployment. This script already runs build + deploy.
+- If you use raw Wrangler instead (`npx wrangler deploy`), you must build first:
+  - `npm run build:cf && npx wrangler deploy`
+
+## 10. Latest Deployment Verification (2026-02-18 KST)
+
+Verified at: `2026-02-18 20:41:03 KST`
+
+- Static/type checks: `npm run check` passed
+- Cloudflare build: `npm run build:cf` passed
+- Cloudflare deploy: `npm run deploy:cf` passed
+- Deployed URL: `https://girapphe.richokychoi.workers.dev`
+- Version ID: `5247c546-309a-4dd3-b90a-d3d89c41c0fd`
+- Health check:
+  - `GET /api/health` -> `200`
+  - response included:
+    - `"status":"ok"`
+    - `"mode":"database"`
+    - `"database":"connected"`
+
+## 11. Branch and Environment Strategy
+
+Recommended minimum setup:
+
+- `main`: production deploy source
+- `dev`: integration branch for daily development
+
+Optional but recommended when changes are frequent:
+
+- staging preview environment (Cloudflare preview or separate Worker) connected to a separate Neon branch/database
+
+Basic flow:
+
+1. feature branch -> PR -> `dev`
+2. validate on staging
+3. merge `dev` -> `main`
+4. deploy production from `main`
+
+## 12. Progress Data Reset
+
+If card state data becomes inconsistent for a user, use the built-in reset action:
+
+- `/practice` top action: `Reset progress`
+- `/saved` top action: `Reset progress`
+
+What it clears for the current user:
+
+- `user_card_states`
+- `user_knowledge_states`
