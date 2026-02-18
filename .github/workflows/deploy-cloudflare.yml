@@ -29,6 +29,8 @@ jobs:
 
       - name: Build Cloudflare Bundle
         run: npm run build:cf
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
   deploy:
     name: Deploy to Cloudflare
