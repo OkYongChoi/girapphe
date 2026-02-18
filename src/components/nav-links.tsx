@@ -21,20 +21,30 @@ export default function NavLinks() {
   const pathname = usePathname();
 
   return (
-    <div className="no-scrollbar flex items-center gap-2 overflow-x-auto text-sm font-medium text-slate-700">
-      {NAV_ITEMS.map((item, index) => (
-        <div key={item.href} className="flex items-center gap-2">
-          <Link
-            href={item.href}
-            className={`transition-colors ${
-              isActive(pathname, item.href) ? 'text-blue-700' : 'hover:text-blue-600'
-            }`}
-          >
-            {item.label}
-          </Link>
-          {index < NAV_ITEMS.length - 1 ? <span className="text-slate-300">•</span> : null}
-        </div>
-      ))}
-    </div>
+    <nav aria-label="Main navigation">
+      <ul className="no-scrollbar flex items-center gap-1 overflow-x-auto text-sm font-medium text-slate-700">
+        {NAV_ITEMS.map((item, index) => {
+          const active = isActive(pathname, item.href);
+          return (
+            <li key={item.href} className="flex items-center gap-1 shrink-0">
+              <Link
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={`rounded-md px-2 py-1 transition-colors ${
+                  active
+                    ? 'bg-blue-50 text-blue-700 font-semibold'
+                    : 'hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                {item.label}
+              </Link>
+              {index < NAV_ITEMS.length - 1 ? (
+                <span aria-hidden="true" className="text-slate-200 select-none">•</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }

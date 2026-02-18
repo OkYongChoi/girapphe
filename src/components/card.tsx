@@ -9,16 +9,16 @@ interface CardProps {
   interactiveQuizMode?: boolean;
 }
 
-export default function Card({ card, interactiveQuizMode = true }: CardProps) {
-  const domainColors: Record<string, string> = {
-    signal: 'bg-red-100 text-red-800 border-red-200',
-    control: 'bg-blue-100 text-blue-800 border-blue-200',
-    info: 'bg-green-100 text-green-800 border-green-200',
-    ml: 'bg-purple-100 text-purple-800 border-purple-200',
-    other: 'bg-gray-100 text-gray-800 border-gray-200',
-  };
+const DOMAIN_COLORS: Record<string, string> = {
+  signal: 'bg-orange-100 text-orange-800 border-orange-200',
+  control: 'bg-teal-100 text-teal-800 border-teal-200',
+  info: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  ml: 'bg-violet-100 text-violet-800 border-violet-200',
+  other: 'bg-gray-100 text-gray-700 border-gray-200',
+};
 
-  const domainStyle = domainColors[card.domain] || domainColors.other;
+export default function Card({ card, interactiveQuizMode = true }: CardProps) {
+  const domainStyle = DOMAIN_COLORS[card.domain] ?? DOMAIN_COLORS.other;
   const [quiz, setQuiz] = useState<NodeQuiz | null>(null);
   const [quizLoading, setQuizLoading] = useState(interactiveQuizMode);
   const [quizError, setQuizError] = useState<string | null>(null);
@@ -26,27 +26,14 @@ export default function Card({ card, interactiveQuizMode = true }: CardProps) {
 
   useEffect(() => {
     let active = true;
-
     if (!interactiveQuizMode) return () => { active = false; };
 
     generateQuizForNode(card.id)
-      .then((nextQuiz) => {
-        if (!active) return;
-        setQuiz(nextQuiz);
-      })
-      .catch((error) => {
-        if (!active) return;
-        console.error('Failed to generate quiz for card:', error);
-        setQuizError('Quiz unavailable for this concept.');
-      })
-      .finally(() => {
-        if (!active) return;
-        setQuizLoading(false);
-      });
+      .then((nextQuiz) => { if (active) setQuiz(nextQuiz); })
+      .catch(() => { if (active) setQuizError('Quiz unavailable for this concept.'); })
+      .finally(() => { if (active) setQuizLoading(false); });
 
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [card.id, interactiveQuizMode]);
 
   const showExplanation = !interactiveQuizMode || !quiz || selectedAnswerIndex !== null;
@@ -56,64 +43,73 @@ export default function Card({ card, interactiveQuizMode = true }: CardProps) {
   }, [quiz, selectedAnswerIndex]);
 
   return (
-    <div className="w-full max-w-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm p-6 flex flex-col gap-4 min-h-[300px]">
-      <div className="flex justify-between items-start">
-        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold uppercase ${domainStyle}`}>
+    <article
+      aria-label={`Concept card: ${card.title}`}
+      className="w-full max-w-md bg-white border border-gray-200 rounded-xl shadow-sm p-6 flex flex-col gap-4"
+    >
+      <div className="flex justify-between items-start gap-2">
+        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold uppercase border ${domainStyle}`}>
           {card.domain}
         </span>
-        <span className="text-xs text-gray-500 uppercase tracking-wider">{card.level}</span>
+        <span className="text-xs text-gray-400 uppercase tracking-wider shrink-0">{card.level}</span>
       </div>
-      
-      <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-2">
+
+      <h2 className="text-2xl font-bold text-gray-900">
         {card.title}
       </h2>
 
       {card.suggest_reason && (
-        <div className="text-[10px] font-bold text-blue-600 uppercase tracking-tight bg-blue-50 px-2 py-0.5 rounded w-fit">
+        <div
+          aria-label={`Suggested because: ${card.suggest_reason}`}
+          className="text-[10px] font-bold text-blue-600 uppercase tracking-tight bg-blue-50 border border-blue-100 px-2 py-0.5 rounded w-fit"
+        >
           ✨ {card.suggest_reason}
         </div>
       )}
-      
-      <p className="text-gray-600 dark:text-gray-300 leading-relaxed flex-grow">
+
+      <p className="text-gray-600 leading-relaxed flex-grow">
         {card.summary}
       </p>
 
       {interactiveQuizMode && (
-        <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-4">
+        <section aria-label="Quick quiz" className="rounded-lg border border-blue-100 bg-blue-50/70 p-4">
           <h3 className="text-xs font-bold uppercase tracking-widest text-blue-700">
             Quick Quiz
           </h3>
 
           {quizLoading ? (
-            <p className="mt-2 text-sm text-blue-800/80">Generating question...</p>
+            <p className="mt-2 text-sm text-blue-800/80 animate-pulse">Generating question…</p>
           ) : quizError ? (
-            <p className="mt-2 text-sm text-red-700">{quizError}</p>
+            <p className="mt-2 text-sm text-gray-500">{quizError}</p>
           ) : quiz ? (
             <div className="mt-3 space-y-2">
               <p className="text-sm font-medium text-slate-800">{quiz.question}</p>
-              <div className="grid gap-2">
+              <div className="grid gap-2" role="group" aria-label="Answer choices">
                 {quiz.choices.map((choice, index) => {
                   const isSelected = selectedAnswerIndex === index;
                   const isCorrectChoice = quiz.correctAnswerIndex === index;
-                  const resolvedStyle =
-                    selectedAnswerIndex === null
-                      ? 'border-slate-200 hover:border-blue-300 hover:bg-blue-50'
-                      : isCorrectChoice
-                        ? 'border-green-300 bg-green-50 text-green-900'
-                        : isSelected
-                          ? 'border-red-300 bg-red-50 text-red-800'
-                          : 'border-slate-200 opacity-80';
+                  const answered = selectedAnswerIndex !== null;
+
+                  let choiceStyle = 'border-slate-200 hover:border-blue-300 hover:bg-blue-50';
+                  if (answered) {
+                    if (isCorrectChoice) choiceStyle = 'border-emerald-400 bg-emerald-50 text-emerald-900 font-medium';
+                    else if (isSelected) choiceStyle = 'border-red-300 bg-red-50 text-red-800';
+                    else choiceStyle = 'border-slate-200 opacity-60';
+                  }
 
                   return (
                     <button
                       key={`${card.id}-choice-${index}`}
                       type="button"
-                      disabled={selectedAnswerIndex !== null}
+                      disabled={answered}
                       onClick={() => setSelectedAnswerIndex(index)}
-                      className={`w-full rounded-md border px-3 py-2 text-left text-sm transition ${resolvedStyle}`}
+                      aria-pressed={isSelected}
+                      aria-describedby={answered ? `quiz-feedback-${card.id}` : undefined}
+                      className={`w-full rounded-md border px-3 py-2 text-left text-sm transition ${choiceStyle} disabled:cursor-default`}
                     >
-                      <span className="mr-2 font-semibold">{String.fromCharCode(65 + index)}.</span>
+                      <span className="mr-2 font-semibold text-gray-500">{String.fromCharCode(65 + index)}.</span>
                       {choice}
+                      {answered && isCorrectChoice && <span className="ml-2" aria-hidden="true">✓</span>}
                     </button>
                   );
                 })}
@@ -122,49 +118,54 @@ export default function Card({ card, interactiveQuizMode = true }: CardProps) {
           ) : null}
 
           {isAnswerCorrect !== null ? (
-            <p className={`mt-3 text-xs font-medium ${isAnswerCorrect ? 'text-green-700' : 'text-red-700'}`}>
+            <p
+              id={`quiz-feedback-${card.id}`}
+              role="status"
+              className={`mt-3 text-xs font-medium ${isAnswerCorrect ? 'text-emerald-700' : 'text-red-700'}`}
+            >
               {isAnswerCorrect
-                ? 'Correct. Explanation unlocked below.'
-                : 'Not quite. Check the explanation below and retry next round.'}
+                ? '✓ Correct! See explanation below.'
+                : '✗ Not quite. Check the explanation below.'}
             </p>
           ) : null}
-        </div>
+        </section>
       )}
 
       {card.explanation && showExplanation && (
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/30 p-4 rounded-lg text-sm text-gray-800 dark:text-gray-200 mt-2">
-           <h3 className="text-xs font-bold text-yellow-800 dark:text-yellow-500 uppercase tracking-widest mb-2">
-             💡 Key Facts & Formulas
-           </h3>
-           <MathText text={card.explanation} className="text-sm leading-relaxed" />
-        </div>
+        <section aria-label="Key facts and formulas" className="bg-amber-50 border border-amber-100 p-4 rounded-lg text-sm text-gray-800">
+          <h3 className="text-xs font-bold text-amber-800 uppercase tracking-widest mb-2">
+            💡 Key Facts & Formulas
+          </h3>
+          <MathText text={card.explanation} className="text-sm leading-relaxed" />
+        </section>
       )}
 
       {card.wiki_url && (
-        <a 
-          href={card.wiki_url} 
-          target="_blank" 
+        <a
+          href={card.wiki_url}
+          target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-blue-500 hover:underline mt-2 inline-block"
+          aria-label={`Read more about ${card.title} on Wikipedia (opens in new tab)`}
+          className="text-xs text-blue-500 hover:underline inline-flex items-center gap-1"
         >
-          View on Wikipedia &rarr;
+          View on Wikipedia <span aria-hidden="true">↗</span>
         </a>
       )}
 
       {card.related_concepts && card.related_concepts.length > 0 && (
-         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
-           <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-2">
-             Connected Concepts
-           </span>
-           <div className="flex flex-wrap gap-2">
-             {card.related_concepts.map((concept, i) => (
-               <span key={i} className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs rounded-md">
-                 {concept}
-               </span>
-             ))}
-           </div>
-         </div>
+        <section aria-label="Connected concepts" className="pt-4 border-t border-gray-100">
+          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
+            Connected Concepts
+          </span>
+          <ul className="flex flex-wrap gap-2 list-none p-0 m-0">
+            {card.related_concepts.map((concept, i) => (
+              <li key={i} className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-md">
+                {concept}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
-    </div>
+    </article>
   );
 }
