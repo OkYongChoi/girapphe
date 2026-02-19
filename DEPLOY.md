@@ -23,8 +23,9 @@ npm install
 
 2. Create `.env.local`
 ```bash
-cp .env.example .env.local
+npm run env:setup:dev
 # Fill in your Clerk keys from https://dashboard.clerk.com
+npm run check:env:dev
 ```
 
 3. Start
@@ -73,6 +74,7 @@ Required:
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` — from Clerk dashboard
 - `CLERK_SECRET_KEY` — from Clerk dashboard (add as secret, not plain env var)
 - `DATABASE_URL` — PostgreSQL connection string
+- `APP_BASE_URL` — production app URL (for example `https://www.girapphe.com`)
 
 Clerk redirect URLs (set these too):
 - `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/login`
@@ -123,13 +125,34 @@ wrangler secret put CLERK_SECRET_KEY
 ```bash
 npm run build:cf
 ```
-5. Deploy worker:
+5. Deploy worker (prod):
 ```bash
-npm run deploy:cf
+npm run deploy:cf:prod
 ```
 6. Set remaining env vars in Worker settings:
 - `DATABASE_URL`
+- `APP_BASE_URL`
 - Clerk redirect URL vars
+
+Dev deploy command:
+```bash
+npm run deploy:cf:dev
+```
+
+Per-environment secret update:
+```bash
+npx wrangler secret put CLERK_SECRET_KEY --env dev
+npx wrangler secret put CLERK_SECRET_KEY --env prod
+```
+
+Environment validation before deploy:
+```bash
+# template sanity
+npm run check:env:examples
+
+# validate production values from current shell/CI env
+npm run check:env:prod
+```
 
 Drizzle migration step (required before deploy):
 ```bash
@@ -189,10 +212,21 @@ jobs:
 
 3. Configure GitHub repository secrets and variables:
 - Secrets:
+  - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_DEV`
+  - `CLERK_SECRET_KEY_DEV`
+  - `DATABASE_URL_DEV`
   - `CLOUDFLARE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
+  - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+  - `CLERK_SECRET_KEY`
   - `DATABASE_URL`
-  - `CLERK_SECRET_KEY` (add to Cloudflare via `wrangler secret put`, not GitHub)
+- Variables:
+  - `APP_BASE_URL_DEV`
+  - `APP_BASE_URL`
+
+Branch deploy behavior (current workflow):
+- `dev` branch push -> deploy to Cloudflare `dev` environment
+- `main` branch push -> deploy to Cloudflare `prod` environment
 
 ## 7. Manual Steps You Must Do Yourself
 
@@ -222,15 +256,18 @@ These cannot be completed automatically by code changes:
 
 ## 9. Command Clarification (Cloudflare)
 
-The Cloudflare deploy commands are unchanged:
+The Cloudflare deploy commands are:
 
 - `npm run build:cf`
-- `npm run deploy:cf`
+- `npm run deploy:cf` (alias to prod)
+- `npm run deploy:cf:dev`
+- `npm run deploy:cf:prod`
 
 How to use:
 
 - Use `npm run build:cf` when you only want to validate/build Cloudflare output.
-- Use `npm run deploy:cf` for real deployment. This script already runs build + deploy.
+- Use `npm run deploy:cf:prod` for production deployment. This script runs build + deploy.
+- Use `npm run deploy:cf:dev` for development deployment.
 - If you use raw Wrangler instead (`npx wrangler deploy`), you must build first:
   - `npm run build:cf && npx wrangler deploy`
 

@@ -69,6 +69,8 @@ Flow:
 
 ```bash
 npm install
+npm run env:setup:dev
+npm run check:env:dev
 npm run dev
 ```
 
@@ -90,6 +92,9 @@ Quality commands:
 npm run lint
 npm run typecheck
 npm run check
+npm run check:env:examples
+# local dev env validation
+npm run check:env:dev
 ```
 
 Smoke check (requires running app):
@@ -117,7 +122,15 @@ npm run db:studio
 
 Authentication is powered by [Clerk](https://clerk.com). Configure these environment variables:
 
+Use environment-specific templates:
+
+```bash
+cp .env.dev.example .env.local
+# For production values/secrets, use .env.prod.example as the reference.
 ```
+
+```
+APP_BASE_URL=http://localhost:3000
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
 CLERK_SECRET_KEY=sk_test_...
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/login
@@ -140,7 +153,8 @@ Cloudflare Workers (OpenNext) commands:
 
 ```bash
 npm run build:cf
-npm run deploy:cf
+npm run deploy:cf:dev
+npm run deploy:cf:prod
 ```
 
 GitHub Actions deployment template and required secrets are documented in:
@@ -149,3 +163,4 @@ GitHub Actions deployment template and required secrets are documented in:
 
 See full runbook:
 - `DEPLOY.md`
+- `ENVIRONMENTS.md`

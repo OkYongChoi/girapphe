@@ -12,20 +12,22 @@ export default async function HomePage() {
   const userKnowledgeItems = user ? await getUserKnowledgeItems() : [];
 
   return (
-    <main id="main-content" className="min-h-screen bg-gradient-to-b from-slate-50 via-sky-50 to-white">
+    <main id="main-content" className="relative min-h-screen overflow-hidden bg-[linear-gradient(140deg,#f8fafc_0%,#e0f2fe_45%,#fef3c7_100%)]">
+      <div className="hero-aurora" />
       <Navbar />
 
-      <section className="mx-auto max-w-6xl px-6 py-20 md:py-28">
+      <section className="relative mx-auto max-w-6xl px-6 py-16 md:py-24">
         <div className="grid gap-12 md:grid-cols-2 md:items-center">
-          <div>
-            <p className="inline-flex rounded-full border border-sky-200 bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.15em] text-sky-700">
+          <div className="fade-up">
+            <p className="inline-flex items-center gap-2 rounded-full border border-sky-300 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-sky-800 shadow-sm backdrop-blur">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
               Personal STEM Brain
             </p>
             <h1 className="mt-5 text-4xl font-black tracking-tight text-slate-900 md:text-6xl">
-              Build your own knowledge operating system.
+              Train your thinking engine, not just your memory.
             </h1>
-            <p className="mt-5 text-base leading-7 text-slate-600 md:text-lg">
-              Practice cards daily, save weak concepts, and watch your mastery graph grow over time. Everything is scoped to your account.
+            <p className="mt-5 max-w-xl text-base leading-7 text-slate-700 md:text-lg">
+              Turn scattered study into a living system: practice with intent, lock in weak spots, and grow a knowledge graph that actually reflects your current level.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -81,16 +83,14 @@ export default async function HomePage() {
             ) : null}
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">
-              What you get
-            </h2>
+          <div className="fade-up float-card rounded-3xl border border-white/70 bg-white/80 p-6 shadow-xl shadow-sky-900/10 backdrop-blur">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">What you get</h2>
             <div className="mt-4 space-y-3">
-              <Feature icon="🎯" title="Adaptive practice" description="Review what you don't know yet and reinforce what you do." />
-              <Feature icon="📌" title="Saved concept queue" description="Pin weak concepts and track your improvement over time." />
-              <Feature icon="📝" title="Personal knowledge vault" description="Write and manage your own private notes and frameworks." />
-              <Feature icon="🌐" title="Knowledge graph" description="See how concepts connect and spot your weak links visually." />
-              <Feature icon="🔒" title="Private by default" description="All data is isolated to your account — nothing is shared." />
+              <Feature icon="🎯" title="Adaptive practice" description="Review what you do not know yet and reinforce what you do." tone="from-emerald-50 to-emerald-100" />
+              <Feature icon="📌" title="Saved concept queue" description="Pin weak concepts and track your improvement over time." tone="from-blue-50 to-blue-100" />
+              <Feature icon="📝" title="Personal knowledge vault" description="Write and manage your own private notes and frameworks." tone="from-amber-50 to-amber-100" />
+              <Feature icon="🌐" title="Knowledge graph" description="See how concepts connect and spot weak links visually." tone="from-cyan-50 to-cyan-100" />
+              <Feature icon="🔒" title="Private by default" description="All data is isolated to your account." tone="from-slate-100 to-slate-200" />
             </div>
           </div>
         </div>
@@ -118,9 +118,19 @@ function StatBox({
   );
 }
 
-function Feature({ icon, title, description }: { icon: string; title: string; description: string }) {
+function Feature({
+  icon,
+  title,
+  description,
+  tone,
+}: {
+  icon: string;
+  title: string;
+  description: string;
+  tone: string;
+}) {
   return (
-    <div className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50 p-4">
+    <div className={`flex gap-3 rounded-xl border border-white/70 bg-gradient-to-br ${tone} p-4`}>
       <span className="text-lg leading-none mt-0.5" aria-hidden="true">{icon}</span>
       <div>
         <p className="text-sm font-semibold text-slate-900">{title}</p>

@@ -9,13 +9,20 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck",
+    "env:setup:dev": "bash scripts/setup-dev-env.sh",
+    "check:env:dev": "node scripts/check-env.mjs --env dev --file .env.local",
+    "check:env:dev:runtime": "node scripts/check-env.mjs --env dev",
+    "check:env:prod": "node scripts/check-env.mjs --env prod",
+    "check:env:examples": "node scripts/check-env.mjs --env dev --file .env.dev.example --allow-placeholders && node scripts/check-env.mjs --env prod --file .env.prod.example --allow-placeholders",
     "smoke": "node scripts/smoke-check.mjs",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
     "build:cf": "opennextjs-cloudflare build",
-    "preview:cf": "opennextjs-cloudflare build && wrangler dev",
-    "deploy:cf": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "preview:cf": "opennextjs-cloudflare build && wrangler dev --env dev",
+    "deploy:cf": "npm run deploy:cf:prod",
+    "deploy:cf:dev": "opennextjs-cloudflare build && wrangler deploy --env dev .open-next/worker.js",
+    "deploy:cf:prod": "opennextjs-cloudflare build && wrangler deploy --env prod .open-next/worker.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.987.0",

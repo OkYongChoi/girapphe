@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches:
+      - dev
       - main
   workflow_dispatch:
 
@@ -24,19 +25,30 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Validate Env Templates
+        run: npm run check:env:examples
+
       - name: Lint and Typecheck
         run: npm run check
 
       - name: Build Cloudflare Bundle
         run: npm run build:cf
         env:
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci_build_placeholder_1234567890
 
-  deploy:
-    name: Deploy to Cloudflare
+  deploy_dev:
+    name: Deploy to Cloudflare (dev)
     runs-on: ubuntu-latest
     needs: ci
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/dev' &&
+      secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_DEV != '' &&
+      secrets.CLERK_SECRET_KEY_DEV != '' &&
+      secrets.DATABASE_URL_DEV != '' &&
+      vars.APP_BASE_URL_DEV != '' &&
+      secrets.CLOUDFLARE_API_TOKEN != '' &&
+      secrets.CLOUDFLARE_ACCOUNT_ID != ''
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,6 +62,71 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Validate Development Environment
+        run: npm run check:env:dev:runtime
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_DEV }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_DEV }}
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /login
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /signup
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /practice
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /practice
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+          APP_BASE_URL: ${{ vars.APP_BASE_URL_DEV }}
+
+      - name: Run Drizzle Migrations (dev)
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+
+      - name: Deploy Worker (dev)
+        run: npm run deploy:cf:dev
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_DEV }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_DEV }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+          APP_BASE_URL: ${{ vars.APP_BASE_URL_DEV }}
+
+  deploy_prod:
+    name: Deploy to Cloudflare (prod)
+    runs-on: ubuntu-latest
+    needs: ci
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY != '' &&
+      secrets.CLERK_SECRET_KEY != '' &&
+      secrets.DATABASE_URL != '' &&
+      vars.APP_BASE_URL != '' &&
+      secrets.CLOUDFLARE_API_TOKEN != '' &&
+      secrets.CLOUDFLARE_ACCOUNT_ID != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Validate Production Environment
+        run: npm run check:env:prod
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /login
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /signup
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /practice
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /practice
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+
       - name: Run Drizzle Migrations
         run: npm run db:migrate
         env:
@@ -58,6 +135,8 @@ jobs:
       - name: Deploy Worker
         run: npm run deploy:cf
         env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

@@ -6,10 +6,10 @@ import { usePathname } from 'next/navigation';
 const NAV_ITEMS = [
   { href: '/practice', label: 'Practice' },
   { href: '/saved', label: 'Saved' },
-  { href: '/my-knowledge', label: 'My Knowledge' },
-  { href: '/ranking', label: 'Ranking' },
   { href: '/knowledge', label: 'Knowledge Map' },
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/my-knowledge', label: 'My Knowledge' },
+  { href: '/ranking', label: 'Ranking' },
 ];
 
 function isActive(pathname: string, href: string) {
