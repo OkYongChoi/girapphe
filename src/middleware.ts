@@ -17,7 +17,9 @@ export default async function middleware(request: NextRequest, event: NextFetchE
 
   const handler = clerkMiddleware(async (auth, req) => {
     if (!isPublicRoute(req)) {
-      await auth.protect();
+      await auth.protect({
+        unauthenticatedUrl: new URL('/login', req.url).toString(),
+      });
     }
   });
 
