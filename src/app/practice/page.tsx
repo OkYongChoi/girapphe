@@ -13,8 +13,7 @@ export default async function PracticePage() {
     redirect('/login');
   }
 
-  const initialCard = await getNextCard();
-  const stats = await getUserStats();
+  const [initialCard, stats] = await Promise.all([getNextCard(), getUserStats()]);
   const total = stats.known + stats.saved + stats.unknown;
   const knownPercent = total > 0 ? Math.round((stats.known / total) * 100) : 0;
 
