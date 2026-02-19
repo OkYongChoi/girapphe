@@ -16,6 +16,76 @@ body {
   font-family: "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, -apple-system, sans-serif;
 }
 
+.hero-aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hero-aurora::before,
+.hero-aurora::after {
+  content: "";
+  position: absolute;
+  width: 34rem;
+  height: 34rem;
+  border-radius: 999px;
+  filter: blur(42px);
+  opacity: 0.28;
+  animation: drift 16s ease-in-out infinite alternate;
+}
+
+.hero-aurora::before {
+  top: -9rem;
+  right: -7rem;
+  background: radial-gradient(circle at 30% 30%, #14b8a6 0%, #0ea5e9 45%, transparent 70%);
+}
+
+.hero-aurora::after {
+  left: -10rem;
+  bottom: -10rem;
+  background: radial-gradient(circle at 40% 40%, #f59e0b 0%, #f97316 40%, transparent 70%);
+  animation-delay: 2s;
+}
+
+.fade-up {
+  animation: fadeUp 0.7s ease-out both;
+}
+
+.float-card {
+  animation: floatY 6s ease-in-out infinite;
+}
+
+@keyframes drift {
+  from {
+    transform: translateY(0) translateX(0) scale(1);
+  }
+  to {
+    transform: translateY(1.3rem) translateX(-1.4rem) scale(1.08);
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes floatY {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
