@@ -11,6 +11,14 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default async function middleware(request: NextRequest, event: NextFetchEvent) {
+  // Redirect non-www to www in production
+  const host = request.headers.get('host') ?? '';
+  if (host === 'girapphe.com') {
+    const url = request.nextUrl.clone();
+    url.host = 'www.girapphe.com';
+    return NextResponse.redirect(url, 301);
+  }
+
   if (!hasValidClerkConfig()) {
     return NextResponse.next();
   }
