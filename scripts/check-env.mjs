@@ -73,6 +73,7 @@ function isPlaceholder(value) {
   if (!value) return true;
   const normalized = value.trim().toLowerCase();
   return (
+    normalized.includes('...') ||
     normalized === '' ||
     normalized === 'changeme' ||
     normalized === 'replace_me' ||
