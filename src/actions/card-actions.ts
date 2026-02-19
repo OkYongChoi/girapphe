@@ -39,6 +39,8 @@ type LeaderboardRow = {
   total_count: string;
 };
 
+let cardSchemaReady = false;
+
 const BASE_MOCK_CARDS: KnowledgeCard[] = [
   {
     id: 'burg_method',
@@ -156,6 +158,79 @@ for (const edge of GRAPH_EDGES) {
   const outgoing = PREREQ_OUTGOING.get(edge.source) ?? [];
   outgoing.push(edge.target);
   PREREQ_OUTGOING.set(edge.source, outgoing);
+}
+
+async function ensureCardSchema() {
+  if (!process.env.DATABASE_URL || cardSchemaReady) return;
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS knowledge_cards (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      summary TEXT,
+      explanation TEXT,
+      wiki_url TEXT,
+      domain TEXT CHECK (domain IN ('signal', 'control', 'info', 'ml', 'other')),
+      level TEXT CHECK (level IN ('memorize', 'understand', 'connect', 'apply')),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_card_states (
+      user_id TEXT NOT NULL,
+      card_id TEXT NOT NULL REFERENCES knowledge_cards(id) ON DELETE CASCADE,
+      status TEXT CHECK (status IN ('known', 'saved', 'unknown')),
+      confidence INTEGER DEFAULT 0,
+      last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      PRIMARY KEY (user_id, card_id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_card_states_user_id ON user_card_states(user_id);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_card_states_status ON user_card_states(status);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_cards_domain ON knowledge_cards(domain);
+  `);
+
+  const params: unknown[] = [];
+  const tuples: string[] = [];
+  for (const card of MOCK_CARDS) {
+    const base = params.length;
+    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`);
+    params.push(
+      card.id,
+      card.title,
+      card.summary,
+      card.explanation,
+      card.wiki_url,
+      card.domain,
+      card.level
+    );
+  }
+
+  if (tuples.length > 0) {
+    await pool.query(
+      `
+      INSERT INTO knowledge_cards (id, title, summary, explanation, wiki_url, domain, level)
+      VALUES ${tuples.join(',\n')}
+      ON CONFLICT (id) DO UPDATE SET
+        title = EXCLUDED.title,
+        summary = EXCLUDED.summary,
+        explanation = EXCLUDED.explanation,
+        wiki_url = EXCLUDED.wiki_url,
+        domain = EXCLUDED.domain,
+        level = EXCLUDED.level;
+      `,
+      params
+    );
+  }
+
+  cardSchemaReady = true;
 }
 
 function normalizeGraphNodeId(nodeId: string): string {
@@ -278,6 +353,8 @@ export async function getNextCard() {
   }
 
   try {
+    await ensureCardSchema();
+
     const query = `
       SELECT kc.*
            , ucs.status
@@ -296,8 +373,8 @@ export async function getNextCard() {
     const fallbackRes = await pool.query('SELECT * FROM knowledge_cards ORDER BY RANDOM() LIMIT 1;');
     return (fallbackRes.rows[0] as KnowledgeCard) ?? null;
   } catch (error) {
-    console.warn('Database query failed. Using mock data.', error);
-    return MOCK_CARDS[Math.floor(Math.random() * MOCK_CARDS.length)];
+    console.error('Error in getNextCard:', error);
+    return null;
   }
 }
 
@@ -371,6 +448,8 @@ export async function saveCardState(cardId: string, status: CardStatus) {
   }
 
   try {
+    await ensureCardSchema();
+
     const query = `
       INSERT INTO user_card_states (user_id, card_id, status, last_seen)
       VALUES ($1, $2, $3, NOW())
@@ -410,7 +489,7 @@ export async function saveCardState(cardId: string, status: CardStatus) {
     return { success: true };
   } catch (error) {
     console.error('Error in saveCardState:', error);
-    return { success: true, warning: 'Mock mode: State not saved to DB' };
+    return { success: false };
   }
 }
 
@@ -422,6 +501,8 @@ export async function getSavedCards() {
   }
 
   try {
+    await ensureCardSchema();
+
     const query = `
       SELECT kc.*, ucs.status, ucs.last_seen
       FROM knowledge_cards kc
@@ -433,7 +514,7 @@ export async function getSavedCards() {
     return res.rows;
   } catch (error) {
     console.error('Error in getSavedCards:', error);
-    return MOCK_CARDS.map((c) => ({ ...c, status: 'saved', last_seen: new Date() }));
+    return [];
   }
 }
 
@@ -445,6 +526,8 @@ export async function removeSavedCard(cardId: string) {
   }
 
   try {
+    await ensureCardSchema();
+
     await pool.query(
       `
       DELETE FROM user_card_states
@@ -453,9 +536,20 @@ export async function removeSavedCard(cardId: string) {
       [user.id, cardId]
     );
 
+    await pool.query(
+      `
+      DELETE FROM user_knowledge_states
+      WHERE user_id = $1 AND node_id = $2;
+      `,
+      [user.id, normalizeGraphNodeId(cardId)]
+    );
+
     revalidatePath('/saved');
     revalidatePath('/practice');
     revalidatePath('/knowledge');
+    revalidatePath('/dashboard');
+    revalidatePath('/');
+    revalidatePath('/ranking');
 
     return { success: true };
   } catch (error) {
@@ -472,6 +566,8 @@ export async function getUserStats() {
   }
 
   try {
+    await ensureCardSchema();
+
     const query = `
       SELECT status, COUNT(*) as count
       FROM user_card_states
@@ -495,7 +591,7 @@ export async function getUserStats() {
     return stats;
   } catch (error) {
     console.error('Error in getUserStats:', error);
-    return { known: 12, saved: 5, unknown: 3 };
+    return { known: 0, saved: 0, unknown: 0 };
   }
 }
 
@@ -512,6 +608,8 @@ export async function getAllCardsWithStatus() {
   }
 
   try {
+    await ensureCardSchema();
+
     const query = `
       SELECT kc.*, ucs.status
       FROM knowledge_cards kc
@@ -524,12 +622,7 @@ export async function getAllCardsWithStatus() {
     return res.rows as (KnowledgeCard & { status: CardStatus | null })[];
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
-    return MOCK_CARDS.map((c) => ({
-      ...c,
-      status: ['known', 'saved', 'unknown', null][
-        Math.floor(Math.random() * 4)
-      ] as CardStatus | null,
-    }));
+    return [];
   }
 }
 
@@ -578,6 +671,8 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
   }
 
   try {
+    await ensureCardSchema();
+
     const query = `
       SELECT
         user_id,
@@ -613,6 +708,8 @@ export async function getUserCardDomainProgress(): Promise<UserCardDomainProgres
   }
 
   try {
+    await ensureCardSchema();
+
     const query = `
       SELECT
         COALESCE(kc.domain, 'other') AS domain,
