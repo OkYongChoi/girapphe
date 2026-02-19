@@ -129,6 +129,7 @@ npm run build:cf
 ```bash
 npm run deploy:cf:prod
 ```
+This command loads runtime vars from `.env` (local deploy path).
 6. Set remaining env vars in Worker settings:
 - `DATABASE_URL`
 - `APP_BASE_URL`
@@ -138,6 +139,7 @@ Dev deploy command:
 ```bash
 npm run deploy:cf:dev
 ```
+This command loads runtime vars from `.env.local` (local dev path).
 
 Per-environment secret update:
 ```bash
