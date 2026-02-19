@@ -581,7 +581,7 @@ export async function getUserStats() {
       WHERE user_id = $1
       GROUP BY status;
     `;
-    const res = await pool.query(query, [user.id]);
+    const res = await pool.query<{ status: string; count: string }>(query, [user.id]);
 
     const stats = {
       known: 0,
