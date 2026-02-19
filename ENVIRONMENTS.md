@@ -27,9 +27,9 @@ npm run check:env:dev
 
 Local file rule:
 - Use `.env.local` for local development values.
-- Do not rely on `.env` for active local runtime configuration.
+- Do not rely on `.env.production` for active local runtime configuration.
 - Local dev deploy commands (`deploy:cf:dev`, `preview:cf`) load from `.env.local`.
-- Local prod deploy command (`deploy:cf:prod`) loads from `.env`.
+- Local prod deploy command (`deploy:cf:prod`) loads from `.env.production`.
 - In CI, these commands fall back to already-injected environment variables when env files are absent.
 
 ## 3. Required Variables
