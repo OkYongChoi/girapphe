@@ -14,9 +14,20 @@ This project uses separate configuration for local development and production.
 - Local only: `.env.local` (gitignored)
 - Cloudflare runtime: Worker Secrets (`wrangler secret put ...`)
 - CI/CD: GitHub Secrets
-- Repository files (`.env.example`, docs): placeholders only
+- Repository files (`.env.dev.example`, `.env.prod.example`, `.env.example`, docs): placeholders only
 
 Never commit real keys, tokens, or database credentials.
+
+Template usage:
+
+```bash
+npm run env:setup:dev
+npm run check:env:dev
+```
+
+Local file rule:
+- Use `.env.local` for local development values.
+- Do not rely on `.env` for active local runtime configuration.
 
 ## 3. Required Variables
 
@@ -31,11 +42,20 @@ Always set:
 - `DATABASE_URL`
 - `APP_BASE_URL`
 
+Validation commands:
+
+- Template consistency check: `npm run check:env:examples`
+- Local dev file check: `npm run check:env:dev`
+- Production env check (CI/runtime): `npm run check:env:prod`
+
 ## 4. Deployment Rules
 
 - Build/deploy production with production keys only.
 - Do not reuse dev keys for production domains.
 - Keep `main` for production and `dev` for integration/testing.
+- GitHub Actions branch mapping:
+  - Push to `dev` -> deploy `--env dev`
+  - Push to `main` -> deploy `--env prod`
 
 ## 4.1 Codebase-Enforced Separation
 

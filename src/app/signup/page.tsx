@@ -1,7 +1,14 @@
 import { SignUp } from '@clerk/nextjs';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
+import { getCurrentUser } from '@/lib/auth';
+import { redirect } from 'next/navigation';
 
-export default function SignupPage() {
+export default async function SignupPage() {
+  const user = await getCurrentUser();
+  if (user) {
+    redirect('/practice');
+  }
+
   if (!hasValidClerkConfig()) {
     return (
       <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-16">
@@ -22,7 +29,7 @@ export default function SignupPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-16">
-      <SignUp />
+      <SignUp forceRedirectUrl="/practice" fallbackRedirectUrl="/practice" />
     </main>
   );
 }
