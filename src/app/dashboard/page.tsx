@@ -72,8 +72,7 @@ export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
 
-  const stats = await getUserStats();
-  const domains = await getUserCardDomainProgress();
+  const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress()]);
 
   const totalReviewed = stats.known + stats.saved + stats.unknown;
   const knownPercent = totalReviewed > 0 ? (stats.known / totalReviewed) * 100 : 0;

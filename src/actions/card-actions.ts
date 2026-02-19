@@ -40,6 +40,7 @@ type LeaderboardRow = {
 };
 
 let cardSchemaReady = false;
+let cardSchemaPromise: Promise<void> | null = null;
 
 const BASE_MOCK_CARDS: KnowledgeCard[] = [
   {
@@ -162,6 +163,12 @@ for (const edge of GRAPH_EDGES) {
 
 async function ensureCardSchema() {
   if (!process.env.DATABASE_URL || cardSchemaReady) return;
+  if (cardSchemaPromise) return cardSchemaPromise;
+  cardSchemaPromise = _initCardSchema();
+  return cardSchemaPromise;
+}
+
+async function _initCardSchema() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS knowledge_cards (
