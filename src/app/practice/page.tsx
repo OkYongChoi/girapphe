@@ -14,20 +14,31 @@ export default async function PracticePage() {
   }
 
   const [initialCard, stats] = await Promise.all([getNextCard(), getUserStats()]);
-  const total = stats.known + stats.saved + stats.unknown;
-  const knownPercent = total > 0 ? Math.round((stats.known / total) * 100) : 0;
 
   return (
     <main id="main-content" className="min-h-screen bg-gray-50 flex flex-col">
       <Navbar />
 
-      <div className="mx-auto w-full max-w-5xl flex-grow p-4 md:p-6">
+      <div className="mx-auto w-full max-w-lg flex-grow px-4 py-4 md:py-6">
+        {/* Header */}
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Practice</h1>
-            <p className="text-sm text-gray-500">Answer quickly and keep momentum.</p>
+            <p className="text-sm text-gray-400">Review concepts and track what you know.</p>
           </div>
           <div className="flex gap-2">
+            <Link
+              href="/saved"
+              className="rounded-lg border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              Saved
+            </Link>
+            <Link
+              href="/my-knowledge"
+              className="rounded-lg border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              My knowledge
+            </Link>
             <form
               action={async () => {
                 'use server';
@@ -36,61 +47,16 @@ export default async function PracticePage() {
             >
               <button
                 type="submit"
-                className="rounded-md border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors"
+                className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
               >
-                Reset progress
+                Reset
               </button>
             </form>
-            <Link href="/saved" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 transition-colors">
-              Saved queue
-            </Link>
-            <Link href="/my-knowledge" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 transition-colors">
-              My knowledge
-            </Link>
           </div>
         </div>
 
-        <div className="flex flex-col items-center justify-center">
-          <CardViewer initialCard={initialCard} />
-
-          <div
-            aria-label="Session knowledge stats"
-            className="mt-8 w-full max-w-md rounded-xl border bg-white shadow-sm overflow-hidden"
-          >
-            <div className="grid grid-cols-3 divide-x">
-              <div className="px-4 py-3 text-center">
-                <span className="block text-xl font-bold text-emerald-700">{stats.known}</span>
-                <span className="text-xs text-gray-500">Known</span>
-              </div>
-              <div className="px-4 py-3 text-center">
-                <span className="block text-xl font-bold text-blue-600">{stats.saved}</span>
-                <span className="text-xs text-gray-500">Saved</span>
-              </div>
-              <div className="px-4 py-3 text-center">
-                <span className="block text-xl font-bold text-red-500">{stats.unknown}</span>
-                <span className="text-xs text-gray-500">Unknown</span>
-              </div>
-            </div>
-            {total > 0 && (
-              <div className="px-4 pb-3">
-                <div
-                  className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100"
-                  role="progressbar"
-                  aria-label={`${knownPercent}% of reviewed concepts marked as known`}
-                  aria-valuenow={knownPercent}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                >
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all"
-                    style={{ width: `${knownPercent}%` }}
-                  />
-                </div>
-                <p className="mt-1 text-right text-xs text-gray-400">{knownPercent}% known</p>
-              </div>
-            )}
-          </div>
-        </div>
+        {/* Card viewer — stats are shown inside */}
+        <CardViewer initialCard={initialCard} initialStats={stats} />
       </div>
     </main>
   );

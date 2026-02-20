@@ -1,33 +1,28 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { KnowledgeCard, saveCardState, getNextCard, CardStatus } from '@/actions/card-actions';
+import { KnowledgeCard, saveCardState, getNextCard, CardStatus, getUserStats } from '@/actions/card-actions';
 import Card from './card';
 import Link from 'next/link';
 
 interface CardViewerProps {
   initialCard: KnowledgeCard | null;
+  initialStats: { known: number; saved: number; unknown: number };
 }
 
-const ACTION_LABELS: Record<CardStatus | 'skip', string> = {
-  known: 'Marked as known ✓',
-  saved: 'Saved for review ✓',
-  unknown: 'Marked as unknown',
-  skip: 'Skipped',
-};
-
-export default function CardViewer({ initialCard }: CardViewerProps) {
+export default function CardViewer({ initialCard, initialStats }: CardViewerProps) {
   const [card, setCard] = useState<KnowledgeCard | null>(initialCard);
   const [history, setHistory] = useState<KnowledgeCard[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastAction, setLastAction] = useState<CardStatus | 'skip' | null>(null);
+  const [stats, setStats] = useState(initialStats);
 
   const reviewedCount = useMemo(() => history.length, [history.length]);
+  const total = stats.known + stats.saved + stats.unknown;
+  const knownPercent = total > 0 ? Math.round((stats.known / total) * 100) : 0;
 
   const handleAction = useCallback(async (status: CardStatus) => {
     if (!card) return;
-
     setLoading(true);
     setError(null);
     setHistory(prev => [...prev, card]);
@@ -35,16 +30,15 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
     try {
       const saveResult = await saveCardState(card.id, status);
       if (!saveResult.success) {
-        setError('Could not save your answer. Please try again.');
+        setError('Could not save. Please try again.');
         return;
       }
-
-      const next = await getNextCard();
+      const [next, newStats] = await Promise.all([getNextCard(), getUserStats()]);
       setCard(next);
-      setLastAction(status);
+      setStats(newStats);
     } catch (e) {
       console.error('handleAction failed:', e);
-      setError('Something went wrong while loading the next card.');
+      setError('Something went wrong.');
     } finally {
       setLoading(false);
     }
@@ -55,7 +49,6 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
     const previousCard = history[history.length - 1];
     setHistory(prev => prev.slice(0, -1));
     setCard(previousCard);
-    setLastAction(null);
   }, [history]);
 
   const handleSkip = useCallback(async () => {
@@ -63,11 +56,9 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
     setLoading(true);
     setError(null);
     setHistory(prev => [...prev, card]);
-
     try {
       const next = await getNextCard();
       setCard(next);
-      setLastAction('skip');
     } catch (e) {
       console.error('handleSkip failed:', e);
       setError('Could not load the next card.');
@@ -80,7 +71,6 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
     const onKeyDown = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
       if (loading || !card) return;
       if (event.key === '1') void handleAction('known');
       if (event.key === '2') void handleAction('saved');
@@ -88,29 +78,46 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
       if (event.key === 'ArrowRight') void handleSkip();
       if (event.key === 'ArrowLeft') handlePrevious();
     };
-
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [loading, card, handleAction, handleSkip, handlePrevious]);
 
+  // ── All done ────────────────────────────────────────────────
   if (!card) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-center max-w-md mx-auto">
+      <div className="flex flex-col items-center justify-center px-6 py-16 text-center max-w-sm mx-auto">
         <div className="mb-4 text-5xl" aria-hidden="true">🎉</div>
-        <p className="text-xl font-semibold text-gray-800">All caught up!</p>
-        <p className="text-gray-500 mt-2 text-sm">
-          You reviewed {reviewedCount} card{reviewedCount !== 1 ? 's' : ''} this session. Check back later for new ones.
+        <p className="text-xl font-bold text-gray-900">All caught up!</p>
+        <p className="text-gray-500 mt-2 text-sm leading-relaxed">
+          You reviewed {reviewedCount} card{reviewedCount !== 1 ? 's' : ''} this session.
         </p>
-        <div className="mt-6 flex gap-2 flex-wrap justify-center">
+
+        {/* Session summary */}
+        <div className="mt-6 w-full grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl bg-emerald-50 border border-emerald-100 py-3">
+            <span className="block text-2xl font-bold text-emerald-700">{stats.known}</span>
+            <span className="text-xs text-emerald-600">Known</span>
+          </div>
+          <div className="rounded-xl bg-blue-50 border border-blue-100 py-3">
+            <span className="block text-2xl font-bold text-blue-600">{stats.saved}</span>
+            <span className="text-xs text-blue-500">Saved</span>
+          </div>
+          <div className="rounded-xl bg-slate-50 border border-slate-200 py-3">
+            <span className="block text-2xl font-bold text-slate-500">{stats.unknown}</span>
+            <span className="text-xs text-slate-400">Review</span>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-col gap-2 w-full">
           <Link
             href="/saved"
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+            className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors text-center"
           >
             Review saved concepts
           </Link>
           <Link
             href="/knowledge"
-            className="rounded-lg border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+            className="w-full rounded-xl border px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center"
           >
             Explore knowledge graph
           </Link>
@@ -119,71 +126,100 @@ export default function CardViewer({ initialCard }: CardViewerProps) {
     );
   }
 
+  // ── Active card ──────────────────────────────────────────────
   return (
-    <div className="flex flex-col items-center w-full max-w-md mx-auto">
-      <div className="w-full flex justify-between items-center mb-4">
+    <div className="flex flex-col w-full max-w-md mx-auto">
+
+      {/* Progress bar + stats — top, compact */}
+      <div className="mb-4 rounded-xl bg-white border border-gray-100 shadow-sm px-4 py-2.5">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="flex items-center gap-3 text-xs font-medium">
+            <span className="text-emerald-600">✓ {stats.known}</span>
+            <span className="text-blue-500">🔖 {stats.saved}</span>
+            <span className="text-slate-400">↩ {stats.unknown}</span>
+          </div>
+          <span className="text-xs text-gray-400" aria-live="polite">
+            {reviewedCount > 0 ? `${reviewedCount} reviewed` : 'Start reviewing'}
+          </span>
+        </div>
+        <div
+          className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100"
+          role="progressbar"
+          aria-label={`${knownPercent}% known`}
+          aria-valuenow={knownPercent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <div
+            className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+            style={{ width: `${knownPercent}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Previous / Skip nav */}
+      <div className="flex justify-between items-center mb-3">
         <button
           onClick={handlePrevious}
           disabled={history.length === 0}
           aria-label="Go to previous card"
-          className="text-sm text-gray-600 hover:text-gray-900 disabled:opacity-30 flex items-center gap-1 transition-colors rounded-md px-2 py-1 hover:bg-gray-100 disabled:pointer-events-none"
+          className="text-sm text-gray-500 hover:text-gray-900 disabled:opacity-30 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:pointer-events-none"
         >
-          ← Previous
+          ← Prev
         </button>
-        <span className="text-xs text-gray-400" aria-live="polite" aria-atomic="true">
-          {reviewedCount > 0 ? `${reviewedCount} reviewed` : 'Session started'}
-        </span>
         <button
           onClick={handleSkip}
           disabled={loading}
           aria-label="Skip to next card"
-          className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1 transition-colors rounded-md px-2 py-1 hover:bg-gray-100 disabled:opacity-50"
+          className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:opacity-50"
         >
           Skip →
         </button>
       </div>
 
+      {/* Card */}
       <Card key={card.id} card={card} />
 
-      <div aria-live="polite" aria-atomic="true" className="mt-3 min-h-[1.25rem] text-center">
-        {error ? (
-          <p className="text-xs text-red-600">{error}</p>
-        ) : loading ? (
-          <p className="text-xs text-gray-400 animate-pulse">Loading…</p>
-        ) : lastAction ? (
-          <p className="text-xs text-gray-500">{ACTION_LABELS[lastAction]}</p>
-        ) : null}
+      {/* Error / loading feedback */}
+      <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1rem] text-center">
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        {loading && !error && <p className="text-xs text-gray-400 animate-pulse">Loading…</p>}
       </div>
 
-      <div className="flex w-full gap-3 mt-4" role="group" aria-label="Rate this card">
+      {/* Action buttons — large tap targets for mobile */}
+      <div className="mt-4 flex w-full gap-2" role="group" aria-label="Rate this card">
         <button
-          onClick={() => handleAction('known')}
+          onClick={() => handleAction('unknown')}
           disabled={loading}
-          aria-label="Mark as known (shortcut: 1)"
-          className="flex-1 py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-medium rounded-lg transition-colors disabled:opacity-50 border border-emerald-200"
+          aria-label="Mark as unknown (shortcut: 3)"
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-slate-50 hover:bg-slate-100 text-slate-600 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-slate-200 active:scale-95"
         >
-          Known <kbd className="ml-1 text-xs font-mono opacity-60">1</kbd>
+          <span className="text-lg">↩</span>
+          <span className="text-xs">Again</span>
         </button>
         <button
           onClick={() => handleAction('saved')}
           disabled={loading}
           aria-label="Save for later review (shortcut: 2)"
-          className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-blue-200 active:scale-95"
         >
-          Save <kbd className="ml-1 text-xs font-mono opacity-60">2</kbd>
+          <span className="text-lg">🔖</span>
+          <span className="text-xs">Save</span>
         </button>
         <button
-          onClick={() => handleAction('unknown')}
+          onClick={() => handleAction('known')}
           disabled={loading}
-          aria-label="Mark as unknown (shortcut: 3)"
-          className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors disabled:opacity-50 border border-slate-200"
+          aria-label="Mark as known (shortcut: 1)"
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-emerald-200 active:scale-95"
         >
-          Unknown <kbd className="ml-1 text-xs font-mono opacity-60">3</kbd>
+          <span className="text-lg">✓</span>
+          <span className="text-xs">Known</span>
         </button>
       </div>
 
-      <p className="mt-3 text-xs text-gray-400 text-center">
-        Keyboard: <kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> save · <kbd className="font-mono">3</kbd> unknown · <kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip
+      {/* Keyboard hint — desktop only */}
+      <p className="mt-3 text-xs text-gray-300 text-center hidden sm:block">
+        <kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> save · <kbd className="font-mono">3</kbd> again · <kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip
       </p>
     </div>
   );
