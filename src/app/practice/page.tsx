@@ -7,13 +7,16 @@ import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PracticePage() {
+export default async function PracticePage(props: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   const user = await getCurrentUser();
   if (!user) {
     redirect('/login');
   }
 
-  const [initialCard, stats] = await Promise.all([getNextCard(), getUserStats()]);
+  const searchParams = await props.searchParams;
+  const mode = searchParams?.mode === 'review' ? 'review' : 'new';
+
+  const [initialCard, stats] = await Promise.all([getNextCard(mode), getUserStats()]);
 
   return (
     <main id="main-content" className="min-h-screen bg-gray-50 flex flex-col">
@@ -55,8 +58,24 @@ export default async function PracticePage() {
           </div>
         </div>
 
+        {/* Mode Toggle */}
+        <div className="mb-6 flex w-full max-w-lg bg-gray-200 p-1 rounded-lg">
+          <Link 
+            href="/practice?mode=new" 
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex-1 text-center ${mode === 'new' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Learn New
+          </Link>
+          <Link 
+            href="/practice?mode=review" 
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex-1 text-center ${mode === 'review' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Review Saved
+          </Link>
+        </div>
+
         {/* Card viewer — stats are shown inside */}
-        <CardViewer initialCard={initialCard} initialStats={stats} />
+        <CardViewer initialCard={initialCard} initialStats={stats} mode={mode} />
       </div>
     </main>
   );

@@ -345,7 +345,7 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
   };
 }
 
-export async function getNextCard() {
+export async function getNextCard(mode: 'new' | 'review' = 'new') {
   const user = await requireCurrentUser();
 
   if (!process.env.DATABASE_URL) {
@@ -355,27 +355,42 @@ export async function getNextCard() {
       last_seen: null,
     }));
 
-    const selected = selectSmartSuggestedCard(mockRows);
+    const selected = selectSmartSuggestedCard(mockRows, mode);
     return selected ?? MOCK_CARDS[Math.floor(Math.random() * MOCK_CARDS.length)];
   }
 
   try {
     await ensureCardSchema();
 
-    const query = `
-      SELECT kc.*
-           , ucs.status
-           , ucs.last_seen
-      FROM knowledge_cards kc
-      LEFT JOIN user_card_states ucs
-        ON kc.id = ucs.card_id AND ucs.user_id = $1
-    `;
+    let query = '';
+    if (mode === 'review') {
+      query = `
+        SELECT kc.*
+             , ucs.status
+             , ucs.last_seen
+        FROM knowledge_cards kc
+        JOIN user_card_states ucs
+          ON kc.id = ucs.card_id AND ucs.user_id = $1
+        WHERE ucs.status IN ('saved', 'unknown')
+      `;
+    } else {
+      query = `
+        SELECT kc.*
+             , ucs.status
+             , ucs.last_seen
+        FROM knowledge_cards kc
+        LEFT JOIN user_card_states ucs
+          ON kc.id = ucs.card_id AND ucs.user_id = $1
+      `;
+    }
 
     const res = await pool.query(query, [user.id]);
     if (res.rows.length > 0) {
-      const selected = selectSmartSuggestedCard(res.rows as CardWithStatusRow[]);
+      const selected = selectSmartSuggestedCard(res.rows as CardWithStatusRow[], mode);
       if (selected) return selected;
     }
+
+    if (mode === 'review') return null;
 
     const fallbackRes = await pool.query('SELECT * FROM knowledge_cards ORDER BY RANDOM() LIMIT 1;');
     return (fallbackRes.rows[0] as KnowledgeCard) ?? null;
@@ -385,7 +400,7 @@ export async function getNextCard() {
   }
 }
 
-function selectSmartSuggestedCard(cards: CardWithStatusRow[]): KnowledgeCard | null {
+function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'review'): KnowledgeCard | null {
   if (cards.length === 0) return null;
 
   const nodeStatusById = new Map<string, CardStatus | null>();
@@ -436,6 +451,9 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[]): KnowledgeCard | n
       lastSeenTs,
       randomTieBreaker: Math.random(),
     };
+  }).filter((candidate) => {
+    if (mode === 'new') return candidate.card.status === null;
+    return candidate.card.status === 'saved' || candidate.card.status === 'unknown';
   });
 
   candidates.sort((a, b) => {

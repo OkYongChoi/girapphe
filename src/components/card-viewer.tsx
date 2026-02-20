@@ -8,9 +8,10 @@ import Link from 'next/link';
 interface CardViewerProps {
   initialCard: KnowledgeCard | null;
   initialStats: { known: number; saved: number; unknown: number };
+  mode: 'new' | 'review';
 }
 
-export default function CardViewer({ initialCard, initialStats }: CardViewerProps) {
+export default function CardViewer({ initialCard, initialStats, mode }: CardViewerProps) {
   const [card, setCard] = useState<KnowledgeCard | null>(initialCard);
   const [history, setHistory] = useState<KnowledgeCard[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,18 +26,18 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
 
   // fetch next card, skipping IDs already seen this session
   const fetchNext = useCallback(async (): Promise<KnowledgeCard | null> => {
-    const next = await getNextCard();
+    const next = await getNextCard(mode);
     if (!next) return null;
     // if same card returned, try once more (server may not exclude seen IDs)
     if (seenIds.current.has(next.id)) {
-      const retry = await getNextCard();
+      const retry = await getNextCard(mode);
       if (!retry || seenIds.current.has(retry.id)) return null;
       seenIds.current.add(retry.id);
       return retry;
     }
     seenIds.current.add(next.id);
     return next;
-  }, []);
+  }, [mode]);
 
   const handleAction = useCallback(async (status: CardStatus) => {
     if (!card || loading) return;
@@ -106,9 +107,11 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
   // ── All done ─────────────────────────────────────────────────
   if (!card) {
     return (
-      <div className="flex flex-col items-center justify-center px-6 py-16 text-center max-w-sm mx-auto">
+      <div className="flex flex-col items-center justify-center px-6 py-16 text-center max-w-sm mx-auto bg-white border border-gray-100 rounded-2xl shadow-sm mt-4">
         <div className="mb-4 text-5xl" aria-hidden="true">🎉</div>
-        <p className="text-xl font-bold text-gray-900">All caught up!</p>
+        <p className="text-xl font-bold text-gray-900">
+          {mode === 'review' ? "You're all caught up on saved items!" : "All caught up on new cards!"}
+        </p>
         <p className="text-gray-500 mt-2 text-sm leading-relaxed">
           You reviewed {reviewedCount} card{reviewedCount !== 1 ? 's' : ''} this session.
         </p>

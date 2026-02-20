@@ -132,11 +132,11 @@ export default function Card({ card, interactiveQuizMode = true }: CardProps) {
       )}
 
       {card.explanation && showExplanation && (
-        <section aria-label="Key facts and formulas" className="bg-amber-50 border border-amber-100 p-4 rounded-lg text-sm text-gray-800">
-          <h3 className="text-xs font-bold text-amber-800 uppercase tracking-widest mb-2">
-            💡 Key Facts & Formulas
-          </h3>
-          <MathText text={card.explanation} className="text-sm leading-relaxed" />
+        <section aria-label="Key facts and formulas" className="bg-amber-50 border border-amber-100 p-4 rounded-lg text-sm text-gray-800 overflow-y-auto max-h-48 custom-scrollbar">
+           <h3 className="text-xs font-bold text-amber-800 uppercase tracking-widest mb-2">
+             💡 Key Facts & Formulas
+           </h3>
+           <MathText text={card.explanation} className="text-sm leading-relaxed" />
         </section>
       )}
 
