@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import { KnowledgeCard, saveCardState, getNextCard, CardStatus, getUserStats } from '@/actions/card-actions';
 import Card from './card';
 import Link from 'next/link';
@@ -16,13 +16,30 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState(initialStats);
+  // track IDs seen this session so skip doesn't loop back
+  const seenIds = useRef<Set<string>>(initialCard ? new Set([initialCard.id]) : new Set());
 
   const reviewedCount = useMemo(() => history.length, [history.length]);
   const total = stats.known + stats.saved + stats.unknown;
   const knownPercent = total > 0 ? Math.round((stats.known / total) * 100) : 0;
 
+  // fetch next card, skipping IDs already seen this session
+  const fetchNext = useCallback(async (): Promise<KnowledgeCard | null> => {
+    const next = await getNextCard();
+    if (!next) return null;
+    // if same card returned, try once more (server may not exclude seen IDs)
+    if (seenIds.current.has(next.id)) {
+      const retry = await getNextCard();
+      if (!retry || seenIds.current.has(retry.id)) return null;
+      seenIds.current.add(retry.id);
+      return retry;
+    }
+    seenIds.current.add(next.id);
+    return next;
+  }, []);
+
   const handleAction = useCallback(async (status: CardStatus) => {
-    if (!card) return;
+    if (!card || loading) return;
     setLoading(true);
     setError(null);
     setHistory(prev => [...prev, card]);
@@ -31,41 +48,45 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
       const saveResult = await saveCardState(card.id, status);
       if (!saveResult.success) {
         setError('Could not save. Please try again.');
+        setHistory(prev => prev.slice(0, -1));
         return;
       }
-      const [next, newStats] = await Promise.all([getNextCard(), getUserStats()]);
+      const [next, newStats] = await Promise.all([fetchNext(), getUserStats()]);
       setCard(next);
       setStats(newStats);
     } catch (e) {
       console.error('handleAction failed:', e);
       setError('Something went wrong.');
+      setHistory(prev => prev.slice(0, -1));
     } finally {
       setLoading(false);
     }
-  }, [card]);
+  }, [card, loading, fetchNext]);
 
   const handlePrevious = useCallback(() => {
     if (history.length === 0) return;
     const previousCard = history[history.length - 1];
     setHistory(prev => prev.slice(0, -1));
     setCard(previousCard);
+    setError(null);
   }, [history]);
 
   const handleSkip = useCallback(async () => {
-    if (!card) return;
+    if (!card || loading) return;
     setLoading(true);
     setError(null);
     setHistory(prev => [...prev, card]);
     try {
-      const next = await getNextCard();
+      const next = await fetchNext();
       setCard(next);
     } catch (e) {
       console.error('handleSkip failed:', e);
       setError('Could not load the next card.');
+      setHistory(prev => prev.slice(0, -1));
     } finally {
       setLoading(false);
     }
-  }, [card]);
+  }, [card, loading, fetchNext]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -82,7 +103,7 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [loading, card, handleAction, handleSkip, handlePrevious]);
 
-  // ── All done ────────────────────────────────────────────────
+  // ── All done ─────────────────────────────────────────────────
   if (!card) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center max-w-sm mx-auto">
@@ -92,7 +113,6 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
           You reviewed {reviewedCount} card{reviewedCount !== 1 ? 's' : ''} this session.
         </p>
 
-        {/* Session summary */}
         <div className="mt-6 w-full grid grid-cols-3 gap-2 text-center">
           <div className="rounded-xl bg-emerald-50 border border-emerald-100 py-3">
             <span className="block text-2xl font-bold text-emerald-700">{stats.known}</span>
@@ -104,7 +124,7 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
           </div>
           <div className="rounded-xl bg-slate-50 border border-slate-200 py-3">
             <span className="block text-2xl font-bold text-slate-500">{stats.unknown}</span>
-            <span className="text-xs text-slate-400">Review</span>
+            <span className="text-xs text-slate-400">Again</span>
           </div>
         </div>
 
@@ -130,7 +150,7 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
   return (
     <div className="flex flex-col w-full max-w-md mx-auto">
 
-      {/* Progress bar + stats — top, compact */}
+      {/* Progress bar + stats */}
       <div className="mb-4 rounded-xl bg-white border border-gray-100 shadow-sm px-4 py-2.5">
         <div className="flex items-center justify-between mb-1.5">
           <div className="flex items-center gap-3 text-xs font-medium">
@@ -157,11 +177,11 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
         </div>
       </div>
 
-      {/* Previous / Skip nav */}
+      {/* Prev / Skip nav */}
       <div className="flex justify-between items-center mb-3">
         <button
           onClick={handlePrevious}
-          disabled={history.length === 0}
+          disabled={history.length === 0 || loading}
           aria-label="Go to previous card"
           className="text-sm text-gray-500 hover:text-gray-900 disabled:opacity-30 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:pointer-events-none"
         >
@@ -170,10 +190,10 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
         <button
           onClick={handleSkip}
           disabled={loading}
-          aria-label="Skip to next card"
+          aria-label="Skip this card"
           className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:opacity-50"
         >
-          Skip →
+          {loading ? '…' : 'Skip →'}
         </button>
       </div>
 
@@ -186,28 +206,28 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
         {loading && !error && <p className="text-xs text-gray-400 animate-pulse">Loading…</p>}
       </div>
 
-      {/* Action buttons — large tap targets for mobile */}
+      {/* Action buttons */}
       <div className="mt-4 flex w-full gap-2" role="group" aria-label="Rate this card">
         <button
-          onClick={() => handleAction('unknown')}
+          onClick={() => void handleAction('unknown')}
           disabled={loading}
-          aria-label="Mark as unknown (shortcut: 3)"
+          aria-label="Again — mark as unknown (shortcut: 3)"
           className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-slate-50 hover:bg-slate-100 text-slate-600 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-slate-200 active:scale-95"
         >
           <span className="text-lg">↩</span>
           <span className="text-xs">Again</span>
         </button>
         <button
-          onClick={() => handleAction('saved')}
+          onClick={() => void handleAction('saved')}
           disabled={loading}
-          aria-label="Save for later review (shortcut: 2)"
+          aria-label="Save for later (shortcut: 2)"
           className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-blue-200 active:scale-95"
         >
           <span className="text-lg">🔖</span>
           <span className="text-xs">Save</span>
         </button>
         <button
-          onClick={() => handleAction('known')}
+          onClick={() => void handleAction('known')}
           disabled={loading}
           aria-label="Mark as known (shortcut: 1)"
           className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-emerald-200 active:scale-95"
