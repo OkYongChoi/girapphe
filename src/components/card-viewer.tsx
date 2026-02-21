@@ -71,10 +71,9 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       let next = await getNextCard(mode, [...skippedIds.current]);
 
       if (!next) {
-        // Every remaining unrated card has been skipped → cycle back
+        // Every remaining card has been skipped → full cycle reset, no exclusions
         skippedIds.current.clear();
-        skippedIds.current.add(card.id); // still avoid immediate re-show of this card
-        next = await getNextCard(mode, [card.id]);
+        next = await getNextCard(mode);
       }
 
       setCard(next);
