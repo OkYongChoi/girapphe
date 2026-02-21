@@ -38,8 +38,12 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         setHistory(prev => prev.slice(0, -1));
         return;
       }
-      // No exclusions: server scoring naturally deprioritises rated cards
-      const [next, newStats] = await Promise.all([getNextCard(mode), getUserStats()]);
+      // No exclusions: server scoring naturally deprioritises rated cards; retry once on transient failure
+      const fetchWithRetry = async () => {
+        try { return await getNextCard(mode); }
+        catch { await new Promise(r => setTimeout(r, 600)); return getNextCard(mode); }
+      };
+      const [next, newStats] = await Promise.all([fetchWithRetry(), getUserStats()]);
       setCard(next);
       setStats(newStats);
     } catch (e) {
@@ -67,8 +71,17 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     skippedIds.current.add(card.id);
 
     try {
-      // Prefer cards not yet skipped this round
-      let next = await getNextCard(mode, [...skippedIds.current]);
+      // Prefer cards not yet skipped this round; auto-retry once on transient failure
+      let next: KnowledgeCard | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          next = await getNextCard(mode, [...skippedIds.current]);
+          break;
+        } catch {
+          if (attempt === 1) throw new Error('retry_exhausted');
+          await new Promise(r => setTimeout(r, 600));
+        }
+      }
 
       if (!next) {
         // Every remaining card has been skipped → full cycle reset, no exclusions
@@ -199,7 +212,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       </div>
 
       {/* Card */}
-      <Card key={card.id} card={card} />
+      <Card key={card.id} card={card} interactiveQuizMode={false} />
 
       {/* Error / loading feedback */}
       <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1rem] text-center">
