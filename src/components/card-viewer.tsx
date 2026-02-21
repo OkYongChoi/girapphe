@@ -23,17 +23,10 @@ export default function CardViewer({ initialCard, initialStats }: CardViewerProp
   const total = stats.known + stats.saved + stats.unknown;
   const knownPercent = total > 0 ? Math.round((stats.known / total) * 100) : 0;
 
-  // fetch next card, skipping IDs already seen this session
+  // fetch next card, passing already-seen IDs so the server excludes them
   const fetchNext = useCallback(async (): Promise<KnowledgeCard | null> => {
-    const next = await getNextCard();
+    const next = await getNextCard(Array.from(seenIds.current));
     if (!next) return null;
-    // if same card returned, try once more (server may not exclude seen IDs)
-    if (seenIds.current.has(next.id)) {
-      const retry = await getNextCard();
-      if (!retry || seenIds.current.has(retry.id)) return null;
-      seenIds.current.add(retry.id);
-      return retry;
-    }
     seenIds.current.add(next.id);
     return next;
   }, []);
