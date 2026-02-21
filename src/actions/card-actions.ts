@@ -458,7 +458,7 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
       randomTieBreaker: Math.random(),
     };
   }).filter((candidate) => {
-    if (mode === 'new') return candidate.card.status === null;
+    if (mode === 'new') return candidate.card.status !== 'known';
     return candidate.card.status === 'saved' || candidate.card.status === 'unknown';
   });
 
