@@ -199,7 +199,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       </div>
 
       {/* Card */}
-      <Card key={card.id} card={card} />
+      <Card key={card.id} card={card} interactiveQuizMode={false} />
 
       {/* Error / loading feedback */}
       <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1rem] text-center">
