@@ -29,6 +29,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     setLoading(true);
     setError(null);
     setHistory(prev => [...prev, card]);
+    const wasSkipped = skippedIds.current.has(card.id);
     skippedIds.current.delete(card.id); // rated → no longer needs cycling back
 
     try {
@@ -36,6 +37,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       if (!saveResult.success) {
         setError('Could not save. Please try again.');
         setHistory(prev => prev.slice(0, -1));
+        if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
         return;
       }
       // No exclusions: server scoring naturally deprioritises rated cards; retry once on transient failure
@@ -50,6 +52,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       console.error('handleAction failed:', e);
       setError('Something went wrong.');
       setHistory(prev => prev.slice(0, -1));
+      if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
     } finally {
       setLoading(false);
     }

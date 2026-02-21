@@ -489,27 +489,32 @@ export async function saveCardState(cardId: string, status: CardStatus) {
     `;
     await pool.query(query, [user.id, cardId, status]);
 
-    const nodeId = normalizeGraphNodeId(cardId);
-    const mapped = mapCardStatusToKnowledge(status);
-
-    await pool.query(
-      `
-      INSERT INTO user_knowledge_states (user_id, node_id, knowledge_state, confidence, last_updated, first_known_at)
-      SELECT $1, $2, $3, $4, NOW(), CASE WHEN $3 = 1 THEN NOW() ELSE NULL END
-      WHERE EXISTS (SELECT 1 FROM graph_nodes WHERE id = $2)
-      ON CONFLICT (user_id, node_id)
-      DO UPDATE SET
-        knowledge_state = EXCLUDED.knowledge_state,
-        confidence = EXCLUDED.confidence,
-        last_updated = NOW(),
-        first_known_at = CASE
-          WHEN EXCLUDED.knowledge_state = 1
-            THEN COALESCE(user_knowledge_states.first_known_at, NOW())
-          ELSE user_knowledge_states.first_known_at
-        END;
-      `,
-      [user.id, nodeId, mapped.knowledge, mapped.confidence]
-    );
+    // Sync knowledge graph — secondary operation, failure must not block card save
+    try {
+      const nodeId = normalizeGraphNodeId(cardId);
+      const mapped = mapCardStatusToKnowledge(status);
+      await pool.query(
+        `
+        INSERT INTO user_knowledge_states (user_id, node_id, knowledge_state, confidence, last_updated, first_known_at)
+        SELECT $1, $2, $3, $4, NOW(), CASE WHEN $3 = 1 THEN NOW() ELSE NULL END
+        WHERE EXISTS (SELECT 1 FROM graph_nodes WHERE id = $2)
+        ON CONFLICT (user_id, node_id)
+        DO UPDATE SET
+          knowledge_state = EXCLUDED.knowledge_state,
+          confidence = EXCLUDED.confidence,
+          last_updated = NOW(),
+          first_known_at = CASE
+            WHEN EXCLUDED.knowledge_state = 1
+              THEN COALESCE(user_knowledge_states.first_known_at, NOW())
+            ELSE user_knowledge_states.first_known_at
+          END;
+        `,
+        [user.id, nodeId, mapped.knowledge, mapped.confidence]
+      );
+    } catch (knowledgeErr) {
+      // Non-critical: log but don't fail the whole save
+      console.warn('Knowledge graph sync skipped:', knowledgeErr);
+    }
 
     revalidatePath('/practice');
     revalidatePath('/saved');
