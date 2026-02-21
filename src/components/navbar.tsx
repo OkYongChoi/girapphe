@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { logoutAction } from '@/actions/auth-actions';
 import { getCurrentUser } from '@/lib/auth';
 import NavLinks from '@/components/nav-links';
+import BrandLogo from '@/components/brand-logo';
 
 export default async function Navbar() {
   const user = await getCurrentUser();
@@ -21,8 +22,8 @@ export default async function Navbar() {
       >
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
           <div className="flex items-center justify-between gap-4">
-            <Link href="/" aria-label="STEMBrain — go to home" className="font-bold text-xl tracking-tight text-slate-900">
-              STEM<span className="text-blue-600">Brain</span>
+            <Link href="/" aria-label="STEMBrain — go to home" className="inline-flex items-center">
+              <BrandLogo textClassName="text-xl" />
             </Link>
 
             {user ? (

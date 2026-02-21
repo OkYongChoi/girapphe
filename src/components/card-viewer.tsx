@@ -17,33 +17,19 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState(initialStats);
-  // track IDs seen this session so skip doesn't loop back
-  const seenIds = useRef<Set<string>>(initialCard ? new Set([initialCard.id]) : new Set());
+  // cards skipped this round — cleared once all remaining unrated cards are also skipped
+  const skippedIds = useRef<Set<string>>(new Set());
 
   const reviewedCount = useMemo(() => history.length, [history.length]);
   const total = stats.known + stats.saved + stats.unknown;
   const knownPercent = total > 0 ? Math.round((stats.known / total) * 100) : 0;
-
-  // fetch next card, skipping IDs already seen this session
-  const fetchNext = useCallback(async (): Promise<KnowledgeCard | null> => {
-    const next = await getNextCard(mode);
-    if (!next) return null;
-    // if same card returned, try once more (server may not exclude seen IDs)
-    if (seenIds.current.has(next.id)) {
-      const retry = await getNextCard(mode);
-      if (!retry || seenIds.current.has(retry.id)) return null;
-      seenIds.current.add(retry.id);
-      return retry;
-    }
-    seenIds.current.add(next.id);
-    return next;
-  }, [mode]);
 
   const handleAction = useCallback(async (status: CardStatus) => {
     if (!card || loading) return;
     setLoading(true);
     setError(null);
     setHistory(prev => [...prev, card]);
+    skippedIds.current.delete(card.id); // rated → no longer needs cycling back
 
     try {
       const saveResult = await saveCardState(card.id, status);
@@ -52,7 +38,8 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         setHistory(prev => prev.slice(0, -1));
         return;
       }
-      const [next, newStats] = await Promise.all([fetchNext(), getUserStats()]);
+      // No exclusions: server scoring naturally deprioritises rated cards
+      const [next, newStats] = await Promise.all([getNextCard(mode), getUserStats()]);
       setCard(next);
       setStats(newStats);
     } catch (e) {
@@ -62,7 +49,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     } finally {
       setLoading(false);
     }
-  }, [card, loading, fetchNext]);
+  }, [card, loading, mode]);
 
   const handlePrevious = useCallback(() => {
     if (history.length === 0) return;
@@ -77,17 +64,29 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     setLoading(true);
     setError(null);
     setHistory(prev => [...prev, card]);
+    skippedIds.current.add(card.id);
+
     try {
-      const next = await fetchNext();
+      // Prefer cards not yet skipped this round
+      let next = await getNextCard(mode, [...skippedIds.current]);
+
+      if (!next) {
+        // Every remaining unrated card has been skipped → cycle back
+        skippedIds.current.clear();
+        skippedIds.current.add(card.id); // still avoid immediate re-show of this card
+        next = await getNextCard(mode, [card.id]);
+      }
+
       setCard(next);
     } catch (e) {
       console.error('handleSkip failed:', e);
       setError('Could not load the next card.');
       setHistory(prev => prev.slice(0, -1));
+      skippedIds.current.delete(card.id);
     } finally {
       setLoading(false);
     }
-  }, [card, loading, fetchNext]);
+  }, [card, loading, mode]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

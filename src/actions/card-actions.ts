@@ -345,18 +345,21 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
   };
 }
 
-export async function getNextCard(mode: 'new' | 'review' = 'new') {
+export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: string[]) {
   const user = await requireCurrentUser();
+  const excluded = new Set(excludeIds ?? []);
 
   if (!process.env.DATABASE_URL) {
-    const mockRows: CardWithStatusRow[] = MOCK_CARDS.map((card) => ({
-      ...card,
-      status: null,
-      last_seen: null,
-    }));
+    const mockRows: CardWithStatusRow[] = MOCK_CARDS
+      .filter((card) => !excluded.has(card.id))
+      .map((card) => ({
+        ...card,
+        status: null,
+        last_seen: null,
+      }));
 
     const selected = selectSmartSuggestedCard(mockRows, mode);
-    return selected ?? MOCK_CARDS[Math.floor(Math.random() * MOCK_CARDS.length)];
+    return selected ?? null;
   }
 
   try {
@@ -386,7 +389,10 @@ export async function getNextCard(mode: 'new' | 'review' = 'new') {
 
     const res = await pool.query(query, [user.id]);
     if (res.rows.length > 0) {
-      const selected = selectSmartSuggestedCard(res.rows as CardWithStatusRow[], mode);
+      const rows = excluded.size > 0
+        ? (res.rows as CardWithStatusRow[]).filter((r) => !excluded.has(r.id))
+        : (res.rows as CardWithStatusRow[]);
+      const selected = selectSmartSuggestedCard(rows, mode);
       if (selected) return selected;
     }
 

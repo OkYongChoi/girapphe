@@ -7,6 +7,11 @@ import { hasValidClerkConfig } from '@/lib/clerk-env';
 export const metadata: Metadata = {
   title: 'Personal STEM Brain',
   description: 'Practice and manage your own STEM knowledge graph.',
+  icons: {
+    icon: '/icon.svg',
+    shortcut: '/icon.svg',
+    apple: '/icon.svg',
+  },
 };
 
 export default function RootLayout({
