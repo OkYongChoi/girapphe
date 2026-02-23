@@ -20,7 +20,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   // cards skipped this round — cleared once all remaining unrated cards are also skipped
   const skippedIds = useRef<Set<string>>(new Set());
 
-  const reviewedCount = useMemo(() => history.length, [history.length]);
+  const reviewedCount = useMemo(() => new Set(history.map(c => c.id)).size, [history]);
   const total = stats.known + stats.saved + stats.unknown;
   const knownPercent = total > 0 ? Math.round((stats.known / total) * 100) : 0;
 
@@ -40,10 +40,11 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
         return;
       }
-      // No exclusions: server scoring naturally deprioritises rated cards; retry once on transient failure
+      // Exclude the just-rated card so it doesn't immediately reappear; retry once on transient failure
+      const ratedCardId = card.id;
       const fetchWithRetry = async () => {
-        try { return await getNextCard(mode); }
-        catch { await new Promise(r => setTimeout(r, 600)); return getNextCard(mode); }
+        try { return await getNextCard(mode, [ratedCardId]); }
+        catch { await new Promise(r => setTimeout(r, 600)); return getNextCard(mode, [ratedCardId]); }
       };
       const [next, newStats] = await Promise.all([fetchWithRetry(), getUserStats()]);
       setCard(next);
