@@ -19,6 +19,8 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const [stats, setStats] = useState(initialStats);
   // cards skipped this round — cleared once all remaining unrated cards are also skipped
   const skippedIds = useRef<Set<string>>(new Set());
+  // cards rated this round — excluded when fetching next card, cleared when all cards cycled
+  const ratedIds = useRef<Set<string>>(new Set());
 
   const reviewedCount = useMemo(() => new Set(history.map(c => c.id)).size, [history]);
   const total = stats.known + stats.saved + stats.unknown;
@@ -40,11 +42,20 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
         return;
       }
-      // Exclude the just-rated card so it doesn't immediately reappear; retry once on transient failure
-      const ratedCardId = card.id;
+      // Accumulate rated cards so they don't reappear until the full pool is cycled through
+      ratedIds.current.add(card.id);
+      const getNext = async () => {
+        let next = await getNextCard(mode, [...ratedIds.current]);
+        if (!next) {
+          // All available cards have been rated this round → reset and cycle again
+          ratedIds.current.clear();
+          next = await getNextCard(mode);
+        }
+        return next;
+      };
       const fetchWithRetry = async () => {
-        try { return await getNextCard(mode, [ratedCardId]); }
-        catch { await new Promise(r => setTimeout(r, 600)); return getNextCard(mode, [ratedCardId]); }
+        try { return await getNext(); }
+        catch { await new Promise(r => setTimeout(r, 600)); return getNext(); }
       };
       const [next, newStats] = await Promise.all([fetchWithRetry(), getUserStats()]);
       setCard(next);
@@ -53,6 +64,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       console.error('handleAction failed:', e);
       setError('Something went wrong.');
       setHistory(prev => prev.slice(0, -1));
+      ratedIds.current.delete(card.id); // restore on failure
       if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
     } finally {
       setLoading(false);
