@@ -19,8 +19,10 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const [stats, setStats] = useState(initialStats);
   // cards skipped this round — cleared once all remaining unrated cards are also skipped
   const skippedIds = useRef<Set<string>>(new Set());
+  // cards rated this round — excluded when fetching next card, cleared when all cards cycled
+  const ratedIds = useRef<Set<string>>(new Set());
 
-  const reviewedCount = useMemo(() => history.length, [history.length]);
+  const reviewedCount = useMemo(() => new Set(history.map(c => c.id)).size, [history]);
   const total = stats.known + stats.saved + stats.unknown;
   const knownPercent = total > 0 ? Math.round((stats.known / total) * 100) : 0;
 
@@ -40,10 +42,21 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
         return;
       }
-      // No exclusions: server scoring naturally deprioritises rated cards; retry once on transient failure
+      // Known/Save: exclude from pool until the cycle resets.
+      // Again (unknown): do NOT exclude — it should come back soon.
+      if (status !== 'unknown') ratedIds.current.add(card.id);
+      const getNext = async () => {
+        let next = await getNextCard(mode, [...ratedIds.current]);
+        if (!next) {
+          // All available cards have been rated this round → reset and cycle again
+          ratedIds.current.clear();
+          next = await getNextCard(mode);
+        }
+        return next;
+      };
       const fetchWithRetry = async () => {
-        try { return await getNextCard(mode); }
-        catch { await new Promise(r => setTimeout(r, 600)); return getNextCard(mode); }
+        try { return await getNext(); }
+        catch { await new Promise(r => setTimeout(r, 600)); return getNext(); }
       };
       const [next, newStats] = await Promise.all([fetchWithRetry(), getUserStats()]);
       setCard(next);
@@ -52,6 +65,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       console.error('handleAction failed:', e);
       setError('Something went wrong.');
       setHistory(prev => prev.slice(0, -1));
+      if (status !== 'unknown') ratedIds.current.delete(card.id); // restore on failure
       if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
     } finally {
       setLoading(false);
@@ -147,10 +161,16 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
 
         <div className="mt-6 flex flex-col gap-2 w-full">
           <Link
-            href="/saved"
+            href="/practice?mode=review"
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors text-center"
           >
-            Review saved concepts
+            Practice saved & again cards
+          </Link>
+          <Link
+            href="/saved"
+            className="w-full rounded-xl border px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center"
+          >
+            View saved list
           </Link>
           <Link
             href="/knowledge"
@@ -225,24 +245,31 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
 
       {/* Action buttons */}
       <div className="mt-4 flex w-full gap-2" role="group" aria-label="Rate this card">
+        {/* Again — always present */}
         <button
           onClick={() => void handleAction('unknown')}
           disabled={loading}
-          aria-label="Again — mark as unknown (shortcut: 3)"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-slate-50 hover:bg-slate-100 text-slate-600 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-slate-200 active:scale-95"
+          aria-label="Again — show this card again soon (shortcut: 3)"
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-red-50 hover:bg-red-100 text-red-600 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-red-200 active:scale-95"
         >
           <span className="text-lg">↩</span>
-          <span className="text-xs">Again</span>
+          <span className="text-xs font-bold">Again</span>
+          <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'still hard' : "don't know"}</span>
         </button>
+
+        {/* Middle button: "Study" in new mode, "Keep" in review mode */}
         <button
           onClick={() => void handleAction('saved')}
           disabled={loading}
-          aria-label="Save for later (shortcut: 2)"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-blue-200 active:scale-95"
+          aria-label={mode === 'review' ? 'Keep in review list (shortcut: 2)' : 'Save to study later (shortcut: 2)'}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-amber-200 active:scale-95"
         >
-          <span className="text-lg">🔖</span>
-          <span className="text-xs">Save</span>
+          <span className="text-lg">{mode === 'review' ? '📌' : '🔖'}</span>
+          <span className="text-xs font-bold">{mode === 'review' ? 'Keep' : 'Study'}</span>
+          <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'stay in list' : 'save to review'}</span>
         </button>
+
+        {/* Known — always present */}
         <button
           onClick={() => void handleAction('known')}
           disabled={loading}
@@ -250,7 +277,8 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-emerald-200 active:scale-95"
         >
           <span className="text-lg">✓</span>
-          <span className="text-xs">Known</span>
+          <span className="text-xs font-bold">{mode === 'review' ? 'Got it!' : 'Known'}</span>
+          <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'mark as learned' : 'already know'}</span>
         </button>
       </div>
 
