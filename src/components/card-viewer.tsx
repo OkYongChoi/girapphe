@@ -42,8 +42,9 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
         return;
       }
-      // Accumulate rated cards so they don't reappear until the full pool is cycled through
-      ratedIds.current.add(card.id);
+      // Known/Save: exclude from pool until the cycle resets.
+      // Again (unknown): do NOT exclude — it should come back soon.
+      if (status !== 'unknown') ratedIds.current.add(card.id);
       const getNext = async () => {
         let next = await getNextCard(mode, [...ratedIds.current]);
         if (!next) {
@@ -64,7 +65,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       console.error('handleAction failed:', e);
       setError('Something went wrong.');
       setHistory(prev => prev.slice(0, -1));
-      ratedIds.current.delete(card.id); // restore on failure
+      if (status !== 'unknown') ratedIds.current.delete(card.id); // restore on failure
       if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
     } finally {
       setLoading(false);
@@ -244,24 +245,31 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
 
       {/* Action buttons */}
       <div className="mt-4 flex w-full gap-2" role="group" aria-label="Rate this card">
+        {/* Again — always present */}
         <button
           onClick={() => void handleAction('unknown')}
           disabled={loading}
-          aria-label="Again — mark as unknown (shortcut: 3)"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-slate-50 hover:bg-slate-100 text-slate-600 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-slate-200 active:scale-95"
+          aria-label="Again — show this card again soon (shortcut: 3)"
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-red-50 hover:bg-red-100 text-red-600 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-red-200 active:scale-95"
         >
           <span className="text-lg">↩</span>
-          <span className="text-xs">Again</span>
+          <span className="text-xs font-bold">Again</span>
+          <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'still hard' : "don't know"}</span>
         </button>
+
+        {/* Middle button: "Study" in new mode, "Keep" in review mode */}
         <button
           onClick={() => void handleAction('saved')}
           disabled={loading}
-          aria-label="Save for later (shortcut: 2)"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-blue-200 active:scale-95"
+          aria-label={mode === 'review' ? 'Keep in review list (shortcut: 2)' : 'Save to study later (shortcut: 2)'}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-amber-200 active:scale-95"
         >
-          <span className="text-lg">🔖</span>
-          <span className="text-xs">Save</span>
+          <span className="text-lg">{mode === 'review' ? '📌' : '🔖'}</span>
+          <span className="text-xs font-bold">{mode === 'review' ? 'Keep' : 'Study'}</span>
+          <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'stay in list' : 'save to review'}</span>
         </button>
+
+        {/* Known — always present */}
         <button
           onClick={() => void handleAction('known')}
           disabled={loading}
@@ -269,7 +277,8 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-emerald-200 active:scale-95"
         >
           <span className="text-lg">✓</span>
-          <span className="text-xs">Known</span>
+          <span className="text-xs font-bold">{mode === 'review' ? 'Got it!' : 'Known'}</span>
+          <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'mark as learned' : 'already know'}</span>
         </button>
       </div>
 
