@@ -1,6 +1,7 @@
 import { getNextCard, getUserStats, resetUserCardProgress } from '@/actions/card-actions';
 import CardViewer from '@/components/card-viewer';
 import Navbar from '@/components/navbar';
+import ResetButton from '@/components/reset-button';
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
@@ -42,19 +43,12 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
             >
               My knowledge
             </Link>
-            <form
-              action={async () => {
+            <ResetButton
+              resetAction={async () => {
                 'use server';
                 await resetUserCardProgress();
               }}
-            >
-              <button
-                type="submit"
-                className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
-              >
-                Reset
-              </button>
-            </form>
+            />
           </div>
         </div>
 
@@ -66,11 +60,11 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
           >
             Learn New
           </Link>
-          <Link 
-            href="/practice?mode=review" 
+          <Link
+            href="/practice?mode=review"
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex-1 text-center ${mode === 'review' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            Review Saved
+            Review
           </Link>
         </div>
 

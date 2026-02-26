@@ -160,10 +160,16 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
 
         <div className="mt-6 flex flex-col gap-2 w-full">
           <Link
-            href="/saved"
+            href="/practice?mode=review"
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors text-center"
           >
-            Review saved concepts
+            Practice saved & again cards
+          </Link>
+          <Link
+            href="/saved"
+            className="w-full rounded-xl border px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center"
+          >
+            View saved list
           </Link>
           <Link
             href="/knowledge"

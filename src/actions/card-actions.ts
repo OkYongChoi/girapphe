@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { requireCurrentUser } from '@/lib/auth';
 import { GRAPH_EDGES } from '@/data/graph-edges';
 import { GRAPH_NODES } from '@/data/graph-nodes';
+import { CARD_CONTENT } from '@/data/card-content';
 
 export type KnowledgeCard = {
   id: string;
@@ -122,15 +123,15 @@ const GENERATED_MOCK_CARDS: KnowledgeCard[] = GRAPH_NODES
       .filter((label): label is string => Boolean(label))
       .slice(0, 4);
 
+    const content = CARD_CONTENT[node.id];
     return {
       id: `graph_${node.id}`,
       title: node.label,
-      summary: `${node.type} in ${node.domain}`,
-      explanation: [
-        `Type: ${node.type}`,
+      summary: content?.summary ?? `${node.type} in ${node.domain}`,
+      explanation: content?.explanation ?? [
         `Domain: ${node.domain}`,
         `Difficulty: ${node.difficulty}/5`,
-        `Use this card to connect the concept with at least one prerequisite and one downstream application.`,
+        `Type: ${node.type}`,
       ].join('\n'),
       wiki_url: `https://en.wikipedia.org/wiki/${encodeURIComponent(node.label.replace(/\s+/g, '_'))}`,
       domain: mapGraphDomainToCardDomain(node.domain),
