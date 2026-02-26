@@ -721,4 +721,132 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     summary: 'Learn by minimizing the average loss on training data: min_{h∈H} (1/n) Σ L(h(x_i), y_i)',
     explanation: 'ERM is consistent: converges to Bayes optimal as n→∞ under realizability.\nGeneralization gap: |ERM risk − true risk| bounded by Rademacher complexity or VC dim.\nFoundation of statistical learning theory and PAC learning.',
   },
+  rademacher_complexity: {
+    summary: 'Measures the capacity of a hypothesis class by how well it fits random ±1 noise labels',
+    explanation: 'R_n(H) = E_σ[sup_{h∈H} (1/n) Σ σ_i h(x_i)], σ_i ∈ {±1} i.i.d.\nGeneralization bound: err ≤ train_err + 2R_n(H) + O(√(log(1/δ)/n)).\nData-dependent; tighter than VC dim for structured problems.',
+  },
+  generalization_bounds: {
+    summary: 'Upper bounds on the gap between training error and true (population) error',
+    explanation: 'Uniform convergence: P(sup_{h∈H}|R(h)−R̂(h)| > ε) ≤ δ.\nTools: VC dim, Rademacher complexity, PAC-Bayes bounds.\nKey insight: larger hypothesis class → looser bound; need data to "earn" complexity.',
+  },
+  statistical_learning_theory: {
+    summary: 'Mathematical framework analyzing when and how fast learning algorithms generalize',
+    explanation: 'Core questions: (1) Is H learnable? (2) How many samples? (3) Which algorithm?\nPAC framework, VC theory, Rademacher complexity are main tools.\nBridge between empirical ML practice and theoretical guarantees.',
+  },
+
+  // ── LINEAR ALGEBRA (missing entries) ─────────────────────────
+  column_space: {
+    summary: 'col(A): the set of all vectors Ax that A can produce — the image of the linear map',
+    explanation: 'col(A) = span of columns of A. dim(col(A)) = rank(A).\nAx = b has a solution iff b ∈ col(A).\nProjection onto col(A): P = A(A^T A)^{-1} A^T (used in least squares).',
+  },
+  change_of_basis: {
+    summary: 'Rewrite vectors / matrices in a different coordinate system via an invertible matrix P',
+    explanation: 'If P = [b₁ | … | bₙ] (new basis as columns), then [v]_B = P^{-1} v.\nMatrix in new basis: A_B = P^{-1} A P (similarity transform).\nChoosing eigenvectors as basis diagonalizes A: P^{-1}AP = D.',
+  },
+  projection_matrix: {
+    summary: 'P² = P: idempotent matrix that projects any vector onto a fixed subspace',
+    explanation: 'Orthogonal projection onto col(A): P = A(A^T A)^{-1} A^T, symmetric and idempotent.\nI − P projects onto the orthogonal complement.\nUsed in least squares (project b onto col(A)), PCA, and Gram-Schmidt.',
+  },
+  orthonormal_basis: {
+    summary: 'Basis {q₁,…,qₙ} where qᵢ·qⱼ = δᵢⱼ (pairwise orthogonal and unit-length vectors)',
+    explanation: 'If Q = [q₁|…|qₙ], then Q^T Q = I (orthogonal matrix: Q^T = Q^{-1}).\nCoordinates easy: [v]_Q = Q^T v. Projection: Pv = QQ^T v.\nGram-Schmidt: build orthonormal basis from any linearly independent set.',
+  },
+  spectral_theorem: {
+    summary: 'Every real symmetric matrix A = QΛQ^T has real eigenvalues and orthogonal eigenvectors',
+    explanation: 'Q is orthogonal, Λ = diag(λ₁,…,λₙ). Decomposition is unique (up to sign/order).\nPositive semidefinite ↔ all λᵢ ≥ 0. PD ↔ all λᵢ > 0.\nFoundation for PCA (cov matrix is symmetric), kernel methods, quadratic forms.',
+  },
+
+  // ── PROBABILITY & STATISTICS (missing entries) ────────────────
+  bernoulli_distribution: {
+    summary: 'Models a single binary trial: P(X=1) = p, P(X=0) = 1−p',
+    explanation: 'E[X] = p. Var(X) = p(1−p). Max variance at p = 0.5.\nBuilding block for Binomial. Log-likelihood for logistic regression is Bernoulli log-likelihood.\nEntropy: H = −p log p − (1−p) log(1−p).',
+  },
+  binomial_distribution: {
+    summary: 'X ~ Bin(n,p): number of successes in n independent Bernoulli(p) trials',
+    explanation: 'P(X=k) = C(n,k) pᵏ (1−p)^{n−k}. E[X] = np. Var(X) = np(1−p).\nApproximations: Normal N(np, np(1−p)) for large n; Poisson(np) when n large, p small.\nUsed in A/B testing, quality control, click-through models.',
+  },
+  poisson_distribution: {
+    summary: 'X ~ Poisson(λ): models rare event counts in a fixed interval when rate = λ',
+    explanation: 'P(X=k) = e^{-λ} λᵏ / k!. E[X] = Var(X) = λ (mean = variance — key identifier).\nLimit of Bin(n,p) as n→∞, p→0, np→λ.\nUsed for: server requests, typos per page, radioactive decay counts.',
+  },
+  exponential_distribution: {
+    summary: 'X ~ Exp(λ): models waiting time between Poisson events; P(X>t) = e^{-λt}',
+    explanation: 'PDF: f(x) = λe^{-λx}. E[X] = 1/λ. Var(X) = 1/λ².\nMemoryless property: P(X > s+t | X > s) = P(X > t). Unique continuous memoryless distribution.\nUsed in reliability, queuing theory, survival analysis.',
+  },
+  sampling_methods: {
+    summary: 'Techniques to draw samples from distributions: inverse CDF, rejection, MCMC, importance sampling',
+    explanation: 'Inverse CDF: if F is the CDF, then F^{-1}(U) ~ target for U ~ Uniform.\nRejection sampling: sample from proposal, accept with prob f(x)/(M·g(x)).\nMCMC (Metropolis-Hastings, Gibbs): build Markov chain with target as stationary distribution.\nImportance sampling: estimate E_p[f] = E_q[f(x)p(x)/q(x)] — vital in RL and Bayesian inference.',
+  },
+  monte_carlo_methods: {
+    summary: 'Estimate expectations using random samples: E[f(X)] ≈ (1/N) Σ f(xᵢ), xᵢ ~ p',
+    explanation: 'Error ∝ 1/√N (CLT) regardless of dimension — beats numerical quadrature in high-D.\nVariance reduction: importance sampling, control variates, antithetic variables.\nMonte Carlo integration, MCMC, policy gradient estimation, stochastic simulation all rely on this.',
+  },
+  confidence_interval: {
+    summary: 'A range [L, U] such that P(θ ∈ [L,U]) ≥ 1−α over repeated sampling (frequentist)',
+    explanation: '95% CI for mean: x̄ ± 1.96 σ/√n (large n, CLT).\nMisinterpretation: NOT "95% chance θ is in this interval" — θ is fixed, interval is random.\nWider CI → less data or more variance. Used in A/B testing, polling, clinical trials.',
+  },
+  a_b_testing: {
+    summary: 'Randomized controlled experiment comparing metric of two variants (A = control, B = treatment)',
+    explanation: 'Null H₀: μ_A = μ_B. Reject if p-value < α (typically 0.05).\nTwo-sample t-test or z-test; minimum sample size: n ≈ (z_α + z_β)² · 2σ² / δ².\nPitfalls: peeking (inflates false positive rate), novelty effect, network effects.',
+  },
+
+  // ── OPTIMIZATION (missing entries) ────────────────────────────
+  constrained_optimization: {
+    summary: 'min f(x) subject to g(x) ≤ 0, h(x) = 0: optimize with equality and inequality constraints',
+    explanation: 'KKT conditions (necessary): ∇f + Σλᵢ∇gᵢ + Σμⱼ∇hⱼ = 0, λᵢ ≥ 0, λᵢgᵢ = 0.\nLagrangian: L(x,λ,μ) = f(x) + λᵀg(x) + μᵀh(x).\nConvex problems: KKT sufficient; strong duality (Slater). Underlies SVMs, LP, QP.',
+  },
+  projected_gradient_descent: {
+    summary: 'Gradient descent step followed by projection back onto the feasible set C',
+    explanation: 'Update: x_{t+1} = Π_C(x_t − α∇f(x_t)).\nΠ_C(y) = argmin_{x∈C} ‖x − y‖ (closest point in C).\nFor L-smooth f, converges at O(1/t). Used in SVMs, non-negative matrix factorization, lasso.',
+  },
+  line_search: {
+    summary: 'Procedure to choose step size α in gradient descent: find α that sufficiently decreases f',
+    explanation: 'Exact: α* = argmin_α f(x − α∇f(x)). Expensive; used in quasi-Newton.\nArmijo (sufficient decrease): f(x − αg) ≤ f(x) − c₁α‖g‖².\nWolfe conditions add curvature condition. Backtracking: start large, halve until Armijo holds.',
+  },
+  proximal_gradient: {
+    summary: 'Splits objective into smooth f + non-smooth g: prox step handles g exactly',
+    explanation: 'Update: x_{t+1} = prox_{αg}(x_t − α∇f(x_t)).\nprox_g(v) = argmin_x [g(x) + (1/2α)‖x − v‖²].\nLasso: prox of λ‖·‖₁ is soft-thresholding. Enables sparse/non-smooth optimization at gradient cost.',
+  },
+
+  // ── CALCULUS (missing entries) ─────────────────────────────────
+  limits: {
+    summary: 'lim_{x→a} f(x) = L: f(x) approaches L as x approaches a, regardless of f(a)',
+    explanation: 'ε-δ definition: ∀ε>0 ∃δ>0: 0<|x−a|<δ ⟹ |f(x)−L|<ε.\nL\'Hôpital: if 0/0 or ∞/∞, lim f/g = lim f\'/g\'.\nLimits underpin derivatives, integrals, and continuity — the foundation of all analysis.',
+  },
+  continuity: {
+    summary: 'f continuous at a iff lim_{x→a} f(x) = f(a): no jumps, holes, or asymptotes',
+    explanation: 'Types: removable discontinuity (hole), jump discontinuity, infinite discontinuity.\nExtreme Value Theorem: f continuous on [a,b] → attains max and min.\nLipschitz continuity |f(x)−f(y)| ≤ L|x−y| guarantees convergence of gradient descent.',
+  },
+  multivariate_chain_rule: {
+    summary: '∂f/∂t = Σᵢ (∂f/∂xᵢ)(∂xᵢ/∂t): chain rule generalized to functions of multiple variables',
+    explanation: 'Matrix form: df/dt = (∇_x f)^T · (dx/dt) = Jacobian × velocity.\nFor neural nets: backpropagation IS the multivariate chain rule applied recursively.\nKey: partial derivatives compose along every path in the computation graph.',
+  },
+  directional_derivative: {
+    summary: 'D_u f(x) = ∇f(x)·û: rate of change of f at x in direction unit vector û',
+    explanation: 'Maximum directional derivative is |∇f| in direction ∇f/|∇f| (gradient direction).\nZero directional derivative → û perpendicular to ∇f (level set tangent).\nFoundation: gradient descent moves in the direction of steepest decrease −∇f.',
+  },
+  implicit_function_theorem: {
+    summary: 'If F(x,y)=0 and ∂F/∂y ≠ 0, then y is locally a function of x with dy/dx = −(∂F/∂x)/(∂F/∂y)',
+    explanation: 'Generalizes to F: R^{n+m} → R^m; gives conditions for implicit definition of m variables.\nUsed to differentiate through constraints (Lagrange multipliers, implicit layers in DL).\nImplicit differentiation in optimization: how optimal solution changes with parameters.',
+  },
+  jacobian_determinant: {
+    summary: 'det(J_F): scales volume under transformation F: R^n → R^n (change of variables in integrals)',
+    explanation: 'Change of variables: ∫f(y)dy = ∫f(F(x))|det J_F(x)|dx.\nFor F linear: J_F = A, det J_F = det(A) (volume scaling factor).\nUsed in normalizing flows (bijective neural nets modeling densities), physics simulations.',
+  },
+
+  // ── ALGORITHMS (missing entries) ──────────────────────────────
+  shortest_path_algorithms: {
+    summary: 'Find minimum-weight path between nodes: Dijkstra (non-neg weights), Bellman-Ford, A*',
+    explanation: 'Dijkstra: O((V+E) log V) with min-heap; greedy, requires non-negative weights.\nBellman-Ford: O(VE), handles negative weights, detects negative cycles.\nA*: Dijkstra + heuristic h(v) ≤ true cost; optimal if h is admissible (never overestimates).\nUsed in GPS routing, network flow, game AI pathfinding.',
+  },
+  minimum_spanning_tree: {
+    summary: 'Minimum-weight connected subgraph spanning all V vertices: Kruskal\'s or Prim\'s algorithm',
+    explanation: 'Kruskal: sort edges, add if no cycle (Union-Find) → O(E log E).\nPrim: grow tree greedily from a vertex, pick min-weight crossing edge → O(E log V).\nCut property: lightest edge crossing any cut belongs to some MST.\nUsed in network design, clustering (single-linkage), approximate TSP.',
+  },
+
+  // ── REINFORCEMENT LEARNING (missing entries) ──────────────────
+  reward_shaping: {
+    summary: 'Add auxiliary rewards F(s,a,s\') to the original reward to speed up learning without changing optimal policy',
+    explanation: 'Potential-based shaping: F(s,a,s\') = γΦ(s\') − Φ(s). Preserves optimal policy (policy invariance theorem).\nWrong shaping can cause reward hacking (agent optimizes shaped reward instead of true reward).\nUsed in sparse-reward envs: dense signal guides early exploration.',
+  },
 };
