@@ -40,6 +40,9 @@ type LeaderboardRow = {
   total_count: string;
 };
 
+// Bump this whenever CARD_CONTENT changes to force a DB refresh
+const CARD_CONTENT_VERSION = '3';
+
 let cardSchemaReady = false;
 let cardSchemaPromise: Promise<void> | null = null;
 
@@ -163,13 +166,34 @@ for (const edge of GRAPH_EDGES) {
 }
 
 async function ensureCardSchema() {
-  if (!process.env.DATABASE_URL || cardSchemaReady) return;
+  if (!process.env.DATABASE_URL) return;
+  if (cardSchemaReady) return;
   if (cardSchemaPromise) return cardSchemaPromise;
   cardSchemaPromise = _initCardSchema();
   return cardSchemaPromise;
 }
 
 async function _initCardSchema() {
+
+  // schema_meta table stores versioned key-value pairs so we can detect
+  // when card content has changed and force a re-seed of knowledge_cards.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
+  // Skip heavy UPSERT if content version hasn't changed
+  const versionRes = await pool.query(
+    "SELECT value FROM schema_meta WHERE key = 'card_content_version'"
+  );
+  const storedVersion = versionRes.rows[0]?.value as string | undefined;
+  if (storedVersion === CARD_CONTENT_VERSION) {
+    cardSchemaReady = true;
+    cardSchemaPromise = null;
+    return;
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS knowledge_cards (
@@ -238,7 +262,15 @@ async function _initCardSchema() {
     );
   }
 
+  // Persist the new content version so the next cold start skips re-seeding
+  await pool.query(
+    `INSERT INTO schema_meta (key, value) VALUES ('card_content_version', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [CARD_CONTENT_VERSION]
+  );
+
   cardSchemaReady = true;
+  cardSchemaPromise = null;
 }
 
 function normalizeGraphNodeId(nodeId: string): string {
