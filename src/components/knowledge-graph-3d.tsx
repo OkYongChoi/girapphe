@@ -17,6 +17,7 @@ type SelectedNode = {
   id: string;
   name: string;
   desc?: string;
+  mainContent?: string;
   domain?: string;
   level?: string;
   status?: CardStatus | null;
@@ -94,6 +95,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         color: statusColor,
         group: 'card',
         desc: card.summary,
+        mainContent: card.explanation,
         domain: card.domain,
         level: card.level,
         status: card.status,
@@ -311,6 +313,17 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
               <p className="text-sm text-gray-300 mb-6 leading-relaxed">
                 {selectedNode.desc}
               </p>
+            )}
+
+            {selectedNode.mainContent && (
+              <div className="mb-6">
+                <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-2 font-semibold">
+                  Main Content
+                </p>
+                <p className="whitespace-pre-line text-sm text-gray-300 leading-relaxed">
+                  {selectedNode.mainContent}
+                </p>
+              </div>
             )}
 
             {/* Related concepts */}

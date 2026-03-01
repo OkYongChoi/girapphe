@@ -157,7 +157,7 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   },
   duality: {
     summary: 'Primal (min f) ↔ Dual (max g), where g(λ) = min_x L(x,λ); dual provides lower bound',
-    explanation: 'Weak duality: d* ≤ p*. Strong duality (Slater's condition): d* = p*.\nDual variables = shadow prices of constraints.\nSVM dual: often easier to solve; kernelizes naturally.',
+    explanation: 'Weak duality: d* ≤ p*. Strong duality (Slater\'s condition): d* = p*.\nDual variables = shadow prices of constraints.\nSVM dual: often easier to solve; kernelizes naturally.',
   },
   stochastic_gradient_descent: {
     summary: 'Gradient estimated from a random mini-batch: θ ← θ − α∇L_{batch}(θ)',
