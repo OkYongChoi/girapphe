@@ -4,6 +4,7 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
@@ -41,6 +42,15 @@ const DOMAIN_COLORS: Record<string, string> = {
   ml: '#a855f7',
   other: '#6b7280',
 };
+
+const GRAPH_NAV_LINKS = [
+  { href: '/practice', label: 'Practice' },
+  { href: '/saved', label: 'Saved' },
+  { href: '/knowledge', label: 'Knowledge Map' },
+  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/my-knowledge', label: 'My Knowledge' },
+  { href: '/ranking', label: 'Ranking' },
+];
 
 export default function KnowledgeGraph3D({ cards, onClose }: Props) {
   const [isClient, setIsClient] = useState(false);
@@ -196,7 +206,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
       />
 
       {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-6 py-4 pointer-events-none">
+      <div className="absolute top-0 left-0 right-0 z-10 flex items-start justify-between gap-3 px-6 py-4 pointer-events-none">
         <div className="pointer-events-auto">
           <h2 className="text-lg font-semibold text-white tracking-tight">
             Knowledge Graph
@@ -204,6 +214,21 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
           <p className="text-xs text-gray-500">
             {cards.length} concepts &middot; Click a node to inspect
           </p>
+          <div className="mt-3 flex max-w-[70vw] items-center gap-1 overflow-x-auto rounded-lg border border-gray-800 bg-black/40 p-1">
+            {GRAPH_NAV_LINKS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  item.href === '/knowledge'
+                    ? 'bg-blue-500/25 text-blue-200 border border-blue-400/40'
+                    : 'text-gray-300 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
         </div>
 
         {onClose && (
