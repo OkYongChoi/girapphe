@@ -206,7 +206,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
       />
 
       {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex items-start justify-between gap-3 px-6 py-4 pointer-events-none">
+      <div className="absolute top-0 left-0 right-0 z-20 flex items-start justify-between gap-3 px-6 py-4 pointer-events-auto">
         <div className="pointer-events-auto">
           <h2 className="text-lg font-semibold text-white tracking-tight">
             Knowledge Graph
@@ -219,6 +219,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={(event) => event.stopPropagation()}
                 className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                   item.href === '/knowledge'
                     ? 'bg-blue-500/25 text-blue-200 border border-blue-400/40'
