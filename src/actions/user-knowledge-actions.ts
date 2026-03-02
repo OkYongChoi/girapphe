@@ -16,6 +16,7 @@ export type UserKnowledgeItem = {
 };
 
 const memoryStore = new Map<string, UserKnowledgeItem[]>();
+const memoryCreateRequestStore = new Map<string, Set<string>>();
 let schemaReady = false;
 
 async function ensureSchema() {
@@ -36,6 +37,15 @@ async function ensureSchema() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_user
     ON user_knowledge_items(user_id);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_knowledge_create_requests (
+      user_id TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      PRIMARY KEY (user_id, request_id)
+    );
   `);
 
   schemaReady = true;
@@ -83,12 +93,22 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   const title = sanitizeTitle(String(formData.get('title') ?? ''));
   const content = sanitizeContent(String(formData.get('content') ?? ''));
   const topic = normalizeTopic(String(formData.get('topic') ?? ''));
+  const requestId = String(formData.get('request_id') ?? '').trim();
 
   if (!title) {
     return;
   }
 
   if (!process.env.DATABASE_URL) {
+    if (requestId) {
+      const seen = memoryCreateRequestStore.get(user.id) ?? new Set<string>();
+      if (seen.has(requestId)) {
+        return;
+      }
+      seen.add(requestId);
+      memoryCreateRequestStore.set(user.id, seen);
+    }
+
     const item: UserKnowledgeItem = {
       id: randomUUID(),
       user_id: user.id,
@@ -107,14 +127,30 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   }
 
   await ensureSchema();
-
-  await pool.query(
-    `
-    INSERT INTO user_knowledge_items (id, user_id, title, content, topic)
-    VALUES ($1, $2, $3, $4, $5);
-    `,
-    [randomUUID(), user.id, title, content, topic]
-  );
+  if (requestId) {
+    await pool.query(
+      `
+      WITH claimed AS (
+        INSERT INTO user_knowledge_create_requests (user_id, request_id)
+        VALUES ($1, $2)
+        ON CONFLICT DO NOTHING
+        RETURNING 1
+      )
+      INSERT INTO user_knowledge_items (id, user_id, title, content, topic)
+      SELECT $3, $1, $4, $5, $6
+      WHERE EXISTS (SELECT 1 FROM claimed);
+      `,
+      [user.id, requestId, randomUUID(), title, content, topic]
+    );
+  } else {
+    await pool.query(
+      `
+      INSERT INTO user_knowledge_items (id, user_id, title, content, topic)
+      VALUES ($1, $2, $3, $4, $5);
+      `,
+      [randomUUID(), user.id, title, content, topic]
+    );
+  }
 
   revalidatePath('/my-knowledge');
 }
