@@ -164,7 +164,6 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       if (!revealed) return; // block rating keys until answer is shown
       if (event.key === '1') void handleAction('known');
       if (event.key === '2') void handleAction('saved');
-      if (event.key === '3') void handleAction('unknown');
       if (event.key === 'ArrowRight') void handleSkip();
       if (event.key === 'ArrowLeft') handlePrevious();
     };
@@ -292,18 +291,10 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       {/* Card — explanation hidden until revealed */}
       <Card key={card.id} card={card} interactiveQuizMode={false} revealed={revealed} />
 
-      {/* Error / loading / undo feedback */}
-      <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1.75rem] flex items-center justify-center">
+      {/* Error / loading feedback */}
+      <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1rem] text-center">
         {error && <p className="text-xs text-red-500">{error}</p>}
         {loading && !error && <p className="text-xs text-gray-400 animate-pulse">Loading…</p>}
-        {undoVisible && !loading && !error && (
-          <button
-            onClick={handleUndo}
-            className="flex items-center gap-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-full transition-colors"
-          >
-            ↩ Undo last rating
-          </button>
-        )}
       </div>
 
       {/* ── BEFORE reveal: Show Answer button ── */}
@@ -312,56 +303,58 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           onClick={() => setRevealed(true)}
           disabled={loading}
           aria-label="Show answer"
-          className="mt-4 w-full py-4 bg-gray-900 hover:bg-gray-700 active:scale-95 text-white font-semibold rounded-2xl transition-all text-sm tracking-wide disabled:opacity-50"
+          className="mt-3 w-full py-4 bg-gray-900 hover:bg-gray-700 active:scale-95 text-white font-semibold rounded-2xl transition-all text-sm tracking-wide disabled:opacity-50"
         >
           Show Answer ↓
         </button>
       ) : (
-        /* ── AFTER reveal: rating buttons ── */
-        <div className="mt-4 flex w-full gap-2" role="group" aria-label="Rate this card">
-          {/* Again */}
-          <button
-            onClick={() => void handleAction('unknown')}
-            disabled={loading}
-            aria-label="Again — show this card again soon (shortcut: 3)"
-            className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-red-50 hover:bg-red-100 text-red-600 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-red-200 active:scale-95"
-          >
-            <span className="text-lg">↩</span>
-            <span className="text-xs font-bold">Again</span>
-            <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'still hard' : "couldn't recall"}</span>
-          </button>
+        /* ── AFTER reveal: Study | Known + Undo ── */
+        <>
+          <div className="mt-3 flex w-full gap-3" role="group" aria-label="Rate this card">
+            {/* Study */}
+            <button
+              onClick={() => void handleAction('saved')}
+              disabled={loading}
+              aria-label={mode === 'review' ? 'Keep in review list (shortcut: 2)' : 'Save to study later (shortcut: 2)'}
+              className="flex-1 flex flex-col items-center justify-center gap-1 py-5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-amber-200 active:scale-95"
+            >
+              <span className="text-xl">{mode === 'review' ? '📌' : '🔖'}</span>
+              <span className="text-sm font-bold">{mode === 'review' ? 'Keep' : 'Study'}</span>
+              <span className="text-[10px] font-normal opacity-60">{mode === 'review' ? 'still learning' : 'need more review'}</span>
+            </button>
 
-          {/* Middle button: "Study" in new mode, "Keep" in review mode */}
-          <button
-            onClick={() => void handleAction('saved')}
-            disabled={loading}
-            aria-label={mode === 'review' ? 'Keep in review list (shortcut: 2)' : 'Save to study later (shortcut: 2)'}
-            className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-amber-200 active:scale-95"
-          >
-            <span className="text-lg">{mode === 'review' ? '📌' : '🔖'}</span>
-            <span className="text-xs font-bold">{mode === 'review' ? 'Keep' : 'Study'}</span>
-            <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'still learning' : 'save to review'}</span>
-          </button>
+            {/* Known */}
+            <button
+              onClick={() => void handleAction('known')}
+              disabled={loading}
+              aria-label="Mark as known (shortcut: 1)"
+              className="flex-1 flex flex-col items-center justify-center gap-1 py-5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-emerald-200 active:scale-95"
+            >
+              <span className="text-xl">✓</span>
+              <span className="text-sm font-bold">{mode === 'review' ? 'Got it!' : 'Known'}</span>
+              <span className="text-[10px] font-normal opacity-60">{mode === 'review' ? 'nailed it' : 'recalled it'}</span>
+            </button>
+          </div>
 
-          {/* Known */}
-          <button
-            onClick={() => void handleAction('known')}
-            disabled={loading}
-            aria-label="Mark as known (shortcut: 1)"
-            className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-emerald-200 active:scale-95"
-          >
-            <span className="text-lg">✓</span>
-            <span className="text-xs font-bold">{mode === 'review' ? 'Got it!' : 'Known'}</span>
-            <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'nailed it' : 'recalled it'}</span>
-          </button>
-        </div>
+          {/* Undo — visible for 3 s after rating */}
+          <div className="mt-3 min-h-[2.5rem] flex items-center justify-center">
+            {undoVisible && !loading && (
+              <button
+                onClick={handleUndo}
+                className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-5 py-2 rounded-full transition-colors"
+              >
+                ↩ Undo last rating
+              </button>
+            )}
+          </div>
+        </>
       )}
 
       {/* Keyboard hint — desktop only */}
-      <p className="mt-3 text-xs text-gray-300 text-center hidden sm:block">
+      <p className="mt-1 text-xs text-gray-300 text-center hidden sm:block">
         {!revealed
           ? <><kbd className="font-mono">Space</kbd> or <kbd className="font-mono">Enter</kbd> to reveal · <kbd className="font-mono">→</kbd> skip</>
-          : <><kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> study · <kbd className="font-mono">3</kbd> again · <kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
+          : <><kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> study · <kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
         }
       </p>
     </div>
