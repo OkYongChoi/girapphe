@@ -179,7 +179,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           You reviewed {reviewedCount} card{reviewedCount !== 1 ? 's' : ''} this session.
         </p>
 
-        <div className="mt-6 w-full grid grid-cols-3 gap-2 text-center">
+        <div className="mt-6 w-full grid grid-cols-2 gap-2 text-center">
           <div className="rounded-xl bg-emerald-50 border border-emerald-100 py-3">
             <span className="block text-2xl font-bold text-emerald-700">{stats.known}</span>
             <span className="text-xs text-emerald-600">Known</span>
@@ -187,10 +187,6 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           <div className="rounded-xl bg-blue-50 border border-blue-100 py-3">
             <span className="block text-2xl font-bold text-blue-600">{stats.saved}</span>
             <span className="text-xs text-blue-500">Saved</span>
-          </div>
-          <div className="rounded-xl bg-slate-50 border border-slate-200 py-3">
-            <span className="block text-2xl font-bold text-slate-500">{stats.unknown}</span>
-            <span className="text-xs text-slate-400">Again</span>
           </div>
         </div>
 
