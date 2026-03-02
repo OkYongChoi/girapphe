@@ -7,7 +7,7 @@ import Link from 'next/link';
 
 interface CardViewerProps {
   initialCard: KnowledgeCard | null;
-  initialStats: { known: number; saved: number; unknown: number };
+  initialStats: { known: number; saved: number };
   mode: 'new' | 'review';
 }
 
@@ -21,8 +21,8 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const skippedIds = useRef<Set<string>>(new Set());
   // cards rated this round — excluded when fetching next card, cleared when all cards cycled
   const ratedIds = useRef<Set<string>>(new Set());
-  // review mode: snapshot of how many saved+unknown cards existed at session start
-  const initialReviewPool = useRef(initialStats.saved + initialStats.unknown);
+  // review mode: snapshot of how many saved cards existed at session start
+  const initialReviewPool = useRef(initialStats.saved);
   // card-flip state: false = front only, true = answer revealed
   const [revealed, setRevealed] = useState(false);
   // undo state: shown after rating, cleared on undo/skip/next-rating
@@ -49,9 +49,8 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
         return;
       }
-      // Known/Save: exclude from pool until the cycle resets.
-      // Again (unknown): do NOT exclude — it should come back soon.
-      if (status !== 'unknown') ratedIds.current.add(card.id);
+      // Exclude rated card from pool until the cycle resets.
+      ratedIds.current.add(card.id);
       const getNext = async () => {
         let next = await getNextCard(mode, [...ratedIds.current]);
         if (!next) {
@@ -73,7 +72,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       console.error('handleAction failed:', e);
       setError('Something went wrong.');
       setHistory(prev => prev.slice(0, -1));
-      if (status !== 'unknown') ratedIds.current.delete(card.id); // restore on failure
+      ratedIds.current.delete(card.id); // restore on failure
       if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
     } finally {
       setLoading(false);

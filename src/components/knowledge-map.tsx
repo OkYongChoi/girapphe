@@ -136,7 +136,6 @@ function KnowledgeCardItem({ card }: { card: KnowledgeCard & { status: CardStatu
     switch (status) {
       case 'known': return 'bg-green-100 border-green-300';
       case 'saved': return 'bg-blue-100 border-blue-300';
-      case 'unknown': return 'bg-red-100 border-red-300';
       default: return 'bg-gray-100 border-gray-200';
     }
   };
@@ -145,7 +144,6 @@ function KnowledgeCardItem({ card }: { card: KnowledgeCard & { status: CardStatu
     switch (status) {
       case 'known': return 'Known';
       case 'saved': return 'Saved';
-      case 'unknown': return 'To Review';
       default: return 'Not Started';
     }
   };
