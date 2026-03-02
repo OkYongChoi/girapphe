@@ -31,13 +31,11 @@ function DomainCard({
   reviewed,
   known,
   saved,
-  unknown,
 }: {
   domain: string;
   reviewed: number;
   known: number;
   saved: number;
-  unknown: number;
 }) {
   const knownPercent = reviewed > 0 ? (known / reviewed) * 100 : 0;
 
@@ -53,15 +51,12 @@ function DomainCard({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
         <div className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">
           Known: {known}
         </div>
         <div className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-blue-800">
           Saved: {saved}
-        </div>
-        <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-red-800">
-          Unknown: {unknown}
         </div>
       </div>
     </div>
@@ -74,7 +69,7 @@ export default async function DashboardPage() {
 
   const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress()]);
 
-  const totalReviewed = stats.known + stats.saved + stats.unknown;
+  const totalReviewed = stats.known + stats.saved;
   const knownPercent = totalReviewed > 0 ? (stats.known / totalReviewed) * 100 : 0;
 
   return (
@@ -86,7 +81,7 @@ export default async function DashboardPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Progress Dashboard</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Card progress summary based on your known/saved/unknown states.
+              Card progress summary based on your known/saved states.
             </p>
           </div>
           <Link
@@ -113,7 +108,7 @@ export default async function DashboardPage() {
           </div>
         ) : (
           <>
-            <div aria-label="Overall progress summary" className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div aria-label="Overall progress summary" className="mt-6 grid grid-cols-3 gap-3">
               <SummaryBox
                 label="Known"
                 value={stats.known}
@@ -125,12 +120,6 @@ export default async function DashboardPage() {
                 value={stats.saved}
                 sub="bookmarked for review"
                 colorClass="bg-blue-50 text-blue-900 border-blue-200"
-              />
-              <SummaryBox
-                label="Unknown"
-                value={stats.unknown}
-                sub="needs practice"
-                colorClass="bg-red-50 text-red-900 border-red-200"
               />
               <SummaryBox
                 label="Total Reviewed"

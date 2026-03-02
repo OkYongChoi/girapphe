@@ -19,7 +19,7 @@ export type KnowledgeCard = {
   suggest_reason?: string;
 };
 
-export type CardStatus = 'known' | 'saved' | 'unknown';
+export type CardStatus = 'known' | 'saved';
 export type QuizChoiceSet = [string, string, string, string];
 
 export type NodeQuiz = {
@@ -212,7 +212,7 @@ async function _initCardSchema() {
     CREATE TABLE IF NOT EXISTS user_card_states (
       user_id TEXT NOT NULL,
       card_id TEXT NOT NULL REFERENCES knowledge_cards(id) ON DELETE CASCADE,
-      status TEXT CHECK (status IN ('known', 'saved', 'unknown')),
+      status TEXT CHECK (status IN ('known', 'saved')),
       confidence INTEGER DEFAULT 0,
       last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       PRIMARY KEY (user_id, card_id)
@@ -282,8 +282,7 @@ function normalizeGraphNodeId(nodeId: string): string {
 
 function mapCardStatusToKnowledge(status: CardStatus): { knowledge: 0 | 0.5 | 1; confidence: number } {
   if (status === 'known') return { knowledge: 1, confidence: 0.8 };
-  if (status === 'saved') return { knowledge: 0.5, confidence: 0.45 };
-  return { knowledge: 0, confidence: 0.25 };
+  return { knowledge: 0.5, confidence: 0.45 }; // saved
 }
 
 function pickDistinctLabels(
@@ -407,7 +406,7 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
         FROM knowledge_cards kc
         JOIN user_card_states ucs
           ON kc.id = ucs.card_id AND ucs.user_id = $1
-        WHERE ucs.status IN ('saved', 'unknown')
+        WHERE ucs.status = 'saved'
       `;
     } else {
       query = `
@@ -453,10 +452,9 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
     const cardStatus = card.status ?? null;
 
     let score = 0;
-    if (cardStatus === 'unknown') score += 70;
-    else if (cardStatus === 'saved') score += 45;
+    if (cardStatus === 'saved') score += 45;
     else if (cardStatus === null) score += 35;
-    else score -= 100;
+    else score -= 100; // known
 
     const dependentNodeIds = PREREQ_OUTGOING.get(nodeId) ?? [];
     const blockedDependents = dependentNodeIds.filter((dependentId) => {
@@ -469,17 +467,11 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
       score += dependentNodeIds.length * 4;
     }
 
-    if (cardStatus === 'unknown' && blockedDependents > 0) {
-      score += 18;
-    }
-
     const lastSeenTs = card.last_seen ? new Date(card.last_seen).getTime() : 0;
 
     let suggest_reason = '';
     if (blockedDependents > 0) {
       suggest_reason = `Blocks ${blockedDependents} downstream concept${blockedDependents === 1 ? '' : 's'}`;
-    } else if (cardStatus === 'unknown') {
-      suggest_reason = 'New topic in your current path';
     } else if (cardStatus === 'saved') {
       suggest_reason = 'Reviewing your saved bookmarks';
     }
@@ -492,7 +484,7 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
     };
   }).filter((candidate) => {
     if (mode === 'new') return candidate.card.status !== 'known';
-    return candidate.card.status === 'saved' || candidate.card.status === 'unknown';
+    return candidate.card.status === 'saved';
   });
 
   candidates.sort((a, b) => {
@@ -631,7 +623,7 @@ export async function getUserStats() {
   const user = await requireCurrentUser();
 
   if (!process.env.DATABASE_URL) {
-    return { known: 12, saved: 5, unknown: 3 };
+    return { known: 12, saved: 5 };
   }
 
   try {
@@ -648,19 +640,17 @@ export async function getUserStats() {
     const stats = {
       known: 0,
       saved: 0,
-      unknown: 0,
     };
 
     res.rows.forEach((row) => {
       if (row.status === 'known') stats.known = parseInt(row.count, 10);
       if (row.status === 'saved') stats.saved = parseInt(row.count, 10);
-      if (row.status === 'unknown') stats.unknown = parseInt(row.count, 10);
     });
 
     return stats;
   } catch (error) {
     console.error('Error in getUserStats:', error);
-    return { known: 0, saved: 0, unknown: 0 };
+    return { known: 0, saved: 0 };
   }
 }
 
@@ -670,8 +660,8 @@ export async function getAllCardsWithStatus() {
   if (!process.env.DATABASE_URL) {
     return MOCK_CARDS.map((c) => ({
       ...c,
-      status: ['known', 'saved', 'unknown', null][
-        Math.floor(Math.random() * 4)
+      status: ['known', 'saved', null][
+        Math.floor(Math.random() * 3)
       ] as CardStatus | null,
     }));
   }
@@ -731,7 +721,6 @@ export type UserCardDomainProgress = {
   reviewed: number;
   known: number;
   saved: number;
-  unknown: number;
 };
 
 export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
@@ -784,8 +773,7 @@ export async function getUserCardDomainProgress(): Promise<UserCardDomainProgres
         COALESCE(kc.domain, 'other') AS domain,
         COUNT(*) AS reviewed,
         COUNT(*) FILTER (WHERE ucs.status = 'known') AS known,
-        COUNT(*) FILTER (WHERE ucs.status = 'saved') AS saved,
-        COUNT(*) FILTER (WHERE ucs.status = 'unknown') AS unknown
+        COUNT(*) FILTER (WHERE ucs.status = 'saved') AS saved
       FROM user_card_states ucs
       JOIN knowledge_cards kc ON kc.id = ucs.card_id
       WHERE ucs.user_id = $1
@@ -797,7 +785,6 @@ export async function getUserCardDomainProgress(): Promise<UserCardDomainProgres
       reviewed: string;
       known: string;
       saved: string;
-      unknown: string;
     }>(query, [user.id]);
 
     return res.rows.map((row) => ({
@@ -805,7 +792,6 @@ export async function getUserCardDomainProgress(): Promise<UserCardDomainProgres
       reviewed: parseInt(row.reviewed, 10),
       known: parseInt(row.known, 10),
       saved: parseInt(row.saved, 10),
-      unknown: parseInt(row.unknown, 10),
     }));
   } catch (error) {
     console.error('Error in getUserCardDomainProgress:', error);

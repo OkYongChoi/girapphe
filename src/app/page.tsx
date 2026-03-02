@@ -73,11 +73,10 @@ export default async function HomePage() {
             {user && userStats ? (
               <div
                 aria-label="Your learning stats"
-                className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4"
+                className="mt-6 grid grid-cols-3 gap-2"
               >
                 <StatBox value={userStats.known} label="Known" color="text-emerald-700" bg="bg-emerald-50 border-emerald-100" />
                 <StatBox value={userStats.saved} label="Saved" color="text-blue-700" bg="bg-blue-50 border-blue-100" />
-                <StatBox value={userStats.unknown} label="Unknown" color="text-red-700" bg="bg-red-50 border-red-100" />
                 <StatBox value={userKnowledgeItems.length} label="Notes" color="text-slate-700" bg="bg-slate-50 border-slate-200" />
               </div>
             ) : null}
