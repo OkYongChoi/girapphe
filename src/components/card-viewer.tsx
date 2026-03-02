@@ -21,10 +21,11 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const skippedIds = useRef<Set<string>>(new Set());
   // cards rated this round — excluded when fetching next card, cleared when all cards cycled
   const ratedIds = useRef<Set<string>>(new Set());
+  // review mode: snapshot of how many saved+unknown cards existed at session start
+  const initialReviewPool = useRef(initialStats.saved + initialStats.unknown);
 
   const reviewedCount = useMemo(() => new Set(history.map(c => c.id)).size, [history]);
-  const total = stats.known + stats.saved + stats.unknown;
-  const knownPercent = total > 0 ? Math.round((stats.known / total) * 100) : 0;
+  const reviewPool = initialReviewPool.current;
 
   const handleAction = useCallback(async (status: CardStatus) => {
     if (!card || loading) return;
@@ -187,31 +188,46 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   return (
     <div className="flex flex-col w-full max-w-md mx-auto">
 
-      {/* Progress bar + stats */}
+      {/* Stats / progress header — layout differs per mode */}
       <div className="mb-4 rounded-xl bg-white border border-gray-100 shadow-sm px-4 py-2.5">
-        <div className="flex items-center justify-between mb-1.5">
-          <div className="flex items-center gap-3 text-xs font-medium">
-            <span className="text-emerald-600">✓ {stats.known}</span>
-            <span className="text-blue-500">🔖 {stats.saved}</span>
-            <span className="text-slate-400">↩ {stats.unknown}</span>
+        {mode === 'new' ? (
+          /* ── Learn New: global stats, no bar ── */
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 text-xs font-medium">
+              <span className="text-emerald-600">✓ {stats.known} known</span>
+              <span className="text-amber-600">🔖 {stats.saved} saved</span>
+              <span className="text-slate-400">↩ {stats.unknown} again</span>
+            </div>
+            <span className="text-xs text-gray-400" aria-live="polite">
+              {reviewedCount > 0 ? `${reviewedCount} this session` : 'Learning new'}
+            </span>
           </div>
-          <span className="text-xs text-gray-400" aria-live="polite">
-            {reviewedCount > 0 ? `${reviewedCount} reviewed` : 'Start reviewing'}
-          </span>
-        </div>
-        <div
-          className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100"
-          role="progressbar"
-          aria-label={`${knownPercent}% known`}
-          aria-valuenow={knownPercent}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div
-            className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-            style={{ width: `${knownPercent}%` }}
-          />
-        </div>
+        ) : (
+          /* ── Review: session progress bar ── */
+          <>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-medium text-blue-600">
+                🔄 Reviewing saved &amp; again
+              </span>
+              <span className="text-xs text-gray-400" aria-live="polite">
+                {reviewedCount} / {reviewPool} reviewed
+              </span>
+            </div>
+            <div
+              className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100"
+              role="progressbar"
+              aria-label={`${reviewedCount} of ${reviewPool} reviewed`}
+              aria-valuenow={reviewedCount}
+              aria-valuemin={0}
+              aria-valuemax={reviewPool}
+            >
+              <div
+                className="h-full rounded-full bg-blue-500 transition-all duration-300"
+                style={{ width: reviewPool > 0 ? `${Math.min(100, Math.round((reviewedCount / reviewPool) * 100))}%` : '0%' }}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Prev / Skip nav */}
