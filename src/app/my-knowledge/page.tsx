@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { randomUUID } from 'node:crypto';
 import Navbar from '@/components/navbar';
 import { getCurrentUser } from '@/lib/auth';
 import Link from 'next/link';
@@ -44,6 +45,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
     });
 
   const hasActiveFilter = !!params.q || (params.topic && params.topic !== 'all') || params.sort === 'title';
+  const createRequestId = randomUUID();
 
   return (
     <main id="main-content" className="min-h-screen bg-gray-50">
@@ -133,6 +135,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
 
         {/* Add new item form */}
         <form action={createKnowledgeItem} className="mt-6 rounded-xl border bg-white p-4 md:p-6">
+          <input type="hidden" name="request_id" value={createRequestId} />
           <h2 className="text-base font-semibold">Add knowledge item</h2>
           <p className="mt-1 text-xs text-gray-500">Use concise titles and reusable insights you want to revisit.</p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
