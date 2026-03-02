@@ -25,6 +25,11 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const initialReviewPool = useRef(initialStats.saved + initialStats.unknown);
   // card-flip state: false = front only, true = answer revealed
   const [revealed, setRevealed] = useState(false);
+  // undo state: briefly shown after any rating action
+  const [undoVisible, setUndoVisible] = useState(false);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // flag so the revealed-reset effect knows to keep the card revealed after undo
+  const keepRevealedOnBack = useRef(false);
 
   const reviewedCount = useMemo(() => new Set(history.map(c => c.id)).size, [history]);
   const reviewPool = initialReviewPool.current;
@@ -64,6 +69,10 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       const [next, newStats] = await Promise.all([fetchWithRetry(), getUserStats()]);
       setCard(next);
       setStats(newStats);
+      // Show undo for 3 s after a successful rating
+      setUndoVisible(true);
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = setTimeout(() => setUndoVisible(false), 3000);
     } catch (e) {
       console.error('handleAction failed:', e);
       setError('Something went wrong.');
@@ -82,6 +91,16 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     setCard(previousCard);
     setError(null);
   }, [history]);
+
+  // Undo last rating: go back to the previous card (already revealed) so the
+  // user can re-rate it. saveCardState uses ON CONFLICT DO UPDATE, so re-rating
+  // correctly overwrites the previous DB entry.
+  const handleUndo = useCallback(() => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoVisible(false);
+    keepRevealedOnBack.current = true; // keep the card in revealed state
+    handlePrevious();
+  }, [handlePrevious]);
 
   const handleSkip = useCallback(async () => {
     if (!card || loading) return;
@@ -120,8 +139,16 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     }
   }, [card, loading, mode]);
 
-  // Reset flip state whenever the displayed card changes
-  useEffect(() => { setRevealed(false); }, [card?.id]);
+  // Reset flip state whenever the displayed card changes.
+  // Exception: when going back via Undo, keep the card revealed.
+  useEffect(() => {
+    if (keepRevealedOnBack.current) {
+      keepRevealedOnBack.current = false;
+      setRevealed(true);
+    } else {
+      setRevealed(false);
+    }
+  }, [card?.id]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -265,10 +292,18 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       {/* Card — explanation hidden until revealed */}
       <Card key={card.id} card={card} interactiveQuizMode={false} revealed={revealed} />
 
-      {/* Error / loading feedback */}
-      <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1rem] text-center">
+      {/* Error / loading / undo feedback */}
+      <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1.75rem] flex items-center justify-center">
         {error && <p className="text-xs text-red-500">{error}</p>}
         {loading && !error && <p className="text-xs text-gray-400 animate-pulse">Loading…</p>}
+        {undoVisible && !loading && !error && (
+          <button
+            onClick={handleUndo}
+            className="flex items-center gap-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-full transition-colors"
+          >
+            ↩ Undo last rating
+          </button>
+        )}
       </div>
 
       {/* ── BEFORE reveal: Show Answer button ── */}
