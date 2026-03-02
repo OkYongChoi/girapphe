@@ -25,9 +25,8 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const initialReviewPool = useRef(initialStats.saved + initialStats.unknown);
   // card-flip state: false = front only, true = answer revealed
   const [revealed, setRevealed] = useState(false);
-  // undo state: briefly shown after any rating action
+  // undo state: shown after rating, cleared on undo/skip/next-rating
   const [undoVisible, setUndoVisible] = useState(false);
-  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // flag so the revealed-reset effect knows to keep the card revealed after undo
   const keepRevealedOnBack = useRef(false);
 
@@ -69,10 +68,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       const [next, newStats] = await Promise.all([fetchWithRetry(), getUserStats()]);
       setCard(next);
       setStats(newStats);
-      // Show undo for 3 s after a successful rating
-      setUndoVisible(true);
-      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = setTimeout(() => setUndoVisible(false), 3000);
+      setUndoVisible(true); // stays until undo is clicked or next action
     } catch (e) {
       console.error('handleAction failed:', e);
       setError('Something went wrong.');
@@ -96,7 +92,6 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   // user can re-rate it. saveCardState uses ON CONFLICT DO UPDATE, so re-rating
   // correctly overwrites the previous DB entry.
   const handleUndo = useCallback(() => {
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     setUndoVisible(false);
     keepRevealedOnBack.current = true; // keep the card in revealed state
     handlePrevious();
@@ -106,6 +101,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     if (!card || loading) return;
     setLoading(true);
     setError(null);
+    setUndoVisible(false); // previous rating's undo is no longer relevant
     setHistory(prev => [...prev, card]);
     skippedIds.current.add(card.id);
 
@@ -234,7 +230,6 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
             <div className="flex items-center gap-3 text-xs font-medium">
               <span className="text-emerald-600">✓ {stats.known} known</span>
               <span className="text-amber-600">🔖 {stats.saved} saved</span>
-              <span className="text-slate-400">↩ {stats.unknown} again</span>
             </div>
             <span className="text-xs text-gray-400" aria-live="polite">
               {reviewedCount > 0 ? `${reviewedCount} this session` : 'Learning new'}
