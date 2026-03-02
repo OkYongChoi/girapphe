@@ -181,12 +181,6 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
             >
               Save item
             </button>
-            <Link
-              href="/knowledge"
-              className="rounded-lg border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              Open knowledge map
-            </Link>
           </div>
         </form>
 
