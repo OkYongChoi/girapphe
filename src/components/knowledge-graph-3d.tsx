@@ -5,6 +5,7 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
@@ -43,16 +44,8 @@ const DOMAIN_COLORS: Record<string, string> = {
   other: '#6b7280',
 };
 
-const GRAPH_NAV_LINKS = [
-  { href: '/practice', label: 'Practice' },
-  { href: '/saved', label: 'Saved' },
-  { href: '/knowledge', label: 'Knowledge Map' },
-  { href: '/dashboard', label: 'Dashboard' },
-  { href: '/my-knowledge', label: 'My Knowledge' },
-  { href: '/ranking', label: 'Ranking' },
-];
-
 export default function KnowledgeGraph3D({ cards, onClose }: Props) {
+  const router = useRouter();
   const [isClient, setIsClient] = useState(false);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
@@ -206,43 +199,58 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
       />
 
       {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-20 flex items-start justify-between gap-3 px-6 py-4 pointer-events-auto">
-        <div className="pointer-events-auto">
+      <div className="absolute top-0 left-0 right-0 z-20 flex items-start justify-between gap-3 px-4 py-4 md:px-6 pointer-events-none">
+        <div className="pointer-events-auto rounded-xl border border-gray-800 bg-gray-950/75 px-3 py-2 backdrop-blur-sm shadow-lg">
           <h2 className="text-lg font-semibold text-white tracking-tight">
             Knowledge Graph
           </h2>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-400">
             {cards.length} concepts &middot; Click a node to inspect
           </p>
-          <div className="mt-3 flex max-w-[70vw] items-center gap-1 overflow-x-auto rounded-lg border border-gray-800 bg-black/40 p-1">
-            {GRAPH_NAV_LINKS.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={(event) => event.stopPropagation()}
-                className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                  item.href === '/knowledge'
-                    ? 'bg-blue-500/25 text-blue-200 border border-blue-400/40'
-                    : 'text-gray-300 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </div>
         </div>
 
-        {onClose && (
+        <div className="pointer-events-auto relative flex items-center gap-2">
           <button
-            onClick={onClose}
-            className="pointer-events-auto flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (window.history.length > 1) {
+                router.back();
+                return;
+              }
+              router.push('/knowledge');
+            }}
+            className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-950/75 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/10"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 3h7l2 2h9v14H3z" /><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
-            </svg>
-            Grid View
+            Back
           </button>
-        )}
+          <Link
+            href="/practice"
+            onClick={(event) => event.stopPropagation()}
+            className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-950/75 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/10"
+          >
+            Practice
+          </Link>
+          <Link
+            href="/"
+            onClick={(event) => event.stopPropagation()}
+            className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-950/75 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/10"
+          >
+            Home
+          </Link>
+
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-950/75 px-4 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/10"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 3h7l2 2h9v14H3z" /><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+              </svg>
+              Back to Grid
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Legend - bottom left */}
