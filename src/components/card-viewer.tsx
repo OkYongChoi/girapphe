@@ -23,6 +23,13 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const ratedIds = useRef<Set<string>>(new Set());
   // review mode: snapshot of how many saved+unknown cards existed at session start
   const initialReviewPool = useRef(initialStats.saved + initialStats.unknown);
+  // card-flip state: false = front only, true = answer revealed
+  const [revealed, setRevealed] = useState(false);
+  // undo state: briefly shown after any rating action
+  const [undoVisible, setUndoVisible] = useState(false);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // flag so the revealed-reset effect knows to keep the card revealed after undo
+  const keepRevealedOnBack = useRef(false);
 
   const reviewedCount = useMemo(() => new Set(history.map(c => c.id)).size, [history]);
   const reviewPool = initialReviewPool.current;
@@ -62,6 +69,10 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       const [next, newStats] = await Promise.all([fetchWithRetry(), getUserStats()]);
       setCard(next);
       setStats(newStats);
+      // Show undo for 3 s after a successful rating
+      setUndoVisible(true);
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = setTimeout(() => setUndoVisible(false), 3000);
     } catch (e) {
       console.error('handleAction failed:', e);
       setError('Something went wrong.');
@@ -80,6 +91,16 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     setCard(previousCard);
     setError(null);
   }, [history]);
+
+  // Undo last rating: go back to the previous card (already revealed) so the
+  // user can re-rate it. saveCardState uses ON CONFLICT DO UPDATE, so re-rating
+  // correctly overwrites the previous DB entry.
+  const handleUndo = useCallback(() => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoVisible(false);
+    keepRevealedOnBack.current = true; // keep the card in revealed state
+    handlePrevious();
+  }, [handlePrevious]);
 
   const handleSkip = useCallback(async () => {
     if (!card || loading) return;
@@ -118,11 +139,29 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     }
   }, [card, loading, mode]);
 
+  // Reset flip state whenever the displayed card changes.
+  // Exception: when going back via Undo, keep the card revealed.
+  useEffect(() => {
+    if (keepRevealedOnBack.current) {
+      keepRevealedOnBack.current = false;
+      setRevealed(true);
+    } else {
+      setRevealed(false);
+    }
+  }, [card?.id]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (loading || !card) return;
+      // Space / Enter reveals the answer; rating keys only work after reveal
+      if ((event.key === ' ' || event.key === 'Enter') && !revealed) {
+        event.preventDefault();
+        setRevealed(true);
+        return;
+      }
+      if (!revealed) return; // block rating keys until answer is shown
       if (event.key === '1') void handleAction('known');
       if (event.key === '2') void handleAction('saved');
       if (event.key === '3') void handleAction('unknown');
@@ -131,7 +170,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [loading, card, handleAction, handleSkip, handlePrevious]);
+  }, [loading, card, revealed, handleAction, handleSkip, handlePrevious]);
 
   // ── All done ─────────────────────────────────────────────────
   if (!card) {
@@ -250,57 +289,80 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         </button>
       </div>
 
-      {/* Card */}
-      <Card key={card.id} card={card} interactiveQuizMode={false} />
+      {/* Card — explanation hidden until revealed */}
+      <Card key={card.id} card={card} interactiveQuizMode={false} revealed={revealed} />
 
-      {/* Error / loading feedback */}
-      <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1rem] text-center">
+      {/* Error / loading / undo feedback */}
+      <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1.75rem] flex items-center justify-center">
         {error && <p className="text-xs text-red-500">{error}</p>}
         {loading && !error && <p className="text-xs text-gray-400 animate-pulse">Loading…</p>}
+        {undoVisible && !loading && !error && (
+          <button
+            onClick={handleUndo}
+            className="flex items-center gap-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-full transition-colors"
+          >
+            ↩ Undo last rating
+          </button>
+        )}
       </div>
 
-      {/* Action buttons */}
-      <div className="mt-4 flex w-full gap-2" role="group" aria-label="Rate this card">
-        {/* Again — always present */}
+      {/* ── BEFORE reveal: Show Answer button ── */}
+      {!revealed ? (
         <button
-          onClick={() => void handleAction('unknown')}
+          onClick={() => setRevealed(true)}
           disabled={loading}
-          aria-label="Again — show this card again soon (shortcut: 3)"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-red-50 hover:bg-red-100 text-red-600 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-red-200 active:scale-95"
+          aria-label="Show answer"
+          className="mt-4 w-full py-4 bg-gray-900 hover:bg-gray-700 active:scale-95 text-white font-semibold rounded-2xl transition-all text-sm tracking-wide disabled:opacity-50"
         >
-          <span className="text-lg">↩</span>
-          <span className="text-xs font-bold">Again</span>
-          <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'still hard' : "don't know"}</span>
+          Show Answer ↓
         </button>
+      ) : (
+        /* ── AFTER reveal: rating buttons ── */
+        <div className="mt-4 flex w-full gap-2" role="group" aria-label="Rate this card">
+          {/* Again */}
+          <button
+            onClick={() => void handleAction('unknown')}
+            disabled={loading}
+            aria-label="Again — show this card again soon (shortcut: 3)"
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-red-50 hover:bg-red-100 text-red-600 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-red-200 active:scale-95"
+          >
+            <span className="text-lg">↩</span>
+            <span className="text-xs font-bold">Again</span>
+            <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'still hard' : "couldn't recall"}</span>
+          </button>
 
-        {/* Middle button: "Study" in new mode, "Keep" in review mode */}
-        <button
-          onClick={() => void handleAction('saved')}
-          disabled={loading}
-          aria-label={mode === 'review' ? 'Keep in review list (shortcut: 2)' : 'Save to study later (shortcut: 2)'}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-amber-200 active:scale-95"
-        >
-          <span className="text-lg">{mode === 'review' ? '📌' : '🔖'}</span>
-          <span className="text-xs font-bold">{mode === 'review' ? 'Keep' : 'Study'}</span>
-          <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'stay in list' : 'save to review'}</span>
-        </button>
+          {/* Middle button: "Study" in new mode, "Keep" in review mode */}
+          <button
+            onClick={() => void handleAction('saved')}
+            disabled={loading}
+            aria-label={mode === 'review' ? 'Keep in review list (shortcut: 2)' : 'Save to study later (shortcut: 2)'}
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-amber-200 active:scale-95"
+          >
+            <span className="text-lg">{mode === 'review' ? '📌' : '🔖'}</span>
+            <span className="text-xs font-bold">{mode === 'review' ? 'Keep' : 'Study'}</span>
+            <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'still learning' : 'save to review'}</span>
+          </button>
 
-        {/* Known — always present */}
-        <button
-          onClick={() => void handleAction('known')}
-          disabled={loading}
-          aria-label="Mark as known (shortcut: 1)"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-emerald-200 active:scale-95"
-        >
-          <span className="text-lg">✓</span>
-          <span className="text-xs font-bold">{mode === 'review' ? 'Got it!' : 'Known'}</span>
-          <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'mark as learned' : 'already know'}</span>
-        </button>
-      </div>
+          {/* Known */}
+          <button
+            onClick={() => void handleAction('known')}
+            disabled={loading}
+            aria-label="Mark as known (shortcut: 1)"
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 py-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-emerald-200 active:scale-95"
+          >
+            <span className="text-lg">✓</span>
+            <span className="text-xs font-bold">{mode === 'review' ? 'Got it!' : 'Known'}</span>
+            <span className="text-[10px] font-normal opacity-70">{mode === 'review' ? 'nailed it' : 'recalled it'}</span>
+          </button>
+        </div>
+      )}
 
       {/* Keyboard hint — desktop only */}
       <p className="mt-3 text-xs text-gray-300 text-center hidden sm:block">
-        <kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> save · <kbd className="font-mono">3</kbd> again · <kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip
+        {!revealed
+          ? <><kbd className="font-mono">Space</kbd> or <kbd className="font-mono">Enter</kbd> to reveal · <kbd className="font-mono">→</kbd> skip</>
+          : <><kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> study · <kbd className="font-mono">3</kbd> again · <kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
+        }
       </p>
     </div>
   );

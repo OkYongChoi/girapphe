@@ -7,6 +7,8 @@ import MathText from './math-text';
 interface CardProps {
   card: KnowledgeCard;
   interactiveQuizMode?: boolean;
+  /** When false, hides the explanation (used for card-flip / self-test UX). Defaults to true. */
+  revealed?: boolean;
 }
 
 const DOMAIN_COLORS: Record<string, string> = {
@@ -17,7 +19,7 @@ const DOMAIN_COLORS: Record<string, string> = {
   other: 'bg-gray-100 text-gray-700 border-gray-200',
 };
 
-export default function Card({ card, interactiveQuizMode = true }: CardProps) {
+export default function Card({ card, interactiveQuizMode = true, revealed = true }: CardProps) {
   const domainStyle = DOMAIN_COLORS[card.domain] ?? DOMAIN_COLORS.other;
   const [quiz, setQuiz] = useState<NodeQuiz | null>(null);
   const [quizLoading, setQuizLoading] = useState(interactiveQuizMode);
@@ -36,7 +38,7 @@ export default function Card({ card, interactiveQuizMode = true }: CardProps) {
     return () => { active = false; };
   }, [card.id, interactiveQuizMode]);
 
-  const showExplanation = !interactiveQuizMode || !quiz || selectedAnswerIndex !== null;
+  const showExplanation = revealed && (!interactiveQuizMode || !quiz || selectedAnswerIndex !== null);
   const isAnswerCorrect = useMemo(() => {
     if (!quiz || selectedAnswerIndex === null) return null;
     return selectedAnswerIndex === quiz.correctAnswerIndex;
