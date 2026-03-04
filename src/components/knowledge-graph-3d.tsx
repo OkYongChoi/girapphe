@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
+import { formatDomainLabel } from '@/lib/domain-label';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
@@ -284,7 +285,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                     className="h-2.5 w-2.5 rounded-sm"
                     style={{ backgroundColor: color }}
                   />
-                  <span className="text-xs text-gray-300 capitalize">{domain}</span>
+                  <span className="text-xs text-gray-300">{formatDomainLabel(domain)}</span>
                 </div>
               ))}
           </div>
@@ -332,7 +333,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                     border: `1px solid ${DOMAIN_COLORS[selectedNode.domain] || DOMAIN_COLORS.other}44`,
                   }}
                 >
-                  {selectedNode.domain}
+                  {selectedNode.domain ? formatDomainLabel(selectedNode.domain) : ''}
                 </span>
               )}
               {selectedNode.level && (
@@ -441,7 +442,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                 }}
               />
               <h3 className="text-xl font-bold text-white capitalize">
-                {selectedNode.name}
+                {formatDomainLabel(selectedNode.name)}
               </h3>
             </div>
 

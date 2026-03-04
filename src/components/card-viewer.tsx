@@ -194,7 +194,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
             href="/practice?mode=review"
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors text-center"
           >
-            Practice saved & again cards
+            Practice saved cards
           </Link>
           <Link
             href="/saved"
@@ -235,7 +235,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           <>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-medium text-blue-600">
-                🔄 Reviewing saved &amp; again
+                🔄 Reviewing saved cards
               </span>
               <span className="text-xs text-gray-400" aria-live="polite">
                 {reviewedCount} / {reviewPool} reviewed
