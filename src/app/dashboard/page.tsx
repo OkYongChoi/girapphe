@@ -3,6 +3,7 @@ import Link from 'next/link';
 import Navbar from '@/components/navbar';
 import { getCurrentUser } from '@/lib/auth';
 import { getUserCardDomainProgress, getUserStats } from '@/actions/card-actions';
+import { formatDomainLabel } from '@/lib/domain-label';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,7 +44,7 @@ function DomainCard({
     <div className="rounded-xl border bg-white p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold text-slate-900 capitalize">{domain}</h2>
+          <h2 className="text-base font-semibold text-slate-900">{formatDomainLabel(domain)}</h2>
           <p className="mt-1 text-sm text-slate-600">{reviewed} reviewed cards</p>
         </div>
         <div className="rounded-lg bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700">

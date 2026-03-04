@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
+import { formatDomainLabel } from '@/lib/domain-label';
 
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
@@ -68,7 +69,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
               >
                 <option value="all">All Domains</option>
                 {domains.map(d => (
-                  <option key={d} value={d}>{d}</option>
+                  <option key={d} value={d}>{formatDomainLabel(d)}</option>
                 ))}
               </select>
 
@@ -109,7 +110,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
             {Object.keys(cardsByDomain).sort().map(domain => (
               <div key={domain} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <h2 className="text-xl font-semibold mb-4 capitalize text-gray-700 border-b pb-2">
-                  {domain}
+                  {formatDomainLabel(domain)}
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {cardsByDomain[domain].map(card => (

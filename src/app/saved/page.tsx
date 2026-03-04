@@ -5,6 +5,7 @@ import Navbar from '@/components/navbar';
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { formatDomainLabel } from '@/lib/domain-label';
 
 export const dynamic = 'force-dynamic';
 
@@ -106,7 +107,7 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
                 <option value="all">All domains</option>
                 {allDomains.map((domain) => (
                   <option key={domain} value={domain.toLowerCase()}>
-                    {domain}
+                    {formatDomainLabel(domain)}
                   </option>
                 ))}
               </select>
@@ -153,7 +154,7 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
                   </div>
                   <p className="text-sm text-gray-600 mb-3 leading-relaxed">{card.summary}</p>
                   <div className="mt-auto flex justify-between items-center text-xs text-gray-400">
-                    <span className="font-medium text-gray-500">{card.domain}</span>
+                    <span className="font-medium text-gray-500">{formatDomainLabel(card.domain)}</span>
                     <div className="flex items-center gap-3">
                       <span>Last seen: {formatDate(card.last_seen)}</span>
                       <form
