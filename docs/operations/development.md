@@ -68,7 +68,7 @@ npm run build:cf
 npm run deploy:cf
 ```
 
-See `/Users/a60157230/Projects/personal-stem-brain/DEPLOY.md` for full runbook and CI template.
+See `DEPLOY.md` for full runbook and CI template.
 
 ## Common Issues
 

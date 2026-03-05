@@ -19,13 +19,13 @@ This project implements an AI/CS knowledge graph MVP with:
 
 ## Documentation
 
-- Docs index: `/Users/a60157230/Projects/personal-stem-brain/docs/README.md`
-- Tech stack: `/Users/a60157230/Projects/personal-stem-brain/docs/tech-stack.md`
-- Architecture overview: `/Users/a60157230/Projects/personal-stem-brain/docs/architecture/overview.md`
-- API spec: `/Users/a60157230/Projects/personal-stem-brain/docs/reference/api-spec.md`
-- Data model: `/Users/a60157230/Projects/personal-stem-brain/docs/reference/data-model.md`
-- Knowledge graph spec: `/Users/a60157230/Projects/personal-stem-brain/docs/reference/knowledge-graph-spec.md`
-- Development/operations: `/Users/a60157230/Projects/personal-stem-brain/docs/operations/development.md`
+- Docs index: `docs/README.md`
+- Tech stack: `docs/tech-stack.md`
+- Architecture overview: `docs/architecture/overview.md`
+- API spec: `docs/reference/api-spec.md`
+- Data model: `docs/reference/data-model.md`
+- Knowledge graph spec: `docs/reference/knowledge-graph-spec.md`
+- Development/operations: `docs/operations/development.md`
 
 ## Key Implementation Files
 
