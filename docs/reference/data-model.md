@@ -58,7 +58,7 @@ The system may use continuous intermediate values internally for diffusion, but 
 
 ## SQL Tables
 
-Defined in `/Users/a60157230/Projects/personal-stem-brain/schema.sql`.
+Defined in `schema.sql`.
 
 Main graph tables:
 
