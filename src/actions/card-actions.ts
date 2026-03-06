@@ -6,6 +6,7 @@ import { requireCurrentUser } from '@/lib/auth';
 import { GRAPH_EDGES } from '@/data/graph-edges';
 import { GRAPH_NODES } from '@/data/graph-nodes';
 import { CARD_CONTENT } from '@/data/card-content';
+import { getCardLevelMeta, type CardLevel } from '@/lib/card-level';
 
 export type KnowledgeCard = {
   id: string;
@@ -14,7 +15,7 @@ export type KnowledgeCard = {
   explanation: string;
   wiki_url: string;
   domain: string;
-  level: string;
+  level: CardLevel;
   related_concepts?: string[];
   suggest_reason?: string;
 };
@@ -110,7 +111,7 @@ function mapGraphDomainToCardDomain(domain: string): KnowledgeCard['domain'] {
   return 'other';
 }
 
-function mapDifficultyToLevel(difficulty: number): KnowledgeCard['level'] {
+function mapDifficultyToLevel(difficulty: number): CardLevel {
   if (difficulty <= 1) return 'memorize';
   if (difficulty <= 2) return 'understand';
   if (difficulty <= 3) return 'connect';
@@ -328,6 +329,24 @@ function shuffle<T>(values: T[]): T[] {
   return copy;
 }
 
+function getRecallCue(card: KnowledgeCard | undefined, fallbackTitle: string): string {
+  if (card?.summary?.trim()) {
+    return card.summary.trim();
+  }
+
+  if (card?.explanation?.trim()) {
+    const firstLine = card.explanation
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length > 0);
+    if (firstLine) {
+      return firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
+    }
+  }
+
+  return `Core idea of ${fallbackTitle}`;
+}
+
 export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
   await requireCurrentUser();
 
@@ -336,42 +355,23 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
   const card = CARDS_BY_ID.get(nodeId) ?? CARDS_BY_ID.get(`graph_${normalizedNodeId}`);
 
   const title = node?.label ?? card?.title ?? nodeId.replace(/^graph_/, '').replace(/_/g, ' ');
-  const domain = node?.domain ?? card?.domain ?? 'General STEM';
-
-  const incomingPrereqs = (PREREQ_INCOMING.get(normalizedNodeId) ?? [])
-    .map((id) => NODE_BY_ID.get(id)?.label)
-    .filter((label): label is string => Boolean(label));
-  const outgoingDependents = (PREREQ_OUTGOING.get(normalizedNodeId) ?? [])
-    .map((id) => NODE_BY_ID.get(id)?.label)
-    .filter((label): label is string => Boolean(label));
-  const sameDomainLabels = GRAPH_NODES
-    .filter((candidate) => candidate.domain === domain && candidate.id !== normalizedNodeId)
-    .map((candidate) => candidate.label);
+  const domain = card?.domain ?? mapGraphDomainToCardDomain(node?.domain ?? 'other');
+  const cue = getRecallCue(card, title);
+  const sameDomainLabels = MOCK_CARDS
+    .filter((candidate) => candidate.id !== (card?.id ?? nodeId) && candidate.domain === domain)
+    .map((candidate) => candidate.title);
+  const crossDomainLabels = MOCK_CARDS
+    .filter((candidate) => candidate.id !== (card?.id ?? nodeId) && candidate.domain !== domain)
+    .map((candidate) => candidate.title);
 
   const used = new Set<string>();
-  let question = '';
-  let correctChoice = '';
-  let distractors: string[] = [];
-
-  if (incomingPrereqs.length > 0) {
-    correctChoice = incomingPrereqs[0];
-    used.add(correctChoice);
-    question = `Before mastering "${title}", which concept is the strongest prerequisite to review first?`;
-    const distractorPool = shuffle(sameDomainLabels.filter((label) => !incomingPrereqs.includes(label)));
-    distractors = pickDistinctLabels(distractorPool, used, 3, 'Unrelated prerequisite');
-  } else if (outgoingDependents.length > 0) {
-    correctChoice = outgoingDependents[0];
-    used.add(correctChoice);
-    question = `If you become confident in "${title}", which downstream topic is most directly unlocked next?`;
-    const distractorPool = shuffle(sameDomainLabels.filter((label) => !outgoingDependents.includes(label)));
-    distractors = pickDistinctLabels(distractorPool, used, 3, 'Indirect downstream topic');
-  } else {
-    correctChoice = domain;
-    used.add(correctChoice);
-    question = `What is the primary learning domain for "${title}"?`;
-    const otherDomains = shuffle(UNIQUE_DOMAINS.filter((candidateDomain) => candidateDomain !== domain));
-    distractors = pickDistinctLabels(otherDomains, used, 3, 'Other domain');
-  }
+  const correctChoice = title;
+  used.add(correctChoice);
+  const question = `Memorization check: Which concept matches this cue?\n"${cue}"`;
+  const distractorPool = shuffle([...sameDomainLabels, ...crossDomainLabels]).filter(
+    (label) => label !== correctChoice
+  );
+  const distractors = pickDistinctLabels(distractorPool, used, 3, 'Other concept');
 
   const choices = shuffle([correctChoice, ...distractors]) as QuizChoiceSet;
   const correctAnswerIndex = choices.findIndex((choice) => choice === correctChoice) as 0 | 1 | 2 | 3;
@@ -460,6 +460,8 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
   const candidates = cards.map((card) => {
     const nodeId = normalizeGraphNodeId(card.id);
     const cardStatus = card.status ?? null;
+    const levelMeta = getCardLevelMeta(card.level);
+    const memorizePriorityBonus = Math.max(0, 5 - levelMeta.rank) * 18;
 
     let score = 0;
     if (cardStatus === 'saved') score += 45;
@@ -473,17 +475,19 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
     }).length;
 
     if (cardStatus !== 'known') {
-      score += blockedDependents * 12;
-      score += dependentNodeIds.length * 4;
+      // Memorize-first: low-rank cards are intentionally prioritized.
+      score += memorizePriorityBonus;
+      score += blockedDependents * 6;
+      score += dependentNodeIds.length * 2;
     }
 
     const lastSeenTs = card.last_seen ? new Date(card.last_seen).getTime() : 0;
 
     let suggest_reason = '';
-    if (blockedDependents > 0) {
-      suggest_reason = `Blocks ${blockedDependents} downstream concept${blockedDependents === 1 ? '' : 's'}`;
-    } else if (cardStatus === 'saved') {
-      suggest_reason = 'Reviewing your saved bookmarks';
+    if (cardStatus === 'saved') {
+      suggest_reason = `Memorize-first review · Difficulty ${levelMeta.rank} (${levelMeta.label})`;
+    } else if (cardStatus !== 'known') {
+      suggest_reason = `Memorize-first queue · Difficulty ${levelMeta.rank} (${levelMeta.label})`;
     }
 
     return {
@@ -684,7 +688,16 @@ export async function getAllCardsWithStatus() {
       FROM knowledge_cards kc
       LEFT JOIN user_card_states ucs
         ON kc.id = ucs.card_id AND ucs.user_id = $1
-      ORDER BY kc.domain, kc.level;
+      ORDER BY
+        kc.domain,
+        CASE kc.level
+          WHEN 'memorize' THEN 1
+          WHEN 'understand' THEN 2
+          WHEN 'connect' THEN 3
+          WHEN 'apply' THEN 4
+          ELSE 99
+        END,
+        kc.title;
     `;
 
     const res = await pool.query(query, [user.id]);

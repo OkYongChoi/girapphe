@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
+import { getCardLevelMeta } from '@/lib/card-level';
 import { formatDomainLabel } from '@/lib/domain-label';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
@@ -141,6 +142,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
   const handleNodeHover = useCallback((node: any) => {
     document.body.style.cursor = node ? 'pointer' : 'default';
   }, []);
+  const selectedLevel = getCardLevelMeta(selectedNode?.level);
 
   if (!isClient) {
     return (
@@ -320,7 +322,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
               )}
               {selectedNode.level && (
                 <span className="inline-flex items-center rounded-md bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-400 border border-gray-700">
-                  {selectedNode.level}
+                  Difficulty {selectedLevel.rank} · {selectedLevel.label}
                 </span>
               )}
             </div>

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
+import { getCardLevelMeta } from '@/lib/card-level';
 import { formatDomainLabel } from '@/lib/domain-label';
 
 type Props = {
@@ -133,6 +134,8 @@ export default function KnowledgeMap({ initialCards }: Props) {
 }
 
 function KnowledgeCardItem({ card }: { card: KnowledgeCard & { status: CardStatus | null } }) {
+  const levelMeta = getCardLevelMeta(card.level);
+
   const getStatusColor = (status: CardStatus | null) => {
     switch (status) {
       case 'known': return 'bg-green-100 border-green-300';
@@ -152,8 +155,8 @@ function KnowledgeCardItem({ card }: { card: KnowledgeCard & { status: CardStatu
   return (
     <div className={`p-4 rounded-lg border shadow-sm transition-all hover:shadow-md ${getStatusColor(card.status)}`}>
       <div className="flex justify-between items-start mb-2">
-        <span className="text-xs uppercase tracking-wider text-gray-700 font-semibold">
-          {card.level}
+        <span className="text-xs tracking-wider text-gray-700 font-semibold">
+          Difficulty {levelMeta.rank} · {levelMeta.label}
         </span>
         <span className={`text-xs px-2 py-0.5 rounded-full bg-white/80 text-gray-700`}>
           {getStatusLabel(card.status)}

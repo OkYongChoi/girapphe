@@ -28,7 +28,7 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Practice</h1>
-            <p className="text-sm text-gray-400">Review concepts and track what you know.</p>
+            <p className="text-sm text-gray-400">Memorize first, then use AI to deepen understanding.</p>
           </div>
           <div className="flex gap-2">
             <Link
