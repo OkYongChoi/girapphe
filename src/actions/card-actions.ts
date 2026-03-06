@@ -154,6 +154,13 @@ const UNIQUE_DOMAINS = Array.from(new Set(GRAPH_NODES.map((node) => node.domain)
 const PREREQ_INCOMING = new Map<string, string[]>();
 const PREREQ_OUTGOING = new Map<string, string[]>();
 
+function withRelatedConcepts<T extends { id: string; related_concepts?: string[] | null }>(card: T) {
+  if (card.related_concepts && card.related_concepts.length > 0) return card;
+  const related = CARDS_BY_ID.get(card.id)?.related_concepts;
+  if (!related || related.length === 0) return card;
+  return { ...card, related_concepts: related };
+}
+
 for (const edge of GRAPH_EDGES) {
   if (edge.type !== 'prerequisite') continue;
   const incoming = PREREQ_INCOMING.get(edge.target) ?? [];
@@ -420,10 +427,12 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
     }
 
     const res = await pool.query(query, [user.id]);
-    if (res.rows.length > 0) {
+    const rowsWithRelated = (res.rows as CardWithStatusRow[]).map((row) => withRelatedConcepts(row));
+
+    if (rowsWithRelated.length > 0) {
       const rows = excluded.size > 0
-        ? (res.rows as CardWithStatusRow[]).filter((r) => !excluded.has(r.id))
-        : (res.rows as CardWithStatusRow[]);
+        ? rowsWithRelated.filter((r) => !excluded.has(r.id))
+        : rowsWithRelated;
       const selected = selectSmartSuggestedCard(rows, mode);
       if (selected) return selected;
     }
@@ -431,7 +440,8 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
     if (mode === 'review') return null;
 
     const fallbackRes = await pool.query('SELECT * FROM knowledge_cards ORDER BY RANDOM() LIMIT 1;');
-    return (fallbackRes.rows[0] as KnowledgeCard) ?? null;
+    const fallbackCard = fallbackRes.rows[0] as KnowledgeCard | undefined;
+    return fallbackCard ? withRelatedConcepts(fallbackCard) : null;
   } catch (error) {
     console.error('Error in getNextCard:', error);
     return null;
@@ -678,7 +688,8 @@ export async function getAllCardsWithStatus() {
     `;
 
     const res = await pool.query(query, [user.id]);
-    return res.rows as (KnowledgeCard & { status: CardStatus | null })[];
+    return (res.rows as (KnowledgeCard & { status: CardStatus | null })[])
+      .map((row) => withRelatedConcepts(row));
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
     return [];
