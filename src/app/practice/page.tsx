@@ -1,7 +1,6 @@
-import { getNextCard, getUserStats, resetUserCardProgress } from '@/actions/card-actions';
+import { getNextCard, getUserStats } from '@/actions/card-actions';
 import CardViewer from '@/components/card-viewer';
 import Navbar from '@/components/navbar';
-import ResetButton from '@/components/reset-button';
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
@@ -29,26 +28,6 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Practice</h1>
             <p className="text-sm text-gray-400">Memorize first, then use AI to deepen understanding.</p>
-          </div>
-          <div className="flex gap-2">
-            <Link
-              href="/saved"
-              className="rounded-lg border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-            >
-              Saved
-            </Link>
-            <Link
-              href="/my-knowledge"
-              className="rounded-lg border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-            >
-              My knowledge
-            </Link>
-            <ResetButton
-              resetAction={async () => {
-                'use server';
-                await resetUserCardProgress();
-              }}
-            />
           </div>
         </div>
 
