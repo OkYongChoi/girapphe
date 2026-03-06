@@ -26,7 +26,6 @@ type SelectedNode = {
   status?: CardStatus | null;
   wiki_url?: string;
   related_concepts?: string[];
-  isDomain?: boolean;
   color?: string;
 };
 
@@ -73,20 +72,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
   const graphData = useMemo(() => {
     const nodes: any[] = [];
     const links: any[] = [];
-
-    const domains = new Set(cards.map((c) => c.domain));
-
-    // Domain hub nodes
-    domains.forEach((domain) => {
-      nodes.push({
-        id: `domain_${domain}`,
-        name: domain.charAt(0).toUpperCase() + domain.slice(1),
-        val: 25,
-        color: DOMAIN_COLORS[domain] || DOMAIN_COLORS.other,
-        group: 'domain',
-        isDomain: true,
-      });
-    });
+    const linkSet = new Set<string>();
 
     // Card nodes
     cards.forEach((card) => {
@@ -107,13 +93,6 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         related_concepts: card.related_concepts,
       });
 
-      // Link card -> domain hub
-      links.push({
-        source: card.id,
-        target: `domain_${card.domain}`,
-        color: `${DOMAIN_COLORS[card.domain] || DOMAIN_COLORS.other}44`,
-      });
-
       // Link card -> related concepts
       if (card.related_concepts) {
         card.related_concepts.forEach((concept) => {
@@ -121,6 +100,9 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
             (c) => c.title.toLowerCase() === concept.toLowerCase()
           );
           if (targetCard) {
+            const pairKey = [card.id, targetCard.id].sort().join('::');
+            if (linkSet.has(pairKey)) return;
+            linkSet.add(pairKey);
             links.push({
               source: card.id,
               target: targetCard.id,
@@ -293,7 +275,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
       </div>
 
       {/* Node Detail Panel - slides in from right */}
-      {selectedNode && !selectedNode.isDomain && (
+      {selectedNode && (
         <div className="absolute top-0 right-0 bottom-0 z-20 w-full max-w-sm animate-in slide-in-from-right-5 duration-200">
           <div className="h-full overflow-y-auto bg-gray-950/90 backdrop-blur-md border-l border-gray-800 p-6">
             {/* Close button */}
@@ -416,71 +398,6 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                 Wikipedia
               </a>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Domain hub detail */}
-      {selectedNode && selectedNode.isDomain && (
-        <div className="absolute top-0 right-0 bottom-0 z-20 w-full max-w-sm animate-in slide-in-from-right-5 duration-200">
-          <div className="h-full overflow-y-auto bg-gray-950/90 backdrop-blur-md border-l border-gray-800 p-6">
-            <button
-              onClick={() => setSelectedNode(null)}
-              className="absolute top-4 right-4 rounded-lg p-1.5 text-gray-500 hover:bg-gray-800 hover:text-white transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-
-            <div className="flex items-center gap-3 mb-6">
-              <span
-                className="h-4 w-4 rounded-sm"
-                style={{
-                  backgroundColor:
-                    DOMAIN_COLORS[selectedNode.name.toLowerCase()] || DOMAIN_COLORS.other,
-                }}
-              />
-              <h3 className="text-xl font-bold text-white capitalize">
-                {formatDomainLabel(selectedNode.name)}
-              </h3>
-            </div>
-
-            <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">
-              Concepts in this domain
-            </p>
-            <div className="space-y-2">
-              {cards
-                .filter((c) => c.domain === selectedNode.name.toLowerCase())
-                .map((card) => (
-                  <button
-                    key={card.id}
-                    onClick={() => {
-                      const node = graphData.nodes.find(
-                        (n: any) => n.id === card.id
-                      );
-                      if (node) handleNodeClick(node);
-                    }}
-                    className="w-full text-left rounded-lg bg-gray-800/50 p-3 hover:bg-gray-800 transition-colors border border-gray-800"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 rounded-full flex-shrink-0"
-                        style={{
-                          backgroundColor:
-                            STATUS_COLORS[card.status ?? 'unseen'],
-                        }}
-                      />
-                      <span className="text-sm text-white font-medium truncate">
-                        {card.title}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1 ml-4 truncate">
-                      {card.summary}
-                    </p>
-                  </button>
-                ))}
-            </div>
           </div>
         </div>
       )}
