@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { KnowledgeCard, NodeQuiz, generateQuizForNode } from '@/actions/card-actions';
+import { getCardLevelMeta } from '@/lib/card-level';
 import MathText from './math-text';
 
 interface CardProps {
@@ -21,6 +22,7 @@ const DOMAIN_COLORS: Record<string, string> = {
 
 export default function Card({ card, interactiveQuizMode = true, revealed = true }: CardProps) {
   const domainStyle = DOMAIN_COLORS[card.domain] ?? DOMAIN_COLORS.other;
+  const levelMeta = getCardLevelMeta(card.level);
   const [quiz, setQuiz] = useState<NodeQuiz | null>(null);
   const [quizLoading, setQuizLoading] = useState(interactiveQuizMode);
   const [quizError, setQuizError] = useState<string | null>(null);
@@ -53,7 +55,9 @@ export default function Card({ card, interactiveQuizMode = true, revealed = true
         <span className={`px-2 py-0.5 rounded-full text-xs font-semibold uppercase border ${domainStyle}`}>
           {card.domain}
         </span>
-        <span className="text-xs text-gray-400 uppercase tracking-wider shrink-0">{card.level}</span>
+        <span className="text-xs text-gray-500 shrink-0">
+          Difficulty {levelMeta.rank} · {levelMeta.label}
+        </span>
       </div>
 
       <h2 className="text-2xl font-bold text-gray-900">
