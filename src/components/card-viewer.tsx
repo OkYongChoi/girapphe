@@ -11,9 +11,14 @@ interface CardViewerProps {
   mode: 'new' | 'review';
 }
 
+type HistoryEntry = {
+  card: KnowledgeCard;
+  action: 'skip' | CardStatus;
+};
+
 export default function CardViewer({ initialCard, initialStats, mode }: CardViewerProps) {
   const [card, setCard] = useState<KnowledgeCard | null>(initialCard);
-  const [history, setHistory] = useState<KnowledgeCard[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState(initialStats);
@@ -29,15 +34,28 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const [undoVisible, setUndoVisible] = useState(false);
   // flag so the revealed-reset effect knows to keep the card revealed after undo
   const keepRevealedOnBack = useRef(false);
+  // remember prior rating per card to show when navigating back
+  const [lastChoiceByCardId, setLastChoiceByCardId] = useState<Record<string, CardStatus>>({});
+  const [reviewedThisRound, setReviewedThisRound] = useState(0);
+  const [reviewRoundCompleted, setReviewRoundCompleted] = useState(false);
+  const [backNavigatedCardId, setBackNavigatedCardId] = useState<string | null>(null);
 
-  const reviewedCount = useMemo(() => new Set(history.map(c => c.id)).size, [history]);
+  const reviewedCount = useMemo(() => {
+    const reviewed = history
+      .filter((entry) => entry.action !== 'skip')
+      .map((entry) => entry.card.id);
+    return new Set(reviewed).size;
+  }, [history]);
   const reviewPool = initialReviewPool.current;
+  const previousChoice = card ? lastChoiceByCardId[card.id] : undefined;
 
   const handleAction = useCallback(async (status: CardStatus) => {
     if (!card || loading) return;
     setLoading(true);
     setError(null);
-    setHistory(prev => [...prev, card]);
+    setBackNavigatedCardId(null);
+    setUndoVisible(false); // previous card's undo is no longer relevant
+    setHistory(prev => [...prev, { card, action: status }]);
     const wasSkipped = skippedIds.current.has(card.id);
     skippedIds.current.delete(card.id); // rated → no longer needs cycling back
 
@@ -49,12 +67,19 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
         return;
       }
+      setLastChoiceByCardId((prev) => ({ ...prev, [card.id]: status }));
       // Exclude rated card from pool until the cycle resets.
       ratedIds.current.add(card.id);
+      let completedRound = false;
+      let reviewedCountNow = ratedIds.current.size;
       const getNext = async () => {
         let next = await getNextCard(mode, [...ratedIds.current]);
         if (!next) {
           // All available cards have been rated this round → reset and cycle again
+          if (mode === 'review' && reviewPool > 0) {
+            completedRound = true;
+            reviewedCountNow = reviewPool;
+          }
           ratedIds.current.clear();
           next = await getNextCard(mode);
         }
@@ -65,6 +90,10 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         catch { await new Promise(r => setTimeout(r, 600)); return getNext(); }
       };
       const [next, newStats] = await Promise.all([fetchWithRetry(), getUserStats()]);
+      if (mode === 'review') {
+        setReviewedThisRound(reviewedCountNow);
+        setReviewRoundCompleted(completedRound);
+      }
       setCard(next);
       setStats(newStats);
       setUndoVisible(true); // stays until undo is clicked or next action
@@ -77,13 +106,14 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     } finally {
       setLoading(false);
     }
-  }, [card, loading, mode]);
+  }, [card, loading, mode, reviewPool]);
 
   const handlePrevious = useCallback(() => {
     if (history.length === 0) return;
-    const previousCard = history[history.length - 1];
+    const previousEntry = history[history.length - 1];
     setHistory(prev => prev.slice(0, -1));
-    setCard(previousCard);
+    setCard(previousEntry.card);
+    setBackNavigatedCardId(previousEntry.card.id);
     setError(null);
   }, [history]);
 
@@ -100,8 +130,9 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     if (!card || loading) return;
     setLoading(true);
     setError(null);
+    setBackNavigatedCardId(null);
     setUndoVisible(false); // previous rating's undo is no longer relevant
-    setHistory(prev => [...prev, card]);
+    setHistory(prev => [...prev, { card, action: 'skip' }]);
     skippedIds.current.add(card.id);
 
     try {
@@ -238,22 +269,27 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
                 🔄 Reviewing saved cards
               </span>
               <span className="text-xs text-gray-400" aria-live="polite">
-                {reviewedCount} / {reviewPool} reviewed
+                {Math.min(reviewedThisRound, reviewPool)} / {reviewPool} reviewed
               </span>
             </div>
             <div
               className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100"
               role="progressbar"
-              aria-label={`${reviewedCount} of ${reviewPool} reviewed`}
-              aria-valuenow={reviewedCount}
+              aria-label={`${Math.min(reviewedThisRound, reviewPool)} of ${reviewPool} reviewed`}
+              aria-valuenow={Math.min(reviewedThisRound, reviewPool)}
               aria-valuemin={0}
               aria-valuemax={reviewPool}
             >
               <div
                 className="h-full rounded-full bg-blue-500 transition-all duration-300"
-                style={{ width: reviewPool > 0 ? `${Math.min(100, Math.round((reviewedCount / reviewPool) * 100))}%` : '0%' }}
+                style={{ width: reviewPool > 0 ? `${Math.min(100, Math.round((Math.min(reviewedThisRound, reviewPool) / reviewPool) * 100))}%` : '0%' }}
               />
             </div>
+            {reviewRoundCompleted && (
+              <p className="mt-2 text-xs font-medium text-emerald-600" aria-live="polite">
+                This review round is complete. You reviewed every saved card once.
+              </p>
+            )}
           </>
         )}
       </div>
@@ -277,6 +313,11 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           {loading ? '…' : 'Skip →'}
         </button>
       </div>
+      {mode === 'new' && backNavigatedCardId === card.id && previousChoice && (
+        <p className="mb-3 text-xs text-gray-500" aria-live="polite">
+          Previous choice on this card: <span className="font-semibold text-gray-700">{previousChoice === 'saved' ? 'Study' : 'Known'}</span>
+        </p>
+      )}
 
       {/* Card — explanation hidden until revealed */}
       <Card key={card.id} card={card} interactiveQuizMode={false} revealed={revealed} />
@@ -306,7 +347,11 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
               onClick={() => void handleAction('saved')}
               disabled={loading}
               aria-label={mode === 'review' ? 'Keep in review list (shortcut: 2)' : 'Save to study later (shortcut: 2)'}
-              className="flex-1 flex flex-col items-center justify-center gap-1 py-5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-amber-200 active:scale-95"
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-5 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border active:scale-95 ${
+                previousChoice === 'saved'
+                  ? 'bg-amber-100 border-amber-400 ring-2 ring-amber-300'
+                  : 'bg-amber-50 hover:bg-amber-100 border-amber-200'
+              }`}
             >
               <span className="text-xl">{mode === 'review' ? '📌' : '🔖'}</span>
               <span className="text-sm font-bold">{mode === 'review' ? 'Keep' : 'Study'}</span>
@@ -318,7 +363,11 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
               onClick={() => void handleAction('known')}
               disabled={loading}
               aria-label="Mark as known (shortcut: 1)"
-              className="flex-1 flex flex-col items-center justify-center gap-1 py-5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border border-emerald-200 active:scale-95"
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-5 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border active:scale-95 ${
+                previousChoice === 'known'
+                  ? 'bg-emerald-100 border-emerald-400 ring-2 ring-emerald-300'
+                  : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+              }`}
             >
               <span className="text-xl">✓</span>
               <span className="text-sm font-bold">{mode === 'review' ? 'Got it!' : 'Known'}</span>
