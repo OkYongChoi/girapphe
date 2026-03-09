@@ -32,7 +32,7 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
         </div>
 
         {/* Mode Toggle */}
-        <div className="mb-6 flex w-full max-w-lg bg-gray-200 p-1 rounded-lg">
+        <div className="mb-2 flex w-full max-w-lg bg-gray-200 p-1 rounded-lg">
           <Link 
             href="/practice?mode=new" 
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex-1 text-center ${mode === 'new' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
@@ -46,9 +46,14 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
             Review
           </Link>
         </div>
+        <p className="mb-6 text-xs text-gray-500">
+          {mode === 'new'
+            ? 'Learn New: unseen/unknown cards first'
+            : 'Review: cards still in learning queue'}
+        </p>
 
         {/* Card viewer — stats are shown inside */}
-        <CardViewer initialCard={initialCard} initialStats={stats} mode={mode} />
+        <CardViewer key={mode} initialCard={initialCard} initialStats={stats} mode={mode} />
       </div>
     </main>
   );
