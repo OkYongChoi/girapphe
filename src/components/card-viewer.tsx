@@ -328,18 +328,18 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         {loading && !error && <p className="text-xs text-gray-400 animate-pulse">Loading…</p>}
       </div>
 
-      {/* ── BEFORE reveal: Show Answer button ── */}
-      {!revealed ? (
-        <button
-          onClick={() => setRevealed(true)}
-          disabled={loading}
-          aria-label="Show answer"
-          className="mt-3 w-full py-4 bg-gray-900 hover:bg-gray-700 active:scale-95 text-white font-semibold rounded-2xl transition-all text-sm tracking-wide disabled:opacity-50"
-        >
-          Show Answer ↓
-        </button>
-      ) : (
-        /* ── AFTER reveal: Study | Known + Undo ── */
+      {/* Answer visibility toggle */}
+      <button
+        onClick={() => setRevealed((prev) => !prev)}
+        disabled={loading}
+        aria-label={revealed ? 'Hide answer' : 'Show answer'}
+        className="mt-3 w-full py-4 bg-gray-900 hover:bg-gray-700 active:scale-95 text-white font-semibold rounded-2xl transition-all text-sm tracking-wide disabled:opacity-50"
+      >
+        {revealed ? 'Hide Answer ↑' : 'Show Answer ↓'}
+      </button>
+
+      {/* ── AFTER reveal: Study | Known + Undo ── */}
+      {revealed && (
         <>
           <div className="mt-3 flex w-full gap-3" role="group" aria-label="Rate this card">
             {/* Study */}
