@@ -267,7 +267,11 @@ async function _initCardSchema() {
     "SELECT value FROM schema_meta WHERE key = 'card_content_version'"
   );
   const storedVersion = versionRes.rows[0]?.value as string | undefined;
-  if (storedVersion === CARD_CONTENT_VERSION) {
+  const cardCountRes = await pool.query<{ count: string }>(
+    'SELECT COUNT(*)::text AS count FROM knowledge_cards;'
+  );
+  const cardCount = parseInt(cardCountRes.rows[0]?.count ?? '0', 10);
+  if (storedVersion === CARD_CONTENT_VERSION && cardCount > 0) {
     cardSchemaReady = true;
     cardSchemaPromise = null;
     return;
@@ -502,7 +506,14 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
     return fallbackCard ? withRelatedConcepts(fallbackCard) : null;
   } catch (error) {
     console.error('Error in getNextCard:', error);
-    return null;
+    const mockRows: CardWithStatusRow[] = MOCK_CARDS
+      .filter((card) => !excluded.has(card.id))
+      .map((card) => ({
+        ...card,
+        status: null,
+        last_seen: null,
+      }));
+    return selectSmartSuggestedCard(mockRows, mode);
   }
 }
 
@@ -780,7 +791,10 @@ export async function getAllCardsWithStatus() {
       .map((row) => withRelatedConcepts(row));
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
-    return [];
+    return MOCK_CARDS.map((c) => ({
+      ...c,
+      status: null as CardStatus | null,
+    }));
   }
 }
 
