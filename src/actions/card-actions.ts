@@ -653,7 +653,8 @@ export async function saveCardState(cardId: string, status: CardStatus) {
       console.warn('Knowledge graph sync skipped:', knowledgeErr);
     }
 
-    revalidatePath('/practice');
+    // Do NOT revalidate '/practice' — the practice session is fully client-managed.
+    // Revalidating triggers a server re-render that overwrites CardViewer state mid-session.
     revalidatePath('/saved');
     revalidatePath('/knowledge');
     revalidatePath('/dashboard');

@@ -311,9 +311,12 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
               />
             </div>
             {reviewRoundCompleted && (
-              <p className="mt-2 text-xs font-medium text-emerald-600" aria-live="polite">
-                This review round is complete. You reviewed every learning-queue card once.
-              </p>
+              <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2" role="status" aria-live="polite">
+                <span className="text-base" aria-hidden="true">🎉</span>
+                <p className="text-xs font-semibold text-emerald-700">
+                  Round complete! You reviewed all {reviewPool} card{reviewPool !== 1 ? 's' : ''} — starting next round.
+                </p>
+              </div>
             )}
           </>
         )}
