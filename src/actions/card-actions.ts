@@ -8,6 +8,12 @@ import { GRAPH_NODES } from '@/data/graph-nodes';
 import { CARD_CONTENT } from '@/data/card-content';
 import { getCardLevelMeta, type CardLevel } from '@/lib/card-level';
 
+export type PrerequisiteInfo = {
+  id: string;
+  label: string;
+  status: CardStatus | null;
+};
+
 export type KnowledgeCard = {
   id: string;
   title: string;
@@ -18,6 +24,7 @@ export type KnowledgeCard = {
   level: CardLevel;
   related_concepts?: string[];
   suggest_reason?: string;
+  prerequisites?: PrerequisiteInfo[];
 };
 
 export type CardStatus = 'known' | 'saved';
@@ -576,7 +583,18 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
     return a.randomTieBreaker - b.randomTieBreaker;
   });
 
-  return candidates[0]?.card ?? null;
+  const selected = candidates[0]?.card;
+  if (!selected) return null;
+
+  const normalizedId = normalizeGraphNodeId(selected.id);
+  const prereqNodeIds = (PREREQ_INCOMING.get(normalizedId) ?? []).slice(0, 3);
+  const prerequisites: PrerequisiteInfo[] = prereqNodeIds.map((prereqId) => {
+    const label = NODE_BY_ID.get(prereqId)?.label ?? prereqId.replace(/_/g, ' ');
+    const status = nodeStatusById.get(prereqId) ?? null;
+    return { id: prereqId, label, status };
+  });
+
+  return { ...selected, prerequisites: prerequisites.length > 0 ? prerequisites : undefined };
 }
 
 export async function saveCardState(cardId: string, status: CardStatus) {
@@ -635,7 +653,8 @@ export async function saveCardState(cardId: string, status: CardStatus) {
       console.warn('Knowledge graph sync skipped:', knowledgeErr);
     }
 
-    revalidatePath('/practice');
+    // Do NOT revalidate '/practice' — the practice session is fully client-managed.
+    // Revalidating triggers a server re-render that overwrites CardViewer state mid-session.
     revalidatePath('/saved');
     revalidatePath('/knowledge');
     revalidatePath('/dashboard');
