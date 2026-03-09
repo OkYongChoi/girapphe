@@ -40,7 +40,13 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const [reviewRoundCompleted, setReviewRoundCompleted] = useState(false);
   const [backNavigatedCardId, setBackNavigatedCardId] = useState<string | null>(null);
 
-  // Mode switch must reset local session state so new/review queues don't bleed into each other.
+  // Reset session state on mount only.
+  // key={mode} on CardViewer (in practice/page.tsx) causes a full unmount+remount on mode
+  // switch, so this effect correctly fires on initial load AND mode changes.
+  // We intentionally do NOT include initialCard/initialStats in deps: Next.js re-renders
+  // server components after every server action, which would update these props and
+  // re-trigger this effect mid-session — resetting the card and wiping ratedIds/history.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setCard(initialCard);
     setHistory([]);
@@ -57,7 +63,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     setReviewedThisRound(0);
     setReviewRoundCompleted(false);
     setBackNavigatedCardId(null);
-  }, [mode, initialCard, initialStats]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reviewedCount = useMemo(() => {
     const reviewed = history
