@@ -197,17 +197,6 @@ async function _initCardSchema() {
     );
   `);
 
-  // Skip heavy UPSERT if content version hasn't changed
-  const versionRes = await pool.query(
-    "SELECT value FROM schema_meta WHERE key = 'card_content_version'"
-  );
-  const storedVersion = versionRes.rows[0]?.value as string | undefined;
-  if (storedVersion === CARD_CONTENT_VERSION) {
-    cardSchemaReady = true;
-    cardSchemaPromise = null;
-    return;
-  }
-
   await pool.query(`
     CREATE TABLE IF NOT EXISTS knowledge_cards (
       id TEXT PRIMARY KEY,
@@ -271,6 +260,18 @@ async function _initCardSchema() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_knowledge_cards_domain ON knowledge_cards(domain);
   `);
+
+  // Skip heavy card content UPSERT when content version is unchanged.
+  // Schema migrations above must always run first.
+  const versionRes = await pool.query(
+    "SELECT value FROM schema_meta WHERE key = 'card_content_version'"
+  );
+  const storedVersion = versionRes.rows[0]?.value as string | undefined;
+  if (storedVersion === CARD_CONTENT_VERSION) {
+    cardSchemaReady = true;
+    cardSchemaPromise = null;
+    return;
+  }
 
   const params: unknown[] = [];
   const tuples: string[] = [];
