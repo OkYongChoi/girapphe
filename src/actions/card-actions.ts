@@ -21,6 +21,8 @@ export type KnowledgeCard = {
 };
 
 export type CardStatus = 'known' | 'saved';
+type CardKnowledgeState = 'unknown' | 'known';
+type CardProgressState = 'new' | 'learning' | 'review';
 export type QuizChoiceSet = [string, string, string, string];
 
 export type NodeQuiz = {
@@ -32,6 +34,9 @@ export type NodeQuiz = {
 
 type CardWithStatusRow = KnowledgeCard & {
   status: CardStatus | null;
+  knowledge_state?: CardKnowledgeState | null;
+  progress_state?: CardProgressState | null;
+  due_at?: Date | null;
   last_seen?: Date | null;
 };
 
@@ -221,10 +226,34 @@ async function _initCardSchema() {
       user_id TEXT NOT NULL,
       card_id TEXT NOT NULL REFERENCES knowledge_cards(id) ON DELETE CASCADE,
       status TEXT CHECK (status IN ('known', 'saved')),
+      knowledge_state TEXT CHECK (knowledge_state IN ('unknown', 'known')),
+      progress_state TEXT CHECK (progress_state IN ('new', 'learning', 'review')),
+      due_at TIMESTAMP WITH TIME ZONE,
       confidence INTEGER DEFAULT 0,
       last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       PRIMARY KEY (user_id, card_id)
     );
+  `);
+
+  // Backward-compatible migration: old deployments only had "status".
+  await pool.query(`
+    ALTER TABLE user_card_states
+      ADD COLUMN IF NOT EXISTS knowledge_state TEXT CHECK (knowledge_state IN ('unknown', 'known'));
+  `);
+  await pool.query(`
+    ALTER TABLE user_card_states
+      ADD COLUMN IF NOT EXISTS progress_state TEXT CHECK (progress_state IN ('new', 'learning', 'review'));
+  `);
+  await pool.query(`
+    ALTER TABLE user_card_states
+      ADD COLUMN IF NOT EXISTS due_at TIMESTAMP WITH TIME ZONE;
+  `);
+  await pool.query(`
+    UPDATE user_card_states
+    SET
+      knowledge_state = CASE WHEN status = 'known' THEN 'known' ELSE 'unknown' END,
+      progress_state = CASE WHEN status = 'known' THEN 'review' ELSE 'learning' END
+    WHERE knowledge_state IS NULL OR progress_state IS NULL;
   `);
 
   await pool.query(`
@@ -232,6 +261,12 @@ async function _initCardSchema() {
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_user_card_states_status ON user_card_states(status);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_card_states_progress_state ON user_card_states(progress_state);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_card_states_due_at ON user_card_states(due_at);
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_knowledge_cards_domain ON knowledge_cards(domain);
@@ -291,6 +326,16 @@ function normalizeGraphNodeId(nodeId: string): string {
 function mapCardStatusToKnowledge(status: CardStatus): { knowledge: 0 | 0.5 | 1; confidence: number } {
   if (status === 'known') return { knowledge: 1, confidence: 0.8 };
   return { knowledge: 0.5, confidence: 0.45 }; // saved
+}
+
+function deriveLegacyStatus(row: {
+  status?: CardStatus | null;
+  knowledge_state?: CardKnowledgeState | null;
+  progress_state?: CardProgressState | null;
+}): CardStatus | null {
+  if (row.knowledge_state === 'known') return 'known';
+  if (row.progress_state === 'learning') return 'saved';
+  return row.status ?? null;
 }
 
 function pickDistinctLabels(
@@ -409,16 +454,23 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
       query = `
         SELECT kc.*
              , ucs.status
+             , ucs.knowledge_state
+             , ucs.progress_state
+             , ucs.due_at
              , ucs.last_seen
         FROM knowledge_cards kc
         JOIN user_card_states ucs
           ON kc.id = ucs.card_id AND ucs.user_id = $1
-        WHERE ucs.status = 'saved'
+        WHERE (ucs.progress_state = 'learning' OR (ucs.progress_state IS NULL AND ucs.status = 'saved'))
+          AND (ucs.due_at IS NULL OR ucs.due_at <= NOW())
       `;
     } else {
       query = `
         SELECT kc.*
              , ucs.status
+             , ucs.knowledge_state
+             , ucs.progress_state
+             , ucs.due_at
              , ucs.last_seen
         FROM knowledge_cards kc
         LEFT JOIN user_card_states ucs
@@ -427,7 +479,12 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
     }
 
     const res = await pool.query(query, [user.id]);
-    const rowsWithRelated = (res.rows as CardWithStatusRow[]).map((row) => withRelatedConcepts(row));
+    const rowsWithRelated = (res.rows as CardWithStatusRow[])
+      .map((row) => ({
+        ...row,
+        status: deriveLegacyStatus(row),
+      }))
+      .map((row) => withRelatedConcepts(row));
 
     if (rowsWithRelated.length > 0) {
       const rows = excluded.size > 0
@@ -520,13 +577,24 @@ export async function saveCardState(cardId: string, status: CardStatus) {
   try {
     await ensureCardSchema();
 
+    const mappedKnowledgeState: CardKnowledgeState = status === 'known' ? 'known' : 'unknown';
+    const mappedProgressState: CardProgressState = status === 'known' ? 'review' : 'learning';
+    const dueAt = status === 'known'
+      ? "NOW() + INTERVAL '14 days'"
+      : 'NOW()';
+
     const query = `
-      INSERT INTO user_card_states (user_id, card_id, status, last_seen)
-      VALUES ($1, $2, $3, NOW())
+      INSERT INTO user_card_states (user_id, card_id, status, knowledge_state, progress_state, due_at, last_seen)
+      VALUES ($1, $2, $3, $4, $5, ${dueAt}, NOW())
       ON CONFLICT (user_id, card_id)
-      DO UPDATE SET status = $3, last_seen = NOW();
+      DO UPDATE SET
+        status = $3,
+        knowledge_state = $4,
+        progress_state = $5,
+        due_at = ${dueAt},
+        last_seen = NOW();
     `;
-    await pool.query(query, [user.id, cardId, status]);
+    await pool.query(query, [user.id, cardId, status, mappedKnowledgeState, mappedProgressState]);
 
     // Sync knowledge graph — secondary operation, failure must not block card save
     try {
@@ -582,11 +650,15 @@ export async function getSavedCards() {
       SELECT kc.*, ucs.status, ucs.last_seen
       FROM knowledge_cards kc
       JOIN user_card_states ucs ON kc.id = ucs.card_id
-      WHERE ucs.user_id = $1 AND ucs.status = 'saved'
+      WHERE ucs.user_id = $1
+        AND (ucs.progress_state = 'learning' OR (ucs.progress_state IS NULL AND ucs.status = 'saved'))
       ORDER BY ucs.last_seen DESC;
     `;
     const res = await pool.query(query, [user.id]);
-    return res.rows;
+    return (res.rows as CardWithStatusRow[]).map((row) => ({
+      ...row,
+      status: deriveLegacyStatus(row) ?? 'saved',
+    }));
   } catch (error) {
     console.error('Error in getSavedCards:', error);
     return [];
@@ -644,24 +716,25 @@ export async function getUserStats() {
     await ensureCardSchema();
 
     const query = `
-      SELECT status, COUNT(*) as count
+      SELECT
+        COUNT(*) FILTER (
+          WHERE knowledge_state = 'known'
+            OR (knowledge_state IS NULL AND status = 'known')
+        ) AS known_count,
+        COUNT(*) FILTER (
+          WHERE progress_state = 'learning'
+            OR (progress_state IS NULL AND status = 'saved')
+        ) AS saved_count
       FROM user_card_states
-      WHERE user_id = $1
-      GROUP BY status;
+      WHERE user_id = $1;
     `;
-    const res = await pool.query<{ status: string; count: string }>(query, [user.id]);
+    const res = await pool.query<{ known_count: string; saved_count: string }>(query, [user.id]);
 
-    const stats = {
-      known: 0,
-      saved: 0,
+    const row = res.rows[0];
+    return {
+      known: parseInt(row?.known_count ?? '0', 10),
+      saved: parseInt(row?.saved_count ?? '0', 10),
     };
-
-    res.rows.forEach((row) => {
-      if (row.status === 'known') stats.known = parseInt(row.count, 10);
-      if (row.status === 'saved') stats.saved = parseInt(row.count, 10);
-    });
-
-    return stats;
   } catch (error) {
     console.error('Error in getUserStats:', error);
     return { known: 0, saved: 0 };
@@ -684,7 +757,7 @@ export async function getAllCardsWithStatus() {
     await ensureCardSchema();
 
     const query = `
-      SELECT kc.*, ucs.status
+      SELECT kc.*, ucs.status, ucs.knowledge_state, ucs.progress_state
       FROM knowledge_cards kc
       LEFT JOIN user_card_states ucs
         ON kc.id = ucs.card_id AND ucs.user_id = $1
@@ -701,7 +774,8 @@ export async function getAllCardsWithStatus() {
     `;
 
     const res = await pool.query(query, [user.id]);
-    return (res.rows as (KnowledgeCard & { status: CardStatus | null })[])
+    return (res.rows as CardWithStatusRow[])
+      .map((row) => ({ ...row, status: deriveLegacyStatus(row) }))
       .map((row) => withRelatedConcepts(row));
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
@@ -758,7 +832,10 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
     const query = `
       SELECT
         user_id,
-        COUNT(*) FILTER (WHERE status = 'known') AS known_count,
+        COUNT(*) FILTER (
+          WHERE knowledge_state = 'known'
+            OR (knowledge_state IS NULL AND status = 'known')
+        ) AS known_count,
         COUNT(*) AS total_count
       FROM user_card_states
       GROUP BY user_id
@@ -796,8 +873,14 @@ export async function getUserCardDomainProgress(): Promise<UserCardDomainProgres
       SELECT
         COALESCE(kc.domain, 'other') AS domain,
         COUNT(*) AS reviewed,
-        COUNT(*) FILTER (WHERE ucs.status = 'known') AS known,
-        COUNT(*) FILTER (WHERE ucs.status = 'saved') AS saved
+        COUNT(*) FILTER (
+          WHERE ucs.knowledge_state = 'known'
+            OR (ucs.knowledge_state IS NULL AND ucs.status = 'known')
+        ) AS known,
+        COUNT(*) FILTER (
+          WHERE ucs.progress_state = 'learning'
+            OR (ucs.progress_state IS NULL AND ucs.status = 'saved')
+        ) AS saved
       FROM user_card_states ucs
       JOIN knowledge_cards kc ON kc.id = ucs.card_id
       WHERE ucs.user_id = $1
