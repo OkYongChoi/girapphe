@@ -40,6 +40,25 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const [reviewRoundCompleted, setReviewRoundCompleted] = useState(false);
   const [backNavigatedCardId, setBackNavigatedCardId] = useState<string | null>(null);
 
+  // Mode switch must reset local session state so new/review queues don't bleed into each other.
+  useEffect(() => {
+    setCard(initialCard);
+    setHistory([]);
+    setLoading(false);
+    setError(null);
+    setStats(initialStats);
+    skippedIds.current.clear();
+    ratedIds.current.clear();
+    initialReviewPool.current = initialStats.saved;
+    setRevealed(false);
+    setUndoVisible(false);
+    keepRevealedOnBack.current = false;
+    setLastChoiceByCardId({});
+    setReviewedThisRound(0);
+    setReviewRoundCompleted(false);
+    setBackNavigatedCardId(null);
+  }, [mode, initialCard, initialStats]);
+
   const reviewedCount = useMemo(() => {
     const reviewed = history
       .filter((entry) => entry.action !== 'skip')
@@ -203,7 +222,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center max-w-sm mx-auto bg-white border border-gray-100 rounded-2xl shadow-sm mt-4">
         <div className="mb-4 text-5xl" aria-hidden="true">🎉</div>
         <p className="text-xl font-bold text-gray-900">
-          {mode === 'review' ? "You're all caught up on saved items!" : "All caught up on new cards!"}
+          {mode === 'review' ? "You're all caught up on learning queue items!" : "All caught up on new/unknown cards!"}
         </p>
         <p className="text-gray-500 mt-2 text-sm leading-relaxed">
           You reviewed {reviewedCount} card{reviewedCount !== 1 ? 's' : ''} this session.
@@ -216,7 +235,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           </div>
           <div className="rounded-xl bg-blue-50 border border-blue-100 py-3">
             <span className="block text-2xl font-bold text-blue-600">{stats.saved}</span>
-            <span className="text-xs text-blue-500">Saved</span>
+            <span className="text-xs text-blue-500">Learning Queue</span>
           </div>
         </div>
 
@@ -225,7 +244,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
             href="/practice?mode=review"
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors text-center"
           >
-            Practice saved cards
+            Review learning queue
           </Link>
           <Link
             href="/saved"
@@ -255,7 +274,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 text-xs font-medium">
               <span className="text-emerald-600">✓ {stats.known} known</span>
-              <span className="text-amber-600">🔖 {stats.saved} saved</span>
+              <span className="text-amber-600">🔖 {stats.saved} learning queue</span>
             </div>
             <span className="text-xs text-gray-400" aria-live="polite">
               {reviewedCount > 0 ? `${reviewedCount} this session` : 'Learning new'}
@@ -266,7 +285,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           <>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-medium text-blue-600">
-                🔄 Reviewing saved cards
+                🔄 Reviewing learning queue
               </span>
               <span className="text-xs text-gray-400" aria-live="polite">
                 {Math.min(reviewedThisRound, reviewPool)} / {reviewPool} reviewed
@@ -287,7 +306,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
             </div>
             {reviewRoundCompleted && (
               <p className="mt-2 text-xs font-medium text-emerald-600" aria-live="polite">
-                This review round is complete. You reviewed every saved card once.
+                This review round is complete. You reviewed every learning-queue card once.
               </p>
             )}
           </>
