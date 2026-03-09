@@ -8,6 +8,11 @@ The platform maintains three main data groups:
 2. User knowledge state (`user_knowledge_states`)
 3. Legacy card model (`knowledge_cards`, `user_card_states`)
 
+Card model now separates:
+
+- Knowledge state (`known` or `unknown`)
+- Progress state (`new`, `learning`, `review`)
+
 ## Graph Node Model
 
 Canonical fields:
@@ -65,6 +70,13 @@ Main graph tables:
 - `graph_nodes`
 - `graph_edges`
 - `user_knowledge_states`
+
+Card tables:
+
+- `knowledge_cards`
+- `user_card_states`
+  - Legacy compatibility field: `status` (`known` | `saved`)
+  - Canonical fields: `knowledge_state`, `progress_state`, `due_at`
 
 Key constraints:
 
