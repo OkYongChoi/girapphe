@@ -58,7 +58,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
             <div className="flex gap-4 w-full md:w-auto items-center">
               <button 
                   onClick={() => setViewMode('graph')}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow font-medium transition-colors"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
                   3D Graph View
               </button>
@@ -66,7 +66,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
               <select 
                 value={selectedDomain} 
                 onChange={(e) => setSelectedDomain(e.target.value)}
-                className="p-2 border rounded bg-white"
+                className="p-2 border rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="all">All Domains</option>
                 {domains.map(d => (
@@ -77,7 +77,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
               <select
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value as CardStatus | 'all' | 'unstarted')}
-                className="p-2 border rounded bg-white"
+                className="p-2 border rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="all">All Status</option>
                 <option value="known">Known</option>
@@ -91,7 +91,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
                 placeholder="Search concepts..." 
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="p-2 border rounded flex-grow bg-white"
+                className="p-2 border rounded flex-grow bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
               <button
                 type="button"
@@ -100,10 +100,32 @@ export default function KnowledgeMap({ initialCards }: Props) {
                   setSelectedDomain('all');
                   setSelectedStatus('all');
                 }}
-                className="p-2 border rounded bg-white text-sm hover:bg-gray-50"
+                className="p-2 border rounded bg-white text-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 Reset
               </button>
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div className="mb-6 flex flex-wrap gap-6 rounded-xl border bg-white px-4 py-3 text-xs">
+            <div>
+              <span className="mb-1.5 block font-semibold text-gray-500 uppercase tracking-wide">Status</span>
+              <div className="flex flex-wrap gap-2">
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-green-300 border border-green-400"></span>Known</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-blue-300 border border-blue-400"></span>Saved</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-gray-200 border border-gray-300"></span>Not Started</span>
+              </div>
+            </div>
+            <div>
+              <span className="mb-1.5 block font-semibold text-gray-500 uppercase tracking-wide">Domain</span>
+              <div className="flex flex-wrap gap-2">
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-orange-200 border border-orange-300"></span>Signal</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-teal-200 border border-teal-300"></span>Control</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-emerald-200 border border-emerald-300"></span>Info</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-violet-200 border border-violet-300"></span>ML</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-gray-200 border border-gray-300"></span>Other</span>
+              </div>
             </div>
           </div>
 

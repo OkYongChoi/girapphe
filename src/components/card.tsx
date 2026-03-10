@@ -86,7 +86,7 @@ export default function Card({ card, interactiveQuizMode = true, revealed = true
           {quizLoading ? (
             <p className="mt-2 text-sm text-blue-800/80 animate-pulse">Generating question…</p>
           ) : quizError ? (
-            <p className="mt-2 text-sm text-gray-500">{quizError}</p>
+            <p className="mt-2 text-sm text-red-600">{quizError}</p>
           ) : quiz ? (
             <div className="mt-3 space-y-2">
               <p className="text-sm font-medium text-slate-800">{quiz.question}</p>
@@ -100,7 +100,7 @@ export default function Card({ card, interactiveQuizMode = true, revealed = true
                   if (answered) {
                     if (isCorrectChoice) choiceStyle = 'border-emerald-400 bg-emerald-50 text-emerald-900 font-medium';
                     else if (isSelected) choiceStyle = 'border-red-300 bg-red-50 text-red-800';
-                    else choiceStyle = 'border-slate-200 opacity-60';
+                    else choiceStyle = 'border-slate-100 bg-gray-50 text-gray-400';
                   }
 
                   return (
@@ -111,7 +111,7 @@ export default function Card({ card, interactiveQuizMode = true, revealed = true
                       onClick={() => setSelectedAnswerIndex(index)}
                       aria-pressed={isSelected}
                       aria-describedby={answered ? `quiz-feedback-${card.id}` : undefined}
-                      className={`w-full rounded-md border px-3 py-2 text-left text-sm transition ${choiceStyle} disabled:cursor-default`}
+                      className={`w-full rounded-md border px-3 py-2 text-left text-sm transition focus:outline-none focus:ring-2 focus:ring-blue-400 ${choiceStyle} disabled:cursor-default`}
                     >
                       <span className="mr-2 font-semibold text-gray-500">{String.fromCharCode(65 + index)}.</span>
                       {choice}

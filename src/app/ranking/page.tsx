@@ -45,7 +45,7 @@ export default async function RankingPage() {
                 <th scope="col" className="px-4 py-3 font-semibold">Rank</th>
                 <th scope="col" className="px-4 py-3 font-semibold">User</th>
                 <th scope="col" className="px-4 py-3 font-semibold">Known</th>
-                <th scope="col" className="px-4 py-3 font-semibold">Avg Score</th>
+                <th scope="col" className="hidden sm:table-cell px-4 py-3 font-semibold">Avg Score</th>
               </tr>
             </thead>
             <tbody>
@@ -89,7 +89,7 @@ export default async function RankingPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-gray-900">{row.known}</td>
-                      <td className="px-4 py-3 text-gray-900">{(row.avgScore * 100).toFixed(1)}%</td>
+                      <td className="hidden sm:table-cell px-4 py-3 text-gray-900">{(row.avgScore * 100).toFixed(1)}%</td>
                     </tr>
                   );
                 })

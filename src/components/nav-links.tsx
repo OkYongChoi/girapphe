@@ -30,7 +30,7 @@ export default function NavLinks() {
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
-                className={`rounded-md px-2 py-1 transition-colors ${
+                className={`rounded-md px-2 py-1 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                   active
                     ? 'bg-blue-50 text-blue-700 font-semibold'
                     : 'hover:bg-slate-100 hover:text-slate-900'
