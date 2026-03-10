@@ -142,7 +142,6 @@ export default function KnowledgeMap({ initialCards }: Props) {
                 <option value="all">All Status</option>
                 <option value="known">Known</option>
                 <option value="saved">Saved</option>
-                <option value="unknown">Unknown</option>
                 <option value="unstarted">Not Started</option>
               </select>
               

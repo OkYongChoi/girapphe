@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
-import { KnowledgeCard, saveCardState, getNextCard, CardStatus, getUserStats, PrerequisiteInfo } from '@/actions/card-actions';
+import { KnowledgeCard, saveCardState, getNextCard, CardStatus, getUserStats, type PrerequisiteInfo } from '@/actions/card-actions';
 import Card from './card';
 import Link from 'next/link';
 
@@ -354,7 +354,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       )}
 
       {/* Card — explanation hidden until revealed */}
-      <Card key={card.id} card={card} interactiveQuizMode={false} revealed={revealed} />
+      <Card key={card.id} card={card} revealed={revealed} />
 
       {/* Prerequisites strip */}
       {card.prerequisites && card.prerequisites.length > 0 && (
