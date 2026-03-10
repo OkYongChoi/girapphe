@@ -8,6 +8,13 @@
       "when": 1771350269812,
       "tag": "0000_broad_cammi",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773134159601,
+      "tag": "0002_seed_knowledge_cards",
+      "breakpoints": true
     }
   ]
 }

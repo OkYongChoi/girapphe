@@ -11,6 +11,8 @@ export default async function KnowledgePage() {
   if (!user) {
     redirect('/login');
   }
+  // Server component doesn't get searchParams by default; keep this page stable and let the
+  // client component control query params by navigating to the same route.
   const cards = await getAllCardsWithStatus();
 
   return (
