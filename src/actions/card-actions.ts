@@ -47,7 +47,7 @@ type LeaderboardRow = {
 };
 
 // Bump this whenever CARD_CONTENT changes to force a DB refresh
-const CARD_CONTENT_VERSION = '3';
+const CARD_CONTENT_VERSION = '4';
 
 let cardSchemaReady = false;
 let cardSchemaPromise: Promise<void> | null = null;
@@ -112,7 +112,8 @@ function mapGraphDomainToCardDomain(domain: string): KnowledgeCard['domain'] {
   if (key.includes('control')) return 'control';
   if (key.includes('signal')) return 'signal';
   if (key.includes('machine') || key.includes('learning') || key.includes('intelligence')) return 'ml';
-  if (key.includes('algorithm') || key.includes('computer') || key.includes('data')) return 'info';
+  if (key.includes('algorithm') || key.includes('computer') || key.includes('data') || key.includes('architecture')) return 'info';
+  if (key.includes('semiconductor')) return 'other';
   return 'other';
 }
 
@@ -124,8 +125,7 @@ function mapDifficultyToLevel(difficulty: number): CardLevel {
 }
 
 const GENERATED_MOCK_CARDS: KnowledgeCard[] = GRAPH_NODES
-  .filter((node) => node.level > 0)
-  .slice(0, 180)
+  .filter((node) => node.level > 0 && node.id in CARD_CONTENT)
   .map((node) => {
     const related = (EDGE_MAP[node.id] ?? [])
       .map((id) => GRAPH_NODES.find((candidate) => candidate.id === id)?.label)
