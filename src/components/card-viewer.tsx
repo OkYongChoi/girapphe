@@ -157,6 +157,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     setError(null);
     setBackNavigatedCardId(null);
     setUndoVisible(false); // previous rating's undo is no longer relevant
+    setReviewRoundCompleted(false); // clear previous round-complete banner
     setHistory(prev => [...prev, { card, action: 'skip' }]);
     skippedIds.current.add(card.id);
 
@@ -175,6 +176,9 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
 
       if (!next) {
         // Every remaining card has been skipped → full cycle reset, no exclusions
+        if (mode === 'review' && reviewPool > 0) {
+          setReviewRoundCompleted(true);
+        }
         skippedIds.current.clear();
         next = await getNextCard(mode);
       }
@@ -188,7 +192,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     } finally {
       setLoading(false);
     }
-  }, [card, loading, mode]);
+  }, [card, loading, mode, reviewPool]);
 
   // Reset flip state whenever the displayed card changes.
   // Exception: when going back via Undo, keep the card revealed.
@@ -320,7 +324,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
               <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2" role="status" aria-live="polite">
                 <span className="text-base" aria-hidden="true">🎉</span>
                 <p className="text-xs font-semibold text-emerald-700">
-                  Round complete! You reviewed all {reviewPool} card{reviewPool !== 1 ? 's' : ''} — starting next round.
+                  Round complete! You went through all {reviewPool} card{reviewPool !== 1 ? 's' : ''} — starting next round.
                 </p>
               </div>
             )}
