@@ -46,7 +46,6 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   // We intentionally do NOT include initialCard/initialStats in deps: Next.js re-renders
   // server components after every server action, which would update these props and
   // re-trigger this effect mid-session — resetting the card and wiping ratedIds/history.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setCard(initialCard);
     setHistory([]);
@@ -63,7 +62,8 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     setReviewedThisRound(0);
     setReviewRoundCompleted(false);
     setBackNavigatedCardId(null);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const reviewedCount = useMemo(() => {
     const reviewed = history
