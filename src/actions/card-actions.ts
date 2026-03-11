@@ -47,7 +47,7 @@ type LeaderboardRow = {
 };
 
 // Bump this whenever CARD_CONTENT changes to force a DB refresh
-const CARD_CONTENT_VERSION = '5';
+const CARD_CONTENT_VERSION = '6';
 
 let cardSchemaReady = false;
 let cardSchemaPromise: Promise<void> | null = null;
@@ -109,11 +109,21 @@ const EDGE_MAP = GRAPH_EDGES.reduce<Record<string, string[]>>((acc, edge) => {
 
 function mapGraphDomainToCardDomain(domain: string): KnowledgeCard['domain'] {
   const key = domain.toLowerCase();
+  // Signal / Control
   if (key.includes('control')) return 'control';
   if (key.includes('signal')) return 'signal';
+  // ML / AI family (check vision/nlp before 'computer' to ensure Computer Vision → ml)
   if (key.includes('machine') || key.includes('learning') || key.includes('intelligence')) return 'ml';
-  if (key.includes('algorithm') || key.includes('computer') || key.includes('data') || key.includes('architecture')) return 'info';
-  if (key.includes('semiconductor')) return 'other';
+  if (key.includes('vision') || key === 'nlp' || key.includes('natural language')) return 'ml';
+  if (key.includes('ai safety') || key.includes('federated') || key.includes('alignment')) return 'ml';
+  // Info / CS
+  if (key.includes('algorithm') || key.includes('compiler') || key.includes('database')) return 'info';
+  if (key.includes('computer') || key.includes('data') || key.includes('architecture')) return 'info';
+  if (key === 'os' || key.includes('operating') || key.includes('security')) return 'info';
+  if (key.includes('cloud') || key.includes('devops') || key.includes('network')) return 'info';
+  if (key.includes('software') || key.includes('programming') || key.includes('distributed')) return 'info';
+  if (key.includes('theoretical')) return 'info';
+  // Physics, Chemistry, Biology, Materials, Instrumentation, IoT, Complex Systems, etc. → other
   return 'other';
 }
 
