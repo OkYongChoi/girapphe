@@ -849,4 +849,182 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     summary: 'Add auxiliary rewards F(s,a,s\') to the original reward to speed up learning without changing optimal policy',
     explanation: 'Potential-based shaping: F(s,a,s\') = γΦ(s\') − Φ(s). Preserves optimal policy (policy invariance theorem).\nWrong shaping can cause reward hacking (agent optimizes shaped reward instead of true reward).\nUsed in sparse-reward envs: dense signal guides early exploration.',
   },
+
+  // ── EXPANSION SET (graph node coverage) ───────────────────────
+  mathematics: {
+    summary: 'Formal study of patterns, structure, quantity, and change using logic and proof',
+    explanation: 'Core pillars: algebra, analysis, geometry, probability, and discrete math.\nProvides the language for algorithms, optimization, and modeling in science and ML.\nProofs establish correctness and limits of what can be computed or inferred.',
+  },
+  computer_science: {
+    summary: 'Study of computation, algorithms, and information processes in hardware and software',
+    explanation: 'Key areas: algorithms, data structures, systems, theory of computation, and AI.\nFocus on efficiency (time/space), correctness, and scalability.\nBridges math with practical engineering constraints.',
+  },
+  machine_learning: {
+    summary: 'Algorithms that learn patterns from data to make predictions or decisions',
+    explanation: 'Supervised, unsupervised, and reinforcement learning are core paradigms.\nTraining = optimize a loss function; generalization = perform well on new data.\nBias-variance tradeoff governs model complexity and data needs.',
+  },
+  artificial_intelligence: {
+    summary: 'Systems that perform tasks requiring human-like intelligence: reasoning, perception, planning',
+    explanation: 'Modern AI is dominated by ML, but also includes search, logic, and planning.\nSymbolic AI: rules and knowledge graphs. Statistical AI: probabilistic models and data.\nCurrent frontier: large-scale foundation models and agentic systems.',
+  },
+  topological_sort: {
+    summary: 'Ordering of nodes in a DAG such that all edges u→v place u before v',
+    explanation: 'Only defined for DAGs. Detects cycles if ordering fails.\nKahn\'s algorithm: repeatedly remove nodes with in-degree 0.\nUsed for build systems, scheduling, dependency resolution.',
+  },
+  floyd_warshall: {
+    summary: 'All-pairs shortest paths via dynamic programming in O(V^3)',
+    explanation: 'Update rule: dist[i][j] = min(dist[i][j], dist[i][k] + dist[k][j]).\nHandles negative edges but not negative cycles (can detect them).\nGood for dense graphs or small V.',
+  },
+  bellman_ford: {
+    summary: 'Single-source shortest paths that supports negative edge weights',
+    explanation: 'Relax all edges V−1 times; if a further relaxation is possible, a negative cycle exists.\nTime complexity O(VE). Slower than Dijkstra but more general.\nUsed in routing protocols (e.g., distance-vector).',
+  },
+  union_find: {
+    summary: 'Disjoint Set Union (DSU) structure for dynamic connectivity',
+    explanation: 'Supports find(x) and union(x,y). Path compression + union by rank gives near O(1) amortized.\nCore for Kruskal\'s MST, connectivity queries, and clustering.',
+  },
+  disjoint_set: {
+    summary: 'Partition elements into disjoint sets with efficient union/find operations',
+    explanation: 'Same as Union-Find (DSU). Find gives set representative.\nPath compression flattens trees; union by size/rank keeps them shallow.',
+  },
+  amortized_analysis: {
+    summary: 'Average cost per operation over a sequence, even if some operations are expensive',
+    explanation: 'Accounts for occasional costly steps (e.g., dynamic array resizing).\nMethods: aggregate, accounting, and potential.\nGives tighter bounds than worst-case for many data structures.',
+  },
+  string_matching: {
+    summary: 'Find occurrences of a pattern in a text efficiently',
+    explanation: 'Naive: O(nm). KMP: O(n+m) using prefix function.\nRabin-Karp: rolling hash (probabilistic). Boyer-Moore: practical fast with heuristics.\nUsed in search engines, DNA sequence matching, and editors.',
+  },
+  priority_queue: {
+    summary: 'Data structure supporting extract-min/max and insert efficiently',
+    explanation: 'Binary heap: O(log n) insert/extract, O(1) peek.\nFibonacci heap: better theoretical decrease-key; useful in some graph algorithms.\nBackbone for Dijkstra and A*.',
+  },
+  segment_tree: {
+    summary: 'Tree supporting range queries and point updates in O(log n)',
+    explanation: 'Stores aggregate info (sum, min, max) per segment.\nBuild O(n), query/update O(log n).\nUsed in competitive programming and real-time analytics.',
+  },
+  fenwick_tree: {
+    summary: 'Binary Indexed Tree for prefix sums and point updates in O(log n)',
+    explanation: 'Smaller constant than segment tree; supports sum(1..i) and update(i, delta).\nCan be extended to range updates with tricks.',
+  },
+  b_tree: {
+    summary: 'Balanced multi-way search tree optimized for disks and databases',
+    explanation: 'Each node stores multiple keys and children; high fan-out reduces disk I/O.\nB+ tree stores all data in leaves; internal nodes are routing only.\nUsed in databases and filesystems.',
+  },
+  bloom_filter: {
+    summary: 'Space-efficient probabilistic set membership: may yield false positives, never false negatives',
+    explanation: 'k hash functions set bits in a bit array. Query checks if all bits set.\nFalse positive rate increases as set grows; no deletions without counting variant.\nUsed in caches, databases, and networking.',
+  },
+  adjacency_list: {
+    summary: 'Graph representation storing for each vertex a list of its neighbors',
+    explanation: 'Space O(V+E). Efficient for sparse graphs.\nTraversal time proportional to degree; great for BFS/DFS.',
+  },
+  reduction: {
+    summary: 'Transform one problem into another to transfer hardness or solvability',
+    explanation: 'If A reduces to B, then solving B solves A.\nUsed to prove NP-hardness and design algorithms via known solutions.',
+  },
+  polynomial_time: {
+    summary: 'An algorithm runs in time O(n^k) for some constant k',
+    explanation: 'Considered efficient/tractable in complexity theory.\nClass P = problems solvable in polynomial time by deterministic Turing machine.',
+  },
+  nondeterminism: {
+    summary: 'Computation model that can explore multiple choices simultaneously',
+    explanation: 'Nondeterministic TM accepts if any computation path accepts.\nClass NP: problems verifiable in polynomial time (equivalently solvable by NDTM in poly time).',
+  },
+  decision_problem: {
+    summary: 'Problem with a yes/no answer (language membership)',
+    explanation: 'Complexity classes (P, NP, co-NP) are defined over decision problems.\nMany optimization problems have related decision versions.',
+  },
+  approximation_algorithms: {
+    summary: 'Algorithms that produce near-optimal solutions with guarantees',
+    explanation: 'Approx ratio: solution ≤ α * optimal (or ≥ 1/α for maximization).\nUsed for NP-hard problems like TSP, set cover, and scheduling.',
+  },
+  randomized_algorithms: {
+    summary: 'Algorithms that use randomness to simplify logic or improve expected performance',
+    explanation: 'Las Vegas: always correct, random runtime. Monte Carlo: fixed runtime, small error.\nRandomness can avoid worst-case inputs and simplify proofs.',
+  },
+  hyperparameter_tuning: {
+    summary: 'Search over model/config parameters not learned during training',
+    explanation: 'Methods: grid search, random search, Bayesian optimization.\nUse validation set or cross-validation to avoid overfitting.\nAutomated tuning can dominate manual trial-and-error.',
+  },
+  probability_calibration: {
+    summary: 'Adjust predicted probabilities so they match observed frequencies',
+    explanation: 'Calibrated model: among predictions of 0.8, ~80% are correct.\nMethods: Platt scaling, isotonic regression, temperature scaling.\nImportant for decision-making and risk-sensitive systems.',
+  },
+  spectral_clustering: {
+    summary: 'Cluster data using eigenvectors of a similarity (graph Laplacian) matrix',
+    explanation: 'Build affinity graph, compute Laplacian L, use top-k eigenvectors.\nCaptures non-convex clusters better than k-means.\nRequires careful choice of similarity kernel.',
+  },
+  latent_variable_models: {
+    summary: 'Models with unobserved variables that explain observed data',
+    explanation: 'Examples: Gaussian mixtures, HMMs, topic models.\nInference via EM, variational inference, or MCMC.\nUseful for discovery and representation learning.',
+  },
+  manifold_learning: {
+    summary: 'Assume data lies on a low-dimensional manifold embedded in high-dimensional space',
+    explanation: 'Algorithms: Isomap, LLE, t-SNE, UMAP.\nUsed for visualization and nonlinear dimensionality reduction.',
+  },
+  sarsa: {
+    summary: 'On-policy TD control: Q(s,a) ← Q(s,a) + α[r + γQ(s\',a\') − Q(s,a)]',
+    explanation: 'Uses the action actually taken a\' (policy-following).\nStable and conservative compared to off-policy methods like Q-learning.',
+  },
+  epsilon_greedy: {
+    summary: 'Exploration strategy: with prob ε choose random action, else exploit best action',
+    explanation: 'Simple and effective; ε can decay over time.\nBalances exploration vs exploitation.',
+  },
+  policy_iteration: {
+    summary: 'Solve MDP by alternating policy evaluation and policy improvement',
+    explanation: 'Evaluate V^π, then update π to be greedy w.r.t. V^π.\nConverges to optimal policy for finite MDPs.',
+  },
+  value_iteration: {
+    summary: 'Iteratively apply Bellman optimality update to values',
+    explanation: 'V_{k+1}(s) = max_a [R(s,a) + γ Σ P(s\'|s,a) V_k(s\')].\nConverges to optimal value function; derive policy greedily.',
+  },
+  model_based_rl: {
+    summary: 'RL approach that learns or uses a model of environment dynamics',
+    explanation: 'Plan with the model (e.g., Dyna) to improve data efficiency.\nRisk: model bias; remedy with uncertainty and re-planning.',
+  },
+  off_policy_learning: {
+    summary: 'Learn a target policy from data generated by a different behavior policy',
+    explanation: 'Allows learning from logs or replay buffers.\nImportance sampling corrects distribution mismatch; can increase variance.',
+  },
+  on_policy_learning: {
+    summary: 'Learn from trajectories generated by the current policy',
+    explanation: 'Stable but sample-inefficient. Examples: SARSA, policy gradients.\nImproves smoothly but requires fresh data after policy changes.',
+  },
+  sequence_modeling: {
+    summary: 'Model temporal or ordered data with dependence across steps',
+    explanation: 'Models: RNN, LSTM, GRU, Transformer, HMM.\nKey challenge: long-range dependencies and exposure bias.\nUsed in language, speech, time-series, and control.',
+  },
+  mixture_of_experts: {
+    summary: 'Model that routes inputs to specialized sub-models (experts)',
+    explanation: 'Gating network chooses experts; sparse MoE scales to huge capacity.\nNeeds load balancing to avoid expert collapse.',
+  },
+  structural_risk_minimization: {
+    summary: 'Choose model class to minimize empirical error plus capacity penalty',
+    explanation: 'Balances bias and variance using VC dimension or regularization.\nFoundation for SVM theory and generalization bounds.',
+  },
+  concentration_inequalities: {
+    summary: 'Bounds on how a random variable deviates from its expectation',
+    explanation: 'Key tools: Markov, Chebyshev, Hoeffding, Chernoff.\nUsed to quantify sample complexity and generalization.',
+  },
+  chernoff_bound: {
+    summary: 'Exponential tail bounds for sums of independent Bernoulli variables',
+    explanation: 'P(X ≥ (1+δ)μ) ≤ exp(−μ δ^2 / 3) (one common form).\nStronger than Chebyshev for independent bounded variables.',
+  },
+  fano_inequality: {
+    summary: 'Lower bound on error probability in terms of mutual information',
+    explanation: 'Relates classification error to entropy of labels and information captured.\nUsed to prove impossibility and sample complexity lower bounds.',
+  },
+  pinsker_inequality: {
+    summary: 'Bounds total variation by KL divergence: TV(P,Q) ≤ sqrt(0.5 * KL(P||Q))',
+    explanation: 'Connects information-theoretic divergence to probability distance.\nUseful in learning theory and statistics.',
+  },
+  rate_distortion_theory: {
+    summary: 'Tradeoff between compression rate and reconstruction error',
+    explanation: 'Rate-distortion function R(D) gives minimum bits for distortion D.\nFoundation of lossy compression and representation learning.',
+  },
+  minimum_description_length: {
+    summary: 'Choose the model that minimizes total description length: model + data given model',
+    explanation: 'Formalizes Occam\'s razor. Equivalent to penalized likelihood / Bayesian evidence.\nUsed for model selection and preventing overfitting.',
+  },
 };
