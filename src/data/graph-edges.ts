@@ -18,6 +18,12 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'computer_science', target: 'complexity_theory', type: 'generalizes', weight: 1.0 },
   { source: 'computer_science', target: 'operating_systems', type: 'generalizes', weight: 1.0 },
   { source: 'computer_science', target: 'computer_networks', type: 'generalizes', weight: 1.0 },
+  { source: 'computer_science', target: 'databases', type: 'generalizes', weight: 1.0 },
+  { source: 'computer_science', target: 'distributed_systems', type: 'generalizes', weight: 1.0 },
+  { source: 'computer_science', target: 'systems_performance', type: 'generalizes', weight: 1.0 },
+  { source: 'computer_science', target: 'security', type: 'generalizes', weight: 1.0 },
+  { source: 'computer_science', target: 'software_engineering', type: 'generalizes', weight: 1.0 },
+  { source: 'computer_science', target: 'programming_languages', type: 'generalizes', weight: 1.0 },
   { source: 'machine_learning', target: 'supervised_learning', type: 'generalizes', weight: 1.0 },
   { source: 'machine_learning', target: 'unsupervised_learning', type: 'generalizes', weight: 1.0 },
   { source: 'machine_learning', target: 'reinforcement_learning', type: 'generalizes', weight: 1.0 },
@@ -147,6 +153,68 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'tcp', target: 'congestion_control', type: 'prerequisite', weight: 0.8 },
   { source: 'tcp', target: 'http', type: 'prerequisite', weight: 0.6 },
   { source: 'http', target: 'tls', type: 'prerequisite', weight: 0.7 },
+
+  // ============================================================
+  // DATABASES — internal prerequisites
+  // ============================================================
+  { source: 'relational_model', target: 'sql', type: 'prerequisite', weight: 0.8 },
+  { source: 'relational_model', target: 'normalization', type: 'prerequisite', weight: 0.7 },
+  { source: 'sql', target: 'indexes', type: 'prerequisite', weight: 0.6 },
+  { source: 'transactions', target: 'isolation_levels', type: 'prerequisite', weight: 0.8 },
+  { source: 'sql', target: 'query_planning', type: 'prerequisite', weight: 0.7 },
+  { source: 'transactions', target: 'replication_db', type: 'related', weight: 0.5 },
+  { source: 'replication_db', target: 'sharding_db', type: 'related', weight: 0.5 },
+
+  // ============================================================
+  // DISTRIBUTED SYSTEMS — internal prerequisites
+  // ============================================================
+  { source: 'consistency_models', target: 'cap_theorem', type: 'related', weight: 0.6 },
+  { source: 'consensus', target: 'raft', type: 'prerequisite', weight: 0.8 },
+  { source: 'consensus', target: 'paxos', type: 'prerequisite', weight: 0.8 },
+  { source: 'leader_election', target: 'consensus', type: 'prerequisite', weight: 0.7 },
+  { source: 'replication', target: 'consistency_models', type: 'prerequisite', weight: 0.7 },
+  { source: 'partitioning', target: 'cap_theorem', type: 'prerequisite', weight: 0.6 },
+  { source: 'replication', target: 'distributed_transactions', type: 'related', weight: 0.5 },
+
+  // ============================================================
+  // SYSTEMS PERFORMANCE — internal prerequisites
+  // ============================================================
+  { source: 'latency', target: 'throughput', type: 'related', weight: 0.5 },
+  { source: 'caching', target: 'latency', type: 'prerequisite', weight: 0.6 },
+  { source: 'load_balancing', target: 'throughput', type: 'prerequisite', weight: 0.6 },
+  { source: 'rate_limiting', target: 'backpressure', type: 'related', weight: 0.6 },
+  { source: 'observability', target: 'profiling', type: 'related', weight: 0.5 },
+  { source: 'circuit_breaker', target: 'load_balancing', type: 'related', weight: 0.5 },
+
+  // ============================================================
+  // SECURITY — internal prerequisites
+  // ============================================================
+  { source: 'authentication', target: 'authorization', type: 'prerequisite', weight: 0.7 },
+  { source: 'cryptography', target: 'symmetric_encryption', type: 'prerequisite', weight: 0.7 },
+  { source: 'cryptography', target: 'asymmetric_encryption', type: 'prerequisite', weight: 0.7 },
+  { source: 'hashing', target: 'authentication', type: 'related', weight: 0.5 },
+  { source: 'threat_modeling', target: 'web_security', type: 'prerequisite', weight: 0.6 },
+  { source: 'web_security', target: 'xss', type: 'prerequisite', weight: 0.7 },
+  { source: 'web_security', target: 'csrf', type: 'prerequisite', weight: 0.7 },
+  { source: 'web_security', target: 'sql_injection', type: 'prerequisite', weight: 0.7 },
+
+  // ============================================================
+  // SOFTWARE ENGINEERING — internal prerequisites
+  // ============================================================
+  { source: 'testing', target: 'unit_testing', type: 'prerequisite', weight: 0.8 },
+  { source: 'testing', target: 'integration_testing', type: 'prerequisite', weight: 0.8 },
+  { source: 'version_control', target: 'code_review', type: 'related', weight: 0.6 },
+  { source: 'dependency_management', target: 'ci_cd', type: 'related', weight: 0.6 },
+  { source: 'design_patterns', target: 'clean_architecture', type: 'related', weight: 0.5 },
+
+  // ============================================================
+  // PROGRAMMING LANGUAGES — internal prerequisites
+  // ============================================================
+  { source: 'parsing', target: 'ast', type: 'prerequisite', weight: 0.8 },
+  { source: 'ast', target: 'interpreters', type: 'prerequisite', weight: 0.7 },
+  { source: 'ast', target: 'compilers', type: 'prerequisite', weight: 0.7 },
+  { source: 'type_systems', target: 'memory_safety', type: 'related', weight: 0.6 },
+  { source: 'compilers', target: 'garbage_collection', type: 'related', weight: 0.5 },
 
   // ============================================================
   // SUPERVISED LEARNING — internal prerequisites

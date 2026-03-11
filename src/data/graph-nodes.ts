@@ -141,6 +141,78 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'tls', label: 'TLS', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
   { id: 'congestion_control', label: 'Congestion Control', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
 
+  // --- Databases (parent) ---
+  { id: 'databases', label: 'Databases', domain: 'Databases', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'relational_model', label: 'Relational Model', domain: 'Databases', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'sql', label: 'SQL', domain: 'Databases', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'normalization', label: 'Normalization', domain: 'Databases', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'indexes', label: 'Indexes', domain: 'Databases', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'transactions', label: 'Transactions', domain: 'Databases', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'isolation_levels', label: 'Isolation Levels', domain: 'Databases', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'query_planning', label: 'Query Planning', domain: 'Databases', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'replication_db', label: 'Replication (DB)', domain: 'Databases', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'sharding_db', label: 'Sharding', domain: 'Databases', level: 2, difficulty: 4, type: 'concept' },
+
+  // --- Distributed Systems (parent) ---
+  { id: 'distributed_systems', label: 'Distributed Systems', domain: 'Distributed Systems', level: 1, difficulty: 4, type: 'concept' },
+  { id: 'cap_theorem', label: 'CAP Theorem', domain: 'Distributed Systems', level: 2, difficulty: 4, type: 'theorem' },
+  { id: 'consistency_models', label: 'Consistency Models', domain: 'Distributed Systems', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'consensus', label: 'Consensus', domain: 'Distributed Systems', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'raft', label: 'Raft', domain: 'Distributed Systems', level: 2, difficulty: 4, type: 'algorithm' },
+  { id: 'paxos', label: 'Paxos', domain: 'Distributed Systems', level: 2, difficulty: 5, type: 'algorithm' },
+  { id: 'leader_election', label: 'Leader Election', domain: 'Distributed Systems', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'replication', label: 'Replication', domain: 'Distributed Systems', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'partitioning', label: 'Partitioning', domain: 'Distributed Systems', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'distributed_transactions', label: 'Distributed Transactions', domain: 'Distributed Systems', level: 2, difficulty: 5, type: 'concept' },
+
+  // --- Systems Performance (parent) ---
+  { id: 'systems_performance', label: 'Systems Performance', domain: 'Systems Performance', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'latency', label: 'Latency', domain: 'Systems Performance', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'throughput', label: 'Throughput', domain: 'Systems Performance', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'caching', label: 'Caching', domain: 'Systems Performance', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'load_balancing', label: 'Load Balancing', domain: 'Systems Performance', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'backpressure', label: 'Backpressure', domain: 'Systems Performance', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'rate_limiting', label: 'Rate Limiting', domain: 'Systems Performance', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'circuit_breaker', label: 'Circuit Breaker', domain: 'Systems Performance', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'profiling', label: 'Profiling', domain: 'Systems Performance', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'observability', label: 'Observability', domain: 'Systems Performance', level: 2, difficulty: 3, type: 'concept' },
+
+  // --- Security (parent) ---
+  { id: 'security', label: 'Security', domain: 'Security', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'authentication', label: 'Authentication', domain: 'Security', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'authorization', label: 'Authorization', domain: 'Security', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'cryptography', label: 'Cryptography', domain: 'Security', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'hashing', label: 'Hashing', domain: 'Security', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'symmetric_encryption', label: 'Symmetric Encryption', domain: 'Security', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'asymmetric_encryption', label: 'Asymmetric Encryption', domain: 'Security', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'threat_modeling', label: 'Threat Modeling', domain: 'Security', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'web_security', label: 'Web Security', domain: 'Security', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'xss', label: 'XSS', domain: 'Security', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'csrf', label: 'CSRF', domain: 'Security', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'sql_injection', label: 'SQL Injection', domain: 'Security', level: 2, difficulty: 3, type: 'concept' },
+
+  // --- Software Engineering (parent) ---
+  { id: 'software_engineering', label: 'Software Engineering', domain: 'Software Engineering', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'testing', label: 'Testing', domain: 'Software Engineering', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'unit_testing', label: 'Unit Testing', domain: 'Software Engineering', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'integration_testing', label: 'Integration Testing', domain: 'Software Engineering', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'design_patterns', label: 'Design Patterns', domain: 'Software Engineering', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'clean_architecture', label: 'Clean Architecture', domain: 'Software Engineering', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'code_review', label: 'Code Review', domain: 'Software Engineering', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'ci_cd', label: 'CI/CD', domain: 'Software Engineering', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'version_control', label: 'Version Control', domain: 'Software Engineering', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'dependency_management', label: 'Dependency Management', domain: 'Software Engineering', level: 2, difficulty: 3, type: 'concept' },
+
+  // --- Programming Languages & Compilers (parent) ---
+  { id: 'programming_languages', label: 'Programming Languages', domain: 'Programming Languages', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'type_systems', label: 'Type Systems', domain: 'Programming Languages', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'compilers', label: 'Compilers', domain: 'Programming Languages', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'parsing', label: 'Parsing', domain: 'Programming Languages', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'ast', label: 'Abstract Syntax Tree', domain: 'Programming Languages', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'interpreters', label: 'Interpreters', domain: 'Programming Languages', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'garbage_collection', label: 'Garbage Collection', domain: 'Programming Languages', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'memory_safety', label: 'Memory Safety', domain: 'Programming Languages', level: 2, difficulty: 3, type: 'concept' },
+
   // ============================================================
   // LEVEL 1 — Machine Learning
   // ============================================================

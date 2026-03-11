@@ -958,6 +958,258 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     explanation: 'TCP variants: Reno, Cubic, BBR. Use AIMD and RTT/packet loss signals.\nBalances throughput, fairness, and latency.\nPoor control leads to congestion collapse.',
   },
 
+  // ── DATABASES ────────────────────────────────────────────────
+  databases: {
+    summary: 'Systems for storing, querying, and managing structured data reliably',
+    explanation: 'Relational databases use tables and SQL; NoSQL trades strict consistency for scale.\nCore goals: correctness, performance, and durability.\nKey topics: schemas, transactions, indexes, and replication.',
+  },
+  relational_model: {
+    summary: 'Data represented as relations (tables) with tuples (rows) and attributes (columns)',
+    explanation: 'Queries are expressed as relational algebra or SQL.\nKeys enforce identity: primary keys and foreign keys define relationships.\nNormalization reduces redundancy and anomalies.',
+  },
+  sql: {
+    summary: 'Declarative language for querying and managing relational databases',
+    explanation: 'Core clauses: SELECT, FROM, WHERE, GROUP BY, HAVING, ORDER BY.\nJoins combine tables; indexes speed lookup.\nQuery planner chooses efficient execution strategies.',
+  },
+  normalization: {
+    summary: 'Schema design rules that reduce redundancy and update anomalies',
+    explanation: 'Normal forms: 1NF, 2NF, 3NF, BCNF.\nTrade-off: higher normalization reduces redundancy but can increase join cost.\nDenormalization is sometimes used for performance.',
+  },
+  indexes: {
+    summary: 'Auxiliary data structures that speed up lookups and range queries',
+    explanation: 'B-tree indexes support range scans; hash indexes support equality.\nTrade-off: faster reads, slower writes and more storage.\nChoose indexes based on query patterns and selectivity.',
+  },
+  transactions: {
+    summary: 'Atomic units of work providing ACID guarantees',
+    explanation: 'ACID: Atomicity, Consistency, Isolation, Durability.\nTransactions prevent partial updates and maintain invariants.\nImplemented via logging, locking, and recovery.',
+  },
+  isolation_levels: {
+    summary: 'Defines how concurrent transactions are isolated from each other',
+    explanation: 'Levels: Read Uncommitted, Read Committed, Repeatable Read, Serializable.\nAnomalies: dirty read, non-repeatable read, phantom read.\nHigher isolation increases correctness but may reduce throughput.',
+  },
+  query_planning: {
+    summary: 'The optimizer chooses a query execution strategy to minimize cost',
+    explanation: 'Plans include join order, join algorithms (nested loop, hash, merge), and index usage.\nCost models estimate I/O and CPU.\nEXPLAIN helps inspect and tune plans.',
+  },
+  replication_db: {
+    summary: 'Maintain multiple copies of data for availability and read scaling',
+    explanation: 'Primary-replica and multi-leader are common patterns.\nSynchronous replication improves consistency; async improves latency.\nRequires conflict handling and failover.',
+  },
+  sharding_db: {
+    summary: 'Partition data across nodes to scale writes and storage',
+    explanation: 'Shards can be range-based or hash-based.\nTrade-offs: cross-shard queries and transactions become complex.\nRebalancing is required as data grows.',
+  },
+
+  // ── DISTRIBUTED SYSTEMS ──────────────────────────────────────
+  distributed_systems: {
+    summary: 'Systems composed of multiple nodes that coordinate via networks',
+    explanation: 'Challenges: partial failures, latency, and consistency.\nDesign trade-offs are formalized by CAP and consistency models.\nReplication and consensus are core building blocks.',
+  },
+  cap_theorem: {
+    summary: 'In the presence of partitions, you must choose between consistency and availability',
+    explanation: 'CAP applies when network partitions can occur.\nC: all nodes see the same data. A: every request gets a response.\nSystems choose trade-offs based on requirements.',
+  },
+  consistency_models: {
+    summary: 'Rules that define how updates become visible across replicas',
+    explanation: 'Strong (linearizable) vs eventual consistency.\nRead-your-writes and monotonic reads are session guarantees.\nWeaker consistency improves latency and availability.',
+  },
+  consensus: {
+    summary: 'Agreement among nodes on a single value or order of operations',
+    explanation: 'Needed for leader election, replicated logs, and state machines.\nMust tolerate failures and asynchrony.\nProtocols: Raft, Paxos, and variants.',
+  },
+  raft: {
+    summary: 'Consensus algorithm designed for understandability and practical use',
+    explanation: 'Roles: leader, follower, candidate. Uses log replication and elections.\nSafety: committed entries are preserved across term changes.\nWidely used in distributed databases and coordination systems.',
+  },
+  paxos: {
+    summary: 'Consensus algorithm that tolerates failures in asynchronous networks',
+    explanation: 'Phases: prepare/promise and accept/accepted.\nEnsures safety (no conflicting decisions) with majority quorums.\nHard to implement; often replaced by Raft in practice.',
+  },
+  leader_election: {
+    summary: 'Process of choosing a coordinator among distributed nodes',
+    explanation: 'Leaders simplify coordination but introduce single points of failure.\nTypically uses timeouts and majority votes.\nUsed by consensus and primary-replica systems.',
+  },
+  replication: {
+    summary: 'Maintain multiple copies of data or state across nodes',
+    explanation: 'Improves availability and read throughput.\nRequires consistency mechanisms and conflict resolution.\nCommon strategies: primary-backup, quorum, multi-leader.',
+  },
+  partitioning: {
+    summary: 'Split a system into components that can fail or scale independently',
+    explanation: 'Network partitions are unavoidable at scale.\nPartitioning data or services reduces coupling but complicates consistency.\nDesigns must handle partial failure explicitly.',
+  },
+  distributed_transactions: {
+    summary: 'Transactions that span multiple nodes or partitions',
+    explanation: 'Two-phase commit (2PC) coordinates commit/abort; can block on failures.\nAlternatives: sagas and idempotent workflows.\nTrade-off between consistency and availability.',
+  },
+
+  // ── SYSTEMS PERFORMANCE ──────────────────────────────────────
+  systems_performance: {
+    summary: 'Principles and techniques for building fast and reliable systems',
+    explanation: 'Optimize latency, throughput, and resource utilization.\nUse caching, load balancing, and backpressure for stability.\nMeasure with profiling and observability tools.',
+  },
+  latency: {
+    summary: 'Time delay between a request and its response',
+    explanation: 'P50, P95, P99 are key percentiles.\nTail latency dominates user experience and system coupling.\nReduce with caching, batching, and efficient I/O.',
+  },
+  throughput: {
+    summary: 'Amount of work a system can process per unit time',
+    explanation: 'Measured in requests/sec or operations/sec.\nThroughput depends on concurrency, resource limits, and contention.\nOften trades off with latency at high load.',
+  },
+  caching: {
+    summary: 'Store results to avoid repeated expensive computation or I/O',
+    explanation: 'Cache types: in-memory, CDN, database buffers.\nPolicies: LRU, LFU, TTL. Must handle staleness.\nCache hit rate directly impacts latency and cost.',
+  },
+  load_balancing: {
+    summary: 'Distribute traffic across servers to improve scalability and availability',
+    explanation: 'Algorithms: round-robin, least connections, consistent hashing.\nHealth checks remove unhealthy nodes.\nUsed at L4 (TCP) and L7 (HTTP).',
+  },
+  backpressure: {
+    summary: 'Mechanism to prevent overload by slowing down producers',
+    explanation: 'Signals congestion to upstream components.\nAvoids queue explosion and timeouts under load.\nUsed in streaming systems and RPC frameworks.',
+  },
+  rate_limiting: {
+    summary: 'Control request rates to protect services and ensure fairness',
+    explanation: 'Algorithms: token bucket, leaky bucket, fixed window.\nPrevents abuse and provides predictable capacity.\nOften combined with authentication tiers.',
+  },
+  circuit_breaker: {
+    summary: 'Stops requests to failing services to prevent cascading failures',
+    explanation: 'States: closed, open, half-open.\nAllows recovery time and prevents overload.\nCommon in microservice architectures.',
+  },
+  profiling: {
+    summary: 'Measure where time and resources are spent in code',
+    explanation: 'CPU, memory, and I/O profiles reveal bottlenecks.\nSampling profilers are low overhead; tracing gives more detail.\nGuides optimization with data rather than guesswork.',
+  },
+  observability: {
+    summary: 'Ability to understand system behavior from logs, metrics, and traces',
+    explanation: 'Telemetry pillars: metrics, logs, traces.\nHelps diagnose incidents and regressions.\nDistributed tracing ties together cross-service requests.',
+  },
+
+  // ── SECURITY ─────────────────────────────────────────────────
+  security: {
+    summary: 'Protect systems from unauthorized access, misuse, and data loss',
+    explanation: 'Security is a process: prevention, detection, and response.\nThreat modeling identifies risks and mitigations early.\nLeast privilege and defense in depth are core principles.',
+  },
+  authentication: {
+    summary: 'Verify the identity of a user or service',
+    explanation: 'Methods: passwords, OAuth, MFA, tokens, certificates.\nAuthn proves who you are; authz decides what you can do.\nStrong authn reduces account takeover risk.',
+  },
+  authorization: {
+    summary: 'Determine permissions after identity is verified',
+    explanation: 'Models: RBAC, ABAC, capability-based access.\nPolicy engines enforce consistent rules.\nShould be explicit and auditable.',
+  },
+  cryptography: {
+    summary: 'Mathematical techniques for secure communication and data protection',
+    explanation: 'Goals: confidentiality, integrity, authenticity.\nUses encryption, hashing, and digital signatures.\nRequires careful key management and randomness.',
+  },
+  hashing: {
+    summary: 'One-way functions that map data to fixed-size digests',
+    explanation: 'Properties: preimage resistance, collision resistance.\nUse HMAC for integrity; avoid weak hashes for passwords.\nPassword hashing uses salts and slow functions (bcrypt, scrypt).',
+  },
+  symmetric_encryption: {
+    summary: 'Same key encrypts and decrypts data',
+    explanation: 'Fast and suitable for bulk data (AES, ChaCha20).\nKey distribution is the main challenge.\nOften combined with asymmetric keys to exchange session keys.',
+  },
+  asymmetric_encryption: {
+    summary: 'Public/private key pairs for encryption and signatures',
+    explanation: 'Enables key exchange and digital signatures (RSA, ECC).\nSlower than symmetric; used for small data and handshakes.\nFoundation of TLS and PKI.',
+  },
+  threat_modeling: {
+    summary: 'Systematically identify threats, assets, and mitigations',
+    explanation: 'Models: STRIDE, LINDDUN.\nHelps prioritize security work and reduce blind spots.\nDone early to influence architecture.',
+  },
+  web_security: {
+    summary: 'Protect web applications against common attacks',
+    explanation: 'Defense includes input validation, output encoding, and secure headers.\nUse HTTPS, secure cookies, and CSP.\nOWASP Top 10 is the baseline checklist.',
+  },
+  xss: {
+    summary: 'Cross-site scripting allows attacker scripts to run in a victim’s browser',
+    explanation: 'Prevention: output encoding, CSP, and avoiding unsafe HTML injection.\nStored vs reflected XSS.\nImpacts session theft and data exfiltration.',
+  },
+  csrf: {
+    summary: 'Cross-site request forgery tricks a user into performing unwanted actions',
+    explanation: 'Mitigations: CSRF tokens, SameSite cookies, and verifying origin.\nState-changing requests must be protected.\nNot relevant for fully stateless APIs with auth headers only.',
+  },
+  sql_injection: {
+    summary: 'Attack that manipulates SQL queries via unsanitized input',
+    explanation: 'Prevention: parameterized queries and ORM query builders.\nInput validation alone is insufficient.\nCan lead to data leakage or destructive changes.',
+  },
+
+  // ── SOFTWARE ENGINEERING ─────────────────────────────────────
+  software_engineering: {
+    summary: 'Discipline of building reliable, maintainable, and scalable software',
+    explanation: 'Focuses on design, testing, process, and team practices.\nTrade-offs among speed, quality, and cost are explicit.\nAutomation and code quality practices reduce long-term risk.',
+  },
+  testing: {
+    summary: 'Validate that software behaves correctly under expected and edge conditions',
+    explanation: 'Testing pyramid: unit, integration, end-to-end.\nAutomated tests catch regressions early.\nGood tests are deterministic and fast.',
+  },
+  unit_testing: {
+    summary: 'Test small units of code in isolation',
+    explanation: 'Mocks/stubs isolate dependencies.\nFast feedback and high coverage for logic.\nShould focus on behavior, not implementation details.',
+  },
+  integration_testing: {
+    summary: 'Test interactions between components or services',
+    explanation: 'Covers database, network, and external service boundaries.\nSlower than unit tests but catches wiring issues.\nOften runs in CI with containers.',
+  },
+  design_patterns: {
+    summary: 'Reusable solutions to common software design problems',
+    explanation: 'Examples: factory, strategy, observer, adapter.\nImprove structure and communication across teams.\nOveruse can add unnecessary complexity.',
+  },
+  clean_architecture: {
+    summary: 'Organize code into layers to separate business logic from frameworks',
+    explanation: 'Dependencies point inward toward core use cases.\nImproves testability and long-term maintainability.\nBoundaries enforce separation of concerns.',
+  },
+  code_review: {
+    summary: 'Peer review process to improve code quality and shared understanding',
+    explanation: 'Catches bugs and design issues early.\nEncourages consistency and knowledge sharing.\nShould focus on correctness, readability, and maintainability.',
+  },
+  ci_cd: {
+    summary: 'Automate building, testing, and releasing software',
+    explanation: 'CI validates changes on every commit. CD deploys changes safely.\nPipelines enforce quality gates.\nReduces manual errors and speeds delivery.',
+  },
+  version_control: {
+    summary: 'Track and manage changes to source code over time',
+    explanation: 'Git is the standard: commits, branches, merges, and history.\nEnables collaboration and rollback.\nGood commit hygiene improves debugging.',
+  },
+  dependency_management: {
+    summary: 'Manage external libraries and their versions',
+    explanation: 'Lockfiles ensure reproducible builds.\nRisks: security vulnerabilities and version conflicts.\nRegular updates and auditing reduce risk.',
+  },
+
+  // ── PROGRAMMING LANGUAGES ────────────────────────────────────
+  programming_languages: {
+    summary: 'Formal systems for expressing computation',
+    explanation: 'Language design balances safety, performance, and expressiveness.\nParadigms: imperative, functional, object-oriented, logic.\nRuntime and tooling shape developer productivity.',
+  },
+  type_systems: {
+    summary: 'Rules that classify values and expressions to prevent errors',
+    explanation: 'Static vs dynamic typing; soundness vs flexibility.\nTypes enable optimization and tooling (autocomplete, refactors).\nAdvanced features: generics, algebraic data types, type inference.',
+  },
+  compilers: {
+    summary: 'Translate high-level code into lower-level code or machine instructions',
+    explanation: 'Phases: lexing, parsing, semantic analysis, optimization, codegen.\nOptimization includes inlining, constant folding, and dead code elimination.\nCompilers target performance and correctness.',
+  },
+  parsing: {
+    summary: 'Convert token streams into structured syntax trees',
+    explanation: 'Parsing uses grammars (LL, LR) to build ASTs.\nAmbiguity must be resolved via precedence/associativity.\nParser generators and combinators automate parser creation.',
+  },
+  ast: {
+    summary: 'Tree representation of program structure used by compilers and interpreters',
+    explanation: 'Nodes represent expressions, statements, and declarations.\nASTs enable analysis, transformation, and optimization.\nLowered IRs are derived from ASTs.',
+  },
+  interpreters: {
+    summary: 'Execute programs directly rather than compiling to machine code',
+    explanation: 'Simpler to implement and great for rapid iteration.\nOften slower than compiled code but can use JIT for speed.\nUsed in scripting languages and REPLs.',
+  },
+  garbage_collection: {
+    summary: 'Automatic memory management that reclaims unused objects',
+    explanation: 'Techniques: reference counting, mark-and-sweep, generational GC.\nTrade-off: pauses vs throughput.\nReduces memory safety bugs but adds runtime overhead.',
+  },
+  memory_safety: {
+    summary: 'Guarantee that memory access is valid and non-aliased when required',
+    explanation: 'Prevents buffer overflows and use-after-free bugs.\nAchieved via type systems, borrow checking, or runtime checks.\nCritical for security and reliability.',
+  },
+
   // ── EXPANSION SET (graph node coverage) ───────────────────────
   mathematics: {
     summary: 'Formal study of patterns, structure, quantity, and change using logic and proof',

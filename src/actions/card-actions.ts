@@ -53,7 +53,7 @@ type LeaderboardRow = {
 };
 
 // Bump this whenever CARD_CONTENT changes to force a DB refresh
-const CARD_CONTENT_VERSION = '5';
+const CARD_CONTENT_VERSION = '6';
 
 let cardSchemaReady = false;
 let cardSchemaPromise: Promise<void> | null = null;
@@ -100,7 +100,18 @@ function mapGraphDomainToCardDomain(domain: string): KnowledgeCard['domain'] {
   if (key.includes('control')) return 'control';
   if (key.includes('signal')) return 'signal';
   if (key.includes('machine') || key.includes('learning') || key.includes('intelligence')) return 'ml';
-  if (key.includes('algorithm') || key.includes('computer') || key.includes('data')) return 'info';
+  if (
+    key.includes('algorithm') ||
+    key.includes('computer') ||
+    key.includes('data') ||
+    key.includes('system') ||
+    key.includes('network') ||
+    key.includes('database') ||
+    key.includes('software') ||
+    key.includes('security') ||
+    key.includes('programming')
+  )
+    return 'info';
   return 'other';
 }
 
