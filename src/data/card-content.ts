@@ -369,6 +369,14 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     summary: 'Classify by majority vote of k nearest neighbors; no training phase (lazy learner)',
     explanation: 'Distance metric: Euclidean, Manhattan, cosine. k controls bias-variance:\nSmall k → low bias, high variance. Large k → high bias, low variance.\nCurse of dimensionality: distances become indistinguishable in high-D.',
   },
+  distance_metrics: {
+    summary: 'Functions that quantify similarity or distance between data points, shaping neighborhood-based models',
+    explanation: 'Common choices: Euclidean (L2), Manhattan (L1), cosine distance, and Mahalanobis (accounts for covariance).\nChoice affects kNN and clustering boundaries; feature scaling is often required.\nMetric learning can adapt distances to task-specific notions of similarity.',
+  },
+  feature_scaling: {
+    summary: 'Rescaling features to comparable ranges so models are stable and distances are meaningful',
+    explanation: 'Standardization: (x−μ)/σ. Min–max: (x−min)/(max−min). Robust scaling uses median/IQR.\nCritical for kNN, SVM, and gradient-based models; prevents a single feature from dominating.\nApply scaling on training data and reuse the same parameters for validation/test.',
+  },
   decision_tree: {
     summary: 'Recursively split feature space to minimize impurity (Gini or information gain)',
     explanation: 'Gini(S) = 1 − Σ p_i². Entropy H(S) = −Σ p_i log p_i.\nIG = H(parent) − Σ (|child|/|parent|) H(child).\nDepth controls complexity. Prone to overfitting; prune or use ensemble.',
@@ -393,9 +401,29 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     summary: 'Estimate generalization by training/evaluating on multiple train/validation splits',
     explanation: 'K-fold: split into K folds; train on K−1, validate on 1; average K scores.\nStratified K-fold preserves class ratios. LOOCV: K=n, unbiased but expensive.\nAlways use for hyperparameter selection; never use test set for this.',
   },
+  train_test_split: {
+    summary: 'Partition data into training and testing sets to estimate out-of-sample performance',
+    explanation: 'Common splits: 80/20 or 70/30; stratify by label to preserve class balance.\nFor time series, split by time to avoid peeking into the future.\nKeep preprocessing fit on train only to avoid data leakage.',
+  },
+  data_leakage: {
+    summary: 'Using information from test/validation data during training, producing overly optimistic metrics',
+    explanation: 'Leakage sources: preprocessing on full dataset, target leakage features, or temporal mixing.\nSymptoms: huge train/test gap disappears or test accuracy is unrealistically high.\nFix by enforcing strict data boundaries and reproducible pipelines.',
+  },
   feature_engineering: {
     summary: 'Transform raw inputs into informative features to improve model performance',
     explanation: 'Normalization: z-score (μ=0,σ=1) or min-max ([0,1]).\nEncoding: one-hot for nominal, ordinal for ordered categoricals.\nTransformations: log for skewed data, polynomial features for interactions. PCA for compression.',
+  },
+  feature_selection: {
+    summary: 'Selecting a subset of informative features to improve generalization and reduce cost',
+    explanation: 'Filter methods: correlation, mutual information, χ². Wrapper methods: forward/backward selection.\nEmbedded methods: L1 regularization, tree-based feature importance.\nReduces overfitting, speeds training/inference, and improves interpretability.',
+  },
+  feature_importance: {
+    summary: 'Quantify how much each feature contributes to predictions to guide selection and understanding',
+    explanation: 'Model-specific: linear coefficients, tree gain/split counts. Model-agnostic: permutation importance.\nSHAP values attribute contributions per feature per prediction.\nImportant for debugging, feature pruning, and stakeholder trust.',
+  },
+  model_interpretability: {
+    summary: 'Ability to explain model decisions in human-understandable terms',
+    explanation: 'Global interpretability explains overall behavior; local interpretability explains a single prediction.\nLinear models and shallow trees are inherently interpretable; complex models need explanations (SHAP/LIME).\nTrade-off: interpretability often competes with raw accuracy.',
   },
   ensemble_methods: {
     summary: 'Combine multiple models to reduce error: bagging (variance↓), boosting (bias↓), stacking',
@@ -845,9 +873,29 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   },
 
   // ── REINFORCEMENT LEARNING (missing entries) ──────────────────
+  monte_carlo_rl: {
+    summary: 'RL methods that estimate value functions from complete episode returns without bootstrapping',
+    explanation: 'Update uses the full return G_t = Σ γ^k r_{t+k}, so estimates are unbiased but high-variance.\nFirst-visit and every-visit variants average returns for each state/action.\nWorks well in episodic tasks and is often used as a baseline for TD methods.',
+  },
+  sparse_rewards: {
+    summary: 'Environments where rewards are rare or delayed, making credit assignment and exploration harder',
+    explanation: 'Agents may receive long stretches of zero reward, causing high-variance updates and slow learning.\nStrategies: reward shaping, curriculum learning, exploration bonuses, and better state representations.\nSparse rewards are common in robotics, games, and long-horizon tasks.',
+  },
   reward_shaping: {
     summary: 'Add auxiliary rewards F(s,a,s\') to the original reward to speed up learning without changing optimal policy',
     explanation: 'Potential-based shaping: F(s,a,s\') = γΦ(s\') − Φ(s). Preserves optimal policy (policy invariance theorem).\nWrong shaping can cause reward hacking (agent optimizes shaped reward instead of true reward).\nUsed in sparse-reward envs: dense signal guides early exploration.',
+  },
+  potential_based_shaping: {
+    summary: 'A reward shaping method that uses a potential function Φ(s) to preserve the optimal policy',
+    explanation: 'Shaping term: F(s,a,s\') = γΦ(s\') − Φ(s). This adds dense guidance while keeping optimal policies unchanged.\nPotential functions can encode progress heuristics (distance to goal, coverage, safety).\nUsed to accelerate learning in sparse or deceptive environments.',
+  },
+  intrinsic_motivation: {
+    summary: 'Internal rewards that encourage exploration or novelty beyond the external task reward',
+    explanation: 'Curiosity and count-based bonuses reward visiting new or uncertain states.\nInformation gain objectives maximize learning progress rather than immediate task success.\nHelps with sparse rewards and long-horizon exploration.',
+  },
+  reward_hacking: {
+    summary: 'Agent exploits a reward specification to get high reward without the intended behavior',
+    explanation: 'Examples: gaming a scoring rule or finding loopholes in the environment dynamics.\nMitigations: refine reward design, add constraints, use human feedback, and test for adversarial behaviors.\nA key risk in real-world RL deployment.',
   },
 
   // ── OPERATING SYSTEMS ────────────────────────────────────────
@@ -866,6 +914,10 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   cpu_scheduling: {
     summary: 'Policy for choosing which ready process/thread runs next on the CPU',
     explanation: 'Goals: throughput, low latency, fairness, and high CPU utilization.\nAlgorithms: FCFS, SJF, Round Robin, Priority, Multilevel Feedback Queue.\nPreemptive scheduling enables time-sharing.',
+  },
+  io_scheduling: {
+    summary: 'Policies for ordering disk I/O requests to improve throughput and reduce latency',
+    explanation: 'Classic algorithms: FCFS, SSTF, SCAN/LOOK, and C-SCAN; they minimize seek time on HDDs.\nModern schedulers (deadline, CFQ, BFQ) balance fairness and responsiveness.\nSSDs reduce seek costs but still benefit from request merging and prioritization.',
   },
   context_switching: {
     summary: 'Saving and restoring CPU state to switch execution between processes or threads',
@@ -894,6 +946,26 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   file_systems: {
     summary: 'Structures and algorithms to store, retrieve, and organize files on disk',
     explanation: 'Key concepts: inodes, directories, permissions, journaling.\nAllocation methods: contiguous, linked, indexed; impacts performance and fragmentation.\nCaching (buffer/page cache) improves I/O latency.',
+  },
+  file_permissions: {
+    summary: 'Access-control metadata that defines read, write, and execute rights for users and groups',
+    explanation: 'Unix permissions are stored as rwx bits for owner, group, and others; defaults set via umask.\nPermissions live in inode metadata and are enforced by the kernel on each access.\nACLs provide fine-grained per-user rules beyond basic rwx bits.',
+  },
+  virtual_file_system: {
+    summary: 'Kernel abstraction layer that provides a uniform file API across different filesystem types',
+    explanation: 'The VFS maps generic operations (open, read, write) to specific filesystem implementations.\nMount points connect multiple filesystems (ext4, APFS, NFS, tmpfs) into one tree.\nEnables interoperability and simplifies kernel-facing file operations.',
+  },
+  inode: {
+    summary: 'Metadata record that describes a file: owner, permissions, size, timestamps, and block pointers',
+    explanation: 'Directories map filenames to inode numbers; multiple filenames can point to the same inode (hard links).\nData blocks are separate from the inode metadata itself.\nInode exhaustion can occur even when disk space remains available.',
+  },
+  journaling_file_systems: {
+    summary: 'File systems that log metadata updates to enable fast recovery after crashes',
+    explanation: 'Write-ahead log (journal) records intent before applying changes to the main structures.\nModes: metadata-only, ordered, or full data journaling (trade-off between safety and speed).\nGreatly reduces lengthy fsck scans after power loss.',
+  },
+  filesystem_cache: {
+    summary: 'In-memory cache for filesystem data and metadata that reduces disk I/O latency',
+    explanation: 'The page/buffer cache stores recently read blocks and aggregates writes (write-back).\nRead-ahead and eviction (often LRU-like) improve throughput and responsiveness.\nConsistency is managed with flushes, barriers, and journaling integration.',
   },
   system_calls: {
     summary: 'Interface by which user programs request services from the kernel',
