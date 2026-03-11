@@ -53,7 +53,7 @@ type LeaderboardRow = {
 };
 
 // Bump this whenever CARD_CONTENT changes to force a DB refresh
-const CARD_CONTENT_VERSION = '6';
+const CARD_CONTENT_VERSION = '7';
 
 let cardSchemaReady = false;
 let cardSchemaPromise: Promise<void> | null = null;

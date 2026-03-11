@@ -138,6 +138,11 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'virtual_memory', target: 'paging', type: 'prerequisite', weight: 0.8 },
   { source: 'processes', target: 'interprocess_communication', type: 'prerequisite', weight: 0.7 },
   { source: 'processes', target: 'system_calls', type: 'prerequisite', weight: 0.6 },
+  { source: 'memory_management', target: 'memory_model', type: 'related', weight: 0.5 },
+  { source: 'memory_model', target: 'sequential_consistency', type: 'prerequisite', weight: 0.7 },
+  { source: 'memory_model', target: 'happens_before', type: 'prerequisite', weight: 0.7 },
+  { source: 'happens_before', target: 'acquire_release', type: 'prerequisite', weight: 0.7 },
+  { source: 'memory_model', target: 'relaxed_memory_model', type: 'prerequisite', weight: 0.7 },
 
   // ============================================================
   // COMPUTER NETWORKS — internal prerequisites
@@ -153,6 +158,11 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'tcp', target: 'congestion_control', type: 'prerequisite', weight: 0.8 },
   { source: 'tcp', target: 'http', type: 'prerequisite', weight: 0.6 },
   { source: 'http', target: 'tls', type: 'prerequisite', weight: 0.7 },
+  { source: 'tcp', target: 'tcp_slow_start', type: 'prerequisite', weight: 0.7 },
+  { source: 'tcp_slow_start', target: 'tcp_congestion_avoidance', type: 'prerequisite', weight: 0.7 },
+  { source: 'tcp_congestion_avoidance', target: 'tcp_reno', type: 'prerequisite', weight: 0.7 },
+  { source: 'tcp_congestion_avoidance', target: 'tcp_cubic', type: 'prerequisite', weight: 0.7 },
+  { source: 'tcp_congestion_avoidance', target: 'tcp_bbr', type: 'prerequisite', weight: 0.7 },
 
   // ============================================================
   // DATABASES — internal prerequisites
@@ -164,6 +174,11 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'sql', target: 'query_planning', type: 'prerequisite', weight: 0.7 },
   { source: 'transactions', target: 'replication_db', type: 'related', weight: 0.5 },
   { source: 'replication_db', target: 'sharding_db', type: 'related', weight: 0.5 },
+  { source: 'indexes', target: 'btree_index', type: 'prerequisite', weight: 0.7 },
+  { source: 'indexes', target: 'hash_index', type: 'prerequisite', weight: 0.7 },
+  { source: 'indexes', target: 'bitmap_index', type: 'prerequisite', weight: 0.7 },
+  { source: 'indexes', target: 'gin_index', type: 'prerequisite', weight: 0.7 },
+  { source: 'indexes', target: 'gist_index', type: 'prerequisite', weight: 0.7 },
 
   // ============================================================
   // DISTRIBUTED SYSTEMS — internal prerequisites
@@ -203,6 +218,11 @@ export const GRAPH_EDGES: GraphEdge[] = [
   // ============================================================
   { source: 'testing', target: 'unit_testing', type: 'prerequisite', weight: 0.8 },
   { source: 'testing', target: 'integration_testing', type: 'prerequisite', weight: 0.8 },
+  { source: 'testing', target: 'end_to_end_testing', type: 'prerequisite', weight: 0.7 },
+  { source: 'testing', target: 'contract_testing', type: 'prerequisite', weight: 0.7 },
+  { source: 'testing', target: 'property_based_testing', type: 'prerequisite', weight: 0.7 },
+  { source: 'testing', target: 'load_testing', type: 'prerequisite', weight: 0.7 },
+  { source: 'testing', target: 'mutation_testing', type: 'prerequisite', weight: 0.7 },
   { source: 'version_control', target: 'code_review', type: 'related', weight: 0.6 },
   { source: 'dependency_management', target: 'ci_cd', type: 'related', weight: 0.6 },
   { source: 'design_patterns', target: 'clean_architecture', type: 'related', weight: 0.5 },

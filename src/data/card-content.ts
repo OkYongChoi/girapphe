@@ -903,6 +903,26 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     summary: 'Mechanisms for processes to exchange data and synchronize',
     explanation: 'Methods: pipes, message queues, shared memory, sockets, signals.\nTrade-offs between throughput, latency, and complexity.\nNeeded for client-server and multi-process architectures.',
   },
+  memory_model: {
+    summary: 'Rules that define how memory operations appear to interleaved threads',
+    explanation: 'Defines allowed reorderings and visibility of writes.\nCrucial for reasoning about concurrency and correctness.\nHardware and language memory models can differ.',
+  },
+  sequential_consistency: {
+    summary: 'All threads see memory operations as if executed in a single global order',
+    explanation: 'Simplest model to reason about, but restrictive for performance.\nMany real systems provide weaker guarantees for speed.\nSC is often approximated with fences.',
+  },
+  happens_before: {
+    summary: 'Partial order that defines when one operation is guaranteed to be visible to another',
+    explanation: 'If A happens-before B, then A’s effects are visible to B.\nEstablished via synchronization primitives (locks, atomics, barriers).\nKey concept in Java/C++ memory models.',
+  },
+  acquire_release: {
+    summary: 'Memory ordering that ensures visibility across lock-free synchronization',
+    explanation: 'Acquire prevents later reads/writes from moving before; release prevents earlier ops from moving after.\nUsed in mutexes and atomic operations.\nWeaker than SC but efficient.',
+  },
+  relaxed_memory_model: {
+    summary: 'Weaker guarantees that allow more reordering for performance',
+    explanation: 'Requires explicit synchronization to ensure visibility.\nHigher performance but harder to reason about.\nCommon in modern CPUs and low-level concurrency.',
+  },
 
   // ── COMPUTER NETWORKS ────────────────────────────────────────
   computer_networks: {
@@ -957,6 +977,26 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     summary: 'Algorithms that prevent network overload by adjusting sending rates',
     explanation: 'TCP variants: Reno, Cubic, BBR. Use AIMD and RTT/packet loss signals.\nBalances throughput, fairness, and latency.\nPoor control leads to congestion collapse.',
   },
+  tcp_slow_start: {
+    summary: 'TCP phase that rapidly increases congestion window at connection start',
+    explanation: 'cwnd doubles each RTT until a threshold is reached.\nFinds available bandwidth quickly but can overshoot.\nTransitions to congestion avoidance afterward.',
+  },
+  tcp_congestion_avoidance: {
+    summary: 'TCP phase that increases cwnd more cautiously to avoid loss',
+    explanation: 'Classic AIMD: additively increase cwnd, multiplicatively decrease on loss.\nBalances efficiency and stability.\nBasis for Reno and later variants.',
+  },
+  tcp_reno: {
+    summary: 'TCP variant using fast retransmit and fast recovery',
+    explanation: 'On triple-duplicate ACK: retransmit and reduce cwnd by half.\nImproves performance over Tahoe by avoiding full slow start.\nStill loss-based; can struggle on high-BDP links.',
+  },
+  tcp_cubic: {
+    summary: 'Default TCP in many OSes; uses cubic window growth for high-speed networks',
+    explanation: 'Window grows as a cubic function of time since last loss.\nBetter utilization on high bandwidth-delay paths.\nMore aggressive than Reno while remaining stable.',
+  },
+  tcp_bbr: {
+    summary: 'TCP congestion control based on bottleneck bandwidth and RTT, not loss',
+    explanation: 'Estimates BDP and paces packets accordingly.\nAims for low latency and high throughput even with loss.\nCan be unfair when competing with loss-based flows.',
+  },
 
   // ── DATABASES ────────────────────────────────────────────────
   databases: {
@@ -998,6 +1038,26 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   sharding_db: {
     summary: 'Partition data across nodes to scale writes and storage',
     explanation: 'Shards can be range-based or hash-based.\nTrade-offs: cross-shard queries and transactions become complex.\nRebalancing is required as data grows.',
+  },
+  btree_index: {
+    summary: 'Balanced tree index optimized for range queries and ordered scans',
+    explanation: 'Supports equality and range predicates efficiently.\nKeeps keys sorted; depth is small due to high fan-out.\nDefault index type in many relational databases.',
+  },
+  hash_index: {
+    summary: 'Index that hashes keys for fast equality lookups',
+    explanation: 'Very fast for exact matches but poor for range queries.\nPerformance depends on hash function and load factor.\nSome systems limit durability or use for in-memory only.',
+  },
+  bitmap_index: {
+    summary: 'Index using bitmaps for low-cardinality columns',
+    explanation: 'Each distinct value has a bitmap of row positions.\nBitwise operations make AND/OR filtering fast.\nGreat for analytics; expensive for high-update workloads.',
+  },
+  gin_index: {
+    summary: 'Generalized Inverted Index for composite or array-like data',
+    explanation: 'Maps elements to rows, ideal for full-text search, JSONB, arrays.\nAccelerates containment queries (e.g., has element).\nTrade-off: slower writes and larger index.',
+  },
+  gist_index: {
+    summary: 'Generalized Search Tree for geometric and custom data types',
+    explanation: 'Supports nearest-neighbor and range queries with custom operators.\nUsed for geospatial indexing and complex types.\nFlexible but requires good operator classes.',
   },
 
   // ── DISTRIBUTED SYSTEMS ──────────────────────────────────────
@@ -1150,6 +1210,26 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   integration_testing: {
     summary: 'Test interactions between components or services',
     explanation: 'Covers database, network, and external service boundaries.\nSlower than unit tests but catches wiring issues.\nOften runs in CI with containers.',
+  },
+  end_to_end_testing: {
+    summary: 'Validate full user workflows across the entire system stack',
+    explanation: 'Exercises UI, APIs, and databases together.\nBest for critical paths; slower and more brittle.\nUse sparingly for high-value flows.',
+  },
+  contract_testing: {
+    summary: 'Verify that service interfaces meet agreed contracts',
+    explanation: 'Consumer-driven contracts prevent breaking changes.\nUseful for microservices and API integrations.\nFocuses on compatibility rather than internal implementation.',
+  },
+  property_based_testing: {
+    summary: 'Generate inputs to validate that invariants always hold',
+    explanation: 'Define properties (e.g., sort output is ordered) and let tools generate cases.\nFinds edge cases missed by example-based tests.\nPopular libraries: QuickCheck-style.',
+  },
+  load_testing: {
+    summary: 'Measure behavior under expected or peak traffic',
+    explanation: 'Identifies bottlenecks, capacity limits, and scaling issues.\nMetrics include latency percentiles and error rates.\nUse realistic traffic profiles for accuracy.',
+  },
+  mutation_testing: {
+    summary: 'Introduce small code changes to check if tests detect them',
+    explanation: 'Measures test suite effectiveness (mutation score).\nCatches weak tests that pass despite logic changes.\nMore expensive but valuable for critical logic.',
   },
   design_patterns: {
     summary: 'Reusable solutions to common software design problems',
