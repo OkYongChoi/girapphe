@@ -125,6 +125,11 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'file_systems', label: 'File Systems', domain: 'Operating Systems', level: 2, difficulty: 2, type: 'concept' },
   { id: 'system_calls', label: 'System Calls', domain: 'Operating Systems', level: 2, difficulty: 2, type: 'concept' },
   { id: 'interprocess_communication', label: 'Interprocess Communication', domain: 'Operating Systems', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'memory_model', label: 'Memory Model', domain: 'Operating Systems', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'sequential_consistency', label: 'Sequential Consistency', domain: 'Operating Systems', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'happens_before', label: 'Happens-Before', domain: 'Operating Systems', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'acquire_release', label: 'Acquire-Release', domain: 'Operating Systems', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'relaxed_memory_model', label: 'Relaxed Memory Model', domain: 'Operating Systems', level: 2, difficulty: 5, type: 'concept' },
 
   // --- Computer Networks (parent) ---
   { id: 'computer_networks', label: 'Computer Networks', domain: 'Computer Networks', level: 1, difficulty: 3, type: 'concept' },
@@ -140,6 +145,11 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'http', label: 'HTTP', domain: 'Computer Networks', level: 2, difficulty: 2, type: 'concept' },
   { id: 'tls', label: 'TLS', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
   { id: 'congestion_control', label: 'Congestion Control', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'tcp_slow_start', label: 'TCP Slow Start', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'tcp_congestion_avoidance', label: 'TCP Congestion Avoidance', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'tcp_reno', label: 'TCP Reno', domain: 'Computer Networks', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'tcp_cubic', label: 'TCP CUBIC', domain: 'Computer Networks', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'tcp_bbr', label: 'TCP BBR', domain: 'Computer Networks', level: 2, difficulty: 4, type: 'concept' },
 
   // --- Databases (parent) ---
   { id: 'databases', label: 'Databases', domain: 'Databases', level: 1, difficulty: 3, type: 'concept' },
@@ -152,6 +162,11 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'query_planning', label: 'Query Planning', domain: 'Databases', level: 2, difficulty: 4, type: 'concept' },
   { id: 'replication_db', label: 'Replication (DB)', domain: 'Databases', level: 2, difficulty: 4, type: 'concept' },
   { id: 'sharding_db', label: 'Sharding', domain: 'Databases', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'btree_index', label: 'B-Tree Index', domain: 'Databases', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'hash_index', label: 'Hash Index', domain: 'Databases', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'bitmap_index', label: 'Bitmap Index', domain: 'Databases', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'gin_index', label: 'GIN Index', domain: 'Databases', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'gist_index', label: 'GiST Index', domain: 'Databases', level: 2, difficulty: 4, type: 'concept' },
 
   // --- Distributed Systems (parent) ---
   { id: 'distributed_systems', label: 'Distributed Systems', domain: 'Distributed Systems', level: 1, difficulty: 4, type: 'concept' },
@@ -196,6 +211,11 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'testing', label: 'Testing', domain: 'Software Engineering', level: 2, difficulty: 2, type: 'concept' },
   { id: 'unit_testing', label: 'Unit Testing', domain: 'Software Engineering', level: 2, difficulty: 2, type: 'concept' },
   { id: 'integration_testing', label: 'Integration Testing', domain: 'Software Engineering', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'end_to_end_testing', label: 'End-to-End Testing', domain: 'Software Engineering', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'contract_testing', label: 'Contract Testing', domain: 'Software Engineering', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'property_based_testing', label: 'Property-Based Testing', domain: 'Software Engineering', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'load_testing', label: 'Load Testing', domain: 'Software Engineering', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'mutation_testing', label: 'Mutation Testing', domain: 'Software Engineering', level: 2, difficulty: 4, type: 'concept' },
   { id: 'design_patterns', label: 'Design Patterns', domain: 'Software Engineering', level: 2, difficulty: 3, type: 'concept' },
   { id: 'clean_architecture', label: 'Clean Architecture', domain: 'Software Engineering', level: 2, difficulty: 4, type: 'concept' },
   { id: 'code_review', label: 'Code Review', domain: 'Software Engineering', level: 2, difficulty: 2, type: 'concept' },
