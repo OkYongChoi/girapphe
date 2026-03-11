@@ -16,6 +16,8 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'computer_science', target: 'algorithms', type: 'generalizes', weight: 1.0 },
   { source: 'computer_science', target: 'data_structures', type: 'generalizes', weight: 1.0 },
   { source: 'computer_science', target: 'complexity_theory', type: 'generalizes', weight: 1.0 },
+  { source: 'computer_science', target: 'operating_systems', type: 'generalizes', weight: 1.0 },
+  { source: 'computer_science', target: 'computer_networks', type: 'generalizes', weight: 1.0 },
   { source: 'machine_learning', target: 'supervised_learning', type: 'generalizes', weight: 1.0 },
   { source: 'machine_learning', target: 'unsupervised_learning', type: 'generalizes', weight: 1.0 },
   { source: 'machine_learning', target: 'reinforcement_learning', type: 'generalizes', weight: 1.0 },
@@ -117,6 +119,34 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'big_o_notation', target: 'space_complexity', type: 'prerequisite', weight: 0.9 },
   { source: 'time_complexity', target: 'p_vs_np', type: 'prerequisite', weight: 0.8 },
   { source: 'p_vs_np', target: 'np_completeness', type: 'prerequisite', weight: 0.9 },
+
+  // ============================================================
+  // OPERATING SYSTEMS — internal prerequisites
+  // ============================================================
+  { source: 'processes', target: 'threads', type: 'prerequisite', weight: 0.8 },
+  { source: 'processes', target: 'cpu_scheduling', type: 'prerequisite', weight: 0.8 },
+  { source: 'cpu_scheduling', target: 'context_switching', type: 'prerequisite', weight: 0.7 },
+  { source: 'threads', target: 'synchronization', type: 'prerequisite', weight: 0.8 },
+  { source: 'synchronization', target: 'deadlocks', type: 'prerequisite', weight: 0.8 },
+  { source: 'memory_management', target: 'virtual_memory', type: 'prerequisite', weight: 0.8 },
+  { source: 'virtual_memory', target: 'paging', type: 'prerequisite', weight: 0.8 },
+  { source: 'processes', target: 'interprocess_communication', type: 'prerequisite', weight: 0.7 },
+  { source: 'processes', target: 'system_calls', type: 'prerequisite', weight: 0.6 },
+
+  // ============================================================
+  // COMPUTER NETWORKS — internal prerequisites
+  // ============================================================
+  { source: 'osi_model', target: 'tcp_ip_model', type: 'prerequisite', weight: 0.7 },
+  { source: 'tcp_ip_model', target: 'ip_addressing', type: 'prerequisite', weight: 0.8 },
+  { source: 'ip_addressing', target: 'subnetting', type: 'prerequisite', weight: 0.8 },
+  { source: 'ip_addressing', target: 'routing', type: 'prerequisite', weight: 0.8 },
+  { source: 'ip_addressing', target: 'arp', type: 'prerequisite', weight: 0.6 },
+  { source: 'routing', target: 'dns', type: 'related', weight: 0.5 },
+  { source: 'tcp_ip_model', target: 'tcp', type: 'prerequisite', weight: 0.8 },
+  { source: 'tcp_ip_model', target: 'udp', type: 'prerequisite', weight: 0.7 },
+  { source: 'tcp', target: 'congestion_control', type: 'prerequisite', weight: 0.8 },
+  { source: 'tcp', target: 'http', type: 'prerequisite', weight: 0.6 },
+  { source: 'http', target: 'tls', type: 'prerequisite', weight: 0.7 },
 
   // ============================================================
   // SUPERVISED LEARNING — internal prerequisites

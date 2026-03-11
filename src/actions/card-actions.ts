@@ -53,7 +53,7 @@ type LeaderboardRow = {
 };
 
 // Bump this whenever CARD_CONTENT changes to force a DB refresh
-const CARD_CONTENT_VERSION = '4';
+const CARD_CONTENT_VERSION = '5';
 
 let cardSchemaReady = false;
 let cardSchemaPromise: Promise<void> | null = null;
@@ -83,6 +83,7 @@ function getKnowledgeCardLimit(): number {
 const KNOWLEDGE_CARD_LIMIT = getKnowledgeCardLimit();
 
 const DRILL_GENERATION_BATCH = 250;
+const ALLOW_DRILL_CARDS = false;
 
 const EDGE_MAP = GRAPH_EDGES.reduce<Record<string, string[]>>((acc, edge) => {
   if (!acc[edge.source]) acc[edge.source] = [];
@@ -128,16 +129,26 @@ function normalizeDrillCardId(cardId: string): string {
   return nodeId || cardId;
 }
 
+const META_NODE_IDS = new Set(['mathematics', 'computer_science', 'machine_learning', 'artificial_intelligence']);
+
+function hasSubstantiveContent(content: { summary: string; explanation: string } | undefined | null) {
+  if (!content) return false;
+  const summary = content.summary?.trim() ?? '';
+  const explanation = content.explanation?.trim() ?? '';
+  return summary.length >= 20 && explanation.length >= 80;
+}
+
 const CORE_GRAPH_CARDS: KnowledgeCard[] = GRAPH_NODES
-  .filter((node) => node.level > 0)
+  .filter((node) => node.level > 0 && !META_NODE_IDS.has(node.id))
   .slice(0, KNOWLEDGE_CARD_LIMIT)
-  .map((node) => {
+  .map<KnowledgeCard | null>((node) => {
+    const content = CARD_CONTENT[node.id];
+    if (!hasSubstantiveContent(content)) return null;
     const related = (EDGE_MAP[node.id] ?? [])
       .map((id) => NODE_LABEL_BY_ID.get(id))
       .filter((label): label is string => Boolean(label))
       .slice(0, 4);
-
-    const content = CARD_CONTENT[node.id];
+    const relatedPayload = related.length > 0 ? { related_concepts: related } : {};
     return {
       id: `graph_${node.id}`,
       title: node.label,
@@ -150,13 +161,13 @@ const CORE_GRAPH_CARDS: KnowledgeCard[] = GRAPH_NODES
       wiki_url: `https://en.wikipedia.org/wiki/${encodeURIComponent(node.label.replace(/\s+/g, '_'))}`,
       domain: mapGraphDomainToCardDomain(node.domain),
       level: mapDifficultyToLevel(node.difficulty),
-      related_concepts: related,
+      ...relatedPayload,
     };
-  });
+  })
+  .filter((card): card is KnowledgeCard => Boolean(card));
 
 const CORE_CARDS: KnowledgeCard[] = CORE_GRAPH_CARDS;
 
-const DRILL_CARD_COUNT = Math.max(0, TARGET_CARD_COUNT - CORE_CARDS.length);
 const DRILL_ELIGIBLE_NODES = [...GRAPH_NODES]
   .filter((node) => node.level > 0)
   .sort((a, b) => {
@@ -244,13 +255,10 @@ function generateDrillCards(count: number, startIndex: number): KnowledgeCard[] 
   return cards;
 }
 
-const DRILL_CARDS: KnowledgeCard[] = generateDrillCards(DRILL_CARD_COUNT, 0);
-
-const MOCK_CARDS: KnowledgeCard[] = [...CORE_CARDS, ...DRILL_CARDS].slice(0, TARGET_CARD_COUNT);
+const MOCK_CARDS: KnowledgeCard[] = [...CORE_CARDS].slice(0, TARGET_CARD_COUNT);
 
 const NODE_BY_ID = new Map(GRAPH_NODES.map((node) => [node.id, node]));
 const CARDS_BY_ID = new Map(MOCK_CARDS.map((card) => [card.id, card]));
-const UNIQUE_DOMAINS = Array.from(new Set(GRAPH_NODES.map((node) => node.domain)));
 const PREREQ_INCOMING = new Map<string, string[]>();
 const PREREQ_OUTGOING = new Map<string, string[]>();
 
@@ -431,6 +439,7 @@ async function _initCardSchema() {
 
 async function ensureMoreGeneratedCards(minAdd: number) {
   if (!process.env.DATABASE_URL) return;
+  if (!ALLOW_DRILL_CARDS) return;
   if (minAdd <= 0) return;
 
   // Count existing generated drill cards; use both marker and id prefix for backward compatibility.

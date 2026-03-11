@@ -850,6 +850,114 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     explanation: 'Potential-based shaping: F(s,a,s\') = γΦ(s\') − Φ(s). Preserves optimal policy (policy invariance theorem).\nWrong shaping can cause reward hacking (agent optimizes shaped reward instead of true reward).\nUsed in sparse-reward envs: dense signal guides early exploration.',
   },
 
+  // ── OPERATING SYSTEMS ────────────────────────────────────────
+  operating_systems: {
+    summary: 'Software layer that manages hardware resources and provides abstractions for programs',
+    explanation: 'Core responsibilities: process/thread management, memory, file systems, I/O, and security.\nProvides isolation and scheduling so many programs can run safely and efficiently.\nAbstractions: processes, virtual memory, and system calls hide hardware complexity.',
+  },
+  processes: {
+    summary: 'A process is an executing program with its own address space and resources',
+    explanation: 'Contains code, data, heap, and stack; includes a process control block (PCB).\nProcess states: new, ready, running, waiting, terminated.\nIsolation enables fault containment and security boundaries.',
+  },
+  threads: {
+    summary: 'Lightweight execution units within a process sharing the same address space',
+    explanation: 'Threads share code/data/heap but have separate stacks and registers.\nCheaper to create/switch than processes but require synchronization to avoid races.\nUsed for parallelism and responsiveness.',
+  },
+  cpu_scheduling: {
+    summary: 'Policy for choosing which ready process/thread runs next on the CPU',
+    explanation: 'Goals: throughput, low latency, fairness, and high CPU utilization.\nAlgorithms: FCFS, SJF, Round Robin, Priority, Multilevel Feedback Queue.\nPreemptive scheduling enables time-sharing.',
+  },
+  context_switching: {
+    summary: 'Saving and restoring CPU state to switch execution between processes or threads',
+    explanation: 'Involves registers, program counter, and memory mappings.\nCostly: cache/TLB effects and scheduler overhead.\nFrequency impacts latency vs throughput trade-offs.',
+  },
+  synchronization: {
+    summary: 'Coordination mechanisms to ensure correct access to shared resources',
+    explanation: 'Primitive tools: mutexes, semaphores, monitors, condition variables.\nCorrectness properties: mutual exclusion, progress, bounded waiting.\nPrevents data races but can cause deadlocks if misused.',
+  },
+  deadlocks: {
+    summary: 'A set of processes waiting indefinitely for each other to release resources',
+    explanation: 'Four conditions: mutual exclusion, hold-and-wait, no preemption, circular wait.\nStrategies: prevention (break a condition), avoidance (Banker\'s), detection + recovery.\nTime-outs and ordering can reduce risk.',
+  },
+  memory_management: {
+    summary: 'OS control of memory allocation, protection, and address translation',
+    explanation: 'Key mechanisms: base/limit, paging, segmentation, and virtual memory.\nMust balance fragmentation, performance, and isolation.\nHardware support via MMU and page tables.',
+  },
+  virtual_memory: {
+    summary: 'Abstraction that gives each process a large, contiguous address space',
+    explanation: 'Maps virtual to physical memory using page tables and TLB.\nEnables isolation and overcommit; uses disk as backing store.\nPage faults trigger loading data from disk into RAM.',
+  },
+  paging: {
+    summary: 'Memory management scheme that divides memory into fixed-size pages/frames',
+    explanation: 'Eliminates external fragmentation; internal fragmentation may remain.\nPage replacement: LRU, FIFO, Clock, and working set.\nPage size trades off TLB reach vs fragmentation.',
+  },
+  file_systems: {
+    summary: 'Structures and algorithms to store, retrieve, and organize files on disk',
+    explanation: 'Key concepts: inodes, directories, permissions, journaling.\nAllocation methods: contiguous, linked, indexed; impacts performance and fragmentation.\nCaching (buffer/page cache) improves I/O latency.',
+  },
+  system_calls: {
+    summary: 'Interface by which user programs request services from the kernel',
+    explanation: 'Examples: open, read, write, fork, exec, mmap, socket.\nTransition from user mode to kernel mode via traps/interrupts.\nDefines the OS API and security boundary.',
+  },
+  interprocess_communication: {
+    summary: 'Mechanisms for processes to exchange data and synchronize',
+    explanation: 'Methods: pipes, message queues, shared memory, sockets, signals.\nTrade-offs between throughput, latency, and complexity.\nNeeded for client-server and multi-process architectures.',
+  },
+
+  // ── COMPUTER NETWORKS ────────────────────────────────────────
+  computer_networks: {
+    summary: 'Systems that connect computers to exchange data using standardized protocols',
+    explanation: 'Layered architecture separates concerns: physical to application layers.\nKey goals: reliability, scalability, latency, and security.\nInternet is a network of networks using TCP/IP.',
+  },
+  osi_model: {
+    summary: 'Seven-layer conceptual model: Physical, Data Link, Network, Transport, Session, Presentation, Application',
+    explanation: 'Defines roles for each layer and how data is encapsulated.\nHelps reason about protocols and troubleshooting.\nTCP/IP is a practical, simplified stack inspired by OSI.',
+  },
+  tcp_ip_model: {
+    summary: 'Four-layer model: Link, Internet, Transport, Application',
+    explanation: 'Internet layer: IP routing across networks. Transport: TCP/UDP.\nApplication layer includes HTTP, DNS, SMTP, etc.\nMost real-world networking uses this stack.',
+  },
+  ip_addressing: {
+    summary: 'Logical addressing (IPv4/IPv6) that identifies hosts and networks',
+    explanation: 'IPv4 uses 32-bit addresses; IPv6 uses 128-bit addresses.\nCIDR notation (e.g., 192.168.1.0/24) defines network prefix length.\nNAT allows multiple hosts to share a public IP.',
+  },
+  subnetting: {
+    summary: 'Dividing an IP network into smaller subnets by extending the network prefix',
+    explanation: 'Controls broadcast domains and routing table size.\nSubnet mask determines which bits are network vs host.\nUsed for segmentation, security, and efficient address use.',
+  },
+  routing: {
+    summary: 'Choosing paths for packets to travel across networks',
+    explanation: 'Routers forward packets using routing tables.\nProtocols: OSPF (intra-domain), BGP (inter-domain).\nMetrics include hop count, latency, bandwidth, and policy.',
+  },
+  arp: {
+    summary: 'Address Resolution Protocol maps IP addresses to MAC addresses on local networks',
+    explanation: 'Hosts broadcast ARP requests and cache ARP replies.\nARP spoofing enables man-in-the-middle attacks; mitigations include static ARP and ARP inspection.',
+  },
+  dns: {
+    summary: 'Domain Name System translates human-readable names to IP addresses',
+    explanation: 'Hierarchy: root → TLD → authoritative servers.\nRecords: A/AAAA, CNAME, MX, TXT. Caching improves performance.\nDNSSEC adds authenticity via signatures.',
+  },
+  tcp: {
+    summary: 'Transmission Control Protocol: reliable, ordered, connection-oriented transport',
+    explanation: 'Three-way handshake establishes a connection; four-way close tears it down.\nFlow control (window), retransmissions, and congestion control provide reliability.\nHeavier than UDP but essential for HTTP/HTTPS.',
+  },
+  udp: {
+    summary: 'User Datagram Protocol: lightweight, connectionless transport',
+    explanation: 'No guarantees of delivery, order, or congestion control.\nLow overhead and low latency; used for DNS, streaming, and real-time apps.\nApplications often implement their own reliability if needed.',
+  },
+  http: {
+    summary: 'Application-layer protocol for transferring hypertext and APIs',
+    explanation: 'Request/response model with methods (GET, POST, PUT, DELETE).\nHTTP/1.1 uses persistent connections; HTTP/2 multiplexes streams.\nStateless by design; cookies and headers carry state.',
+  },
+  tls: {
+    summary: 'Transport Layer Security provides encryption and authentication over networks',
+    explanation: 'Handshake negotiates keys and verifies certificates.\nProtects against eavesdropping and tampering (HTTPS).\nRelies on PKI and certificate authorities.',
+  },
+  congestion_control: {
+    summary: 'Algorithms that prevent network overload by adjusting sending rates',
+    explanation: 'TCP variants: Reno, Cubic, BBR. Use AIMD and RTT/packet loss signals.\nBalances throughput, fairness, and latency.\nPoor control leads to congestion collapse.',
+  },
+
   // ── EXPANSION SET (graph node coverage) ───────────────────────
   mathematics: {
     summary: 'Formal study of patterns, structure, quantity, and change using logic and proof',

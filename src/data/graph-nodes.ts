@@ -111,6 +111,36 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'time_complexity', label: 'Time Complexity', domain: 'Complexity Theory', level: 2, difficulty: 2, type: 'concept' },
   { id: 'space_complexity', label: 'Space Complexity', domain: 'Complexity Theory', level: 2, difficulty: 2, type: 'concept' },
 
+  // --- Operating Systems (parent) ---
+  { id: 'operating_systems', label: 'Operating Systems', domain: 'Operating Systems', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'processes', label: 'Processes', domain: 'Operating Systems', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'threads', label: 'Threads', domain: 'Operating Systems', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'cpu_scheduling', label: 'CPU Scheduling', domain: 'Operating Systems', level: 2, difficulty: 3, type: 'algorithm' },
+  { id: 'context_switching', label: 'Context Switching', domain: 'Operating Systems', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'synchronization', label: 'Synchronization', domain: 'Operating Systems', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'deadlocks', label: 'Deadlocks', domain: 'Operating Systems', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'memory_management', label: 'Memory Management', domain: 'Operating Systems', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'virtual_memory', label: 'Virtual Memory', domain: 'Operating Systems', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'paging', label: 'Paging', domain: 'Operating Systems', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'file_systems', label: 'File Systems', domain: 'Operating Systems', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'system_calls', label: 'System Calls', domain: 'Operating Systems', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'interprocess_communication', label: 'Interprocess Communication', domain: 'Operating Systems', level: 2, difficulty: 3, type: 'concept' },
+
+  // --- Computer Networks (parent) ---
+  { id: 'computer_networks', label: 'Computer Networks', domain: 'Computer Networks', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'osi_model', label: 'OSI Model', domain: 'Computer Networks', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'tcp_ip_model', label: 'TCP/IP Model', domain: 'Computer Networks', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'ip_addressing', label: 'IP Addressing', domain: 'Computer Networks', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'subnetting', label: 'Subnetting', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'routing', label: 'Routing', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'arp', label: 'ARP', domain: 'Computer Networks', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'dns', label: 'DNS', domain: 'Computer Networks', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'tcp', label: 'TCP', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'udp', label: 'UDP', domain: 'Computer Networks', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'http', label: 'HTTP', domain: 'Computer Networks', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'tls', label: 'TLS', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'congestion_control', label: 'Congestion Control', domain: 'Computer Networks', level: 2, difficulty: 3, type: 'concept' },
+
   // ============================================================
   // LEVEL 1 — Machine Learning
   // ============================================================
