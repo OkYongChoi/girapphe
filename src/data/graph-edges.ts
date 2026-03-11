@@ -129,6 +129,8 @@ export const GRAPH_EDGES: GraphEdge[] = [
   // ============================================================
   // OPERATING SYSTEMS — internal prerequisites
   // ============================================================
+  { source: 'operating_systems', target: 'file_systems', type: 'generalizes', weight: 0.7 },
+  { source: 'operating_systems', target: 'io_scheduling', type: 'generalizes', weight: 0.7 },
   { source: 'processes', target: 'threads', type: 'prerequisite', weight: 0.8 },
   { source: 'processes', target: 'cpu_scheduling', type: 'prerequisite', weight: 0.8 },
   { source: 'cpu_scheduling', target: 'context_switching', type: 'prerequisite', weight: 0.7 },
@@ -143,6 +145,13 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'memory_model', target: 'happens_before', type: 'prerequisite', weight: 0.7 },
   { source: 'happens_before', target: 'acquire_release', type: 'prerequisite', weight: 0.7 },
   { source: 'memory_model', target: 'relaxed_memory_model', type: 'prerequisite', weight: 0.7 },
+  { source: 'io_scheduling', target: 'file_systems', type: 'related', weight: 0.5 },
+  { source: 'file_systems', target: 'file_permissions', type: 'prerequisite', weight: 0.6 },
+  { source: 'file_systems', target: 'virtual_file_system', type: 'generalizes', weight: 0.7 },
+  { source: 'file_systems', target: 'inode', type: 'prerequisite', weight: 0.7 },
+  { source: 'file_systems', target: 'journaling_file_systems', type: 'generalizes', weight: 0.7 },
+  { source: 'file_systems', target: 'filesystem_cache', type: 'related', weight: 0.6 },
+  { source: 'authorization', target: 'file_permissions', type: 'related', weight: 0.6 },
 
   // ============================================================
   // COMPUTER NETWORKS — internal prerequisites
@@ -452,6 +461,18 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'random_variables', target: 'randomized_algorithms', type: 'prerequisite', weight: 0.6 },
 
   // Supervised Learning extensions
+  { source: 'supervised_learning', target: 'knn', type: 'generalizes', weight: 0.7 },
+  { source: 'supervised_learning', target: 'feature_engineering', type: 'generalizes', weight: 0.7 },
+  { source: 'supervised_learning', target: 'train_test_split', type: 'generalizes', weight: 0.7 },
+  { source: 'supervised_learning', target: 'model_interpretability', type: 'generalizes', weight: 0.6 },
+  { source: 'distance_metrics', target: 'knn', type: 'prerequisite', weight: 0.8 },
+  { source: 'feature_scaling', target: 'knn', type: 'prerequisite', weight: 0.7 },
+  { source: 'feature_engineering', target: 'feature_scaling', type: 'generalizes', weight: 0.7 },
+  { source: 'feature_engineering', target: 'feature_selection', type: 'generalizes', weight: 0.7 },
+  { source: 'feature_importance', target: 'feature_selection', type: 'prerequisite', weight: 0.6 },
+  { source: 'model_interpretability', target: 'feature_importance', type: 'related', weight: 0.5 },
+  { source: 'train_test_split', target: 'cross_validation', type: 'related', weight: 0.6 },
+  { source: 'train_test_split', target: 'data_leakage', type: 'related', weight: 0.6 },
   { source: 'linear_regression', target: 'ridge_regression', type: 'prerequisite', weight: 0.8 },
   { source: 'linear_regression', target: 'lasso_regression', type: 'prerequisite', weight: 0.8 },
   { source: 'logistic_regression', target: 'roc_auc', type: 'related', weight: 0.7 },
@@ -475,6 +496,10 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'value_function', target: 'monte_carlo_rl', type: 'prerequisite', weight: 0.7 },
   { source: 'q_learning', target: 'sarsa', type: 'related', weight: 0.7 },
   { source: 'exploration_exploitation', target: 'epsilon_greedy', type: 'prerequisite', weight: 0.8 },
+  { source: 'sparse_rewards', target: 'reward_shaping', type: 'prerequisite', weight: 0.7 },
+  { source: 'reward_shaping', target: 'potential_based_shaping', type: 'generalizes', weight: 0.8 },
+  { source: 'intrinsic_motivation', target: 'sparse_rewards', type: 'related', weight: 0.7 },
+  { source: 'reward_shaping', target: 'reward_hacking', type: 'related', weight: 0.6 },
   { source: 'bellman_equation', target: 'policy_iteration', type: 'prerequisite', weight: 0.8 },
   { source: 'bellman_equation', target: 'value_iteration', type: 'prerequisite', weight: 0.8 },
   { source: 'mdp', target: 'model_based_rl', type: 'prerequisite', weight: 0.8 },
