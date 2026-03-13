@@ -38,7 +38,7 @@ export default async function Navbar() {
                   <button
                     type="submit"
                     aria-label="Log out of your account"
-                    className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors"
+                    className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     Log out
                   </button>
@@ -46,10 +46,10 @@ export default async function Navbar() {
               </div>
             ) : (
               <div className="flex items-center gap-2 text-sm font-medium">
-                <Link href="/login" className="rounded-md border px-3 py-1.5 hover:bg-gray-50 transition-colors">
+                <Link href="/login" className="rounded-md border px-3 py-1.5 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
                   Log in
                 </Link>
-                <Link href="/signup" className="rounded-md bg-blue-600 px-3 py-1.5 text-white hover:bg-blue-700 transition-colors">
+                <Link href="/signup" className="rounded-md bg-blue-600 px-3 py-1.5 text-white hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300">
                   Sign up
                 </Link>
               </div>

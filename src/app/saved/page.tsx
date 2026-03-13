@@ -6,6 +6,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { formatDomainLabel } from '@/lib/domain-label';
+import ConfirmDeleteButton from '@/components/confirm-delete-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,14 +73,14 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
                 await resetUserCardProgress();
               }}
             >
-              <button
-                type="submit"
-                className="rounded-md border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors shrink-0"
-              >
-                Reset progress
-              </button>
+              <ConfirmDeleteButton
+                label="Reset progress"
+                confirmMessage="Reset all card progress? This cannot be undone."
+                ariaLabel="Reset all card progress"
+                className="rounded-md border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
             </form>
-            <Link href="/practice" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 transition-colors shrink-0">
+            <Link href="/practice" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500">
               Continue practice →
             </Link>
           </div>
@@ -111,11 +112,11 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
                   </option>
                 ))}
               </select>
-              <button type="submit" className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 transition-colors">
+              <button type="submit" className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500">
                 Search
               </button>
               {hasActiveFilter && (
-                <Link href="/saved" className="rounded-md border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+                <Link href="/saved" className="rounded-md border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
                   Clear
                 </Link>
               )}
@@ -153,8 +154,8 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 mb-3 leading-relaxed">{card.summary}</p>
-                  <div className="mt-auto flex justify-between items-center text-xs text-gray-400">
-                    <span className="font-medium text-gray-500">{formatDomainLabel(card.domain)}</span>
+                  <div className="mt-auto flex justify-between items-center text-xs text-gray-500">
+                    <span className="font-medium">{formatDomainLabel(card.domain)}</span>
                     <div className="flex items-center gap-3">
                       <span>Last seen: {formatDate(card.last_seen)}</span>
                       <form
@@ -163,13 +164,12 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
                           await removeSavedCard(card.id);
                         }}
                       >
-                        <button
-                          type="submit"
-                          aria-label={`Remove "${card.title}" from saved`}
-                          className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 transition-colors"
-                        >
-                          Remove
-                        </button>
+                        <ConfirmDeleteButton
+                          label="Remove"
+                          confirmMessage={`Remove "${card.title}" from saved?`}
+                          ariaLabel={`Remove "${card.title}" from saved`}
+                          className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
+                        />
                       </form>
                     </div>
                   </div>

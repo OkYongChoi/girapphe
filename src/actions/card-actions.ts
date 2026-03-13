@@ -97,19 +97,32 @@ const NODE_LABEL_BY_ID = new Map<string, string>(GRAPH_NODES.map((node) => [node
 
 function mapGraphDomainToCardDomain(domain: string): KnowledgeCard['domain'] {
   const key = domain.toLowerCase();
+  // Signal / Control
   if (key.includes('control')) return 'control';
   if (key.includes('signal')) return 'signal';
+  // ML / AI family (check vision/nlp before 'computer' to ensure Computer Vision → ml)
   if (key.includes('machine') || key.includes('learning') || key.includes('intelligence')) return 'ml';
+  if (key.includes('vision') || key === 'nlp' || key.includes('natural language')) return 'ml';
+  if (key.includes('ai safety') || key.includes('federated') || key.includes('alignment')) return 'ml';
+  // Info / CS
   if (
     key.includes('algorithm') ||
+    key.includes('compiler') ||
+    key.includes('database') ||
     key.includes('computer') ||
     key.includes('data') ||
-    key.includes('system') ||
-    key.includes('network') ||
-    key.includes('database') ||
-    key.includes('software') ||
+    key.includes('architecture') ||
+    key === 'os' ||
+    key.includes('operating') ||
     key.includes('security') ||
-    key.includes('programming')
+    key.includes('cloud') ||
+    key.includes('devops') ||
+    key.includes('network') ||
+    key.includes('software') ||
+    key.includes('programming') ||
+    key.includes('distributed') ||
+    key.includes('theoretical') ||
+    key.includes('system')
   )
     return 'info';
   return 'other';

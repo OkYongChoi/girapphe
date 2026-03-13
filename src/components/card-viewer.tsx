@@ -258,19 +258,19 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         <div className="mt-6 flex flex-col gap-2 w-full">
           <Link
             href="/practice?mode=review"
-            className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors text-center"
+            className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             Review learning queue
           </Link>
           <Link
             href="/saved"
-            className="w-full rounded-xl border px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center"
+            className="w-full rounded-xl border px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             View saved list
           </Link>
           <Link
             href="/knowledge"
-            className="w-full rounded-xl border px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center"
+            className="w-full rounded-xl border px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             Explore knowledge graph
           </Link>
@@ -292,7 +292,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
               <span className="text-emerald-600">✓ {stats.known} known</span>
               <span className="text-amber-600">🔖 {stats.saved} learning queue</span>
             </div>
-            <span className="text-xs text-gray-400" aria-live="polite">
+            <span className="text-xs text-gray-500" aria-live="polite">
               {reviewedCount > 0 ? `${reviewedCount} this session` : 'Learning new'}
             </span>
           </div>
@@ -303,7 +303,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
               <span className="text-xs font-medium text-blue-600">
                 🔄 Reviewing learning queue
               </span>
-              <span className="text-xs text-gray-400" aria-live="polite">
+              <span className="text-xs text-gray-500" aria-live="polite">
                 {Math.min(reviewedThisRound, reviewPool)} / {reviewPool} reviewed
               </span>
             </div>
@@ -338,7 +338,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           onClick={handlePrevious}
           disabled={history.length === 0 || loading}
           aria-label="Go to previous card"
-          className="text-sm text-gray-500 hover:text-gray-900 disabled:opacity-30 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:pointer-events-none"
+          className="text-sm text-gray-500 hover:text-gray-900 disabled:opacity-30 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:pointer-events-none focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           ← Prev
         </button>
@@ -346,7 +346,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           onClick={handleSkip}
           disabled={loading}
           aria-label="Skip this card"
-          className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:opacity-50"
+          className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {loading ? '…' : 'Skip →'}
         </button>
@@ -391,7 +391,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
 
       {/* Error / loading feedback */}
       <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1rem] text-center">
-        {error && <p className="text-xs text-red-500">{error}</p>}
+        {error && <p className="text-xs text-red-600">{error}</p>}
         {loading && !error && <p className="text-xs text-gray-400 animate-pulse">Loading…</p>}
       </div>
 
@@ -400,7 +400,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         onClick={() => setRevealed((prev) => !prev)}
         disabled={loading}
         aria-label={revealed ? 'Hide answer' : 'Show answer'}
-        className="mt-3 w-full py-4 bg-gray-900 hover:bg-gray-700 active:scale-95 text-white font-semibold rounded-2xl transition-all text-sm tracking-wide disabled:opacity-50"
+        className="mt-3 w-full py-4 bg-gray-900 hover:bg-gray-700 active:scale-95 text-white font-semibold rounded-2xl transition-all text-sm tracking-wide disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-700"
       >
         {revealed ? 'Hide Answer ↑' : 'Show Answer ↓'}
       </button>
@@ -414,7 +414,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
               onClick={() => void handleAction('saved')}
               disabled={loading}
               aria-label={mode === 'review' ? 'Keep in review list (shortcut: 2)' : 'Save to study later (shortcut: 2)'}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 py-5 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border active:scale-95 ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-5 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border active:scale-95 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 ${
                 previousChoice === 'saved'
                   ? 'bg-amber-100 border-amber-400 ring-2 ring-amber-300'
                   : 'bg-amber-50 hover:bg-amber-100 border-amber-200'
@@ -430,7 +430,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
               onClick={() => void handleAction('known')}
               disabled={loading}
               aria-label="Mark as known (shortcut: 1)"
-              className={`flex-1 flex flex-col items-center justify-center gap-1 py-5 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border active:scale-95 ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-5 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border active:scale-95 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 ${
                 previousChoice === 'known'
                   ? 'bg-emerald-100 border-emerald-400 ring-2 ring-emerald-300'
                   : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
@@ -447,7 +447,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
             {undoVisible && !loading && (
               <button
                 onClick={handleUndo}
-                className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-5 py-2 rounded-full transition-colors"
+                className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-5 py-2 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 ↩ Undo last rating
               </button>
@@ -456,12 +456,17 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         </>
       )}
 
-      {/* Keyboard hint — desktop only */}
-      <p className="mt-1 text-xs text-gray-300 text-center hidden sm:block">
-        {!revealed
-          ? <><kbd className="font-mono">Space</kbd> or <kbd className="font-mono">Enter</kbd> to reveal · <kbd className="font-mono">→</kbd> skip</>
-          : <><kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> study · {undoVisible && <><kbd className="font-mono">Z</kbd> undo · </>}<kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
-        }
+      {/* Action hint */}
+      <p className="mt-1 text-xs text-gray-400 text-center">
+        <span className="sm:hidden">
+          {!revealed ? 'Tap "Show Answer" to reveal' : 'Tap Study or Known to rate'}
+        </span>
+        <span className="hidden sm:inline">
+          {!revealed
+            ? <><kbd className="font-mono">Space</kbd> or <kbd className="font-mono">Enter</kbd> to reveal · <kbd className="font-mono">→</kbd> skip</>
+            : <><kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> study · {undoVisible && <><kbd className="font-mono">Z</kbd> undo · </>}<kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
+          }
+        </span>
       </p>
     </div>
   );

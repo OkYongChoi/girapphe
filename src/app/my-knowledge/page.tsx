@@ -9,6 +9,8 @@ import {
   getUserKnowledgeItems,
   updateKnowledgeItem,
 } from '@/actions/user-knowledge-actions';
+import ConfirmDeleteButton from '@/components/confirm-delete-button';
+import SubmitButton from '@/components/submit-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +79,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 name="q"
                 defaultValue={params.q ?? ''}
                 placeholder="Search title, topic, or content"
-                className="rounded-lg border px-3 py-2 text-sm"
+                className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
 
@@ -89,7 +91,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 id="knowledge-topic"
                 name="topic"
                 defaultValue={topicFilter}
-                className="rounded-lg border px-3 py-2 text-sm"
+                className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="all">All topics</option>
                 {topics.map((topic) => (
@@ -108,7 +110,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 id="knowledge-sort"
                 name="sort"
                 defaultValue={sortBy}
-                className="rounded-lg border px-3 py-2 text-sm"
+                className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="recent">Recently updated</option>
                 <option value="title">Title A–Z</option>
@@ -117,7 +119,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
 
             <button
               type="submit"
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500"
             >
               Search
             </button>
@@ -125,7 +127,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
             {hasActiveFilter && (
               <Link
                 href="/my-knowledge"
-                className="rounded-lg border px-4 py-2 text-center text-sm text-gray-600 hover:bg-gray-50"
+                className="rounded-lg border px-4 py-2 text-center text-sm text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 Clear
               </Link>
@@ -148,7 +150,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 name="title"
                 required
                 placeholder="e.g., Gradient Descent Pitfalls"
-                className="rounded-lg border px-3 py-2 text-sm"
+                className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -159,7 +161,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 id="new-topic"
                 name="topic"
                 placeholder="e.g., ml, control, signal"
-                className="rounded-lg border px-3 py-2 text-sm"
+                className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
             <div className="flex flex-col gap-1 md:col-span-2">
@@ -170,17 +172,16 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 id="new-content"
                 name="content"
                 placeholder="What should you remember?"
-                className="min-h-28 rounded-lg border px-3 py-2 text-sm"
+                className="min-h-28 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="submit"
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Save item
-            </button>
+            <SubmitButton
+              label="Save item"
+              loadingLabel="Saving…"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            />
           </div>
         </form>
 
@@ -253,7 +254,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                           name="title"
                           defaultValue={item.title}
                           required
-                          className="rounded-lg border px-3 py-2 text-sm"
+                          className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                         />
                       </div>
 
@@ -265,7 +266,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                           id={`topic-${item.id}`}
                           name="topic"
                           defaultValue={item.topic}
-                          className="rounded-lg border px-3 py-2 text-sm"
+                          className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                         />
                       </div>
 
@@ -277,17 +278,16 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                           id={`content-${item.id}`}
                           name="content"
                           defaultValue={item.content}
-                          className="min-h-28 rounded-lg border px-3 py-2 text-sm"
+                          className="min-h-28 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                         />
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <button
-                          type="submit"
-                          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-                        >
-                          Save changes
-                        </button>
+                        <SubmitButton
+                          label="Save changes"
+                          loadingLabel="Saving…"
+                          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+                        />
                       </div>
                     </form>
 
@@ -297,13 +297,12 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                       className="mt-3 border-t pt-3"
                     >
                       <input type="hidden" name="id" value={item.id} />
-                      <button
-                        type="submit"
-                        aria-label={`Remove "${item.title}" from your knowledge items`}
-                        className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
-                      >
-                        Remove item
-                      </button>
+                      <ConfirmDeleteButton
+                        label="Remove item"
+                        confirmMessage={`Remove "${item.title}"? This cannot be undone.`}
+                        ariaLabel={`Remove "${item.title}" from your knowledge items`}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400"
+                      />
                     </form>
                   </details>
                 </li>
