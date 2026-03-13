@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
-import { KnowledgeCard, saveCardState, getNextCard, CardStatus, getUserStats } from '@/actions/card-actions';
+import { KnowledgeCard, saveCardState, getNextCard, CardStatus, getUserStats, type PrerequisiteInfo } from '@/actions/card-actions';
 import Card from './card';
 import Link from 'next/link';
 
@@ -40,7 +40,12 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   const [reviewRoundCompleted, setReviewRoundCompleted] = useState(false);
   const [backNavigatedCardId, setBackNavigatedCardId] = useState<string | null>(null);
 
-  // Mode switch must reset local session state so new/review queues don't bleed into each other.
+  // Reset session state on mount only.
+  // key={mode} on CardViewer (in practice/page.tsx) causes a full unmount+remount on mode
+  // switch, so this effect correctly fires on initial load AND mode changes.
+  // We intentionally do NOT include initialCard/initialStats in deps: Next.js re-renders
+  // server components after every server action, which would update these props and
+  // re-trigger this effect mid-session — resetting the card and wiping ratedIds/history.
   useEffect(() => {
     setCard(initialCard);
     setHistory([]);
@@ -57,7 +62,8 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     setReviewedThisRound(0);
     setReviewRoundCompleted(false);
     setBackNavigatedCardId(null);
-  }, [mode, initialCard, initialStats]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const reviewedCount = useMemo(() => {
     const reviewed = history
@@ -151,6 +157,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     setError(null);
     setBackNavigatedCardId(null);
     setUndoVisible(false); // previous rating's undo is no longer relevant
+    setReviewRoundCompleted(false); // clear previous round-complete banner
     setHistory(prev => [...prev, { card, action: 'skip' }]);
     skippedIds.current.add(card.id);
 
@@ -169,6 +176,9 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
 
       if (!next) {
         // Every remaining card has been skipped → full cycle reset, no exclusions
+        if (mode === 'review' && reviewPool > 0) {
+          setReviewRoundCompleted(true);
+        }
         skippedIds.current.clear();
         next = await getNextCard(mode);
       }
@@ -182,7 +192,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     } finally {
       setLoading(false);
     }
-  }, [card, loading, mode]);
+  }, [card, loading, mode, reviewPool]);
 
   // Reset flip state whenever the displayed card changes.
   // Exception: when going back via Undo, keep the card revealed.
@@ -206,6 +216,12 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         setRevealed(true);
         return;
       }
+      // Z for undo — works regardless of reveal state
+      if ((event.key === 'z' || event.key === 'Z') && undoVisible && !loading) {
+        event.preventDefault();
+        handleUndo();
+        return;
+      }
       if (!revealed) return; // block rating keys until answer is shown
       if (event.key === '1') void handleAction('known');
       if (event.key === '2') void handleAction('saved');
@@ -214,7 +230,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [loading, card, revealed, handleAction, handleSkip, handlePrevious]);
+  }, [loading, card, revealed, undoVisible, handleAction, handleSkip, handlePrevious, handleUndo]);
 
   // ── All done ─────────────────────────────────────────────────
   if (!card) {
@@ -305,9 +321,12 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
               />
             </div>
             {reviewRoundCompleted && (
-              <p className="mt-2 text-xs font-medium text-emerald-600" aria-live="polite">
-                This review round is complete. You reviewed every learning-queue card once.
-              </p>
+              <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2" role="status" aria-live="polite">
+                <span className="text-base" aria-hidden="true">🎉</span>
+                <p className="text-xs font-semibold text-emerald-700">
+                  Round complete! You went through all {reviewPool} card{reviewPool !== 1 ? 's' : ''} — starting next round.
+                </p>
+              </div>
             )}
           </>
         )}
@@ -339,7 +358,36 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
       )}
 
       {/* Card — explanation hidden until revealed */}
-      <Card key={card.id} card={card} interactiveQuizMode={false} revealed={revealed} />
+      <Card key={card.id} card={card} revealed={revealed} />
+
+      {/* Prerequisites strip */}
+      {card.prerequisites && card.prerequisites.length > 0 && (
+        <div className="mt-2 px-3 py-2.5 bg-white border border-gray-100 rounded-xl shadow-sm">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
+            Prerequisites
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {card.prerequisites.map((prereq: PrerequisiteInfo) => (
+              <span
+                key={prereq.id}
+                title={prereq.status === 'known' ? 'Known' : prereq.status === 'saved' ? 'In learning queue' : 'Not yet learned'}
+                className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium border ${
+                  prereq.status === 'known'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : prereq.status === 'saved'
+                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-gray-50 text-gray-500 border-gray-200'
+                }`}
+              >
+                <span aria-hidden="true">
+                  {prereq.status === 'known' ? '✓' : prereq.status === 'saved' ? '🔖' : '○'}
+                </span>
+                {prereq.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Error / loading feedback */}
       <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1rem] text-center">
@@ -416,7 +464,7 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         <span className="hidden sm:inline">
           {!revealed
             ? <><kbd className="font-mono">Space</kbd> or <kbd className="font-mono">Enter</kbd> to reveal · <kbd className="font-mono">→</kbd> skip</>
-            : <><kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> study · <kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
+            : <><kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> study · {undoVisible && <><kbd className="font-mono">Z</kbd> undo · </>}<kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
           }
         </span>
       </p>

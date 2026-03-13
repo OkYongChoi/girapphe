@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
+import { useMemo, useState } from 'react';
+import { getAllCardsWithStatus, type KnowledgeCard, type CardStatus } from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
 import { getCardLevelMeta } from '@/lib/card-level';
 import { formatDomainLabel } from '@/lib/domain-label';
@@ -15,11 +15,36 @@ export default function KnowledgeMap({ initialCards }: Props) {
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
   const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'graph'>('graph');
+  const [includeGenerated, setIncludeGenerated] = useState(false);
+  const [generatedLimit, setGeneratedLimit] = useState(250);
+  const [generatedCards, setGeneratedCards] = useState<(KnowledgeCard & { status: CardStatus | null })[] | null>(null);
+  const [loadingGenerated, setLoadingGenerated] = useState(false);
+  const [generatedError, setGeneratedError] = useState<string | null>(null);
+
+  const cards = includeGenerated ? (generatedCards ?? initialCards) : initialCards;
 
   // Group cards by domain
-  const domains = Array.from(new Set(initialCards.map(c => c.domain)));
-  
-  const filteredCards = initialCards.filter(card => {
+  const domains = useMemo(() => Array.from(new Set(cards.map(c => c.domain))), [cards]);
+
+  const coreCardCount = useMemo(() => cards.filter((c) => !c.id.startsWith('drill_')).length, [cards]);
+  const generatedCardCount = useMemo(() => cards.filter((c) => c.id.startsWith('drill_')).length, [cards]);
+
+  const loadGenerated = async (nextLimit: number) => {
+    setIncludeGenerated(true);
+    setGeneratedLimit(nextLimit);
+    setLoadingGenerated(true);
+    setGeneratedError(null);
+    try {
+      const next = await getAllCardsWithStatus({ includeGenerated: true, generatedLimit: nextLimit });
+      setGeneratedCards(next);
+    } catch {
+      setGeneratedError('Could not load generated cards.');
+    } finally {
+      setLoadingGenerated(false);
+    }
+  };
+
+  const filteredCards = cards.filter(card => {
     const matchesFilter = card.title.toLowerCase().includes(filter.toLowerCase()) || 
                           card.summary.toLowerCase().includes(filter.toLowerCase());
     const matchesDomain = selectedDomain === 'all' || card.domain === selectedDomain;
@@ -44,14 +69,17 @@ export default function KnowledgeMap({ initialCards }: Props) {
   return (
     <div className="w-full h-full">
       {viewMode === 'graph' ? (
-        <KnowledgeGraph3D cards={initialCards} onClose={() => setViewMode('grid')} />
+        <KnowledgeGraph3D cards={cards} onClose={() => setViewMode('grid')} />
       ) : (
         <div className="w-full max-w-6xl mx-auto p-6">
           <div className="mb-8 flex flex-col md:flex-row gap-4 justify-between items-center">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Knowledge Map</h1>
               <p className="mt-1 text-sm text-gray-600">
-                Showing {filteredCards.length} of {initialCards.length} concepts
+                Showing {filteredCards.length} of {cards.length} concepts
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                Core: {coreCardCount} · Generated: {generatedCardCount}{includeGenerated ? ` (showing up to ${generatedLimit})` : ' (hidden)'}
               </p>
             </div>
             
@@ -62,7 +90,39 @@ export default function KnowledgeMap({ initialCards }: Props) {
               >
                   3D Graph View
               </button>
-              
+
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-700 select-none" htmlFor="toggle-generated">
+                  Show generated
+                </label>
+                <input
+                  id="toggle-generated"
+                  type="checkbox"
+                  checked={includeGenerated}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    if (next) {
+                      void loadGenerated(generatedLimit);
+                    } else {
+                      setIncludeGenerated(false);
+                      setGeneratedCards(null);
+                      setGeneratedError(null);
+                    }
+                  }}
+                />
+              </div>
+
+              {includeGenerated ? (
+                <button
+                  type="button"
+                  onClick={() => void loadGenerated(Math.min(5000, generatedLimit + 250))}
+                  disabled={loadingGenerated}
+                  className="rounded-md border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                >
+                  {loadingGenerated ? 'Loading…' : 'Load more'}
+                </button>
+              ) : null}
+
               <select 
                 value={selectedDomain} 
                 onChange={(e) => setSelectedDomain(e.target.value)}
@@ -105,6 +165,12 @@ export default function KnowledgeMap({ initialCards }: Props) {
               </button>
             </div>
           </div>
+
+          {generatedError ? (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {generatedError}
+            </div>
+          ) : null}
 
           {/* Legend */}
           <div className="mb-6 flex flex-wrap gap-6 rounded-xl border bg-white px-4 py-3 text-xs">

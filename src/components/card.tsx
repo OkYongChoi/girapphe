@@ -1,13 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { KnowledgeCard, NodeQuiz, generateQuizForNode } from '@/actions/card-actions';
+import { KnowledgeCard } from '@/actions/card-actions';
 import { getCardLevelMeta } from '@/lib/card-level';
 import MathText from './math-text';
 
 interface CardProps {
   card: KnowledgeCard;
-  interactiveQuizMode?: boolean;
   /** When false, hides the explanation (used for card-flip / self-test UX). Defaults to true. */
   revealed?: boolean;
 }
@@ -20,31 +18,9 @@ const DOMAIN_COLORS: Record<string, string> = {
   other: 'bg-gray-100 text-gray-700 border-gray-200',
 };
 
-export default function Card({ card, interactiveQuizMode = true, revealed = true }: CardProps) {
+export default function Card({ card, revealed = true }: CardProps) {
   const domainStyle = DOMAIN_COLORS[card.domain] ?? DOMAIN_COLORS.other;
   const levelMeta = getCardLevelMeta(card.level);
-  const [quiz, setQuiz] = useState<NodeQuiz | null>(null);
-  const [quizLoading, setQuizLoading] = useState(interactiveQuizMode);
-  const [quizError, setQuizError] = useState<string | null>(null);
-  const [selectedAnswerIndex, setSelectedAnswerIndex] = useState<number | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    if (!interactiveQuizMode) return () => { active = false; };
-
-    generateQuizForNode(card.id)
-      .then((nextQuiz) => { if (active) setQuiz(nextQuiz); })
-      .catch(() => { if (active) setQuizError('Quiz unavailable for this concept.'); })
-      .finally(() => { if (active) setQuizLoading(false); });
-
-    return () => { active = false; };
-  }, [card.id, interactiveQuizMode]);
-
-  const showExplanation = revealed && (!interactiveQuizMode || !quiz || selectedAnswerIndex !== null);
-  const isAnswerCorrect = useMemo(() => {
-    if (!quiz || selectedAnswerIndex === null) return null;
-    return selectedAnswerIndex === quiz.correctAnswerIndex;
-  }, [quiz, selectedAnswerIndex]);
 
   return (
     <article
@@ -64,80 +40,11 @@ export default function Card({ card, interactiveQuizMode = true, revealed = true
         {card.title}
       </h2>
 
-      {card.suggest_reason && (
-        <div
-          aria-label={`Suggested because: ${card.suggest_reason}`}
-          className="text-[10px] font-bold text-blue-600 uppercase tracking-tight bg-blue-50 border border-blue-100 px-2 py-0.5 rounded w-fit"
-        >
-          ✨ {card.suggest_reason}
-        </div>
-      )}
-
       <p className="text-gray-600 leading-relaxed flex-grow">
         {card.summary}
       </p>
 
-      {interactiveQuizMode && (
-        <section aria-label="Quick quiz" className="rounded-lg border border-blue-100 bg-blue-50/70 p-4">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-blue-700">
-            Quick Quiz
-          </h3>
-
-          {quizLoading ? (
-            <p className="mt-2 text-sm text-blue-800/80 animate-pulse">Generating question…</p>
-          ) : quizError ? (
-            <p className="mt-2 text-sm text-red-600">{quizError}</p>
-          ) : quiz ? (
-            <div className="mt-3 space-y-2">
-              <p className="text-sm font-medium text-slate-800">{quiz.question}</p>
-              <div className="grid gap-2" role="group" aria-label="Answer choices">
-                {quiz.choices.map((choice, index) => {
-                  const isSelected = selectedAnswerIndex === index;
-                  const isCorrectChoice = quiz.correctAnswerIndex === index;
-                  const answered = selectedAnswerIndex !== null;
-
-                  let choiceStyle = 'border-slate-200 hover:border-blue-300 hover:bg-blue-50';
-                  if (answered) {
-                    if (isCorrectChoice) choiceStyle = 'border-emerald-400 bg-emerald-50 text-emerald-900 font-medium';
-                    else if (isSelected) choiceStyle = 'border-red-300 bg-red-50 text-red-800';
-                    else choiceStyle = 'border-slate-100 bg-gray-50 text-gray-400';
-                  }
-
-                  return (
-                    <button
-                      key={`${card.id}-choice-${index}`}
-                      type="button"
-                      disabled={answered}
-                      onClick={() => setSelectedAnswerIndex(index)}
-                      aria-pressed={isSelected}
-                      aria-describedby={answered ? `quiz-feedback-${card.id}` : undefined}
-                      className={`w-full rounded-md border px-3 py-2 text-left text-sm transition focus:outline-none focus:ring-2 focus:ring-blue-400 ${choiceStyle} disabled:cursor-default`}
-                    >
-                      <span className="mr-2 font-semibold text-gray-500">{String.fromCharCode(65 + index)}.</span>
-                      {choice}
-                      {answered && isCorrectChoice && <span className="ml-2" aria-hidden="true">✓</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-
-          {isAnswerCorrect !== null ? (
-            <p
-              id={`quiz-feedback-${card.id}`}
-              role="status"
-              className={`mt-3 text-xs font-medium ${isAnswerCorrect ? 'text-emerald-700' : 'text-red-700'}`}
-            >
-              {isAnswerCorrect
-                ? '✓ Correct! See explanation below.'
-                : '✗ Not quite. Check the explanation below.'}
-            </p>
-          ) : null}
-        </section>
-      )}
-
-      {card.explanation && showExplanation && (
+      {card.explanation && revealed && (
         <section aria-label="Key facts and formulas" className="bg-amber-50 border border-amber-100 p-4 rounded-lg text-sm text-gray-800 overflow-y-auto max-h-48 custom-scrollbar">
            <h3 className="text-xs font-bold text-amber-800 uppercase tracking-widest mb-2">
              💡 Key Facts & Formulas
