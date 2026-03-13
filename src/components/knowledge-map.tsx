@@ -82,7 +82,6 @@ export default function KnowledgeMap({ initialCards }: Props) {
                 <option value="all">All Status</option>
                 <option value="known">Known</option>
                 <option value="saved">Saved</option>
-                <option value="unknown">Unknown</option>
                 <option value="unstarted">Not Started</option>
               </select>
               
@@ -115,16 +114,6 @@ export default function KnowledgeMap({ initialCards }: Props) {
                 <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-green-300 border border-green-400"></span>Known</span>
                 <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-blue-300 border border-blue-400"></span>Saved</span>
                 <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-gray-200 border border-gray-300"></span>Not Started</span>
-              </div>
-            </div>
-            <div>
-              <span className="mb-1.5 block font-semibold text-gray-500 uppercase tracking-wide">Domain</span>
-              <div className="flex flex-wrap gap-2">
-                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-orange-200 border border-orange-300"></span>Signal</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-teal-200 border border-teal-300"></span>Control</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-emerald-200 border border-emerald-300"></span>Info</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-violet-200 border border-violet-300"></span>ML</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-gray-200 border border-gray-300"></span>Other</span>
               </div>
             </div>
           </div>
