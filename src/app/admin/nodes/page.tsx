@@ -4,6 +4,8 @@ export const dynamic = 'force-dynamic';
 
 const NODE_TYPES = ['concept', 'theorem', 'algorithm', 'model'];
 const DOMAINS = ['ml', 'dl', 'nlp', 'cv', 'rl', 'math', 'stats', 'systems', 'general', 'signal'];
+const inputCls = 'w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-gray-500 focus:outline-none';
+const selectCls = 'w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-gray-500 focus:outline-none';
 
 export default async function AdminNodesPage() {
   const nodes = await getAdminNodes();
@@ -35,18 +37,18 @@ export default async function AdminNodesPage() {
           name="id"
           placeholder="id (slug)"
           required
-          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-gray-500 focus:outline-none"
+          className={inputCls}
         />
         <input
           name="label"
           placeholder="label"
           required
-          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-gray-500 focus:outline-none"
+          className={inputCls}
         />
         <select
           name="domain"
           required
-          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-gray-500 focus:outline-none"
+          className={selectCls}
         >
           {DOMAINS.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
@@ -58,7 +60,7 @@ export default async function AdminNodesPage() {
           min="0"
           max="5"
           required
-          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-gray-500 focus:outline-none"
+          className={inputCls}
         />
         <input
           name="difficulty"
@@ -68,12 +70,12 @@ export default async function AdminNodesPage() {
           min="1"
           max="5"
           required
-          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-gray-500 focus:outline-none"
+          className={inputCls}
         />
         <select
           name="type"
           required
-          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-gray-500 focus:outline-none"
+          className={selectCls}
         >
           {NODE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
