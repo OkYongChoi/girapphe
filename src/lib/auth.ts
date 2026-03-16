@@ -33,7 +33,6 @@ export async function requireCurrentUser(): Promise<AuthUser> {
 export async function requireAdminUser(): Promise<AuthUser> {
   const user = await requireCurrentUser();
   const adminId = process.env.ADMIN_CLERK_USER_ID;
-  if (!adminId) throw new Error('ADMIN_CLERK_USER_ID is not configured');
-  if (user.id !== adminId) redirect('/');
+  if (!adminId || user.id !== adminId) redirect('/');
   return user;
 }
