@@ -16,23 +16,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Validate Env Templates
-        run: npm run check:env:examples
+        working-directory: apps/web
+        run: pnpm check:env:examples
 
       - name: Lint and Typecheck
-        run: npm run check
+        run: pnpm turbo check
 
       - name: Build Cloudflare Bundle
-        run: npm run build:cf
+        working-directory: apps/web
+        run: pnpm build:cf
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci_build_placeholder_1234567890
 
@@ -45,17 +52,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Validate Development Environment
-        run: npm run check:env:dev:runtime
+        working-directory: apps/web
+        run: pnpm check:env:dev:runtime
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_DEV }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_DEV }}
@@ -67,12 +80,14 @@ jobs:
           APP_BASE_URL: ${{ vars.APP_BASE_URL_DEV }}
 
       - name: Run Drizzle Migrations (dev)
-        run: npm run db:migrate
+        working-directory: apps/web
+        run: pnpm db:migrate
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
 
       - name: Deploy Worker (dev)
-        run: npm run deploy:cf:dev
+        working-directory: apps/web
+        run: pnpm deploy:cf:dev
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_DEV }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_DEV }}
@@ -90,17 +105,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Validate Production Environment
-        run: npm run check:env:prod
+        working-directory: apps/web
+        run: pnpm check:env:prod
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -112,12 +133,14 @@ jobs:
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
 
       - name: Run Drizzle Migrations
-        run: npm run db:migrate
+        working-directory: apps/web
+        run: pnpm db:migrate
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Deploy Worker
-        run: npm run deploy:cf
+        working-directory: apps/web
+        run: pnpm deploy:cf
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}

@@ -47,7 +47,11 @@
       "Bash(node:*)",
       "Bash(/Users/a60157230/Projects/personal-stem-brain/find_missing.mjs:*)",
       "mcp__Claude_Preview__preview_start",
-      "Bash(kill:*)"
+      "Bash(kill:*)",
+      "Bash(ls /Users/a60157230/Projects/personal-stem-brain && git -C /Users/a60157230/Projects/personal-stem-brain log --oneline -10)",
+      "mcp__plugin_oh-my-claudecode_t__lsp_diagnostics",
+      "Bash(git check-ignore:*)",
+      "Bash(git ls-tree:*)"
     ]
   }
 }

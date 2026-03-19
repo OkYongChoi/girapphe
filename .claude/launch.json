@@ -3,10 +3,9 @@
   "configurations": [
     {
       "name": "dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 3000,
-      "autoPort": true
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@stem-brain/web", "dev"],
+      "port": 3000
     }
   ]
 }
