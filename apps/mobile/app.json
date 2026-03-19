@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "stem-brain",
+    "slug": "stem-brain",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "stem-brain",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.stembrain.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.stembrain.app"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
