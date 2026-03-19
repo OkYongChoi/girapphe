@@ -273,21 +273,79 @@ How to use:
 - If you use raw Wrangler instead (`npx wrangler deploy`), you must build first:
   - `npm run build:cf && npx wrangler deploy`
 
-## 10. Latest Deployment Verification (2026-02-18 KST)
+## 10. Latest Deployment Verification (2026-03-19 KST)
+
+Triggered at: `2026-03-19 17:19 KST` via GitHub Actions (push to `main`, PR #65 merge)
+
+- Deploy method: GitHub Actions → `deploy_prod` job → `pnpm deploy:cf:prod`
+- Deployed URL: `https://girapphe.richokychoi.workers.dev` / `https://www.girapphe.com`
+- Trigger commit: `d5d75fa` — Merge pull request #65 from OkYongChoi/claude/thirsty-grothendieck
+
+### Changes deployed since 2026-02-18
+
+#### Infrastructure
+- `feat`: restructure repo as pnpm monorepo (apps/web, apps/mobile, packages/shared, packages/graph-engine)
+- `fix`: remove explicit pnpm version from CI — use `packageManager` field in package.json instead
+
+#### Practice / Card UX
+- `feat`: memorize-first flow — show concept content directly instead of quiz
+- `feat`: prerequisites strip and Z-key undo in practice mode
+- `feat`: answer hide toggle in practice card
+- `feat`: undo button after rating + card flip UX
+- `feat`: show round-complete banner when all review cards are skipped
+- `feat`: infinite generated card pool + knowledge map toggle
+- `refactor`: remove mock cards, quiz UI, and broken filters
+- `refactor`: remove unknown/again card status — keep only known and saved
+- `fix`: skip no longer ends session early
+- `fix`: prevent same card reappearing; fix review count deduplication
+- `fix`: reset practice state on mode switch
+- `fix`: prevent server re-renders from resetting CardViewer mid-session
+- `fix`: stop revalidating /practice in saveCardState to prevent mid-session reset
+- `fix`: card actions not advancing + skip loop
+
+#### Knowledge Cards Content
+- `feat`: add 50 semiconductor and computer architecture knowledge cards (batch 1)
+- `feat`: add 60 more semiconductor and computer architecture cards (batch 2)
+- `feat`: expand knowledge card content set (OS, networking, databases, distributed systems, perf, security, PL)
+- `feat`: add deep dives for indexes, TCP congestion control, memory models, testing
+- `feat`: expand and connect knowledge cards (cross-links between concepts)
+- `feat`: expand knowledge cards to ~973 total (batches b7–b15)
+- `feat`: add full card content coverage + DB versioning to force re-seed
+
+#### Knowledge Graph
+- `refactor`: center 3D graph on direct concept links
+- `fix`: restore related concept links for DB-backed cards
+- `fix`: show main content in graph node details
+- `fix`: make 3D graph top nav reliably clickable
+- `fix`: align knowledge map filters
+- `feat`: add in-graph nav links to other tabs
+
+#### Auth / Routing
+- `ci`: redeploy with girapphe.com Clerk publishable key
+- `fix`: redirect unauthenticated users to /login instead of /_not-found
+- `fix`: redirect girapphe.com → www.girapphe.com in middleware
+
+#### Performance
+- `perf`: parallelize DB queries and deduplicate schema init
+- `perf`: replace pg Pool with Neon HTTP client for faster cold starts
+
+#### DB / Schema
+- `feat`: split card knowledge and progress states (separate DB tables)
+- `fix`: always run card schema migrations before version gate
+- `fix`: reseed empty card table and fallback on card query errors
+
+#### UI / Mobile
+- `ui`: redesign practice page for mobile-first UX
+- `feat`: comprehensive UI/UX improvements across app
+
+### Previous Deployment Record (2026-02-18)
 
 Verified at: `2026-02-18 20:41:03 KST`
 
-- Static/type checks: `npm run check` passed
-- Cloudflare build: `npm run build:cf` passed
 - Cloudflare deploy: `npm run deploy:cf` passed
 - Deployed URL: `https://girapphe.richokychoi.workers.dev`
 - Version ID: `5247c546-309a-4dd3-b90a-d3d89c41c0fd`
-- Health check:
-  - `GET /api/health` -> `200`
-  - response included:
-    - `"status":"ok"`
-    - `"mode":"database"`
-    - `"database":"connected"`
+- Health check: `GET /api/health` → `200`, `"status":"ok"`, `"mode":"database"`, `"database":"connected"`
 
 ## 11. Branch and Environment Strategy
 
