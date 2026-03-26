@@ -26,6 +26,7 @@ This project implements an AI/CS knowledge graph MVP with:
 - Data model: `docs/reference/data-model.md`
 - Knowledge graph spec: `docs/reference/knowledge-graph-spec.md`
 - Development/operations: `docs/operations/development.md`
+- Admin operations: `docs/operations/admin.md`
 
 ## Key Implementation Files
 
@@ -85,6 +86,7 @@ Core routes:
 - `/my-knowledge`
 - `/dashboard`
 - `/ranking`
+- `/admin` (admin-only, PostgreSQL required)
 
 Quality commands:
 
@@ -125,8 +127,8 @@ Authentication is powered by [Clerk](https://clerk.com). Configure these environ
 Use environment-specific templates:
 
 ```bash
-cp .env.dev.example .env.local
-# For production values/secrets, use .env.prod.example as the reference.
+cp apps/web/.env.dev.example apps/web/.env.local
+# For production values/secrets, use apps/web/.env.prod.example as the reference.
 ```
 
 ```
@@ -140,6 +142,15 @@ NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/practice
 ```
 
 Get your keys from the [Clerk dashboard](https://dashboard.clerk.com).
+
+Admin routes additionally require:
+
+```bash
+ADMIN_CLERK_USER_ID=user_...
+```
+
+`ADMIN_CLERK_USER_ID` must match the Clerk user id allowed to access `/admin`. Admin pages
+also require `DATABASE_URL`; they do not use the app's in-memory fallback mode.
 
 Clerk handles:
 - Email/password sign-up and sign-in (with built-in email verification)
