@@ -36,6 +36,10 @@ When changing graph behavior, update docs in this order:
 3. `docs/reference/knowledge-graph-spec.md`
 4. `README.md` summary links
 
+When changing `/admin`, also update:
+
+5. `docs/operations/admin.md`
+
 ## Graph Taxonomy Change Workflow
 
 1. Update nodes in `src/data/graph-nodes.ts`.
@@ -82,3 +86,7 @@ See `DEPLOY.md` for full runbook and CI template.
 3. Port bind errors
 - Another process holds the port.
 - Switch port or stop the existing process.
+
+4. `/admin` looks empty or actions fail immediately
+- Confirm `DATABASE_URL` is set. Admin pages do not support the in-memory fallback mode.
+- Confirm `ADMIN_CLERK_USER_ID` matches the Clerk user id for the signed-in admin account.

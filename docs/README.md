@@ -10,6 +10,7 @@ This folder contains technical documentation for the Personal STEM Brain project
 - [API Specification](./reference/api-spec.md)
 - [Data Model](./reference/data-model.md)
 - [Development & Operations](./operations/development.md)
+- [Admin Operations](./operations/admin.md)
 
 ## Reading Order
 
@@ -19,3 +20,4 @@ This folder contains technical documentation for the Personal STEM Brain project
 4. API Specification
 5. Knowledge Graph Spec
 6. Development & Operations
+7. Admin Operations (if working on `/admin`)

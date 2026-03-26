@@ -29,3 +29,10 @@ export async function requireCurrentUser(): Promise<AuthUser> {
   if (!user) redirect('/login');
   return user;
 }
+
+export async function requireAdminUser(): Promise<AuthUser> {
+  const user = await requireCurrentUser();
+  const adminId = process.env.ADMIN_CLERK_USER_ID;
+  if (!adminId || user.id !== adminId) redirect('/');
+  return user;
+}
