@@ -171,46 +171,13 @@ Wrangler requirement:
 1. Create workflow file:
 - `.github/workflows/deploy-cloudflare.yml`
 
-2. Add:
-```yaml
-name: Deploy Cloudflare Worker
+2. See `.github/workflows/deploy-cloudflare.yml` for the current workflow.
 
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
-      - name: Verify
-        run: npm run check
-
-      - name: Apply Drizzle migrations
-        run: npm run db:migrate
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-
-      - name: Deploy
-        run: npm run deploy:cf
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-```
+Key steps per deploy job:
+- Validate env vars (`pnpm check:env:prod`)
+- Run Drizzle migrations (`pnpm db:migrate`)
+- Deploy Worker (`pnpm deploy:cf`)
+- **Smoke test** (`pnpm smoke`) — runs after deploy, fails the job if any endpoint is down
 
 3. Configure GitHub repository secrets and variables:
 - Secrets:
@@ -349,21 +316,18 @@ Verified at: `2026-02-18 20:41:03 KST`
 
 ## 11. Branch and Environment Strategy
 
-Recommended minimum setup:
+This project uses **GitHub Flow** — no persistent `dev` branch.
 
-- `main`: production deploy source
-- `dev`: integration branch for daily development
-
-Optional but recommended when changes are frequent:
-
-- staging preview environment (Cloudflare preview or separate Worker) connected to a separate Neon branch/database
+- `main`: always deployable, auto-deploys to prod on push
+- Feature branches: created from `main`, merged back via PR
 
 Basic flow:
 
-1. feature branch -> PR -> `dev`
-2. validate on staging
-3. merge `dev` -> `main`
-4. deploy production from `main`
+1. feature branch -> PR -> `main` -> prod auto-deploy
+2. Smoke test runs automatically after deploy
+3. Cloudflare Workers rollback available if smoke test fails
+
+No staging branch. Use PR preview environments or local dev for pre-merge validation.
 
 ## 12. Progress Data Reset
 
