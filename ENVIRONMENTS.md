@@ -55,10 +55,10 @@ Validation commands:
 
 - Build/deploy production with production keys only.
 - Do not reuse dev keys for production domains.
-- Keep `main` for production and `dev` for integration/testing.
+- This project uses **GitHub Flow**: `main` is the only long-lived branch.
 - GitHub Actions branch mapping:
-  - Push to `dev` -> deploy `--env dev`
-  - Push to `main` -> deploy `--env prod`
+  - Push to `main` -> deploy `--env prod` -> smoke test
+- Feature branches are merged to `main` via PR and deleted after merge.
 
 ## 4.1 Codebase-Enforced Separation
 
