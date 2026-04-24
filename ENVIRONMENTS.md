@@ -6,7 +6,8 @@ This project uses separate configuration for local development and production.
 
 | Environment | App Domain | Clerk Domain | Clerk Keys | Database |
 |---|---|---|---|---|
-| Local Dev | `http://localhost:3000` | Clerk test/dev | `pk_test` / `sk_test` | local/dev Neon branch |
+| Local Dev | `http://localhost:3000` | active Clerk tenant | usually `pk_test` / `sk_test`, but `pk_live` / `sk_live` is also supported when intentionally sharing prod auth | optional Neon/local DB |
+| Cloudflare Dev | `*.workers.dev` or dev custom domain | active Clerk tenant | tenant-matched keys | dev or shared Neon DB |
 | Production | `https://www.girapphe.com` | `clerk.girapphe.com` | `pk_live` / `sk_live` | production Neon |
 
 ## 2. Where Secrets Live
@@ -27,10 +28,15 @@ npm run check:env:dev
 
 Local file rule:
 - Use `.env.local` for local development values.
-- Do not rely on `.env.production` for active local runtime configuration.
+- Do not keep a persistent `.env.production` file with real production secrets.
 - Local dev deploy commands (`deploy:cf:dev`, `preview:cf`) load from `.env.local`.
-- Local prod deploy command (`deploy:cf:prod`) loads from `.env.production`.
+- Local prod deploy command (`deploy:cf:prod`) can read an optional `.env.production`, but the preferred path is already-injected shell/CI environment variables.
 - In CI, these commands fall back to already-injected environment variables when env files are absent.
+
+Current project note:
+- If you only maintain one live Clerk tenant and one Neon database right now, `.env.local` may intentionally point at those real services for local debugging.
+- Production deploy credentials should live in Worker secrets, GitHub secrets, or temporary shell exports, not in a checked or persistent local prod env file.
+- `scripts/check-env.mjs` warns when dev uses live Clerk keys, but that warning is advisory and does not block local validation.
 
 ## 3. Required Variables
 
