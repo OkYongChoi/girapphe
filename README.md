@@ -128,7 +128,8 @@ Use environment-specific templates:
 
 ```bash
 cp apps/web/.env.dev.example apps/web/.env.local
-# For production values/secrets, use apps/web/.env.prod.example as the reference.
+# For production values/secrets, use apps/web/.env.prod.example only as a reference.
+# Prefer CI secrets, Wrangler secrets, or temporary shell env vars over a persistent .env.production file.
 ```
 
 ```

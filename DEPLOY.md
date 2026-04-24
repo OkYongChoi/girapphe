@@ -129,7 +129,7 @@ npm run build:cf
 ```bash
 npm run deploy:cf:prod
 ```
-This command loads runtime vars from `.env.production` (local deploy path).
+This command can load runtime vars from an optional `.env.production`, but the recommended path is production values injected from CI secrets, Wrangler secrets, or temporary shell environment variables.
 6. Set remaining env vars in Worker settings:
 - `DATABASE_URL`
 - `APP_BASE_URL`
