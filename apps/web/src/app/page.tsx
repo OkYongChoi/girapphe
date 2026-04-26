@@ -23,8 +23,8 @@ export default async function HomePage() {
       <HomeGraphScene {...sceneStats} />
       <Navbar />
 
-      <section className="relative mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col justify-center px-6 py-14 md:py-20">
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(20rem,0.55fr)] lg:items-end">
+      <section className="relative mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col justify-start px-6 pb-14 pt-10 md:pb-20 md:pt-14">
+        <div className="grid gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(20rem,0.55fr)] lg:items-start">
           <div className="fade-up max-w-3xl">
             <p className="inline-flex items-center gap-2 rounded-full border border-sky-300/35 bg-sky-300/10 px-3 py-1 text-xs font-semibold uppercase text-sky-100 shadow-sm backdrop-blur">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.9)]" />
@@ -89,7 +89,7 @@ export default async function HomePage() {
             ) : null}
           </div>
 
-          <div className="fade-up grid gap-3 lg:pb-4">
+          <div className="fade-up grid gap-3">
             <div className="home-command-panel rounded-lg border border-white/15 bg-white/10 p-4 backdrop-blur">
               <div className="flex items-center justify-between gap-4">
                 <p className="text-xs font-semibold uppercase text-slate-400">Artful graph model</p>
@@ -193,12 +193,14 @@ function ArtPanel({
 }) {
   return (
     <div className={`home-art-panel overflow-hidden rounded-lg border bg-slate-950/35 backdrop-blur ${tone}`} style={{ animationDelay: delay }}>
-      <div className="relative h-28 overflow-hidden">
+      <div className="relative h-32 overflow-hidden">
         <Image src={image} alt="" fill sizes="(min-width: 1024px) 340px, 50vw" className="home-art-panel-image object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/20 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/78 via-slate-950/18 to-slate-950/85" />
+        <div className="absolute left-4 right-4 top-3">
+          <p className="text-sm font-semibold text-white">{title}</p>
+        </div>
       </div>
-      <div className="p-4">
-        <p className="text-sm font-semibold text-white">{title}</p>
+      <div className="px-4 pb-4 pt-3">
         <p className="mt-1 text-sm leading-6 text-slate-300">{description}</p>
       </div>
     </div>
