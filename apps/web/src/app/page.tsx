@@ -27,13 +27,13 @@ export default async function HomePage() {
           <div className="fade-up max-w-3xl">
             <p className="inline-flex items-center gap-2 rounded-full border border-sky-300/35 bg-sky-300/10 px-3 py-1 text-xs font-semibold uppercase text-sky-100 shadow-sm backdrop-blur">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.9)]" />
-              Live Personal STEM Brain
+              Personal STEM Practice Graph
             </p>
             <h1 className="mt-5 text-4xl font-black tracking-tight text-white md:text-6xl">
-              Train your thinking engine, not just your memory.
+              Practice STEM concepts and build your knowledge graph.
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 md:text-lg">
-              Turn scattered study into a living system: practice with intent, lock in weak spots, and grow a knowledge graph that actually reflects your current level.
+              Learn with focused concept cards, save weak spots for review, and see your progress across AI, CS, math, and engineering in one connected map.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -64,7 +64,7 @@ export default async function HomePage() {
                     href="/signup"
                     className="rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-100"
                   >
-                    Get started for free
+                    Start practicing
                   </Link>
                   <Link
                     href="/login"
@@ -151,7 +151,7 @@ function KnowledgeSurface({
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase text-slate-400">Knowledge system</p>
-              <h2 className="mt-2 max-w-xs text-2xl font-bold tracking-tight text-white">A calmer map of what you know</h2>
+              <h2 className="mt-2 max-w-xs text-2xl font-bold tracking-tight text-white">Your concepts, review queue, and notes in one map</h2>
             </div>
             <span className="home-status-pill mt-1 h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.72)]" />
           </div>
@@ -188,7 +188,7 @@ function KnowledgeSurface({
 
         <div className="mt-6">
           <p className="max-w-sm text-sm leading-6 text-slate-200">
-            Concepts, weak spots, notes, and review paths stay connected as your practice history changes.
+            Your graph updates as you mark concepts known, keep review items, and add your own notes.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs uppercase text-slate-400">
             <span><strong className="mr-1 text-base text-emerald-200">{known}</strong>known</span>
