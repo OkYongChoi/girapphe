@@ -77,6 +77,26 @@ body {
   animation: homeScan 5.5s ease-in-out infinite;
 }
 
+.home-graph-hero {
+  inset: 0;
+  border-radius: 0;
+  mask-image: linear-gradient(to bottom, black 0%, black 78%, transparent 100%);
+}
+
+.home-graph-section .home-graph-canvas {
+  inset-block: 0;
+  right: -12%;
+  width: 82%;
+}
+
+.home-graph-hero .home-graph-canvas {
+  top: 14rem;
+  right: -34%;
+  width: 116%;
+  height: 32rem;
+  opacity: 0.46;
+}
+
 .home-knowledge-surface,
 .home-stat-tile {
   animation: homePanelPulse 5.6s ease-in-out infinite;
@@ -214,6 +234,31 @@ body {
   }
   50% {
     opacity: 1;
+  }
+}
+
+@media (min-width: 768px) {
+  .home-graph-hero .home-graph-canvas {
+    top: 5rem;
+    right: -18%;
+    width: 76%;
+    height: 38rem;
+    opacity: 0.46;
+  }
+}
+
+@media (min-width: 1024px) {
+  .home-graph-section .home-graph-canvas {
+    right: -4%;
+    width: 68%;
+  }
+
+  .home-graph-hero .home-graph-canvas {
+    top: 2.5rem;
+    right: -10%;
+    width: 62%;
+    height: 42rem;
+    opacity: 0.55;
   }
 }
 
