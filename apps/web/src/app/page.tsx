@@ -19,7 +19,11 @@ export default async function HomePage() {
 
   return (
     <main id="main-content" className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
-      <HomeGraphScene {...sceneStats} />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_24%,rgba(14,165,233,0.13),transparent_30%),radial-gradient(circle_at_22%_58%,rgba(20,184,166,0.1),transparent_28%),linear-gradient(135deg,#020617_0%,#0b1120_54%,#111827_100%)]" />
+        <div className="home-grid-lines absolute inset-0 opacity-45" />
+        <div className="home-map-contours absolute inset-0 opacity-20" />
+      </div>
       <Navbar />
 
       <section className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col justify-start px-6 pb-14 pt-10 md:pb-20 md:pt-14">
@@ -97,6 +101,24 @@ export default async function HomePage() {
           </div>
         </div>
         <div className="mt-10 h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+      </section>
+
+      <section className="relative z-10 border-t border-white/10 px-6 py-16 md:py-20">
+        <div className="mx-auto max-w-6xl">
+          <div className="max-w-2xl">
+            <p className="text-xs font-semibold uppercase text-sky-200/80">Live graph view</p>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight text-white md:text-4xl">
+              See how your STEM knowledge connects.
+            </h2>
+            <p className="mt-4 text-base leading-7 text-slate-300">
+              The moving graph stays below the first screen, so the homepage opens with the service message first and the dynamic knowledge map follows as the next section.
+            </p>
+          </div>
+
+          <div className="relative mt-8 h-[34rem] overflow-hidden rounded-lg border border-white/10 bg-slate-950/60 shadow-2xl shadow-black/30">
+            <HomeGraphScene {...sceneStats} />
+          </div>
+        </div>
       </section>
     </main>
   );
