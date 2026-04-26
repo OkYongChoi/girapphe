@@ -30,8 +30,8 @@ export default async function HomePage() {
         <HomeGraphScene {...sceneStats} placement="hero" />
         <div className="relative z-10 grid min-w-0 gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(20rem,0.55fr)] lg:items-start">
           <div className="fade-up min-w-0 max-w-3xl">
-            <p className="inline-flex items-center gap-2 rounded-full border border-sky-300/35 bg-sky-300/10 px-3 py-1 text-xs font-semibold uppercase text-sky-100 shadow-sm backdrop-blur">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.9)]" />
+            <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1 text-xs font-semibold uppercase text-slate-300 shadow-sm backdrop-blur">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-200/80 shadow-[0_0_16px_rgba(125,211,252,0.65)]" />
               Personal STEM Practice Graph
             </p>
             <h1 className="mt-5 max-w-[19rem] text-2xl font-black leading-tight tracking-tight text-white sm:max-w-2xl sm:text-4xl md:text-6xl">
