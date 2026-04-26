@@ -56,12 +56,159 @@ body {
   animation: floatY 6s ease-in-out infinite;
 }
 
+.home-grid-lines {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(circle at 72% 42%, black, transparent 68%);
+  animation: homeGridDrift 18s linear infinite;
+}
+
+.home-scan-beam {
+  animation: homeScan 5.5s ease-in-out infinite;
+}
+
+.home-orbit-ring {
+  animation: homeOrbit 9s linear infinite;
+  box-shadow: 0 0 36px rgba(56, 189, 248, 0.14);
+}
+
+.home-orbit-ring::before,
+.home-orbit-ring::after {
+  content: "";
+  position: absolute;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: #67e8f9;
+  box-shadow: 0 0 22px rgba(103, 232, 249, 0.9);
+}
+
+.home-orbit-ring::before {
+  top: -0.3rem;
+  left: 50%;
+}
+
+.home-orbit-ring::after {
+  right: 1.2rem;
+  bottom: 2.7rem;
+  background: #fbbf24;
+  box-shadow: 0 0 22px rgba(251, 191, 36, 0.78);
+}
+
+.home-orbit-ring-slow {
+  animation-duration: 14s;
+  animation-direction: reverse;
+}
+
+.home-command-panel,
+.home-feature-tile,
+.home-stat-tile {
+  animation: homePanelPulse 4.8s ease-in-out infinite;
+}
+
+.home-status-pill {
+  animation: homeStatusBlink 1.7s ease-in-out infinite;
+}
+
+.home-feature-progress,
+.home-metric-bar {
+  animation: homeProgressFlow 2.6s ease-in-out infinite;
+  transform-origin: left center;
+}
+
+.home-signal-bar {
+  animation: homeSignal 1.25s ease-in-out infinite alternate;
+}
+
 @keyframes drift {
   from {
     transform: translateY(0) translateX(0) scale(1);
   }
   to {
     transform: translateY(1.3rem) translateX(-1.4rem) scale(1.08);
+  }
+}
+
+@keyframes homeGridDrift {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 56px 56px, 56px 56px;
+  }
+}
+
+@keyframes homeScan {
+  0%,
+  100% {
+    transform: translateX(-18vw) rotate(12deg);
+    opacity: 0;
+  }
+  20%,
+  70% {
+    opacity: 1;
+  }
+  50% {
+    transform: translateX(24vw) rotate(12deg);
+  }
+}
+
+@keyframes homeOrbit {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.04);
+  }
+  to {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes homePanelPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(14, 165, 233, 0);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 16px 48px rgba(14, 165, 233, 0.14);
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes homeStatusBlink {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes homeProgressFlow {
+  0%,
+  100% {
+    transform: scaleX(0.56);
+    opacity: 0.66;
+  }
+  50% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+@keyframes homeSignal {
+  from {
+    transform: scaleY(0.38);
+    opacity: 0.34;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 0.95;
   }
 }
 
