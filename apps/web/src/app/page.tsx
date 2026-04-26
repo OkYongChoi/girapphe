@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import Image from 'next/image';
 import Navbar from '@/components/navbar';
 import HomeGraphScene from '@/components/home-graph-scene';
 import { getCurrentUser } from '@/lib/auth';
@@ -23,7 +22,7 @@ export default async function HomePage() {
       <HomeGraphScene {...sceneStats} />
       <Navbar />
 
-      <section className="relative mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col justify-start px-6 pb-14 pt-10 md:pb-20 md:pt-14">
+      <section className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col justify-start px-6 pb-14 pt-10 md:pb-20 md:pt-14">
         <div className="grid gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(20rem,0.55fr)] lg:items-start">
           <div className="fade-up max-w-3xl">
             <p className="inline-flex items-center gap-2 rounded-full border border-sky-300/35 bg-sky-300/10 px-3 py-1 text-xs font-semibold uppercase text-sky-100 shadow-sm backdrop-blur">
@@ -90,7 +89,7 @@ export default async function HomePage() {
           </div>
 
           <div className="fade-up">
-            <ArtShowcase
+            <KnowledgeSurface
               known={sceneStats.known}
               saved={sceneStats.saved}
               notes={sceneStats.notes}
@@ -127,7 +126,7 @@ function StatBox({
   );
 }
 
-function ArtShowcase({
+function KnowledgeSurface({
   known,
   saved,
   notes,
@@ -136,48 +135,60 @@ function ArtShowcase({
   saved: number;
   notes: number;
 }) {
+  const rows = [
+    { label: 'Linear systems', value: 82, tone: 'bg-emerald-300' },
+    { label: 'Bayes rule', value: 64, tone: 'bg-sky-300' },
+    { label: 'Fourier analysis', value: 48, tone: 'bg-amber-300' },
+    { label: 'Graph search', value: 72, tone: 'bg-cyan-300' },
+  ];
+
   return (
-    <div className="home-art-showcase relative min-h-[30rem] overflow-hidden rounded-lg">
-      <div className="absolute inset-x-8 bottom-3 h-12 bg-cyan-500/20 blur-3xl" />
-      <div className="relative min-h-[30rem] overflow-hidden rounded-lg bg-slate-950/20">
-        <Image
-          src="/home-art/knowledge-brain.png"
-          alt=""
-          fill
-          sizes="(min-width: 1024px) 420px, 100vw"
-          className="home-showcase-image home-showcase-image-one object-cover"
-        />
-        <Image
-          src="/home-art/domain-atlas.png"
-          alt=""
-          fill
-          sizes="(min-width: 1024px) 420px, 100vw"
-          className="home-showcase-image home-showcase-image-two object-cover"
-        />
-        <Image
-          src="/home-art/memory-vault.png"
-          alt=""
-          fill
-          sizes="(min-width: 1024px) 420px, 100vw"
-          className="home-showcase-image home-showcase-image-three object-cover"
-        />
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(2,6,23,0.42)_0%,rgba(2,6,23,0.12)_36%,rgba(2,6,23,0.9)_100%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_24%_18%,rgba(45,212,191,0.24),transparent_30%),radial-gradient(circle_at_82%_62%,rgba(251,191,36,0.18),transparent_28%)]" />
-        <div className="absolute left-5 right-5 top-5 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase text-slate-300">Artful graph model</p>
-            <h2 className="mt-2 max-w-xs text-2xl font-bold tracking-tight text-white">Brain graph to memory vault</h2>
+    <div className="home-knowledge-surface relative min-h-[30rem] overflow-hidden rounded-lg border border-white/10 bg-slate-950/35 p-5 shadow-2xl shadow-black/25 backdrop-blur">
+      <div className="home-surface-grid absolute inset-0 opacity-70" />
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/40 to-transparent" />
+      <div className="relative flex h-full min-h-[27.5rem] flex-col justify-between">
+        <div>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase text-slate-400">Knowledge system</p>
+              <h2 className="mt-2 max-w-xs text-2xl font-bold tracking-tight text-white">A calmer map of what you know</h2>
+            </div>
+            <span className="home-status-pill mt-1 h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.72)]" />
           </div>
-          <span className="home-status-pill mt-1 h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_22px_rgba(110,231,183,0.85)]" />
+
+          <div className="home-node-map relative mt-8 h-52 rounded-lg border border-white/10 bg-slate-900/30">
+            <span className="home-map-node home-map-node-core left-[45%] top-[38%] h-16 w-16 border-white/30 bg-white/12 text-white">
+              Core
+            </span>
+            <span className="home-map-node left-[12%] top-[18%] border-emerald-200/30 bg-emerald-300/12 text-emerald-100">Known</span>
+            <span className="home-map-node right-[13%] top-[14%] border-sky-200/30 bg-sky-300/12 text-sky-100">Review</span>
+            <span className="home-map-node bottom-[12%] left-[18%] border-amber-200/30 bg-amber-300/12 text-amber-100">Notes</span>
+            <span className="home-map-node bottom-[18%] right-[16%] border-cyan-200/30 bg-cyan-300/12 text-cyan-100">Links</span>
+            <span className="home-map-line left-[26%] top-[31%] w-[30%] rotate-[18deg]" />
+            <span className="home-map-line right-[27%] top-[32%] w-[24%] rotate-[-22deg]" />
+            <span className="home-map-line bottom-[31%] left-[28%] w-[28%] rotate-[-20deg]" />
+            <span className="home-map-line bottom-[34%] right-[26%] w-[28%] rotate-[22deg]" />
+          </div>
         </div>
-        <div className="pointer-events-none absolute left-5 top-28 flex flex-col gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100/80">
-          <span>Concept map</span>
-          <span className="ml-10 text-amber-100/80">STEM atlas</span>
-          <span className="ml-4 text-emerald-100/80">Memory vault</span>
+
+        <div className="mt-6 space-y-3">
+          {rows.map((row) => (
+            <div key={row.label} className="grid grid-cols-[7.5rem_1fr_2rem] items-center gap-3 text-xs">
+              <span className="text-slate-400">{row.label}</span>
+              <span className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                <span
+                  className={`home-progress-line block h-full rounded-full ${row.tone}`}
+                  style={{ width: `${row.value}%` }}
+                />
+              </span>
+              <span className="text-right text-slate-500">{row.value}</span>
+            </div>
+          ))}
         </div>
-        <div className="absolute bottom-5 left-5 right-5">
+
+        <div className="mt-6">
           <p className="max-w-sm text-sm leading-6 text-slate-200">
-            The scene moves through concept maps, STEM domains, and private notes while the knowledge network rebalances behind it.
+            Concepts, weak spots, notes, and review paths stay connected as your practice history changes.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs uppercase text-slate-400">
             <span><strong className="mr-1 text-base text-emerald-200">{known}</strong>known</span>
