@@ -2,6 +2,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
@@ -56,7 +57,6 @@ export default function HomeGraphScene({ known, saved, notes }: HomeGraphScenePr
   const graphRef = useRef<any>(null);
   const [dimensions, setDimensions] = useState({ width: 720, height: 560 });
   const [activeGroup, setActiveGroup] = useState<ActiveGroup>('known');
-  const [hoveredLabel, setHoveredLabel] = useState('Live knowledge graph');
 
   useEffect(() => {
     const element = wrapperRef.current;
@@ -187,6 +187,30 @@ export default function HomeGraphScene({ known, saved, notes }: HomeGraphScenePr
       className="pointer-events-none absolute inset-0 overflow-hidden [--pointer-x:72%] [--pointer-y:36%]"
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_36%,rgba(14,165,233,0.24),transparent_34%),radial-gradient(circle_at_26%_68%,rgba(245,158,11,0.18),transparent_30%),linear-gradient(135deg,#020617_0%,#0f172a_54%,#111827_100%)]" />
+      <div className="home-art-cycle absolute inset-0">
+        <Image
+          src="/home-art/knowledge-brain.png"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="home-art-layer home-art-layer-one"
+        />
+        <Image
+          src="/home-art/domain-atlas.png"
+          alt=""
+          fill
+          sizes="100vw"
+          className="home-art-layer home-art-layer-two"
+        />
+        <Image
+          src="/home-art/memory-vault.png"
+          alt=""
+          fill
+          sizes="100vw"
+          className="home-art-layer home-art-layer-three"
+        />
+      </div>
       <div className="home-grid-lines absolute inset-0 opacity-60" />
       <div className="home-scan-beam absolute inset-y-[-20%] left-[52%] w-24 rotate-12 bg-gradient-to-r from-transparent via-cyan-300/16 to-transparent blur-sm" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--pointer-x)_var(--pointer-y),rgba(255,255,255,0.18),transparent_18rem)] transition-[background] duration-300" />
@@ -214,7 +238,6 @@ export default function HomeGraphScene({ known, saved, notes }: HomeGraphScenePr
           enableNavigationControls={true}
           onNodeHover={(node: any) => {
             document.body.style.cursor = node ? 'crosshair' : 'default';
-            setHoveredLabel(node?.name ?? NODE_GROUPS[activeGroup].label);
           }}
           d3AlphaDecay={0.015}
           d3VelocityDecay={0.24}
@@ -227,24 +250,6 @@ export default function HomeGraphScene({ known, saved, notes }: HomeGraphScenePr
         />
       </div>
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(2,6,23,0.98)_0%,rgba(2,6,23,0.86)_38%,rgba(2,6,23,0.42)_70%,rgba(2,6,23,0.18)_100%)]" />
-      <div className="absolute bottom-8 right-6 hidden w-64 rounded-lg border border-white/10 bg-slate-950/45 p-3 text-xs text-slate-300 shadow-2xl shadow-cyan-950/30 backdrop-blur-md md:block">
-        <div className="flex items-center justify-between gap-4">
-          <span className="font-semibold uppercase text-slate-400">Signal</span>
-          <span className="text-cyan-100">{hoveredLabel}</span>
-        </div>
-        <div className="mt-3 grid grid-cols-12 gap-1">
-          {Array.from({ length: 24 }, (_, index) => (
-            <span
-              key={index}
-              className="home-signal-bar rounded-full bg-cyan-200/60"
-              style={{
-                animationDelay: `${index * 80}ms`,
-                height: `${14 + ((index * 7) % 30)}px`,
-              }}
-            />
-          ))}
-        </div>
-      </div>
       <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950 to-transparent" />
     </div>
   );

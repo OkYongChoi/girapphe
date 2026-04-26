@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import Navbar from '@/components/navbar';
 import HomeGraphScene from '@/components/home-graph-scene';
 import { getCurrentUser } from '@/lib/auth';
@@ -91,24 +92,42 @@ export default async function HomePage() {
           <div className="fade-up grid gap-3 lg:pb-4">
             <div className="home-command-panel rounded-lg border border-white/15 bg-white/10 p-4 backdrop-blur">
               <div className="flex items-center justify-between gap-4">
-                <p className="text-xs font-semibold uppercase text-slate-400">Live graph model</p>
+                <p className="text-xs font-semibold uppercase text-slate-400">Artful graph model</p>
                 <span className="home-status-pill rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-100">
-                  Routing
+                  Alive
                 </span>
               </div>
               <p className="mt-3 text-sm leading-6 text-slate-200">
-                The graph keeps cycling through known concepts, review targets, and private notes while the network rebalances in real time.
+                The scene moves through a brain graph, a STEM atlas, and a private memory vault while the knowledge network rebalances behind it.
               </p>
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                <SignalMetric label="Known" value={sceneStats.known} tone="bg-emerald-300" />
-                <SignalMetric label="Review" value={sceneStats.saved} tone="bg-sky-300" />
-                <SignalMetric label="Notes" value={sceneStats.notes} tone="bg-amber-300" />
+              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                <MiniStat label="Known" value={sceneStats.known} tone="text-emerald-200" />
+                <MiniStat label="Review" value={sceneStats.saved} tone="text-sky-200" />
+                <MiniStat label="Notes" value={sceneStats.notes} tone="text-amber-200" />
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              <Feature title="Adaptive practice" description="Mark what is unclear and only promote concepts you can explain." tone="border-emerald-300/20 bg-emerald-400/10" delay="0ms" />
-              <Feature title="Review queue" description="Keep weak concepts in a focused queue until they feel stable." tone="border-sky-300/20 bg-sky-400/10" delay="130ms" />
-              <Feature title="Knowledge vault" description="Write and manage your own private notes and frameworks." tone="border-amber-300/20 bg-amber-400/10" delay="260ms" />
+              <ArtPanel
+                title="Brain graph"
+                description="Concept cards orbit your current understanding."
+                image="/home-art/knowledge-brain.png"
+                tone="border-emerald-300/20"
+                delay="0ms"
+              />
+              <ArtPanel
+                title="STEM atlas"
+                description="Domains become explorable landscapes."
+                image="/home-art/domain-atlas.png"
+                tone="border-sky-300/20"
+                delay="180ms"
+              />
+              <ArtPanel
+                title="Memory vault"
+                description="Private notes stay connected to practice."
+                image="/home-art/memory-vault.png"
+                tone="border-amber-300/20"
+                delay="360ms"
+              />
             </div>
           </div>
         </div>
@@ -142,31 +161,7 @@ function StatBox({
   );
 }
 
-function Feature({
-  title,
-  description,
-  tone,
-  delay,
-}: {
-  title: string;
-  description: string;
-  tone: string;
-  delay: string;
-}) {
-  return (
-    <div className={`home-feature-tile rounded-lg border p-4 backdrop-blur ${tone}`} style={{ animationDelay: delay }}>
-      <div>
-        <p className="text-sm font-semibold text-white">{title}</p>
-        <p className="mt-1 text-sm leading-6 text-slate-300">{description}</p>
-      </div>
-      <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10">
-        <span className="home-feature-progress block h-full rounded-full bg-white/60" />
-      </div>
-    </div>
-  );
-}
-
-function SignalMetric({
+function MiniStat({
   label,
   value,
   tone,
@@ -175,16 +170,36 @@ function SignalMetric({
   value: number;
   tone: string;
 }) {
-  const width = `${Math.min(96, Math.max(18, value * 8))}%`;
-
   return (
     <div className="rounded-md border border-white/10 bg-slate-950/35 p-2">
-      <div className="flex items-center justify-between gap-2 text-[10px] uppercase text-slate-400">
-        <span>{label}</span>
-        <span className="text-slate-200">{value}</span>
+      <span className={`block text-lg font-bold ${tone}`}>{value}</span>
+      <span className="text-[10px] uppercase text-slate-400">{label}</span>
+    </div>
+  );
+}
+
+function ArtPanel({
+  title,
+  description,
+  image,
+  tone,
+  delay,
+}: {
+  title: string;
+  description: string;
+  image: string;
+  tone: string;
+  delay: string;
+}) {
+  return (
+    <div className={`home-art-panel overflow-hidden rounded-lg border bg-slate-950/35 backdrop-blur ${tone}`} style={{ animationDelay: delay }}>
+      <div className="relative h-28 overflow-hidden">
+        <Image src={image} alt="" fill sizes="(min-width: 1024px) 340px, 50vw" className="home-art-panel-image object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/20 to-transparent" />
       </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
-        <span className={`home-metric-bar block h-full rounded-full ${tone}`} style={{ width }} />
+      <div className="p-4">
+        <p className="text-sm font-semibold text-white">{title}</p>
+        <p className="mt-1 text-sm leading-6 text-slate-300">{description}</p>
       </div>
     </div>
   );
