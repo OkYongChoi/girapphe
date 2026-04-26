@@ -90,11 +90,12 @@ body {
 }
 
 .home-graph-hero .home-graph-canvas {
-  top: 14rem;
-  right: -34%;
-  width: 116%;
+  top: 13rem;
+  left: 50%;
+  width: 124%;
   height: 32rem;
-  opacity: 0.46;
+  opacity: 0.42;
+  transform: translateX(-50%);
 }
 
 .home-knowledge-surface,
@@ -239,11 +240,12 @@ body {
 
 @media (min-width: 768px) {
   .home-graph-hero .home-graph-canvas {
-    top: 5rem;
-    right: -18%;
-    width: 76%;
+    top: 4.5rem;
+    left: 50%;
+    width: 86%;
     height: 38rem;
-    opacity: 0.46;
+    opacity: 0.42;
+    transform: translateX(-50%);
   }
 }
 
@@ -255,10 +257,11 @@ body {
 
   .home-graph-hero .home-graph-canvas {
     top: 2.5rem;
-    right: -10%;
-    width: 62%;
+    left: 50%;
+    width: 78%;
     height: 42rem;
-    opacity: 0.55;
+    opacity: 0.44;
+    transform: translateX(-50%);
   }
 }
 
