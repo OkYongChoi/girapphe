@@ -27,16 +27,17 @@ export default async function HomePage() {
       <Navbar />
 
       <section className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col justify-start px-6 pb-14 pt-10 md:pb-20 md:pt-14">
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(20rem,0.55fr)] lg:items-start">
-          <div className="fade-up max-w-3xl">
+        <HomeGraphScene {...sceneStats} placement="hero" />
+        <div className="relative z-10 grid min-w-0 gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(20rem,0.55fr)] lg:items-start">
+          <div className="fade-up min-w-0 max-w-3xl">
             <p className="inline-flex items-center gap-2 rounded-full border border-sky-300/35 bg-sky-300/10 px-3 py-1 text-xs font-semibold uppercase text-sky-100 shadow-sm backdrop-blur">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.9)]" />
               Personal STEM Practice Graph
             </p>
-            <h1 className="mt-5 text-4xl font-black tracking-tight text-white md:text-6xl">
+            <h1 className="mt-5 max-w-[19rem] text-2xl font-black leading-tight tracking-tight text-white sm:max-w-2xl sm:text-4xl md:text-6xl">
               Practice STEM concepts and build your knowledge graph.
             </h1>
-            <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 md:text-lg">
+            <p className="mt-5 max-w-[20rem] text-sm leading-7 text-slate-300 sm:max-w-2xl sm:text-base md:text-lg">
               Learn with focused concept cards, save weak spots for review, and see your progress across AI, CS, math, and engineering in one connected map.
             </p>
 
@@ -92,7 +93,7 @@ export default async function HomePage() {
             ) : null}
           </div>
 
-          <div className="fade-up">
+          <div className="fade-up min-w-0">
             <KnowledgeSurface
               known={sceneStats.known}
               saved={sceneStats.saved}
@@ -103,20 +104,22 @@ export default async function HomePage() {
         <div className="mt-10 h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent" />
       </section>
 
-      <section className="relative z-10 border-t border-white/10 px-6 py-16 md:py-20">
-        <div className="mx-auto max-w-6xl">
-          <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase text-sky-200/80">Live graph view</p>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight text-white md:text-4xl">
-              See how your STEM knowledge connects.
-            </h2>
-            <p className="mt-4 text-base leading-7 text-slate-300">
-              The moving graph stays below the first screen, so the homepage opens with the service message first and the dynamic knowledge map follows as the next section.
-            </p>
+      <section className="relative z-10 border-t border-white/10 px-6 py-14 md:py-16">
+        <div className="mx-auto grid max-w-6xl gap-6 md:grid-cols-3">
+          <div>
+            <p className="text-xs font-semibold uppercase text-emerald-200/80">Known</p>
+            <p className="mt-2 text-3xl font-bold text-white">{sceneStats.known}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">Concepts marked solid.</p>
           </div>
-
-          <div className="relative mt-8 h-[34rem] overflow-hidden rounded-lg border border-white/10 bg-slate-950/60 shadow-2xl shadow-black/30">
-            <HomeGraphScene {...sceneStats} />
+          <div>
+            <p className="text-xs font-semibold uppercase text-sky-200/80">Review</p>
+            <p className="mt-2 text-3xl font-bold text-white">{sceneStats.saved}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">Weak spots kept in queue.</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase text-amber-200/80">Notes</p>
+            <p className="mt-2 text-3xl font-bold text-white">{sceneStats.notes}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">Your own knowledge items.</p>
           </div>
         </div>
       </section>

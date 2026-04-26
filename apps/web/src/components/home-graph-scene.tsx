@@ -6,17 +6,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } 
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-full min-h-[24rem] items-center justify-center text-sm text-slate-400">
-      Building graph...
-    </div>
-  ),
+  loading: () => null,
 }) as any;
 
 type HomeGraphSceneProps = {
   known: number;
   saved: number;
   notes: number;
+  placement?: 'hero' | 'section';
 };
 
 const NODE_GROUPS = {
@@ -51,14 +48,15 @@ const TOPICS = [
   'Planning',
 ];
 
-export default function HomeGraphScene({ known, saved, notes }: HomeGraphSceneProps) {
+export default function HomeGraphScene({ known, saved, notes, placement = 'section' }: HomeGraphSceneProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const graphContainerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<any>(null);
   const [dimensions, setDimensions] = useState({ width: 720, height: 560 });
   const [activeGroup, setActiveGroup] = useState<ActiveGroup>('known');
 
   useEffect(() => {
-    const element = wrapperRef.current;
+    const element = graphContainerRef.current;
     if (!element) return;
 
     const resize = () => {
@@ -183,14 +181,16 @@ export default function HomeGraphScene({ known, saved, notes }: HomeGraphScenePr
       ref={wrapperRef}
       aria-hidden="true"
       onPointerMove={handlePointerMove}
-      className="pointer-events-none absolute inset-0 z-0 overflow-hidden [--pointer-x:72%] [--pointer-y:36%]"
+      className={`pointer-events-none absolute inset-0 z-0 overflow-hidden [--pointer-x:72%] [--pointer-y:36%] ${
+        placement === 'hero' ? 'home-graph-hero' : 'home-graph-section'
+      }`}
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_36%,rgba(14,165,233,0.16),transparent_34%),radial-gradient(circle_at_26%_68%,rgba(20,184,166,0.12),transparent_30%),linear-gradient(135deg,#020617_0%,#0b1120_54%,#111827_100%)]" />
       <div className="home-grid-lines absolute inset-0 opacity-55" />
       <div className="home-map-contours absolute inset-0 opacity-35" />
       <div className="home-scan-beam absolute inset-y-[-20%] left-[52%] w-16 rotate-12 bg-gradient-to-r from-transparent via-cyan-300/[0.08] to-transparent blur-sm" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--pointer-x)_var(--pointer-y),rgba(255,255,255,0.08),transparent_18rem)] transition-[background] duration-300" />
-      <div className="pointer-events-auto absolute inset-y-0 right-[-12%] w-[82%] opacity-95 md:right-[-4%] md:w-[68%]">
+      <div ref={graphContainerRef} className="home-graph-canvas pointer-events-auto absolute opacity-95">
         <ForceGraph3D
           ref={graphRef}
           graphData={graphData}
