@@ -89,46 +89,12 @@ export default async function HomePage() {
             ) : null}
           </div>
 
-          <div className="fade-up grid gap-3">
-            <div className="home-command-panel rounded-lg border border-white/15 bg-white/10 p-4 backdrop-blur">
-              <div className="flex items-center justify-between gap-4">
-                <p className="text-xs font-semibold uppercase text-slate-400">Artful graph model</p>
-                <span className="home-status-pill rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-100">
-                  Alive
-                </span>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-slate-200">
-                The scene moves through a brain graph, a STEM atlas, and a private memory vault while the knowledge network rebalances behind it.
-              </p>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                <MiniStat label="Known" value={sceneStats.known} tone="text-emerald-200" />
-                <MiniStat label="Review" value={sceneStats.saved} tone="text-sky-200" />
-                <MiniStat label="Notes" value={sceneStats.notes} tone="text-amber-200" />
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              <ArtPanel
-                title="Brain graph"
-                description="Concept cards orbit your current understanding."
-                image="/home-art/knowledge-brain.png"
-                tone="border-emerald-300/20"
-                delay="0ms"
-              />
-              <ArtPanel
-                title="STEM atlas"
-                description="Domains become explorable landscapes."
-                image="/home-art/domain-atlas.png"
-                tone="border-sky-300/20"
-                delay="180ms"
-              />
-              <ArtPanel
-                title="Memory vault"
-                description="Private notes stay connected to practice."
-                image="/home-art/memory-vault.png"
-                tone="border-amber-300/20"
-                delay="360ms"
-              />
-            </div>
+          <div className="fade-up">
+            <ArtShowcase
+              known={sceneStats.known}
+              saved={sceneStats.saved}
+              notes={sceneStats.notes}
+            />
           </div>
         </div>
         <div className="mt-10 h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent" />
@@ -161,47 +127,66 @@ function StatBox({
   );
 }
 
-function MiniStat({
-  label,
-  value,
-  tone,
+function ArtShowcase({
+  known,
+  saved,
+  notes,
 }: {
-  label: string;
-  value: number;
-  tone: string;
+  known: number;
+  saved: number;
+  notes: number;
 }) {
   return (
-    <div className="rounded-md border border-white/10 bg-slate-950/35 p-2">
-      <span className={`block text-lg font-bold ${tone}`}>{value}</span>
-      <span className="text-[10px] uppercase text-slate-400">{label}</span>
-    </div>
-  );
-}
-
-function ArtPanel({
-  title,
-  description,
-  image,
-  tone,
-  delay,
-}: {
-  title: string;
-  description: string;
-  image: string;
-  tone: string;
-  delay: string;
-}) {
-  return (
-    <div className={`home-art-panel overflow-hidden rounded-lg border bg-slate-950/35 backdrop-blur ${tone}`} style={{ animationDelay: delay }}>
-      <div className="relative h-32 overflow-hidden">
-        <Image src={image} alt="" fill sizes="(min-width: 1024px) 340px, 50vw" className="home-art-panel-image object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/78 via-slate-950/18 to-slate-950/85" />
-        <div className="absolute left-4 right-4 top-3">
-          <p className="text-sm font-semibold text-white">{title}</p>
+    <div className="home-art-showcase relative min-h-[30rem] overflow-hidden rounded-lg">
+      <div className="absolute inset-x-8 bottom-3 h-12 bg-cyan-500/20 blur-3xl" />
+      <div className="relative min-h-[30rem] overflow-hidden rounded-lg bg-slate-950/20">
+        <Image
+          src="/home-art/knowledge-brain.png"
+          alt=""
+          fill
+          sizes="(min-width: 1024px) 420px, 100vw"
+          className="home-showcase-image home-showcase-image-one object-cover"
+        />
+        <Image
+          src="/home-art/domain-atlas.png"
+          alt=""
+          fill
+          sizes="(min-width: 1024px) 420px, 100vw"
+          className="home-showcase-image home-showcase-image-two object-cover"
+        />
+        <Image
+          src="/home-art/memory-vault.png"
+          alt=""
+          fill
+          sizes="(min-width: 1024px) 420px, 100vw"
+          className="home-showcase-image home-showcase-image-three object-cover"
+        />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(2,6,23,0.42)_0%,rgba(2,6,23,0.12)_36%,rgba(2,6,23,0.9)_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_24%_18%,rgba(45,212,191,0.24),transparent_30%),radial-gradient(circle_at_82%_62%,rgba(251,191,36,0.18),transparent_28%)]" />
+        <div className="absolute left-5 right-5 top-5 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase text-slate-300">Artful graph model</p>
+            <h2 className="mt-2 max-w-xs text-2xl font-bold tracking-tight text-white">Brain graph to memory vault</h2>
+          </div>
+          <span className="home-status-pill mt-1 h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_22px_rgba(110,231,183,0.85)]" />
         </div>
-      </div>
-      <div className="px-4 pb-4 pt-3">
-        <p className="mt-1 text-sm leading-6 text-slate-300">{description}</p>
+        <div className="pointer-events-none absolute left-5 top-28 flex flex-col gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100/80">
+          <span>Concept map</span>
+          <span className="ml-10 text-amber-100/80">STEM atlas</span>
+          <span className="ml-4 text-emerald-100/80">Memory vault</span>
+        </div>
+        <div className="absolute bottom-5 left-5 right-5">
+          <p className="max-w-sm text-sm leading-6 text-slate-200">
+            The scene moves through concept maps, STEM domains, and private notes while the knowledge network rebalances behind it.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs uppercase text-slate-400">
+            <span><strong className="mr-1 text-base text-emerald-200">{known}</strong>known</span>
+            <span className="h-1 w-1 rounded-full bg-slate-500" />
+            <span><strong className="mr-1 text-base text-sky-200">{saved}</strong>review</span>
+            <span className="h-1 w-1 rounded-full bg-slate-500" />
+            <span><strong className="mr-1 text-base text-amber-200">{notes}</strong>notes</span>
+          </div>
+        </div>
       </div>
     </div>
   );
