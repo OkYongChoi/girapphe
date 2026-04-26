@@ -2,7 +2,6 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
@@ -184,38 +183,13 @@ export default function HomeGraphScene({ known, saved, notes }: HomeGraphScenePr
       ref={wrapperRef}
       aria-hidden="true"
       onPointerMove={handlePointerMove}
-      className="pointer-events-none absolute inset-0 overflow-hidden [--pointer-x:72%] [--pointer-y:36%]"
+      className="pointer-events-none absolute inset-0 z-0 overflow-hidden [--pointer-x:72%] [--pointer-y:36%]"
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_36%,rgba(14,165,233,0.24),transparent_34%),radial-gradient(circle_at_26%_68%,rgba(245,158,11,0.18),transparent_30%),linear-gradient(135deg,#020617_0%,#0f172a_54%,#111827_100%)]" />
-      <div className="home-art-cycle absolute inset-0">
-        <Image
-          src="/home-art/knowledge-brain.png"
-          alt=""
-          fill
-          priority
-          sizes="100vw"
-          className="home-art-layer home-art-layer-one"
-        />
-        <Image
-          src="/home-art/domain-atlas.png"
-          alt=""
-          fill
-          sizes="100vw"
-          className="home-art-layer home-art-layer-two"
-        />
-        <Image
-          src="/home-art/memory-vault.png"
-          alt=""
-          fill
-          sizes="100vw"
-          className="home-art-layer home-art-layer-three"
-        />
-      </div>
-      <div className="home-grid-lines absolute inset-0 opacity-60" />
-      <div className="home-scan-beam absolute inset-y-[-20%] left-[52%] w-24 rotate-12 bg-gradient-to-r from-transparent via-cyan-300/16 to-transparent blur-sm" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--pointer-x)_var(--pointer-y),rgba(255,255,255,0.18),transparent_18rem)] transition-[background] duration-300" />
-      <div className="absolute right-[8%] top-[16%] hidden h-52 w-52 rounded-full border border-cyan-200/15 md:block home-orbit-ring" />
-      <div className="absolute right-[18%] top-[28%] hidden h-80 w-80 rounded-full border border-emerald-200/10 md:block home-orbit-ring home-orbit-ring-slow" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_36%,rgba(14,165,233,0.16),transparent_34%),radial-gradient(circle_at_26%_68%,rgba(20,184,166,0.12),transparent_30%),linear-gradient(135deg,#020617_0%,#0b1120_54%,#111827_100%)]" />
+      <div className="home-grid-lines absolute inset-0 opacity-55" />
+      <div className="home-map-contours absolute inset-0 opacity-35" />
+      <div className="home-scan-beam absolute inset-y-[-20%] left-[52%] w-16 rotate-12 bg-gradient-to-r from-transparent via-cyan-300/[0.08] to-transparent blur-sm" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--pointer-x)_var(--pointer-y),rgba(255,255,255,0.08),transparent_18rem)] transition-[background] duration-300" />
       <div className="pointer-events-auto absolute inset-y-0 right-[-12%] w-[82%] opacity-95 md:right-[-4%] md:w-[68%]">
         <ForceGraph3D
           ref={graphRef}

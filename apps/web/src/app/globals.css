@@ -58,80 +58,26 @@ body {
 
 .home-grid-lines {
   background-image:
-    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+    linear-gradient(rgba(148, 163, 184, 0.065) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.065) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: radial-gradient(circle at 72% 42%, black, transparent 68%);
   animation: homeGridDrift 18s linear infinite;
 }
 
-.home-art-cycle {
-  opacity: 0.72;
-  transform: translate3d(0, 0, 0);
-}
-
-.home-art-layer {
-  position: absolute;
-  inset: -4%;
-  width: 108%;
-  height: 108%;
-  object-fit: cover;
-  object-position: center right;
-  opacity: 0;
-  filter: saturate(1.08) contrast(1.03);
-  animation: homeArtFade 18s ease-in-out infinite;
-}
-
-.home-art-layer-one {
-  animation-delay: 0s;
-}
-
-.home-art-layer-two {
-  animation-delay: 6s;
-}
-
-.home-art-layer-three {
-  animation-delay: 12s;
+.home-map-contours {
+  background-image:
+    radial-gradient(ellipse at 68% 36%, transparent 0 24%, rgba(125, 211, 252, 0.09) 24.4% 24.8%, transparent 25.2%),
+    radial-gradient(ellipse at 72% 42%, transparent 0 34%, rgba(148, 163, 184, 0.07) 34.3% 34.7%, transparent 35%),
+    radial-gradient(ellipse at 64% 56%, transparent 0 45%, rgba(20, 184, 166, 0.06) 45.3% 45.7%, transparent 46%);
+  animation: homeContourDrift 24s ease-in-out infinite alternate;
 }
 
 .home-scan-beam {
   animation: homeScan 5.5s ease-in-out infinite;
 }
 
-.home-orbit-ring {
-  animation: homeOrbit 9s linear infinite;
-  box-shadow: 0 0 36px rgba(56, 189, 248, 0.14);
-}
-
-.home-orbit-ring::before,
-.home-orbit-ring::after {
-  content: "";
-  position: absolute;
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 999px;
-  background: #67e8f9;
-  box-shadow: 0 0 22px rgba(103, 232, 249, 0.9);
-}
-
-.home-orbit-ring::before {
-  top: -0.3rem;
-  left: 50%;
-}
-
-.home-orbit-ring::after {
-  right: 1.2rem;
-  bottom: 2.7rem;
-  background: #fbbf24;
-  box-shadow: 0 0 22px rgba(251, 191, 36, 0.78);
-}
-
-.home-orbit-ring-slow {
-  animation-duration: 14s;
-  animation-direction: reverse;
-}
-
-.home-art-showcase,
+.home-knowledge-surface,
 .home-stat-tile {
   animation: homePanelPulse 5.6s ease-in-out infinite;
 }
@@ -140,22 +86,51 @@ body {
   animation: homeStatusBlink 1.7s ease-in-out infinite;
 }
 
-.home-showcase-image {
-  opacity: 0;
-  transform: scale(1.05);
-  animation: homeShowcaseFade 18s ease-in-out infinite;
+.home-surface-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, black 0%, black 65%, transparent 100%);
 }
 
-.home-showcase-image-one {
-  animation-delay: 0s;
+.home-node-map {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-.home-showcase-image-two {
-  animation-delay: 6s;
+.home-map-node {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  min-width: 4.5rem;
+  height: 2.25rem;
+  place-items: center;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+  animation: homeNodeFloat 7s ease-in-out infinite;
 }
 
-.home-showcase-image-three {
-  animation-delay: 12s;
+.home-map-node-core {
+  min-width: 4rem;
+  border-radius: 999px;
+  animation-duration: 8.5s;
+}
+
+.home-map-line {
+  position: absolute;
+  z-index: 1;
+  height: 1px;
+  transform-origin: center;
+  background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.34), transparent);
+}
+
+.home-progress-line {
+  animation: homeProgressPulse 4.8s ease-in-out infinite;
 }
 
 @keyframes drift {
@@ -167,28 +142,21 @@ body {
   }
 }
 
-@keyframes homeArtFade {
-  0%,
-  100% {
-    opacity: 0;
-    transform: scale(1.02) translate3d(0, 0, 0);
-  }
-  8%,
-  28% {
-    opacity: 0.82;
-  }
-  42% {
-    opacity: 0;
-    transform: scale(1.09) translate3d(-1.6%, -0.8%, 0);
-  }
-}
-
 @keyframes homeGridDrift {
   from {
     background-position: 0 0, 0 0;
   }
   to {
     background-position: 56px 56px, 56px 56px;
+  }
+}
+
+@keyframes homeContourDrift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-1.5%, 1%, 0) scale(1.04);
   }
 }
 
@@ -204,18 +172,6 @@ body {
   }
   50% {
     transform: translateX(24vw) rotate(12deg);
-  }
-}
-
-@keyframes homeOrbit {
-  from {
-    transform: rotate(0deg) scale(1);
-  }
-  50% {
-    transform: rotate(180deg) scale(1.04);
-  }
-  to {
-    transform: rotate(360deg) scale(1);
   }
 }
 
@@ -241,19 +197,23 @@ body {
   }
 }
 
-@keyframes homeShowcaseFade {
+@keyframes homeNodeFloat {
   0%,
   100% {
-    opacity: 0;
-    transform: scale(1.04) translate3d(0, 0, 0);
+    transform: translateY(0);
   }
-  8%,
-  30% {
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes homeProgressPulse {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
     opacity: 1;
-  }
-  43% {
-    opacity: 0;
-    transform: scale(1.12) translate3d(-2%, -1.4%, 0);
   }
 }
 
