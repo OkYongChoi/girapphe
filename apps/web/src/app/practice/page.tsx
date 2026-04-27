@@ -1,18 +1,14 @@
 import { getNextCard, getUserStats } from '@/actions/card-actions';
 import CardViewer from '@/components/card-viewer';
 import Navbar from '@/components/navbar';
-import { getCurrentUser } from '@/lib/auth';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { getCurrentActor } from '@/lib/auth';
+import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PracticePage(props: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
-  const user = await getCurrentUser();
-  if (!user) {
-    redirect('/login');
-  }
-
+  const actor = await getCurrentActor();
   const searchParams = await props.searchParams;
   const mode = searchParams?.mode === 'review' ? 'review' : 'new';
 
@@ -53,7 +49,14 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
         </p>
 
         {/* Card viewer — stats are shown inside */}
-        <CardViewer key={mode} initialCard={initialCard} initialStats={stats} mode={mode} />
+        <CardViewer
+          key={mode}
+          initialCard={initialCard}
+          initialStats={stats}
+          mode={mode}
+          isGuest={actor.isGuest}
+          guestLimit={GUEST_PRACTICE_CARD_LIMIT}
+        />
       </div>
     </main>
   );

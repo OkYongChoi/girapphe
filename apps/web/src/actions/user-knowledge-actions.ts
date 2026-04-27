@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import pool from '@/lib/db';
-import { requireCurrentUser } from '@/lib/auth';
+import { requireCurrentActor } from '@/lib/auth';
 
 export type UserKnowledgeItem = {
   id: string;
@@ -67,7 +67,7 @@ function sanitizeContent(input: string) {
 }
 
 export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
     return memoryStore.get(user.id) ?? [];
@@ -89,7 +89,7 @@ export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
 }
 
 export async function createKnowledgeItem(formData: FormData): Promise<void> {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
   const title = sanitizeTitle(String(formData.get('title') ?? ''));
   const content = sanitizeContent(String(formData.get('content') ?? ''));
   const topic = normalizeTopic(String(formData.get('topic') ?? ''));
@@ -156,7 +156,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
 }
 
 export async function updateKnowledgeItem(formData: FormData): Promise<void> {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
   const id = String(formData.get('id') ?? '').trim();
   const title = sanitizeTitle(String(formData.get('title') ?? ''));
   const content = sanitizeContent(String(formData.get('content') ?? ''));
@@ -194,7 +194,7 @@ export async function updateKnowledgeItem(formData: FormData): Promise<void> {
 }
 
 export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
   const id = String(formData.get('id') ?? '').trim();
 
   if (!id) {

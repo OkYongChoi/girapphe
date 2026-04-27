@@ -13,10 +13,10 @@ import {
 } from '@stem-brain/graph-engine';
 import type { ForceGraphData, GraphNodeWithKnowledge } from '@stem-brain/graph-engine';
 import { revalidatePath } from 'next/cache';
-import { requireCurrentUser } from '@/lib/auth';
+import { requireCurrentActor } from '@/lib/auth';
 
 async function getUserId() {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
   return user.id;
 }
 

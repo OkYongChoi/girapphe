@@ -1,14 +1,39 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse, type NextRequest, type NextFetchEvent } from 'next/server';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
+import { GUEST_ID_COOKIE } from '@/lib/guest';
 
 const isPublicRoute = createRouteMatcher([
   '/',
+  '/dashboard(.*)',
+  '/knowledge(.*)',
   '/login(.*)',
+  '/my-knowledge(.*)',
+  '/practice(.*)',
+  '/ranking(.*)',
+  '/saved(.*)',
   '/signup(.*)',
   '/register(.*)',
+  '/api/graph(.*)',
   '/api/health(.*)',
+  '/api/quiz_result(.*)',
 ]);
+
+function ensureGuestCookie(request: NextRequest, response: NextResponse) {
+  const existing = request.cookies.get(GUEST_ID_COOKIE)?.value;
+  if (existing?.startsWith('guest_')) return response;
+
+  const guestId = `guest_${crypto.randomUUID()}`;
+  request.cookies.set(GUEST_ID_COOKIE, guestId);
+  response.cookies.set(GUEST_ID_COOKIE, guestId, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: request.nextUrl.protocol === 'https:',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 365,
+  });
+  return response;
+}
 
 export default async function middleware(request: NextRequest, event: NextFetchEvent) {
   // Redirect non-www to www in production
@@ -20,7 +45,7 @@ export default async function middleware(request: NextRequest, event: NextFetchE
   }
 
   if (!hasValidClerkConfig()) {
-    return NextResponse.next();
+    return ensureGuestCookie(request, NextResponse.next());
   }
 
   const handler = clerkMiddleware(async (auth, req) => {
@@ -31,7 +56,8 @@ export default async function middleware(request: NextRequest, event: NextFetchE
     }
   });
 
-  return handler(request, event);
+  const response = (await handler(request, event)) as NextResponse;
+  return ensureGuestCookie(request, response);
 }
 
 export const config = {

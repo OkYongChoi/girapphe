@@ -9,6 +9,8 @@ interface CardViewerProps {
   initialCard: KnowledgeCard | null;
   initialStats: { known: number; saved: number };
   mode: 'new' | 'review';
+  isGuest?: boolean;
+  guestLimit?: number;
 }
 
 type HistoryEntry = {
@@ -16,7 +18,13 @@ type HistoryEntry = {
   action: 'skip' | CardStatus;
 };
 
-export default function CardViewer({ initialCard, initialStats, mode }: CardViewerProps) {
+export default function CardViewer({
+  initialCard,
+  initialStats,
+  mode,
+  isGuest = false,
+  guestLimit = 0,
+}: CardViewerProps) {
   const [card, setCard] = useState<KnowledgeCard | null>(initialCard);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -241,7 +249,9 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
           {mode === 'review' ? "You're all caught up on learning queue items!" : "All caught up on new/unknown cards!"}
         </p>
         <p className="text-gray-500 mt-2 text-sm leading-relaxed">
-          You reviewed {reviewedCount} card{reviewedCount !== 1 ? 's' : ''} this session.
+          {isGuest && mode === 'new'
+            ? `Guests can practice ${guestLimit} sample cards.`
+            : `You reviewed ${reviewedCount} card${reviewedCount !== 1 ? 's' : ''} this session.`}
         </p>
 
         <div className="mt-6 w-full grid grid-cols-2 gap-2 text-center">
@@ -256,6 +266,14 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
         </div>
 
         <div className="mt-6 flex flex-col gap-2 w-full">
+          {isGuest && (
+            <Link
+              href="/signup"
+              className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+            >
+              Create account for full practice
+            </Link>
+          )}
           <Link
             href="/practice?mode=review"
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
@@ -282,6 +300,15 @@ export default function CardViewer({ initialCard, initialStats, mode }: CardView
   // ── Active card ──────────────────────────────────────────────
   return (
     <div className="flex flex-col w-full max-w-md mx-auto">
+      {isGuest && mode === 'new' && (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Guest sample: {guestLimit} practice cards.{' '}
+          <Link href="/signup" className="font-semibold underline underline-offset-2">
+            Create an account
+          </Link>{' '}
+          for the full set.
+        </div>
+      )}
 
       {/* Stats / progress header — layout differs per mode */}
       <div className="mb-4 rounded-xl bg-white border border-gray-100 shadow-sm px-4 py-2.5">

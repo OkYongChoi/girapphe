@@ -1,7 +1,5 @@
-import { redirect } from 'next/navigation';
 import { randomUUID } from 'node:crypto';
 import Navbar from '@/components/navbar';
-import { getCurrentUser } from '@/lib/auth';
 import Link from 'next/link';
 import {
   createKnowledgeItem,
@@ -23,10 +21,6 @@ type MyKnowledgePageProps = {
 };
 
 export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageProps) {
-  const user = await getCurrentUser();
-  if (!user) {
-    redirect('/login');
-  }
   const params = (await searchParams) ?? {};
   const query = (params.q ?? '').trim().toLowerCase();
   const topicFilter = (params.topic ?? 'all').trim().toLowerCase();
@@ -58,7 +52,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
           <div>
             <h1 className="text-2xl font-bold text-gray-900">My Knowledge</h1>
             <p className="mt-1 text-sm text-gray-600">
-              Save your own notes, frameworks, and concepts. Everything here is private to your account.
+              Save your own notes, frameworks, and concepts. Everything here is private to your browser or account.
             </p>
           </div>
           <div className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-600">

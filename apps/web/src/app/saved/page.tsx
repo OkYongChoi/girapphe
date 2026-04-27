@@ -2,8 +2,6 @@ import { getSavedCards } from '@/actions/card-actions';
 import type { CardStatus, KnowledgeCard } from '@/actions/card-actions';
 import { removeSavedCard, resetUserCardProgress } from '@/actions/card-actions';
 import Navbar from '@/components/navbar';
-import { getCurrentUser } from '@/lib/auth';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
@@ -30,10 +28,6 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default async function SavedPage({ searchParams }: SavedPageProps) {
-  const user = await getCurrentUser();
-  if (!user) {
-    redirect('/login');
-  }
   const params = (await searchParams) ?? {};
   const query = (params.q ?? '').trim().toLowerCase();
   const domainFilter = (params.domain ?? 'all').trim().toLowerCase();

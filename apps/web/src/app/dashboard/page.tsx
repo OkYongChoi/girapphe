@@ -1,7 +1,5 @@
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import Navbar from '@/components/navbar';
-import { getCurrentUser } from '@/lib/auth';
 import { getUserCardDomainProgress, getUserStats } from '@/actions/card-actions';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 
@@ -65,9 +63,6 @@ function DomainCard({
 }
 
 export default async function DashboardPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect('/login');
-
   const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress()]);
 
   const totalReviewed = stats.known + stats.saved;
