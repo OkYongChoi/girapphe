@@ -28,15 +28,15 @@ function SummaryBox({
 function DomainCard({
   domain,
   reviewed,
-  known,
-  saved,
+  explainable,
+  unclear,
 }: {
   domain: string;
   reviewed: number;
-  known: number;
-  saved: number;
+  explainable: number;
+  unclear: number;
 }) {
-  const knownPercent = reviewed > 0 ? (known / reviewed) * 100 : 0;
+  const explainablePercent = reviewed > 0 ? (explainable / reviewed) * 100 : 0;
 
   return (
     <div className="rounded-xl border bg-white p-5">
@@ -46,16 +46,16 @@ function DomainCard({
           <p className="mt-1 text-sm text-slate-600">{reviewed} reviewed cards</p>
         </div>
         <div className="rounded-lg bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700">
-          {knownPercent.toFixed(0)}% known
+          {explainablePercent.toFixed(0)}% explainable
         </div>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
         <div className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">
-          Known: {known}
+          Explainable: {explainable}
         </div>
         <div className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-blue-800">
-          Saved: {saved}
+          Unclear: {unclear}
         </div>
       </div>
     </div>
@@ -65,8 +65,8 @@ function DomainCard({
 export default async function DashboardPage() {
   const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress()]);
 
-  const totalReviewed = stats.known + stats.saved;
-  const knownPercent = totalReviewed > 0 ? (stats.known / totalReviewed) * 100 : 0;
+  const totalReviewed = stats.explainable + stats.unclear;
+  const explainablePercent = totalReviewed > 0 ? (stats.explainable / totalReviewed) * 100 : 0;
 
   return (
     <main id="main-content" className="min-h-screen bg-gray-50">
@@ -77,7 +77,7 @@ export default async function DashboardPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Progress Dashboard</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Card progress summary based on your known/saved states.
+              Card progress summary based on what feels explainable vs still unclear.
             </p>
           </div>
           <Link
@@ -106,15 +106,15 @@ export default async function DashboardPage() {
           <>
             <div aria-label="Overall progress summary" className="mt-6 grid grid-cols-3 gap-3">
               <SummaryBox
-                label="Known"
-                value={stats.known}
-                sub={`${knownPercent.toFixed(0)}% of reviewed`}
+                label="Explainable"
+                value={stats.explainable}
+                sub={`${explainablePercent.toFixed(0)}% of reviewed`}
                 colorClass="bg-emerald-50 text-emerald-900 border-emerald-200"
               />
               <SummaryBox
-                label="Saved"
-                value={stats.saved}
-                sub="bookmarked for review"
+                label="Unclear"
+                value={stats.unclear}
+                sub="still needs review"
                 colorClass="bg-blue-50 text-blue-900 border-blue-200"
               />
               <SummaryBox

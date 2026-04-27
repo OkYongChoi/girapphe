@@ -10,21 +10,21 @@ const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
 }) as any;
 
 type HomeGraphSceneProps = {
-  known: number;
-  saved: number;
+  explainable: number;
+  unclear: number;
   notes: number;
 };
 
 const NODE_GROUPS = {
-  known: { color: '#2dd4bf', hotColor: '#99f6e4', label: 'Known' },
-  saved: { color: '#60a5fa', hotColor: '#bfdbfe', label: 'Saved' },
-  notes: { color: '#fbbf24', hotColor: '#fde68a', label: 'Notes' },
+  explainable: { color: '#22c55e', hotColor: '#86efac', label: 'Explainable' },
+  unclear: { color: '#38bdf8', hotColor: '#7dd3fc', label: 'Unclear' },
+  notes: { color: '#f59e0b', hotColor: '#fcd34d', label: 'Notes' },
   core: { color: '#94a3b8', label: 'Concepts' },
 };
 
-type ActiveGroup = keyof Pick<typeof NODE_GROUPS, 'known' | 'saved' | 'notes'>;
+type ActiveGroup = keyof Pick<typeof NODE_GROUPS, 'explainable' | 'unclear' | 'notes'>;
 
-const GROUP_SEQUENCE: ActiveGroup[] = ['known', 'saved', 'notes'];
+const GROUP_SEQUENCE: ActiveGroup[] = ['explainable', 'unclear', 'notes'];
 
 const TOPICS = [
   'Cell Signaling',
@@ -57,12 +57,12 @@ const TOPICS = [
   'VLSI Design',
 ];
 
-export default function HomeGraphScene({ known, saved, notes }: HomeGraphSceneProps) {
+export default function HomeGraphScene({ explainable, unclear, notes }: HomeGraphSceneProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<any>(null);
   const [dimensions, setDimensions] = useState({ width: 720, height: 560 });
-  const [activeGroup, setActiveGroup] = useState<ActiveGroup>('known');
+  const [activeGroup, setActiveGroup] = useState<ActiveGroup>('explainable');
 
   useEffect(() => {
     const element = graphContainerRef.current;
@@ -98,7 +98,7 @@ export default function HomeGraphScene({ known, saved, notes }: HomeGraphScenePr
     if (!controls) return;
 
     controls.autoRotate = true;
-    controls.autoRotateSpeed = activeGroup === 'saved' ? 0.78 : activeGroup === 'notes' ? 0.42 : 0.6;
+    controls.autoRotateSpeed = activeGroup === 'unclear' ? 0.78 : activeGroup === 'notes' ? 0.42 : 0.6;
     controls.enablePan = false;
     controls.minDistance = 90;
     controls.maxDistance = 430;
@@ -120,8 +120,8 @@ export default function HomeGraphScene({ known, saved, notes }: HomeGraphScenePr
   }, []);
 
   const graphData = useMemo(() => {
-    const knownCount = Math.min(9, Math.max(3, Math.ceil(known / 2)));
-    const savedCount = Math.min(7, Math.max(3, Math.ceil(saved / 2)));
+    const explainableCount = Math.min(9, Math.max(3, Math.ceil(explainable / 2)));
+    const unclearCount = Math.min(7, Math.max(3, Math.ceil(unclear / 2)));
     const noteCount = Math.min(6, Math.max(2, notes));
     const coreCount = 12;
 
@@ -136,8 +136,8 @@ export default function HomeGraphScene({ known, saved, notes }: HomeGraphScenePr
     ];
 
     const groups = [
-      { key: 'known', count: knownCount, start: 0, val: 7 },
-      { key: 'saved', count: savedCount, start: 6, val: 6 },
+      { key: 'explainable', count: explainableCount, start: 0, val: 7 },
+      { key: 'unclear', count: unclearCount, start: 6, val: 6 },
       { key: 'notes', count: noteCount, start: 11, val: 5 },
       { key: 'core', count: coreCount, start: 3, val: 4 },
     ] as const;
@@ -183,7 +183,7 @@ export default function HomeGraphScene({ known, saved, notes }: HomeGraphScenePr
     }
 
     return { nodes, links };
-  }, [activeGroup, known, saved, notes]);
+  }, [activeGroup, explainable, unclear, notes]);
 
   return (
     <div

@@ -10,7 +10,7 @@ export default function ResetButton({ resetAction }: ResetButtonProps) {
   const [isPending, startTransition] = useTransition();
 
   const handleClick = () => {
-    if (!window.confirm('Reset all progress? This will clear your known / saved history and cannot be undone.')) {
+    if (!window.confirm('Reset all progress? This will clear your explainable / unclear history and cannot be undone.')) {
       return;
     }
     startTransition(() => {

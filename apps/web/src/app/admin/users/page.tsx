@@ -25,8 +25,8 @@ export default async function AdminUsersPage() {
           <thead>
             <tr className="border-b border-gray-800 text-left text-xs uppercase tracking-wide text-gray-500">
               <th className="pb-2 pr-4">Clerk ID</th>
-              <th className="pb-2 pr-4">Known</th>
-              <th className="pb-2 pr-4">Partial</th>
+              <th className="pb-2 pr-4">Mastered</th>
+              <th className="pb-2 pr-4">Reinforcing</th>
               <th className="pb-2 pr-4">Total seen</th>
               <th className="pb-2">Last active</th>
             </tr>
@@ -35,8 +35,8 @@ export default async function AdminUsersPage() {
             {users.map((user) => (
               <tr key={user.user_id} className="hover:bg-gray-900/50">
                 <td className="py-2 pr-4 font-mono text-xs text-gray-400">{user.user_id}</td>
-                <td className="py-2 pr-4 text-green-400">{user.known}</td>
-                <td className="py-2 pr-4 text-yellow-400">{user.partial}</td>
+                <td className="py-2 pr-4 text-green-400">{user.mastered}</td>
+                <td className="py-2 pr-4 text-yellow-400">{user.reinforcing}</td>
                 <td className="py-2 pr-4 text-gray-400">{user.total}</td>
                 <td className="py-2 text-xs text-gray-400">
                   {user.last_updated ? new Date(user.last_updated).toLocaleDateString() : '—'}

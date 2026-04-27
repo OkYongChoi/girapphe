@@ -1,13 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
-import { KnowledgeCard, saveCardState, getNextCard, CardStatus, getUserStats, type PrerequisiteInfo } from '@/actions/card-actions';
+import {
+  KnowledgeCard,
+  saveCardState,
+  getNextCard,
+  CardStatus,
+  getUserStats,
+  type PrerequisiteInfo,
+} from '@/actions/card-actions';
 import Card from './card';
 import Link from 'next/link';
+import { getCardStatusLabel } from '@/lib/card-status';
 
 interface CardViewerProps {
   initialCard: KnowledgeCard | null;
-  initialStats: { known: number; saved: number };
+  initialStats: { explainable: number; unclear: number };
   mode: 'new' | 'review';
   isGuest?: boolean;
   guestLimit?: number;
@@ -34,8 +42,8 @@ export default function CardViewer({
   const skippedIds = useRef<Set<string>>(new Set());
   // cards rated this round — excluded when fetching next card, cleared when all cards cycled
   const ratedIds = useRef<Set<string>>(new Set());
-  // review mode: snapshot of how many saved cards existed at session start
-  const initialReviewPool = useRef(initialStats.saved);
+  // review mode: snapshot of how many unclear cards existed at session start
+  const initialReviewPool = useRef(initialStats.unclear);
   // card-flip state: false = front only, true = answer revealed
   const [revealed, setRevealed] = useState(false);
   // undo state: shown after rating, cleared on undo/skip/next-rating
@@ -62,7 +70,7 @@ export default function CardViewer({
     setStats(initialStats);
     skippedIds.current.clear();
     ratedIds.current.clear();
-    initialReviewPool.current = initialStats.saved;
+    initialReviewPool.current = initialStats.unclear;
     setRevealed(false);
     setUndoVisible(false);
     keepRevealedOnBack.current = false;
@@ -246,7 +254,7 @@ export default function CardViewer({
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center max-w-sm mx-auto bg-white border border-gray-100 rounded-2xl shadow-sm mt-4">
         <div className="mb-4 text-5xl" aria-hidden="true">🎉</div>
         <p className="text-xl font-bold text-gray-900">
-          {mode === 'review' ? "You're all caught up on learning queue items!" : "All caught up on new/unknown cards!"}
+          {mode === 'review' ? "You're all caught up on review queue items!" : "All caught up on new/unclear cards!"}
         </p>
         <p className="text-gray-500 mt-2 text-sm leading-relaxed">
           {isGuest && mode === 'new'
@@ -256,12 +264,12 @@ export default function CardViewer({
 
         <div className="mt-6 w-full grid grid-cols-2 gap-2 text-center">
           <div className="rounded-xl bg-emerald-50 border border-emerald-100 py-3">
-            <span className="block text-2xl font-bold text-emerald-700">{stats.known}</span>
-            <span className="text-xs text-emerald-600">Known</span>
+            <span className="block text-2xl font-bold text-emerald-700">{stats.explainable}</span>
+            <span className="text-xs text-emerald-600">Explainable</span>
           </div>
           <div className="rounded-xl bg-blue-50 border border-blue-100 py-3">
-            <span className="block text-2xl font-bold text-blue-600">{stats.saved}</span>
-            <span className="text-xs text-blue-500">Learning Queue</span>
+            <span className="block text-2xl font-bold text-blue-600">{stats.unclear}</span>
+            <span className="text-xs text-blue-500">Unclear</span>
           </div>
         </div>
 
@@ -284,7 +292,7 @@ export default function CardViewer({
             href="/saved"
             className="w-full rounded-xl border px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            View saved list
+            View review queue
           </Link>
           <Link
             href="/knowledge"
@@ -316,8 +324,8 @@ export default function CardViewer({
           /* ── Learn New: global stats, no bar ── */
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 text-xs font-medium">
-              <span className="text-emerald-600">✓ {stats.known} known</span>
-              <span className="text-amber-600">🔖 {stats.saved} learning queue</span>
+              <span className="text-emerald-600">✓ {stats.explainable} explainable</span>
+              <span className="text-amber-600">◐ {stats.unclear} unclear</span>
             </div>
             <span className="text-xs text-gray-500" aria-live="polite">
               {reviewedCount > 0 ? `${reviewedCount} this session` : 'Learning new'}
@@ -380,7 +388,7 @@ export default function CardViewer({
       </div>
       {mode === 'new' && backNavigatedCardId === card.id && previousChoice && (
         <p className="mb-3 text-xs text-gray-500" aria-live="polite">
-          Previous choice on this card: <span className="font-semibold text-gray-700">{previousChoice === 'saved' ? 'Study' : 'Known'}</span>
+          Previous choice on this card: <span className="font-semibold text-gray-700">{getCardStatusLabel(previousChoice)}</span>
         </p>
       )}
 
@@ -397,7 +405,7 @@ export default function CardViewer({
             {card.prerequisites.map((prereq: PrerequisiteInfo) => (
               <span
                 key={prereq.id}
-                title={prereq.status === 'known' ? 'Known' : prereq.status === 'saved' ? 'In learning queue' : 'Not yet learned'}
+                title={prereq.status === 'known' ? 'Can explain' : prereq.status === 'saved' ? 'Still unclear' : 'Not yet learned'}
                 className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium border ${
                   prereq.status === 'known'
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -407,7 +415,7 @@ export default function CardViewer({
                 }`}
               >
                 <span aria-hidden="true">
-                  {prereq.status === 'known' ? '✓' : prereq.status === 'saved' ? '🔖' : '○'}
+                  {prereq.status === 'known' ? '✓' : prereq.status === 'saved' ? '◐' : '○'}
                 </span>
                 {prereq.label}
               </span>
@@ -432,31 +440,31 @@ export default function CardViewer({
         {revealed ? 'Hide Answer ↑' : 'Show Answer ↓'}
       </button>
 
-      {/* ── AFTER reveal: Study | Known + Undo ── */}
+      {/* ── AFTER reveal: Unclear | Can Explain + Undo ── */}
       {revealed && (
         <>
           <div className="mt-3 flex w-full gap-3" role="group" aria-label="Rate this card">
-            {/* Study */}
+            {/* Unclear */}
             <button
               onClick={() => void handleAction('saved')}
               disabled={loading}
-              aria-label={mode === 'review' ? 'Keep in review list (shortcut: 2)' : 'Save to study later (shortcut: 2)'}
+              aria-label={mode === 'review' ? 'Still unclear on this concept (shortcut: 2)' : 'This concept is still unclear (shortcut: 2)'}
               className={`flex-1 flex flex-col items-center justify-center gap-1 py-5 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border active:scale-95 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 ${
                 previousChoice === 'saved'
                   ? 'bg-amber-100 border-amber-400 ring-2 ring-amber-300'
                   : 'bg-amber-50 hover:bg-amber-100 border-amber-200'
               }`}
             >
-              <span className="text-xl">{mode === 'review' ? '📌' : '🔖'}</span>
-              <span className="text-sm font-bold">{mode === 'review' ? 'Keep' : 'Study'}</span>
-              <span className="text-[10px] font-normal opacity-60">{mode === 'review' ? 'still learning' : 'need more review'}</span>
+              <span className="text-xl">◐</span>
+              <span className="text-sm font-bold">Unclear</span>
+              <span className="text-[10px] font-normal opacity-60">{mode === 'review' ? 'still needs review' : 'not stable yet'}</span>
             </button>
 
-            {/* Known */}
+            {/* Can Explain */}
             <button
               onClick={() => void handleAction('known')}
               disabled={loading}
-              aria-label="Mark as known (shortcut: 1)"
+              aria-label="Mark as can explain (shortcut: 1)"
               className={`flex-1 flex flex-col items-center justify-center gap-1 py-5 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border active:scale-95 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 ${
                 previousChoice === 'known'
                   ? 'bg-emerald-100 border-emerald-400 ring-2 ring-emerald-300'
@@ -464,8 +472,8 @@ export default function CardViewer({
               }`}
             >
               <span className="text-xl">✓</span>
-              <span className="text-sm font-bold">{mode === 'review' ? 'Got it!' : 'Known'}</span>
-              <span className="text-[10px] font-normal opacity-60">{mode === 'review' ? 'nailed it' : 'recalled it'}</span>
+              <span className="text-sm font-bold">Can Explain</span>
+              <span className="text-[10px] font-normal opacity-60">{mode === 'review' ? 'feels solid now' : 'self-reported strong'}</span>
             </button>
           </div>
 
@@ -486,12 +494,12 @@ export default function CardViewer({
       {/* Action hint */}
       <p className="mt-1 text-xs text-gray-400 text-center">
         <span className="sm:hidden">
-          {!revealed ? 'Tap "Show Answer" to reveal' : 'Tap Study or Known to rate'}
+          {!revealed ? 'Tap "Show Answer" to reveal' : 'Tap Unclear or Can Explain to rate'}
         </span>
         <span className="hidden sm:inline">
           {!revealed
             ? <><kbd className="font-mono">Space</kbd> or <kbd className="font-mono">Enter</kbd> to reveal · <kbd className="font-mono">→</kbd> skip</>
-            : <><kbd className="font-mono">1</kbd> known · <kbd className="font-mono">2</kbd> study · {undoVisible && <><kbd className="font-mono">Z</kbd> undo · </>}<kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
+            : <><kbd className="font-mono">1</kbd> can explain · <kbd className="font-mono">2</kbd> unclear · {undoVisible && <><kbd className="font-mono">Z</kbd> undo · </>}<kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
           }
         </span>
       </p>

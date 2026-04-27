@@ -25,7 +25,7 @@ export default async function RankingPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Ranking</h1>
             <p className="mt-1 text-sm text-gray-600">
-              Leaderboard based on card progress (known ratio + known count).
+              Leaderboard based on card progress (explainable ratio + explainable count).
             </p>
           </div>
           <div className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-600">
@@ -36,13 +36,13 @@ export default async function RankingPage() {
         <div className="mt-6 overflow-hidden rounded-xl border bg-white">
           <table className="min-w-full text-sm" aria-label="Knowledge leaderboard">
             <caption className="sr-only">
-              Knowledge leaderboard — ranked by known cards and known ratio
+              Knowledge leaderboard — ranked by explainable cards and explainable ratio
             </caption>
             <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>
                 <th scope="col" className="px-4 py-3 font-semibold">Rank</th>
                 <th scope="col" className="px-4 py-3 font-semibold">User</th>
-                <th scope="col" className="px-4 py-3 font-semibold">Known</th>
+                <th scope="col" className="px-4 py-3 font-semibold">Explainable</th>
                 <th scope="col" className="hidden sm:table-cell px-4 py-3 font-semibold">Avg Score</th>
               </tr>
             </thead>
@@ -86,7 +86,7 @@ export default async function RankingPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-900">{row.known}</td>
+                      <td className="px-4 py-3 text-gray-900">{row.explainable}</td>
                       <td className="hidden sm:table-cell px-4 py-3 text-gray-900">{(row.avgScore * 100).toFixed(1)}%</td>
                     </tr>
                   );

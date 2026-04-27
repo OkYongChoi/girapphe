@@ -243,9 +243,9 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">Status</p>
         <div className="space-y-2">
           {[
-            { label: 'Known', color: STATUS_COLORS.known },
-            { label: 'Saved', color: STATUS_COLORS.saved },
-            { label: 'Review', color: STATUS_COLORS.unknown },
+            { label: 'Explainable', color: STATUS_COLORS.known },
+            { label: 'Unclear', color: STATUS_COLORS.saved },
+            { label: 'Not Started', color: STATUS_COLORS.unknown },
             { label: 'Unseen', color: STATUS_COLORS.unseen },
           ].map((item) => (
             <div key={item.label} className="flex items-center gap-2.5">

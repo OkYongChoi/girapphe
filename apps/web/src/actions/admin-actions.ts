@@ -51,8 +51,8 @@ export type AdminEdge = {
 
 export type AdminUser = {
   user_id: string;
-  known: number;
-  partial: number;
+  mastered: number;
+  reinforcing: number;
   total: number;
   last_updated: string | null;
 };
@@ -152,8 +152,8 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
     `SELECT
        user_id,
        COUNT(*)::int                                       AS total,
-       COUNT(*) FILTER (WHERE knowledge_state = 1)::int   AS known,
-       COUNT(*) FILTER (WHERE knowledge_state = 0.5)::int AS partial,
+       COUNT(*) FILTER (WHERE knowledge_state = 1)::int   AS mastered,
+       COUNT(*) FILTER (WHERE knowledge_state = 0.5)::int AS reinforcing,
        MAX(last_updated)                                   AS last_updated
      FROM user_knowledge_states
      GROUP BY user_id

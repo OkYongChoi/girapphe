@@ -38,12 +38,20 @@ This project implements an AI/CS knowledge graph MVP with:
 - API routes:
   - `src/app/api/graph/route.ts`
   - `src/app/api/quiz_result/route.ts`
+  - `src/app/api/knowledge-profile/route.ts`
+  - `src/app/api/knowledge-context/route.ts`
 - PostgreSQL schema: `schema.sql`
 
 ## API
 
 ### `GET /api/graph`
 Returns full graph payload (`nodes`, `links`) plus aggregate stats for the signed-in user.
+
+### `GET /api/knowledge-profile`
+Returns a machine-readable per-user knowledge profile JSON for MCP/tooling integration.
+
+### `GET /api/knowledge-context`
+Returns a compact AI-ready context payload containing a short `summary` and a prompt-safe `prompt_block`.
 
 ### `GET /api/health`
 Returns health and storage mode:
