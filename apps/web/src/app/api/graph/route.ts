@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getGraphDataForUser, getUserGraphStats } from '@stem-brain/graph-engine';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentActor } from '@/lib/auth';
 
 export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getCurrentActor();
 
   const graphData = getGraphDataForUser(user.id);
   const stats = getUserGraphStats(user.id);

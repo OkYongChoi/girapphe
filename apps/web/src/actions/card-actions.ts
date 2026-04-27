@@ -2,7 +2,8 @@
 
 import pool from '@/lib/db';
 import { revalidatePath } from 'next/cache';
-import { requireCurrentUser } from '@/lib/auth';
+import { requireCurrentActor } from '@/lib/auth';
+import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 import { GRAPH_EDGES } from '@stem-brain/graph-engine';
 import { GRAPH_NODES } from '@stem-brain/graph-engine';
 import { CARD_CONTENT } from '@stem-brain/graph-engine';
@@ -280,6 +281,7 @@ function generateDrillCards(count: number, startIndex: number): KnowledgeCard[] 
 }
 
 const MOCK_CARDS: KnowledgeCard[] = [...CORE_CARDS].slice(0, TARGET_CARD_COUNT);
+const GUEST_CARD_IDS = new Set(MOCK_CARDS.slice(0, GUEST_PRACTICE_CARD_LIMIT).map((card) => card.id));
 
 const NODE_BY_ID = new Map(GRAPH_NODES.map((node) => [node.id, node]));
 const CARDS_BY_ID = new Map(MOCK_CARDS.map((card) => [card.id, card]));
@@ -296,6 +298,11 @@ function withRelatedConcepts<T extends { id: string; related_concepts?: string[]
   const related = CARDS_BY_ID.get(card.id)?.related_concepts;
   if (!related || related.length === 0) return card;
   return { ...card, related_concepts: related };
+}
+
+function limitCardsForGuest<T extends { id: string }>(cards: T[], isGuest: boolean) {
+  if (!isGuest) return cards;
+  return cards.filter((card) => GUEST_CARD_IDS.has(card.id));
 }
 
 for (const edge of GRAPH_EDGES) {
@@ -583,7 +590,7 @@ function getRecallCue(card: KnowledgeCard | undefined, fallbackTitle: string): s
 }
 
 export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
-  await requireCurrentUser();
+  await requireCurrentActor();
 
   const normalizedNodeId = normalizeGraphNodeId(nodeId);
   const node = NODE_BY_ID.get(normalizedNodeId);
@@ -629,11 +636,11 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
 }
 
 export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: string[]) {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
   const excluded = new Set(excludeIds ?? []);
 
   if (!process.env.DATABASE_URL) {
-    const mockRows: CardWithStatusRow[] = MOCK_CARDS
+    const mockRows: CardWithStatusRow[] = limitCardsForGuest(MOCK_CARDS, user.isGuest)
       .filter((card) => !excluded.has(card.id))
       .map((card) => ({
         ...card,
@@ -678,7 +685,7 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
     }
 
     const res = await pool.query(query, [user.id]);
-    const rowsWithRelated = (res.rows as CardWithStatusRow[])
+    const rowsWithRelated = limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest)
       .map((row) => ({
         ...row,
         status: deriveLegacyStatus(row),
@@ -699,7 +706,7 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
     await ensureMoreGeneratedCards(1);
 
     const retryRes = await pool.query(query, [user.id]);
-    const retryRowsWithRelated = (retryRes.rows as CardWithStatusRow[])
+    const retryRowsWithRelated = limitCardsForGuest(retryRes.rows as CardWithStatusRow[], user.isGuest)
       .map((row) => ({
         ...row,
         status: deriveLegacyStatus(row),
@@ -714,12 +721,12 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
       if (selected) return selected;
     }
 
-    const fallbackRes = await pool.query('SELECT * FROM knowledge_cards ORDER BY RANDOM() LIMIT 1;');
-    const fallbackCard = fallbackRes.rows[0] as KnowledgeCard | undefined;
+    const fallbackCards = user.isGuest ? limitCardsForGuest(MOCK_CARDS, true) : MOCK_CARDS;
+    const fallbackCard = fallbackCards[Math.floor(Math.random() * fallbackCards.length)];
     return fallbackCard ? withRelatedConcepts(fallbackCard) : null;
   } catch (error) {
     console.error('Error in getNextCard:', error);
-    const mockRows: CardWithStatusRow[] = MOCK_CARDS
+    const mockRows: CardWithStatusRow[] = limitCardsForGuest(MOCK_CARDS, user.isGuest)
       .filter((card) => !excluded.has(card.id))
       .map((card) => ({
         ...card,
@@ -797,7 +804,11 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
 }
 
 export async function saveCardState(cardId: string, status: CardStatus) {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
+
+  if (user.isGuest && !GUEST_CARD_IDS.has(cardId)) {
+    return { success: false, error: 'guest_card_not_available' };
+  }
 
   if (!process.env.DATABASE_URL) {
     return { success: true, warning: 'Mock mode: State not saved to DB' };
@@ -867,10 +878,10 @@ export async function saveCardState(cardId: string, status: CardStatus) {
 }
 
 export async function getSavedCards() {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
-    return MOCK_CARDS.map((c) => ({ ...c, status: 'saved', last_seen: new Date() }));
+    return limitCardsForGuest(MOCK_CARDS, user.isGuest).map((c) => ({ ...c, status: 'saved', last_seen: new Date() }));
   }
 
   try {
@@ -885,7 +896,7 @@ export async function getSavedCards() {
       ORDER BY ucs.last_seen DESC;
     `;
     const res = await pool.query(query, [user.id]);
-    return (res.rows as CardWithStatusRow[]).map((row) => ({
+    return limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest).map((row) => ({
       ...row,
       status: deriveLegacyStatus(row) ?? 'saved',
     }));
@@ -896,7 +907,7 @@ export async function getSavedCards() {
 }
 
 export async function removeSavedCard(cardId: string) {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
     return { success: true, warning: 'Mock mode: not persisted' };
@@ -936,7 +947,7 @@ export async function removeSavedCard(cardId: string) {
 }
 
 export async function getUserStats() {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
     return { known: 12, saved: 5 };
@@ -975,14 +986,15 @@ export async function getAllCardsWithStatus(options?: {
   includeGenerated?: boolean;
   generatedLimit?: number;
 }) {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
   const includeGenerated = options?.includeGenerated ?? false;
   const generatedLimit = Math.max(0, Math.min(options?.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
 
   if (!process.env.DATABASE_URL) {
+    const sourceCards = limitCardsForGuest(MOCK_CARDS, user.isGuest);
     const cards = includeGenerated
-      ? MOCK_CARDS
-      : MOCK_CARDS.filter((c) => !isExcludedFromKnowledgeMap(c.id));
+      ? sourceCards
+      : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));
 
     const limited = includeGenerated
       ? [
@@ -1022,7 +1034,7 @@ export async function getAllCardsWithStatus(options?: {
       `;
 
       const res = await pool.query(query, [user.id]);
-      return (res.rows as CardWithStatusRow[])
+      return limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest)
         .map((row) => ({ ...row, status: deriveLegacyStatus(row) }))
         .map((row) => withRelatedConcepts(row));
     }
@@ -1069,15 +1081,16 @@ export async function getAllCardsWithStatus(options?: {
       pool.query(generatedQuery, [user.id, generatedLimit]),
     ]);
 
-    const merged = [...coreRes.rows, ...generatedRes.rows] as CardWithStatusRow[];
+    const merged = limitCardsForGuest([...coreRes.rows, ...generatedRes.rows] as CardWithStatusRow[], user.isGuest);
     return merged
       .map((row) => ({ ...row, status: deriveLegacyStatus(row) }))
       .map((row) => withRelatedConcepts(row));
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
+    const sourceCards = limitCardsForGuest(MOCK_CARDS, user.isGuest);
     const cards = includeGenerated
-      ? MOCK_CARDS
-      : MOCK_CARDS.filter((c) => !isExcludedFromKnowledgeMap(c.id));
+      ? sourceCards
+      : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));
     const limited = includeGenerated
       ? [
           ...cards.filter((c) => !c.id.startsWith('drill_')),
@@ -1092,7 +1105,7 @@ export async function getAllCardsWithStatus(options?: {
 }
 
 export async function resetUserCardProgress() {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
     return { success: true, warning: 'Mock mode: not persisted' };
@@ -1168,7 +1181,7 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
 }
 
 export async function getUserCardDomainProgress(): Promise<UserCardDomainProgress[]> {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
     return [];

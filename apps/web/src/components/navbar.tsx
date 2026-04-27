@@ -56,7 +56,7 @@ export default async function Navbar() {
             )}
           </div>
 
-          {user ? <NavLinks /> : null}
+          <NavLinks />
         </div>
       </nav>
     </>

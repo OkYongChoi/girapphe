@@ -1,7 +1,6 @@
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import Navbar from '@/components/navbar';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentActor } from '@/lib/auth';
 import { getCardLeaderboard } from '@/actions/card-actions';
 
 export const dynamic = 'force-dynamic';
@@ -13,8 +12,7 @@ function truncateUserId(userId: string): string {
 }
 
 export default async function RankingPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect('/login');
+  const user = await getCurrentActor();
 
   const rows = await getCardLeaderboard();
 

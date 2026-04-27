@@ -79,16 +79,16 @@ export default async function HomePage() {
               ) : (
                 <>
                   <Link
-                    href="/signup"
+                    href="/practice"
                     className="rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-100"
                   >
-                    Start practicing
+                    Start as guest
                   </Link>
                   <Link
-                    href="/login"
+                    href="/signup"
                     className="rounded-lg border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/15"
                   >
-                    Log in
+                    Create account
                   </Link>
                   <Link
                     href="#knowledge-graph"
