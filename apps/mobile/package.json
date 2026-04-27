@@ -7,7 +7,9 @@
     "dev": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "build": "expo export",
+    "build": "pnpm run build:ios && pnpm run build:android",
+    "build:ios": "expo export --platform ios --output-dir dist/ios --no-bytecode",
+    "build:android": "expo export --platform android --output-dir dist/android --no-bytecode",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
