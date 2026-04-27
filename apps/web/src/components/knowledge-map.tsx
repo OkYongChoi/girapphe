@@ -5,6 +5,7 @@ import { getAllCardsWithStatus, type KnowledgeCard, type CardStatus } from '@/ac
 import KnowledgeGraph3D from './knowledge-graph-3d';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
+import { getCardStatusShortLabel } from '@/lib/card-status';
 
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
@@ -140,8 +141,8 @@ export default function KnowledgeMap({ initialCards }: Props) {
                 className="p-2 border rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="all">All Status</option>
-                <option value="known">Known</option>
-                <option value="saved">Saved</option>
+                <option value="known">Can Explain</option>
+                <option value="saved">Unclear</option>
                 <option value="unstarted">Not Started</option>
               </select>
               
@@ -177,8 +178,8 @@ export default function KnowledgeMap({ initialCards }: Props) {
             <div>
               <span className="mb-1.5 block font-semibold text-gray-500 uppercase tracking-wide">Status</span>
               <div className="flex flex-wrap gap-2">
-                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-green-300 border border-green-400"></span>Known</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-blue-300 border border-blue-400"></span>Saved</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-green-300 border border-green-400"></span>Can Explain</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-blue-300 border border-blue-400"></span>Unclear</span>
                 <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-gray-200 border border-gray-300"></span>Not Started</span>
               </div>
             </div>
@@ -222,11 +223,7 @@ function KnowledgeCardItem({ card }: { card: KnowledgeCard & { status: CardStatu
   };
 
   const getStatusLabel = (status: CardStatus | null) => {
-    switch (status) {
-      case 'known': return 'Known';
-      case 'saved': return 'Saved';
-      default: return 'Not Started';
-    }
+    return getCardStatusShortLabel(status);
   };
 
   return (

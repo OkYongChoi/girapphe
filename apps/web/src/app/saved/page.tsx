@@ -5,6 +5,7 @@ import Navbar from '@/components/navbar';
 import Link from 'next/link';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
+import { getCardStatusShortLabel } from '@/lib/card-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,11 +54,11 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
       <div className="flex-grow w-full max-w-2xl mx-auto p-4 md:p-8">
         <div className="mb-6 flex items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Saved Concepts</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Review Queue</h1>
             <p className="text-sm text-gray-500">
               {hasActiveFilter
-                ? `${filteredCards.length} of ${savedCards.length} saved concepts`
-                : `${savedCards.length} concept${savedCards.length !== 1 ? 's' : ''} saved for review`}
+                ? `${filteredCards.length} of ${savedCards.length} review concepts`
+                : `${savedCards.length} concept${savedCards.length !== 1 ? 's' : ''} marked as still unclear`}
             </p>
           </div>
           <div className="flex gap-2">
@@ -80,7 +81,7 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
           </div>
         </div>
 
-        <form className="mb-4 rounded-lg border bg-white p-3 shadow-sm" role="search" aria-label="Filter saved concepts">
+        <form className="mb-4 rounded-lg border bg-white p-3 shadow-sm" role="search" aria-label="Filter review concepts">
           <div className="grid gap-2 md:grid-cols-[1fr_auto]">
             <label className="sr-only" htmlFor="saved-search">Search concepts</label>
             <input
@@ -121,8 +122,8 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
         {savedCards.length === 0 ? (
           <div className="rounded-xl border bg-white p-8 text-center shadow-sm">
             <p className="text-2xl mb-2" aria-hidden="true">📌</p>
-            <p className="font-semibold text-gray-800">No saved concepts yet</p>
-            <p className="text-sm text-gray-500 mt-1">Save concepts during practice to build your review queue.</p>
+            <p className="font-semibold text-gray-800">No review concepts yet</p>
+            <p className="text-sm text-gray-500 mt-1">Mark concepts as unclear during practice to build your review queue.</p>
             <Link href="/practice" className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors">
               Start practicing
             </Link>
@@ -136,15 +137,15 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
             </Link>
           </div>
         ) : (
-          <ol className="grid gap-3 list-none p-0" aria-label="Saved concept cards">
+          <ol className="grid gap-3 list-none p-0" aria-label="Review concept cards">
             {filteredCards.map((card) => {
               const statusStyle = STATUS_STYLES[card.status] ?? STATUS_STYLES.saved;
               return (
                 <li key={card.id} className="bg-white border rounded-xl p-4 flex flex-col shadow-sm hover:shadow-md transition-shadow">
                   <div className="flex justify-between items-start gap-2 mb-2">
                     <h2 className="font-semibold text-gray-900 text-base leading-snug">{card.title}</h2>
-                    <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full capitalize border ${statusStyle}`}>
-                      {card.status}
+                    <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full border ${statusStyle}`}>
+                      {getCardStatusShortLabel(card.status)}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 mb-3 leading-relaxed">{card.summary}</p>
@@ -160,8 +161,8 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
                       >
                         <ConfirmDeleteButton
                           label="Remove"
-                          confirmMessage={`Remove "${card.title}" from saved?`}
-                          ariaLabel={`Remove "${card.title}" from saved`}
+                          confirmMessage={`Remove "${card.title}" from the review queue?`}
+                          ariaLabel={`Remove "${card.title}" from the review queue`}
                           className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
                         />
                       </form>

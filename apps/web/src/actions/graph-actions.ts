@@ -1,19 +1,17 @@
 'use server';
 
-import {
-  getGraphDataForUser,
-  processQuizResult,
-  getUserGraphStats as getUserGraphStatsFromStore,
-  getAllNodes,
-  getAllEdges,
-  getUserKnowledgeState,
-  setUserKnowledgeState,
-  runGlobalDiffusion,
-  getLeaderboard,
-} from '@stem-brain/graph-engine';
 import type { ForceGraphData, GraphNodeWithKnowledge } from '@stem-brain/graph-engine';
 import { revalidatePath } from 'next/cache';
 import { requireCurrentActor } from '@/lib/auth';
+import pool from '@/lib/db';
+import {
+  getDbGraphDataForUser,
+  getDbNodeKnowledge,
+  getDbUserGraphStats,
+  getLeaderboardFromStates,
+  getStaticGraphSummary,
+  submitDbQuizResult,
+} from '@/lib/knowledge-graph-db';
 
 async function getUserId() {
   const user = await requireCurrentActor();
@@ -21,7 +19,7 @@ async function getUserId() {
 }
 
 export async function getGraphData(): Promise<ForceGraphData> {
-  return getGraphDataForUser(await getUserId());
+  return getDbGraphDataForUser(await getUserId());
 }
 
 export async function submitQuizResult(
@@ -35,19 +33,9 @@ export async function submitQuizResult(
   const userId = await getUserId();
 
   try {
-    const { propagatedUpdates } = processQuizResult(userId, nodeId, result);
-    runGlobalDiffusion(userId, 0.3);
-
+    const response = await submitDbQuizResult(userId, nodeId, result);
     revalidatePath('/knowledge');
-
-    const graphData = getGraphDataForUser(userId);
-    const updatedNode = graphData.nodes.find((n) => n.id === nodeId) ?? null;
-
-    return {
-      success: true,
-      node: updatedNode,
-      propagated_count: propagatedUpdates.size,
-    };
+    return response;
   } catch (error) {
     console.error('Error in submitQuizResult:', error);
     return {
@@ -59,11 +47,11 @@ export async function submitQuizResult(
 }
 
 export async function getKnowledgeStats() {
-  return getUserGraphStatsFromStore(await getUserId());
+  return getDbUserGraphStats(await getUserId());
 }
 
 export async function getUserGraphStats() {
-  return getUserGraphStatsFromStore(await getUserId());
+  return getDbUserGraphStats(await getUserId());
 }
 
 export async function batchUpdateKnowledge(
@@ -72,10 +60,28 @@ export async function batchUpdateKnowledge(
   const userId = await getUserId();
 
   try {
-    for (const { nodeId, knowledge, confidence } of updates) {
-      setUserKnowledgeState(userId, nodeId, knowledge, confidence ?? 0.5);
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL is required for graph persistence.');
     }
-
+    for (const { nodeId, knowledge, confidence } of updates) {
+      await pool.query(
+        `
+        INSERT INTO user_knowledge_states (user_id, node_id, knowledge_state, confidence, last_updated, first_known_at)
+        VALUES ($1, $2, $3, $4, NOW(), CASE WHEN $3 = 1 THEN NOW() ELSE NULL END)
+        ON CONFLICT (user_id, node_id)
+        DO UPDATE SET
+          knowledge_state = EXCLUDED.knowledge_state,
+          confidence = EXCLUDED.confidence,
+          last_updated = NOW(),
+          first_known_at = CASE
+            WHEN EXCLUDED.knowledge_state = 1
+              THEN COALESCE(user_knowledge_states.first_known_at, NOW())
+            ELSE user_knowledge_states.first_known_at
+          END
+        `,
+        [userId, nodeId, knowledge >= 0.75 ? 1 : knowledge >= 0.25 ? 0.5 : 0, confidence ?? 0.5]
+      );
+    }
     revalidatePath('/knowledge');
 
     return { success: true, count: updates.length };
@@ -86,10 +92,8 @@ export async function batchUpdateKnowledge(
 }
 
 export async function triggerDiffusion(alpha?: number): Promise<{ success: boolean }> {
-  const userId = await getUserId();
-
   try {
-    runGlobalDiffusion(userId, alpha ?? 0.3);
+    void alpha;
     revalidatePath('/knowledge');
     return { success: true };
   } catch (error) {
@@ -101,47 +105,32 @@ export async function triggerDiffusion(alpha?: number): Promise<{ success: boole
 export async function getNodeKnowledge(
   nodeId: string
 ): Promise<{ knowledge: number; confidence: number } | null> {
-  const state = getUserKnowledgeState(await getUserId(), nodeId);
-
-  if (!state) return { knowledge: 0, confidence: 0 };
-
-  return {
-    knowledge: state.knowledge_state,
-    confidence: state.confidence,
-  };
+  return getDbNodeKnowledge(await getUserId(), nodeId);
 }
 
 export async function getGraphSummary() {
-  const nodes = getAllNodes();
-  const edges = getAllEdges();
-  const domains = [...new Set(nodes.map((n) => n.domain))];
-
-  return {
-    total_nodes: nodes.length,
-    total_edges: edges.length,
-    domains: domains.length,
-    domain_list: domains,
-    level_distribution: {
-      0: nodes.filter((n) => n.level === 0).length,
-      1: nodes.filter((n) => n.level === 1).length,
-      2: nodes.filter((n) => n.level === 2).length,
-    },
-  };
+  return getStaticGraphSummary();
 }
 
 export type LeaderboardData = {
   userId: string;
-  known: number;
+  mastered: number;
   avgScore: number;
 };
 
 export async function getLeaderboardData(): Promise<LeaderboardData[]> {
-  const leaderboard = getLeaderboard();
-  if (leaderboard.length === 0) return [];
-
-  return leaderboard.map((entry) => ({
-    userId: entry.userId,
-    known: entry.known,
-    avgScore: entry.avgKnowledge,
-  }));
+  if (!process.env.DATABASE_URL) return [];
+  const { rows } = await pool.query<{ user_id: string; avg_knowledge: number; known: number }>(
+    `
+    SELECT
+      user_id,
+      COUNT(*) FILTER (WHERE knowledge_state = 1)::int AS known,
+      AVG(knowledge_state)::float8 AS avg_knowledge
+    FROM user_knowledge_states
+    GROUP BY user_id
+    ORDER BY AVG(knowledge_state) DESC, COUNT(*) FILTER (WHERE knowledge_state = 1) DESC
+    LIMIT 50
+    `
+  );
+  return getLeaderboardFromStates(rows);
 }

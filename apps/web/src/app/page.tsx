@@ -12,8 +12,8 @@ export default async function HomePage() {
   const userStats = user ? await getUserStats() : null;
   const userKnowledgeItems = user ? await getUserKnowledgeItems() : [];
   const sceneStats = {
-    known: userStats?.known ?? 18,
-    saved: userStats?.saved ?? 7,
+    explainable: userStats?.explainable ?? 18,
+    unclear: userStats?.unclear ?? 7,
     notes: userKnowledgeItems.length || 5,
   };
 
@@ -105,8 +105,8 @@ export default async function HomePage() {
                 aria-label="Your learning stats"
                 className="mt-7 grid max-w-xl grid-cols-3 gap-2"
               >
-                <StatBox value={userStats.known} label="Known" color="text-emerald-200" bg="bg-emerald-400/10 border-emerald-300/20" delay="0ms" />
-                <StatBox value={userStats.saved} label="Saved" color="text-sky-200" bg="bg-sky-400/10 border-sky-300/20" delay="160ms" />
+                <StatBox value={userStats.explainable} label="Explainable" color="text-emerald-200" bg="bg-emerald-400/10 border-emerald-300/20" delay="0ms" />
+                <StatBox value={userStats.unclear} label="Unclear" color="text-sky-200" bg="bg-sky-400/10 border-sky-300/20" delay="160ms" />
                 <StatBox value={userKnowledgeItems.length} label="Notes" color="text-amber-200" bg="bg-amber-400/10 border-amber-300/20" delay="320ms" />
               </div>
             ) : null}
@@ -114,8 +114,8 @@ export default async function HomePage() {
 
           <div className="fade-up min-w-0">
             <KnowledgeSurface
-              known={sceneStats.known}
-              saved={sceneStats.saved}
+              explainable={sceneStats.explainable}
+              unclear={sceneStats.unclear}
               notes={sceneStats.notes}
             />
           </div>
@@ -136,8 +136,8 @@ export default async function HomePage() {
               </p>
             </div>
             <div className="grid grid-cols-3 gap-3 text-center">
-              <MiniMetric value={sceneStats.known} label="Known" />
-              <MiniMetric value={sceneStats.saved} label="Review" />
+              <MiniMetric value={sceneStats.explainable} label="Explainable" />
+              <MiniMetric value={sceneStats.unclear} label="Review" />
               <MiniMetric value={sceneStats.notes} label="Notes" />
             </div>
           </div>
@@ -185,12 +185,12 @@ function StatBox({
 }
 
 function KnowledgeSurface({
-  known,
-  saved,
+  explainable,
+  unclear,
   notes,
 }: {
-  known: number;
-  saved: number;
+  explainable: number;
+  unclear: number;
   notes: number;
 }) {
   const rows = [
@@ -218,7 +218,7 @@ function KnowledgeSurface({
             <span className="home-map-node home-map-node-core left-[45%] top-[38%] h-16 w-16 border-white/30 bg-white/12 text-white">
               Core
             </span>
-            <span className="home-map-node left-[12%] top-[18%] border-emerald-200/30 bg-emerald-300/12 text-emerald-100">Known</span>
+            <span className="home-map-node left-[12%] top-[18%] border-emerald-200/30 bg-emerald-300/12 text-emerald-100">Explain</span>
             <span className="home-map-node right-[13%] top-[14%] border-sky-200/30 bg-sky-300/12 text-sky-100">Review</span>
             <span className="home-map-node bottom-[12%] left-[18%] border-amber-200/30 bg-amber-300/12 text-amber-100">Notes</span>
             <span className="home-map-node bottom-[18%] right-[16%] border-cyan-200/30 bg-cyan-300/12 text-cyan-100">Links</span>
@@ -246,12 +246,12 @@ function KnowledgeSurface({
 
         <div className="mt-6">
           <p className="max-w-sm text-sm leading-6 text-slate-200">
-            Your graph updates as you mark concepts known, keep review items, and add your own notes.
+            Your graph updates as you mark concepts explainable, keep review items, and add your own notes.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs uppercase text-slate-400">
-            <span><strong className="mr-1 text-base text-emerald-200">{known}</strong>known</span>
+            <span><strong className="mr-1 text-base text-emerald-200">{explainable}</strong>explainable</span>
             <span className="h-1 w-1 rounded-full bg-slate-500" />
-            <span><strong className="mr-1 text-base text-sky-200">{saved}</strong>review</span>
+            <span><strong className="mr-1 text-base text-sky-200">{unclear}</strong>review</span>
             <span className="h-1 w-1 rounded-full bg-slate-500" />
             <span><strong className="mr-1 text-base text-amber-200">{notes}</strong>notes</span>
           </div>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { processQuizResult, getGraphDataForUser, runGlobalDiffusion } from '@stem-brain/graph-engine';
 import { getCurrentActor } from '@/lib/auth';
+import { submitDbQuizResult } from '@/lib/knowledge-graph-db';
 
 export async function POST(request: NextRequest) {
   const user = await getCurrentActor();
@@ -23,23 +23,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { directUpdate, propagatedUpdates } = processQuizResult(
+    const response = await submitDbQuizResult(
       user.id,
       node_id,
       result as 0 | 0.5 | 1
     );
-    runGlobalDiffusion(user.id, 0.3);
-
-    const graphData = getGraphDataForUser(user.id);
-    const updatedNode = graphData.nodes.find((n) => n.id === node_id);
 
     return NextResponse.json({
-      success: true,
-      node: updatedNode ?? null,
-      knowledge_state: directUpdate.knowledge_state,
-      confidence: directUpdate.confidence,
-      propagated_count: propagatedUpdates.size,
-      first_known_at: directUpdate.first_known_at,
+      success: response.success,
+      node: response.node,
+      knowledge_state: response.node ? (response.node.knowledge >= 0.75 ? 1 : response.node.knowledge >= 0.25 ? 0.5 : 0) : null,
+      confidence: response.node?.confidence ?? null,
+      propagated_count: response.propagated_count,
     });
   } catch (error) {
     console.error('Error in POST /api/quiz_result:', error);

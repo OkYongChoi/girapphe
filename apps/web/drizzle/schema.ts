@@ -1,6 +1,8 @@
 import {
+  boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   real,
@@ -27,12 +29,16 @@ export const userCardStates = pgTable("user_card_states", {
   userId: text("user_id").notNull(),
   cardId: text("card_id").notNull().references(() => knowledgeCards.id, { onDelete: "cascade" }),
   status: text("status"),
+  selfReportLabel: text("self_report_label"),
+  isBookmarked: boolean("is_bookmarked").notNull().default(false),
   confidence: integer("confidence").default(0),
   lastSeen: timestamp("last_seen", { withTimezone: true }).defaultNow(),
 }, (t) => [
   primaryKey({ columns: [t.userId, t.cardId] }),
   index("idx_user_card_states_user_id").on(t.userId),
   index("idx_user_card_states_status").on(t.status),
+  index("idx_user_card_states_self_report_label").on(t.selfReportLabel),
+  index("idx_user_card_states_is_bookmarked").on(t.isBookmarked),
 ]);
 
 export const graphNodes = pgTable("graph_nodes", {
@@ -67,13 +73,42 @@ export const userKnowledgeStates = pgTable("user_knowledge_states", {
   userId: text("user_id").notNull(),
   nodeId: text("node_id").notNull().references(() => graphNodes.id, { onDelete: "cascade" }),
   knowledgeState: real("knowledge_state").notNull().default(0),
+  selfReportLevel: real("self_report_level").notNull().default(0),
+  verifiedLevel: real("verified_level").notNull().default(0),
+  sourceType: text("source_type").notNull().default("system"),
   confidence: real("confidence").notNull().default(0),
+  evidenceCount: integer("evidence_count").notNull().default(0),
+  stabilityScore: real("stability_score").notNull().default(0),
+  retrievalStrength: real("retrieval_strength").notNull().default(0),
+  explanationStrength: real("explanation_strength").notNull().default(0),
   lastUpdated: timestamp("last_updated", { withTimezone: true }).defaultNow(),
+  lastSelfReportedAt: timestamp("last_self_reported_at", { withTimezone: true }),
+  lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
   firstKnownAt: timestamp("first_known_at", { withTimezone: true }),
 }, (t) => [
   primaryKey({ columns: [t.userId, t.nodeId] }),
   index("idx_user_knowledge_states_user").on(t.userId),
   index("idx_user_knowledge_states_node").on(t.nodeId),
+  index("idx_user_knowledge_states_source_type").on(t.sourceType),
+]);
+
+export const userKnowledgeEvidence = pgTable("user_knowledge_evidence", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  nodeId: text("node_id").notNull().references(() => graphNodes.id, { onDelete: "cascade" }),
+  cardId: text("card_id").references(() => knowledgeCards.id, { onDelete: "set null" }),
+  sourceType: text("source_type").notNull(),
+  eventType: text("event_type").notNull(),
+  score: real("score"),
+  confidence: real("confidence"),
+  metadata: jsonb("metadata").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (t) => [
+  index("idx_user_knowledge_evidence_user").on(t.userId),
+  index("idx_user_knowledge_evidence_node").on(t.nodeId),
+  index("idx_user_knowledge_evidence_source_type").on(t.sourceType),
+  index("idx_user_knowledge_evidence_event_type").on(t.eventType),
+  index("idx_user_knowledge_evidence_created_at").on(t.createdAt),
 ]);
 
 export const userKnowledgeItems = pgTable("user_knowledge_items", {

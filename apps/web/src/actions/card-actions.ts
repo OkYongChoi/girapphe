@@ -30,6 +30,7 @@ export type KnowledgeCard = {
 export type CardStatus = 'known' | 'saved';
 type CardKnowledgeState = 'unknown' | 'known';
 type CardProgressState = 'new' | 'learning' | 'review';
+type SelfReportLabel = 'unknown' | 'partial' | 'explainable';
 export type QuizChoiceSet = [string, string, string, string];
 
 export type NodeQuiz = {
@@ -41,6 +42,8 @@ export type NodeQuiz = {
 
 type CardWithStatusRow = KnowledgeCard & {
   status: CardStatus | null;
+  self_report_label?: SelfReportLabel | null;
+  is_bookmarked?: boolean | null;
   knowledge_state?: CardKnowledgeState | null;
   progress_state?: CardProgressState | null;
   due_at?: Date | null;
@@ -382,11 +385,25 @@ async function _initCardSchema() {
       ADD COLUMN IF NOT EXISTS due_at TIMESTAMP WITH TIME ZONE;
   `);
   await pool.query(`
+    ALTER TABLE user_card_states
+      ADD COLUMN IF NOT EXISTS self_report_label TEXT CHECK (self_report_label IN ('unknown', 'partial', 'explainable'));
+  `);
+  await pool.query(`
+    ALTER TABLE user_card_states
+      ADD COLUMN IF NOT EXISTS is_bookmarked BOOLEAN NOT NULL DEFAULT FALSE;
+  `);
+  await pool.query(`
     UPDATE user_card_states
     SET
       knowledge_state = CASE WHEN status = 'known' THEN 'known' ELSE 'unknown' END,
-      progress_state = CASE WHEN status = 'known' THEN 'review' ELSE 'learning' END
-    WHERE knowledge_state IS NULL OR progress_state IS NULL;
+      progress_state = CASE WHEN status = 'known' THEN 'review' ELSE 'learning' END,
+      self_report_label = CASE
+        WHEN status = 'known' THEN 'explainable'
+        WHEN status = 'saved' THEN 'partial'
+        ELSE 'unknown'
+      END,
+      is_bookmarked = CASE WHEN status = 'saved' THEN TRUE ELSE is_bookmarked END
+    WHERE knowledge_state IS NULL OR progress_state IS NULL OR self_report_label IS NULL;
   `);
 
   await pool.query(`
@@ -402,7 +419,78 @@ async function _initCardSchema() {
     CREATE INDEX IF NOT EXISTS idx_user_card_states_due_at ON user_card_states(due_at);
   `);
   await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_card_states_self_report_label ON user_card_states(self_report_label);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_card_states_is_bookmarked ON user_card_states(is_bookmarked);
+  `);
+  await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_knowledge_cards_domain ON knowledge_cards(domain);
+  `);
+  await pool.query(`
+    ALTER TABLE user_knowledge_states
+      ADD COLUMN IF NOT EXISTS self_report_level REAL NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE user_knowledge_states
+      ADD COLUMN IF NOT EXISTS verified_level REAL NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE user_knowledge_states
+      ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'system';
+  `);
+  await pool.query(`
+    ALTER TABLE user_knowledge_states
+      ADD COLUMN IF NOT EXISTS evidence_count INTEGER NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE user_knowledge_states
+      ADD COLUMN IF NOT EXISTS stability_score REAL NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE user_knowledge_states
+      ADD COLUMN IF NOT EXISTS retrieval_strength REAL NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE user_knowledge_states
+      ADD COLUMN IF NOT EXISTS explanation_strength REAL NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE user_knowledge_states
+      ADD COLUMN IF NOT EXISTS last_self_reported_at TIMESTAMP WITH TIME ZONE;
+  `);
+  await pool.query(`
+    ALTER TABLE user_knowledge_states
+      ADD COLUMN IF NOT EXISTS last_verified_at TIMESTAMP WITH TIME ZONE;
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_knowledge_states_source_type ON user_knowledge_states(source_type);
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_knowledge_evidence (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      node_id TEXT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
+      card_id TEXT REFERENCES knowledge_cards(id) ON DELETE SET NULL,
+      source_type TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      score REAL,
+      confidence REAL,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_user ON user_knowledge_evidence(user_id);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_node ON user_knowledge_evidence(node_id);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_source_type ON user_knowledge_evidence(source_type);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_event_type ON user_knowledge_evidence(event_type);
   `);
 
   // Skip heavy card content UPSERT when content version is unchanged.
@@ -523,6 +611,11 @@ function normalizeGraphNodeId(nodeId: string): string {
 function mapCardStatusToKnowledge(status: CardStatus): { knowledge: 0 | 0.5 | 1; confidence: number } {
   if (status === 'known') return { knowledge: 1, confidence: 0.8 };
   return { knowledge: 0.5, confidence: 0.45 }; // saved
+}
+
+function mapCardStatusToSelfReportLabel(status: CardStatus): SelfReportLabel {
+  if (status === 'known') return 'explainable';
+  return 'partial';
 }
 
 function deriveLegacyStatus(row: {
@@ -819,22 +912,44 @@ export async function saveCardState(cardId: string, status: CardStatus) {
 
     const mappedKnowledgeState: CardKnowledgeState = status === 'known' ? 'known' : 'unknown';
     const mappedProgressState: CardProgressState = status === 'known' ? 'review' : 'learning';
+    const selfReportLabel = mapCardStatusToSelfReportLabel(status);
+    const isBookmarked = status === 'saved';
     const dueAt = status === 'known'
       ? "NOW() + INTERVAL '14 days'"
       : 'NOW()';
 
     const query = `
-      INSERT INTO user_card_states (user_id, card_id, status, knowledge_state, progress_state, due_at, last_seen)
-      VALUES ($1, $2, $3, $4, $5, ${dueAt}, NOW())
+      INSERT INTO user_card_states (
+        user_id,
+        card_id,
+        status,
+        self_report_label,
+        is_bookmarked,
+        knowledge_state,
+        progress_state,
+        due_at,
+        last_seen
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, ${dueAt}, NOW())
       ON CONFLICT (user_id, card_id)
       DO UPDATE SET
         status = $3,
-        knowledge_state = $4,
-        progress_state = $5,
+        self_report_label = $4,
+        is_bookmarked = $5,
+        knowledge_state = $6,
+        progress_state = $7,
         due_at = ${dueAt},
         last_seen = NOW();
     `;
-    await pool.query(query, [user.id, cardId, status, mappedKnowledgeState, mappedProgressState]);
+    await pool.query(query, [
+      user.id,
+      cardId,
+      status,
+      selfReportLabel,
+      isBookmarked,
+      mappedKnowledgeState,
+      mappedProgressState,
+    ]);
 
     // Sync knowledge graph — secondary operation, failure must not block card save
     try {
@@ -842,14 +957,39 @@ export async function saveCardState(cardId: string, status: CardStatus) {
       const mapped = mapCardStatusToKnowledge(status);
       await pool.query(
         `
-        INSERT INTO user_knowledge_states (user_id, node_id, knowledge_state, confidence, last_updated, first_known_at)
-        SELECT $1, $2, $3, $4, NOW(), CASE WHEN $3 = 1 THEN NOW() ELSE NULL END
+        INSERT INTO user_knowledge_states (
+          user_id,
+          node_id,
+          knowledge_state,
+          self_report_level,
+          verified_level,
+          source_type,
+          confidence,
+          evidence_count,
+          retrieval_strength,
+          explanation_strength,
+          last_updated,
+          last_self_reported_at,
+          first_known_at
+        )
+        SELECT
+          $1, $2, $3, $3, 0, 'self_report', $4,
+          1,
+          CASE WHEN $3 = 1 THEN 0.7 WHEN $3 = 0.5 THEN 0.35 ELSE 0 END,
+          CASE WHEN $3 = 1 THEN 0.8 WHEN $3 = 0.5 THEN 0.3 ELSE 0 END,
+          NOW(), NOW(), CASE WHEN $3 = 1 THEN NOW() ELSE NULL END
         WHERE EXISTS (SELECT 1 FROM graph_nodes WHERE id = $2)
         ON CONFLICT (user_id, node_id)
         DO UPDATE SET
           knowledge_state = EXCLUDED.knowledge_state,
+          self_report_level = EXCLUDED.self_report_level,
+          source_type = 'self_report',
           confidence = EXCLUDED.confidence,
+          evidence_count = user_knowledge_states.evidence_count + 1,
+          retrieval_strength = GREATEST(user_knowledge_states.retrieval_strength, EXCLUDED.retrieval_strength),
+          explanation_strength = GREATEST(user_knowledge_states.explanation_strength, EXCLUDED.explanation_strength),
           last_updated = NOW(),
+          last_self_reported_at = NOW(),
           first_known_at = CASE
             WHEN EXCLUDED.knowledge_state = 1
               THEN COALESCE(user_knowledge_states.first_known_at, NOW())
@@ -857,6 +997,29 @@ export async function saveCardState(cardId: string, status: CardStatus) {
           END;
         `,
         [user.id, nodeId, mapped.knowledge, mapped.confidence]
+      );
+      await pool.query(
+        `
+        INSERT INTO user_knowledge_evidence (
+          user_id,
+          node_id,
+          card_id,
+          source_type,
+          event_type,
+          score,
+          confidence,
+          metadata
+        )
+        VALUES ($1, $2, $3, 'self_report', 'rated_card', $4, $5, $6::jsonb)
+        `,
+        [
+          user.id,
+          nodeId,
+          cardId,
+          mapped.knowledge,
+          mapped.confidence,
+          JSON.stringify({ status, self_report_label: selfReportLabel, progress_state: mappedProgressState }),
+        ]
       );
     } catch (knowledgeErr) {
       // Non-critical: log but don't fail the whole save
@@ -950,7 +1113,7 @@ export async function getUserStats() {
   const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
-    return { known: 12, saved: 5 };
+    return { explainable: 12, unclear: 5 };
   }
 
   try {
@@ -973,12 +1136,12 @@ export async function getUserStats() {
 
     const row = res.rows[0];
     return {
-      known: parseInt(row?.known_count ?? '0', 10),
-      saved: parseInt(row?.saved_count ?? '0', 10),
+      explainable: parseInt(row?.known_count ?? '0', 10),
+      unclear: parseInt(row?.saved_count ?? '0', 10),
     };
   } catch (error) {
     console.error('Error in getUserStats:', error);
-    return { known: 0, saved: 0 };
+    return { explainable: 0, unclear: 0 };
   }
 }
 
@@ -1131,15 +1294,15 @@ export async function resetUserCardProgress() {
 
 export type CardLeaderboardEntry = {
   userId: string;
-  known: number;
+  explainable: number;
   avgScore: number;
 };
 
 export type UserCardDomainProgress = {
   domain: string;
   reviewed: number;
-  known: number;
-  saved: number;
+  explainable: number;
+  unclear: number;
 };
 
 export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
@@ -1170,7 +1333,7 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
       const total = parseInt(row.total_count, 10);
       return {
         userId: row.user_id,
-        known,
+        explainable: known,
         avgScore: total > 0 ? known / total : 0,
       };
     });
@@ -1218,8 +1381,8 @@ export async function getUserCardDomainProgress(): Promise<UserCardDomainProgres
     return res.rows.map((row) => ({
       domain: row.domain,
       reviewed: parseInt(row.reviewed, 10),
-      known: parseInt(row.known, 10),
-      saved: parseInt(row.saved, 10),
+      explainable: parseInt(row.known, 10),
+      unclear: parseInt(row.saved, 10),
     }));
   } catch (error) {
     console.error('Error in getUserCardDomainProgress:', error);

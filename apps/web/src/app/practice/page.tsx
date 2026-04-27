@@ -23,7 +23,7 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Practice</h1>
-            <p className="text-sm text-gray-400">Memorize first, then use AI to deepen understanding.</p>
+            <p className="text-sm text-gray-400">Mark what is unclear, and only promote concepts you can actually explain.</p>
           </div>
         </div>
 
@@ -44,8 +44,8 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
         </div>
         <p className="mb-6 text-xs text-gray-500">
           {mode === 'new'
-            ? 'Learn New: unseen/unknown cards first'
-            : 'Review: cards still in learning queue'}
+            ? 'Learn New: unseen and unclear cards first'
+            : 'Review: concepts you marked as still unclear'}
         </p>
 
         {/* Card viewer — stats are shown inside */}
