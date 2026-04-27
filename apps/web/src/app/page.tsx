@@ -4,6 +4,7 @@ import HomeGraphScene from '@/components/home-graph-scene';
 import { getCurrentUser } from '@/lib/auth';
 import { getUserStats } from '@/actions/card-actions';
 import { getUserKnowledgeItems } from '@/actions/user-knowledge-actions';
+import GuestStartButton from '@/components/guest-start-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,12 +79,7 @@ export default async function HomePage() {
                 </>
               ) : (
                 <>
-                  <Link
-                    href="/practice"
-                    className="rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-100"
-                  >
-                    Start as guest
-                  </Link>
+                  <GuestStartButton />
                   <Link
                     href="/signup"
                     className="rounded-lg border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/15"
