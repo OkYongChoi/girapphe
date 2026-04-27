@@ -13,13 +13,12 @@ type HomeGraphSceneProps = {
   known: number;
   saved: number;
   notes: number;
-  placement?: 'hero' | 'section';
 };
 
 const NODE_GROUPS = {
-  known: { color: '#22c55e', hotColor: '#86efac', label: 'Known' },
-  saved: { color: '#38bdf8', hotColor: '#7dd3fc', label: 'Saved' },
-  notes: { color: '#f59e0b', hotColor: '#fcd34d', label: 'Notes' },
+  known: { color: '#2dd4bf', hotColor: '#99f6e4', label: 'Known' },
+  saved: { color: '#60a5fa', hotColor: '#bfdbfe', label: 'Saved' },
+  notes: { color: '#fbbf24', hotColor: '#fde68a', label: 'Notes' },
   core: { color: '#94a3b8', label: 'Concepts' },
 };
 
@@ -28,27 +27,37 @@ type ActiveGroup = keyof Pick<typeof NODE_GROUPS, 'known' | 'saved' | 'notes'>;
 const GROUP_SEQUENCE: ActiveGroup[] = ['known', 'saved', 'notes'];
 
 const TOPICS = [
-  'Linear Systems',
-  'Bayes Rule',
-  'Control Loops',
-  'Fourier Analysis',
-  'Neural Nets',
-  'Graph Search',
-  'Optimization',
-  'Signals',
-  'State Space',
+  'Cell Signaling',
+  'Graph Algorithms',
+  'Semiconductor Physics',
+  'Protein Folding',
+  'Bayesian Inference',
+  'Clinical Trials',
+  'Microeconomics',
+  'Urban Systems',
+  'Organic Chemistry',
+  'Computer Architecture',
+  'Epidemiology',
+  'Control Theory',
+  'Behavioral Economics',
+  'Neural Networks',
+  'Biostatistics',
+  'Materials Science',
+  'Pharmacokinetics',
+  'Sustainable Design',
+  'Operating Systems',
+  'Genomics',
+  'Market Design',
+  'Thermodynamics',
+  'Structural Engineering',
+  'Medical Imaging',
   'Databases',
-  'Computer Vision',
-  'Probability',
-  'Embedded IO',
-  'Compilers',
-  'Distributed Systems',
-  'Feedback',
-  'Transforms',
-  'Planning',
+  'Immunology',
+  'Econometrics',
+  'VLSI Design',
 ];
 
-export default function HomeGraphScene({ known, saved, notes, placement = 'section' }: HomeGraphSceneProps) {
+export default function HomeGraphScene({ known, saved, notes }: HomeGraphSceneProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<any>(null);
@@ -181,16 +190,14 @@ export default function HomeGraphScene({ known, saved, notes, placement = 'secti
       ref={wrapperRef}
       aria-hidden="true"
       onPointerMove={handlePointerMove}
-      className={`pointer-events-none absolute inset-0 z-0 overflow-hidden [--pointer-x:72%] [--pointer-y:36%] ${
-        placement === 'hero' ? 'home-graph-hero' : 'home-graph-section'
-      }`}
+      className="pointer-events-none absolute inset-0 z-0 overflow-hidden [--pointer-x:72%] [--pointer-y:36%]"
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_36%,rgba(14,165,233,0.16),transparent_34%),radial-gradient(circle_at_26%_68%,rgba(20,184,166,0.12),transparent_30%),linear-gradient(135deg,#020617_0%,#0b1120_54%,#111827_100%)]" />
       <div className="home-grid-lines absolute inset-0 opacity-55" />
       <div className="home-map-contours absolute inset-0 opacity-35" />
       <div className="home-scan-beam absolute inset-y-[-20%] left-[52%] w-16 rotate-12 bg-gradient-to-r from-transparent via-cyan-300/[0.08] to-transparent blur-sm" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--pointer-x)_var(--pointer-y),rgba(255,255,255,0.08),transparent_18rem)] transition-[background] duration-300" />
-      <div ref={graphContainerRef} className="home-graph-canvas pointer-events-auto absolute opacity-95">
+      <div ref={graphContainerRef} className="home-graph-canvas pointer-events-auto absolute inset-y-0 left-1/2 w-[120%] -translate-x-1/2 opacity-95 md:w-[92%] lg:w-[82%]">
         <ForceGraph3D
           ref={graphRef}
           graphData={graphData}
@@ -223,7 +230,7 @@ export default function HomeGraphScene({ known, saved, notes, placement = 'secti
           }}
         />
       </div>
-      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(2,6,23,0.98)_0%,rgba(2,6,23,0.86)_38%,rgba(2,6,23,0.42)_70%,rgba(2,6,23,0.18)_100%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,transparent_0%,rgba(2,6,23,0.08)_58%,rgba(2,6,23,0.5)_100%)]" />
       <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950 to-transparent" />
     </div>
   );
