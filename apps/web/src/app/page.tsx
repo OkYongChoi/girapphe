@@ -1,22 +1,42 @@
 import Link from 'next/link';
 import Navbar from '@/components/navbar';
+import HomeDomainProgress, { type HomeDomainProgressRow } from '@/components/home-domain-progress';
 import HomeGraphScene from '@/components/home-graph-scene';
 import { getCurrentUser } from '@/lib/auth';
-import { getUserStats } from '@/actions/card-actions';
+import { getUserCardDomainProgress, getUserStats, type UserCardDomainProgress } from '@/actions/card-actions';
 import { getUserKnowledgeItems } from '@/actions/user-knowledge-actions';
 import GuestStartButton from '@/components/guest-start-button';
+import { formatDomainLabel } from '@stem-brain/graph-engine';
 
 export const dynamic = 'force-dynamic';
 
+const HOME_FALLBACK_DOMAIN_PROGRESS: HomeDomainProgressRow[] = [
+  { label: 'Linear systems', value: 82, tone: 'bg-emerald-300' },
+  { label: 'Bayes rule', value: 64, tone: 'bg-sky-300' },
+  { label: 'Fourier analysis', value: 48, tone: 'bg-amber-300' },
+  { label: 'Graph search', value: 72, tone: 'bg-cyan-300' },
+];
+
+const HOME_DOMAIN_TONES = ['bg-emerald-300', 'bg-sky-300', 'bg-amber-300', 'bg-cyan-300'] as const;
+
+const HOME_FALLBACK_STATS = {
+  explainable: 18,
+  review: 7,
+  notes: 5,
+};
+
 export default async function HomePage() {
   const user = await getCurrentUser();
-  const userStats = user ? await getUserStats() : null;
-  const userKnowledgeItems = user ? await getUserKnowledgeItems() : [];
+  const [userStats, userKnowledgeItems, domainProgress] = user
+    ? await Promise.all([getUserStats(), getUserKnowledgeItems(), getUserCardDomainProgress()])
+    : [null, [], [] as UserCardDomainProgress[]];
   const sceneStats = {
-    explainable: userStats?.explainable ?? 18,
-    unclear: userStats?.unclear ?? 7,
-    notes: userKnowledgeItems.length || 5,
+    explainable: userStats?.explainable ?? HOME_FALLBACK_STATS.explainable,
+    review: userStats?.unclear ?? HOME_FALLBACK_STATS.review,
+    notes: user ? userKnowledgeItems.length : HOME_FALLBACK_STATS.notes,
   };
+  const homeDomainProgress = buildHomeDomainProgress(domainProgress);
+  const isPersonalized = Boolean(user);
 
   return (
     <main id="main-content" className="home-shell relative min-h-screen overflow-hidden bg-slate-950 text-white">
@@ -102,17 +122,20 @@ export default async function HomePage() {
                 aria-label="Your learning stats"
                 className="mt-7 grid max-w-xl grid-cols-3 gap-2"
               >
-                <StatBox value={userStats.explainable} label="Explainable" color="text-emerald-200" bg="bg-emerald-400/10 border-emerald-300/20" delay="0ms" />
-                <StatBox value={userStats.unclear} label="Unclear" color="text-sky-200" bg="bg-sky-400/10 border-sky-300/20" delay="160ms" />
-                <StatBox value={userKnowledgeItems.length} label="Notes" color="text-amber-200" bg="bg-amber-400/10 border-amber-300/20" delay="320ms" />
+                <StatBox value={sceneStats.explainable} label="Explainable" color="text-emerald-200" bg="bg-emerald-400/10 border-emerald-300/20" delay="0ms" />
+                <StatBox value={sceneStats.review} label="Review" color="text-sky-200" bg="bg-sky-400/10 border-sky-300/20" delay="160ms" />
+                <StatBox value={sceneStats.notes} label={sceneStats.notes === 1 ? 'Note' : 'Notes'} color="text-amber-200" bg="bg-amber-400/10 border-amber-300/20" delay="320ms" />
               </div>
             ) : null}
           </div>
 
           <div className="home-hero-visual fade-up min-w-0">
             <KnowledgeSurface
+              domainProgress={homeDomainProgress}
+              demoDomainProgress={!isPersonalized || domainProgress.length === 0}
+              showStats={isPersonalized}
               explainable={sceneStats.explainable}
-              unclear={sceneStats.unclear}
+              review={sceneStats.review}
               notes={sceneStats.notes}
             />
           </div>
@@ -144,13 +167,13 @@ export default async function HomePage() {
             </div>
             <div className="grid grid-cols-3 gap-3 text-center">
               <MiniMetric value={sceneStats.explainable} label="Explainable" />
-              <MiniMetric value={sceneStats.unclear} label="Review" />
-              <MiniMetric value={sceneStats.notes} label="Notes" />
+              <MiniMetric value={sceneStats.review} label="Review" />
+              <MiniMetric value={sceneStats.notes} label={sceneStats.notes === 1 ? 'Note' : 'Notes'} />
             </div>
           </div>
 
           <div className="home-graph-frame relative mt-8 h-[34rem] overflow-hidden rounded-lg border border-white/10 bg-slate-950/60 shadow-2xl shadow-black/30 md:h-[38rem]">
-            <HomeGraphScene {...sceneStats} />
+            <HomeGraphScene explainable={sceneStats.explainable} unclear={sceneStats.review} notes={sceneStats.notes} />
           </div>
         </div>
       </section>
@@ -192,21 +215,20 @@ function StatBox({
 }
 
 function KnowledgeSurface({
+  domainProgress,
+  demoDomainProgress,
+  showStats,
   explainable,
-  unclear,
+  review,
   notes,
 }: {
+  domainProgress: HomeDomainProgressRow[];
+  demoDomainProgress: boolean;
+  showStats: boolean;
   explainable: number;
-  unclear: number;
+  review: number;
   notes: number;
 }) {
-  const rows = [
-    { label: 'Linear systems', value: 82, tone: 'bg-emerald-300' },
-    { label: 'Bayes rule', value: 64, tone: 'bg-sky-300' },
-    { label: 'Fourier analysis', value: 48, tone: 'bg-amber-300' },
-    { label: 'Graph search', value: 72, tone: 'bg-cyan-300' },
-  ];
-
   return (
     <div className="home-knowledge-surface home-depth-frame relative min-h-[30rem] overflow-hidden rounded-lg border border-white/10 bg-slate-950/35 p-5 shadow-2xl shadow-black/25 backdrop-blur">
       <div className="home-surface-grid absolute inset-0 opacity-70" />
@@ -252,34 +274,41 @@ function KnowledgeSurface({
           </div>
         </div>
 
-        <div className="mt-6 space-y-3">
-          {rows.map((row) => (
-            <div key={row.label} className="grid grid-cols-[7.5rem_1fr_2rem] items-center gap-3 text-xs">
-              <span className="text-slate-400">{row.label}</span>
-              <span className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                <span
-                  className={`home-progress-line block h-full rounded-full ${row.tone}`}
-                  style={{ width: `${row.value}%` }}
-                />
-              </span>
-              <span className="text-right text-slate-500">{row.value}</span>
-            </div>
-          ))}
-        </div>
+        <HomeDomainProgress rows={domainProgress} demo={demoDomainProgress} />
 
         <div className="mt-6">
           <p className="max-w-sm text-sm leading-6 text-slate-200">
             Your graph updates as you mark concepts explainable, keep review items, and add your own notes.
           </p>
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs uppercase text-slate-400">
-            <span><strong className="mr-1 text-base text-emerald-200">{explainable}</strong>explainable</span>
-            <span className="h-1 w-1 rounded-full bg-slate-500" />
-            <span><strong className="mr-1 text-base text-sky-200">{unclear}</strong>review</span>
-            <span className="h-1 w-1 rounded-full bg-slate-500" />
-            <span><strong className="mr-1 text-base text-amber-200">{notes}</strong>notes</span>
-          </div>
+          {showStats ? (
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs uppercase text-slate-400">
+              <span><strong className="mr-1 text-base text-emerald-200">{explainable}</strong>explainable</span>
+              <span className="h-1 w-1 rounded-full bg-slate-500" />
+              <span><strong className="mr-1 text-base text-sky-200">{review}</strong>review</span>
+              <span className="h-1 w-1 rounded-full bg-slate-500" />
+              <span><strong className="mr-1 text-base text-amber-200">{notes}</strong>{notes === 1 ? 'note' : 'notes'}</span>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
   );
+}
+
+function buildHomeDomainProgress(domains: UserCardDomainProgress[]): HomeDomainProgressRow[] {
+  if (domains.length === 0) {
+    return HOME_FALLBACK_DOMAIN_PROGRESS;
+  }
+
+  const rows = domains
+    .filter((domain) => domain.reviewed > 0)
+    .sort((a, b) => b.reviewed - a.reviewed || a.domain.localeCompare(b.domain))
+    .slice(0, 4)
+    .map((domain, index) => ({
+      label: formatDomainLabel(domain.domain),
+      value: Math.round((domain.explainable / domain.reviewed) * 100),
+      tone: HOME_DOMAIN_TONES[index % HOME_DOMAIN_TONES.length],
+    }));
+
+  return rows.length > 0 ? rows : HOME_FALLBACK_DOMAIN_PROGRESS;
 }
