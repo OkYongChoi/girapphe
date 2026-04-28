@@ -16,6 +16,123 @@ body {
   font-family: "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, -apple-system, sans-serif;
 }
 
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
+.home-shell {
+  scroll-snap-type: y proximity;
+  view-transition-name: home-shell;
+}
+
+.home-snap-section {
+  scroll-snap-align: start;
+}
+
+.home-hero-section {
+  isolation: isolate;
+  view-transition-name: home-hero;
+}
+
+.home-hero-stage,
+.home-hero-copy,
+.home-hero-visual,
+.home-graph-heading,
+.home-graph-frame {
+  will-change: opacity, transform, filter;
+}
+
+.home-graph-section {
+  isolation: isolate;
+  view-transition-name: home-graph;
+}
+
+.home-graph-section::before {
+  content: "";
+  position: absolute;
+  inset: -6rem 0 auto;
+  height: 12rem;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, rgba(2, 6, 23, 0.92) 64%, #020617);
+}
+
+.home-graph-ambient {
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(125, 211, 252, 0.22), transparent 54%),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.08), transparent);
+  filter: blur(8px);
+  opacity: 0.72;
+}
+
+.home-scroll-progress {
+  transform: scaleX(0);
+  animation: homeScrollProgress linear both;
+  animation-timeline: scroll(root);
+}
+
+.home-scroll-cue {
+  animation: homeScrollCue 2.4s ease-in-out infinite;
+}
+
+.home-scroll-dot {
+  display: block;
+  box-shadow: 0 0 18px rgba(165, 243, 252, 0.62);
+  animation: homeScrollDot 2.4s ease-in-out infinite;
+}
+
+.home-reveal {
+  animation: homeSectionReveal ease-out both;
+  animation-timeline: view();
+  animation-range: entry 0% cover 46%;
+}
+
+.home-graph-heading {
+  animation: homeGraphHeading ease-out both;
+  animation-timeline: view();
+  animation-range: entry 0% cover 38%;
+}
+
+.home-graph-frame {
+  transform-origin: 50% 0%;
+  animation: homeGraphFrameReveal ease-out both;
+  animation-timeline: view();
+  animation-range: entry 2% cover 52%;
+}
+
+@supports (animation-timeline: view()) {
+  .home-hero-copy {
+    animation: homeHeroCopyExit linear both;
+    animation-timeline: view();
+    animation-range: exit 0% exit 86%;
+  }
+
+  .home-hero-visual {
+    animation: homeHeroVisualExit linear both;
+    animation-timeline: view();
+    animation-range: exit 0% exit 92%;
+  }
+
+  .home-scroll-cue {
+    animation:
+      homeScrollCue 2.4s ease-in-out infinite,
+      homeCueExit linear both;
+    animation-timeline: auto, view();
+    animation-range: normal, exit 0% exit 46%;
+  }
+}
+
+::view-transition-old(home-shell),
+::view-transition-new(home-shell),
+::view-transition-old(home-hero),
+::view-transition-new(home-hero),
+::view-transition-old(home-graph),
+::view-transition-new(home-graph) {
+  animation-duration: 520ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .hero-aurora {
   position: absolute;
   inset: 0;
@@ -82,6 +199,18 @@ body {
   animation: homePanelPulse 5.6s ease-in-out infinite;
 }
 
+.home-depth-frame {
+  perspective: 980px;
+  transform-style: preserve-3d;
+}
+
+.home-depth-glow {
+  background:
+    radial-gradient(circle at 62% 36%, rgba(125, 211, 252, 0.16), transparent 30%),
+    radial-gradient(circle at 36% 72%, rgba(251, 191, 36, 0.09), transparent 28%);
+  mix-blend-mode: screen;
+}
+
 .home-discipline-rail {
   mask-image: linear-gradient(90deg, black 0%, black 82%, transparent 100%);
 }
@@ -114,6 +243,147 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
+.home-orbit-stage {
+  perspective: 900px;
+  transform-style: preserve-3d;
+}
+
+.home-space-grid {
+  position: absolute;
+  inset: 15% 6% 8%;
+  transform: rotateX(64deg) rotateZ(-13deg) translateZ(-38px);
+  transform-origin: 50% 72%;
+  background-image:
+    linear-gradient(rgba(125, 211, 252, 0.13) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 211, 252, 0.13) 1px, transparent 1px);
+  background-size: 26px 26px;
+  mask-image: radial-gradient(ellipse at center, black 0 48%, transparent 72%);
+  opacity: 0.8;
+  animation: homeSpaceGridShift 9s linear infinite;
+}
+
+.home-orbit-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 999px;
+  transform-style: preserve-3d;
+  box-shadow: 0 0 28px rgba(14, 165, 233, 0.12);
+}
+
+.home-orbit-ring-a {
+  width: 74%;
+  height: 42%;
+  transform: translate(-50%, -50%) rotateX(62deg) rotateZ(-18deg);
+  animation: homeOrbitSpinA 11s linear infinite;
+}
+
+.home-orbit-ring-b {
+  width: 54%;
+  height: 72%;
+  border-color: rgba(52, 211, 153, 0.2);
+  transform: translate(-50%, -50%) rotateY(64deg) rotateZ(20deg);
+  animation: homeOrbitSpinB 13s linear infinite;
+}
+
+.home-orbit-ring-c {
+  width: 64%;
+  height: 64%;
+  border-color: rgba(251, 191, 36, 0.18);
+  transform: translate(-50%, -50%) rotateX(48deg) rotateY(-28deg);
+  animation: homeOrbitSpinC 15s linear infinite;
+}
+
+.home-depth-plane {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 58%;
+  height: 42%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(14, 165, 233, 0.025));
+  transform-style: preserve-3d;
+  clip-path: polygon(14% 0, 100% 18%, 82% 100%, 0 76%);
+}
+
+.home-depth-plane-back {
+  transform: translate(-52%, -48%) rotateX(61deg) rotateZ(-15deg) translateZ(-64px);
+}
+
+.home-depth-plane-mid {
+  transform: translate(-50%, -50%) rotateX(61deg) rotateZ(-15deg) translateZ(-20px);
+  border-color: rgba(125, 211, 252, 0.17);
+}
+
+.home-depth-plane-front {
+  transform: translate(-48%, -52%) rotateX(61deg) rotateZ(-15deg) translateZ(28px);
+  border-color: rgba(251, 191, 36, 0.13);
+}
+
+.home-tesseract {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7rem;
+  height: 7rem;
+  transform: translate(-50%, -50%) rotateX(58deg) rotateZ(-20deg);
+  transform-style: preserve-3d;
+  animation: homeTesseractDrift 8s ease-in-out infinite;
+}
+
+.home-tesseract-cube,
+.home-tesseract-connector {
+  position: absolute;
+  border: 1px solid rgba(226, 232, 240, 0.3);
+  box-shadow: 0 0 24px rgba(14, 165, 233, 0.16);
+}
+
+.home-tesseract-cube {
+  inset: 1.1rem;
+}
+
+.home-tesseract-cube-back {
+  transform: translate3d(-0.8rem, 0.8rem, -46px);
+  border-color: rgba(125, 211, 252, 0.22);
+}
+
+.home-tesseract-cube-front {
+  transform: translate3d(0.8rem, -0.8rem, 34px);
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
+.home-tesseract-connector {
+  width: 2rem;
+  height: 1px;
+  transform-origin: left center;
+  background: rgba(125, 211, 252, 0.3);
+}
+
+.home-tesseract-connector-1 {
+  left: 2rem;
+  top: 2rem;
+  transform: rotate(-43deg);
+}
+
+.home-tesseract-connector-2 {
+  right: 2rem;
+  top: 2rem;
+  transform: rotate(43deg);
+}
+
+.home-tesseract-connector-3 {
+  left: 2rem;
+  bottom: 2rem;
+  transform: rotate(43deg);
+}
+
+.home-tesseract-connector-4 {
+  right: 2rem;
+  bottom: 2rem;
+  transform: rotate(-43deg);
+}
+
 .home-map-node {
   position: absolute;
   z-index: 2;
@@ -129,12 +399,28 @@ body {
   text-transform: uppercase;
   backdrop-filter: blur(10px);
   animation: homeNodeFloat 7s ease-in-out infinite;
+  box-shadow:
+    0 14px 28px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transform-style: preserve-3d;
 }
 
 .home-map-node-core {
   min-width: 4rem;
   border-radius: 999px;
   animation-duration: 8.5s;
+  box-shadow:
+    0 0 44px rgba(125, 211, 252, 0.28),
+    0 18px 36px rgba(2, 6, 23, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.home-map-node-near {
+  animation-name: homeNodeFloatNear;
+}
+
+.home-map-node-deep {
+  animation-name: homeNodeFloatDeep;
 }
 
 .home-map-line {
@@ -143,6 +429,7 @@ body {
   height: 1px;
   transform-origin: center;
   background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.34), transparent);
+  box-shadow: 0 0 12px rgba(125, 211, 252, 0.22);
 }
 
 .home-progress-line {
@@ -216,10 +503,30 @@ body {
 @keyframes homeNodeFloat {
   0%,
   100% {
-    transform: translateY(0);
+    transform: translate3d(0, 0, 18px);
   }
   50% {
-    transform: translateY(-5px);
+    transform: translate3d(0, -5px, 34px);
+  }
+}
+
+@keyframes homeNodeFloatNear {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 54px) scale(1.03);
+  }
+  50% {
+    transform: translate3d(0, -7px, 70px) scale(1.05);
+  }
+}
+
+@keyframes homeNodeFloatDeep {
+  0%,
+  100% {
+    transform: translate3d(0, 0, -18px) scale(0.94);
+  }
+  50% {
+    transform: translate3d(0, -4px, 0) scale(0.97);
   }
 }
 
@@ -242,6 +549,163 @@ body {
   50% {
     border-color: rgba(125, 211, 252, 0.3);
     color: rgb(224, 242, 254);
+  }
+}
+
+@keyframes homeSpaceGridShift {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 26px 26px, 26px 26px;
+  }
+}
+
+@keyframes homeOrbitSpinA {
+  from {
+    transform: translate(-50%, -50%) rotateX(62deg) rotateZ(-18deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotateX(62deg) rotateZ(342deg);
+  }
+}
+
+@keyframes homeOrbitSpinB {
+  from {
+    transform: translate(-50%, -50%) rotateY(64deg) rotateZ(20deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotateY(64deg) rotateZ(380deg);
+  }
+}
+
+@keyframes homeOrbitSpinC {
+  from {
+    transform: translate(-50%, -50%) rotateX(48deg) rotateY(-28deg) rotateZ(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotateX(48deg) rotateY(-28deg) rotateZ(-360deg);
+  }
+}
+
+@keyframes homeTesseractDrift {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) rotateX(58deg) rotateZ(-20deg) translateZ(0);
+    opacity: 0.82;
+  }
+  50% {
+    transform: translate(-50%, -52%) rotateX(68deg) rotateZ(24deg) translateZ(30px);
+    opacity: 1;
+  }
+}
+
+@keyframes homeScrollProgress {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes homeScrollCue {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.78;
+  }
+  50% {
+    transform: translateY(6px);
+    opacity: 1;
+  }
+}
+
+@keyframes homeScrollDot {
+  0% {
+    transform: translateY(-9px) scale(0.8);
+    opacity: 0;
+  }
+  28% {
+    opacity: 1;
+  }
+  72% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(9px) scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes homeSectionReveal {
+  from {
+    opacity: 0.18;
+    transform: translateY(72px) scale(0.94);
+    filter: blur(18px) saturate(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0) saturate(1);
+  }
+}
+
+@keyframes homeGraphHeading {
+  from {
+    opacity: 0;
+    transform: translateY(44px) scale(0.98);
+    filter: blur(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes homeGraphFrameReveal {
+  from {
+    opacity: 0.28;
+    transform: perspective(1100px) rotateX(11deg) translateY(76px) scale(0.9);
+    filter: blur(16px) saturate(0.8);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(1100px) rotateX(0deg) translateY(0) scale(1);
+    filter: blur(0) saturate(1);
+    box-shadow: 0 28px 64px rgba(0, 0, 0, 0.34);
+  }
+}
+
+@keyframes homeHeroCopyExit {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0.18;
+    transform: translateY(-44px) scale(0.96);
+    filter: blur(10px);
+  }
+}
+
+@keyframes homeHeroVisualExit {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0) saturate(1);
+  }
+  100% {
+    opacity: 0.3;
+    transform: translateY(-72px) scale(0.9);
+    filter: blur(14px) saturate(0.82);
+  }
+}
+
+@keyframes homeCueExit {
+  to {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.86);
   }
 }
 
@@ -273,4 +737,21 @@ body {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .home-scroll-progress,
+  .home-scroll-cue,
+  .home-scroll-dot,
+  .home-reveal,
+  .home-graph-heading,
+  .home-graph-frame,
+  .home-hero-copy,
+  .home-hero-visual {
+    animation: none;
+  }
 }

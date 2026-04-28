@@ -1,16 +1,43 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="STEMBrain logo">
   <defs>
-    <linearGradient id="stem-gradient" x1="8" y1="56" x2="56" y2="8" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0ea5e9"/>
-      <stop offset="1" stop-color="#2563eb"/>
+    <linearGradient id="bg" x1="72" y1="456" x2="442" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#020617"/>
+      <stop offset="0.48" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#123b67"/>
     </linearGradient>
+    <linearGradient id="edge" x1="98" y1="428" x2="420" y2="78" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22d3ee"/>
+      <stop offset="0.55" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#a7f3d0"/>
+    </linearGradient>
+    <linearGradient id="core" x1="174" y1="338" x2="330" y2="162" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#06b6d4"/>
+      <stop offset="0.48" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(172 128) rotate(53) scale(330)">
+      <stop stop-color="#ffffff" stop-opacity="0.72"/>
+      <stop offset="0.3" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-18%" y="-18%" width="136%" height="142%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#020617" flood-opacity="0.42"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="#22d3ee" flood-opacity="0.28"/>
+    </filter>
   </defs>
-  <rect width="64" height="64" rx="14" fill="#f8fafc"/>
-  <rect x="1" y="1" width="62" height="62" rx="13" stroke="#cbd5e1" stroke-width="2"/>
-  <path d="M18 40l14-20 14 20" stroke="url(#stem-gradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M21 24h22" stroke="#0f172a" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="18" cy="40" r="4" fill="#0ea5e9"/>
-  <circle cx="32" cy="20" r="4" fill="#2563eb"/>
-  <circle cx="46" cy="40" r="4" fill="#0284c7"/>
-  <circle cx="32" cy="32" r="3" fill="#0f172a"/>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect x="21" y="21" width="470" height="470" rx="98" fill="none" stroke="url(#edge)" stroke-width="14" opacity="0.92"/>
+  <path d="M92 340 196 174 316 338 420 172" fill="none" stroke="#0b1220" stroke-width="54" stroke-linecap="round" stroke-linejoin="round" opacity="0.42"/>
+  <g filter="url(#shadow)">
+    <path d="M92 340 196 174 316 338 420 172" fill="none" stroke="url(#edge)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M154 244h204" fill="none" stroke="#e0f2fe" stroke-width="24" stroke-linecap="round" opacity="0.94"/>
+    <circle cx="92" cy="340" r="39" fill="#22d3ee"/>
+    <circle cx="196" cy="174" r="42" fill="#60a5fa"/>
+    <circle cx="316" cy="338" r="42" fill="#34d399"/>
+    <circle cx="420" cy="172" r="39" fill="#a7f3d0"/>
+    <circle cx="256" cy="256" r="58" fill="url(#core)" stroke="#e0f2fe" stroke-width="12"/>
+    <path d="M226 248h60M256 218v76" stroke="#eff6ff" stroke-width="18" stroke-linecap="round"/>
+  </g>
+  <path d="M80 91c58-42 192-58 314-8 38 16 61 36 76 54" fill="none" stroke="url(#shine)" stroke-width="28" stroke-linecap="round" opacity="0.76"/>
+  <path d="M37 261c46 32 110 51 190 56 91 7 177-12 247-53" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="18"/>
 </svg>

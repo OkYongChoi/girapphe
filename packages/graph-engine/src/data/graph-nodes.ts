@@ -5,7 +5,7 @@ import type { GraphNode } from '../graph-types';
 // Organized by domain hierarchy
 // ============================================================
 
-export const GRAPH_NODES: GraphNode[] = [
+const RAW_GRAPH_NODES: GraphNode[] = [
   // ============================================================
   // LEVEL 0 — Meta Roots (4 nodes)
   // ============================================================
@@ -340,10 +340,10 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'minimum_description_length', label: 'Minimum Description Length', domain: 'Theoretical ML', level: 2, difficulty: 4, type: 'concept' },
 
   // ============================================================
-  // DOMAIN EXPANSION — AI, Chemistry, Biology (+Advertisement nodes)
+  // DOMAIN EXPANSION — AI, Chemistry, Biology
   // ============================================================
 
-  // AI expansion (100 nodes, advertisement every 10 nodes)
+  // AI expansion (100 nodes)
   { id: 'ai_1', label: 'AI Topic 1', domain: 'Artificial Intelligence', level: 2, difficulty: 2, type: 'concept' },
   { id: 'ai_2', label: 'AI Topic 2', domain: 'Artificial Intelligence', level: 2, difficulty: 3, type: 'concept' },
   { id: 'ai_3', label: 'AI Topic 3', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
@@ -354,7 +354,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'ai_8', label: 'AI Topic 8', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
   { id: 'ai_9', label: 'AI Topic 9', domain: 'Artificial Intelligence', level: 2, difficulty: 5, type: 'concept' },
   { id: 'ai_10', label: 'AI Topic 10', domain: 'Artificial Intelligence', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_1', label: 'Sponsored Content 1', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'ai_11', label: 'AI Topic 11', domain: 'Artificial Intelligence', level: 2, difficulty: 2, type: 'concept' },
   { id: 'ai_12', label: 'AI Topic 12', domain: 'Artificial Intelligence', level: 2, difficulty: 3, type: 'concept' },
   { id: 'ai_13', label: 'AI Topic 13', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
@@ -365,7 +364,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'ai_18', label: 'AI Topic 18', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
   { id: 'ai_19', label: 'AI Topic 19', domain: 'Artificial Intelligence', level: 2, difficulty: 5, type: 'concept' },
   { id: 'ai_20', label: 'AI Topic 20', domain: 'Artificial Intelligence', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_2', label: 'Sponsored Content 2', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'ai_21', label: 'AI Topic 21', domain: 'Artificial Intelligence', level: 2, difficulty: 2, type: 'concept' },
   { id: 'ai_22', label: 'AI Topic 22', domain: 'Artificial Intelligence', level: 2, difficulty: 3, type: 'concept' },
   { id: 'ai_23', label: 'AI Topic 23', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
@@ -376,7 +374,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'ai_28', label: 'AI Topic 28', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
   { id: 'ai_29', label: 'AI Topic 29', domain: 'Artificial Intelligence', level: 2, difficulty: 5, type: 'concept' },
   { id: 'ai_30', label: 'AI Topic 30', domain: 'Artificial Intelligence', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_3', label: 'Sponsored Content 3', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'ai_31', label: 'AI Topic 31', domain: 'Artificial Intelligence', level: 2, difficulty: 2, type: 'concept' },
   { id: 'ai_32', label: 'AI Topic 32', domain: 'Artificial Intelligence', level: 2, difficulty: 3, type: 'concept' },
   { id: 'ai_33', label: 'AI Topic 33', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
@@ -387,7 +384,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'ai_38', label: 'AI Topic 38', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
   { id: 'ai_39', label: 'AI Topic 39', domain: 'Artificial Intelligence', level: 2, difficulty: 5, type: 'concept' },
   { id: 'ai_40', label: 'AI Topic 40', domain: 'Artificial Intelligence', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_4', label: 'Sponsored Content 4', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'ai_41', label: 'AI Topic 41', domain: 'Artificial Intelligence', level: 2, difficulty: 2, type: 'concept' },
   { id: 'ai_42', label: 'AI Topic 42', domain: 'Artificial Intelligence', level: 2, difficulty: 3, type: 'concept' },
   { id: 'ai_43', label: 'AI Topic 43', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
@@ -398,7 +394,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'ai_48', label: 'AI Topic 48', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
   { id: 'ai_49', label: 'AI Topic 49', domain: 'Artificial Intelligence', level: 2, difficulty: 5, type: 'concept' },
   { id: 'ai_50', label: 'AI Topic 50', domain: 'Artificial Intelligence', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_5', label: 'Sponsored Content 5', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'ai_51', label: 'AI Topic 51', domain: 'Artificial Intelligence', level: 2, difficulty: 2, type: 'concept' },
   { id: 'ai_52', label: 'AI Topic 52', domain: 'Artificial Intelligence', level: 2, difficulty: 3, type: 'concept' },
   { id: 'ai_53', label: 'AI Topic 53', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
@@ -409,7 +404,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'ai_58', label: 'AI Topic 58', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
   { id: 'ai_59', label: 'AI Topic 59', domain: 'Artificial Intelligence', level: 2, difficulty: 5, type: 'concept' },
   { id: 'ai_60', label: 'AI Topic 60', domain: 'Artificial Intelligence', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_6', label: 'Sponsored Content 6', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'ai_61', label: 'AI Topic 61', domain: 'Artificial Intelligence', level: 2, difficulty: 2, type: 'concept' },
   { id: 'ai_62', label: 'AI Topic 62', domain: 'Artificial Intelligence', level: 2, difficulty: 3, type: 'concept' },
   { id: 'ai_63', label: 'AI Topic 63', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
@@ -420,7 +414,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'ai_68', label: 'AI Topic 68', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
   { id: 'ai_69', label: 'AI Topic 69', domain: 'Artificial Intelligence', level: 2, difficulty: 5, type: 'concept' },
   { id: 'ai_70', label: 'AI Topic 70', domain: 'Artificial Intelligence', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_7', label: 'Sponsored Content 7', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'ai_71', label: 'AI Topic 71', domain: 'Artificial Intelligence', level: 2, difficulty: 2, type: 'concept' },
   { id: 'ai_72', label: 'AI Topic 72', domain: 'Artificial Intelligence', level: 2, difficulty: 3, type: 'concept' },
   { id: 'ai_73', label: 'AI Topic 73', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
@@ -431,7 +424,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'ai_78', label: 'AI Topic 78', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
   { id: 'ai_79', label: 'AI Topic 79', domain: 'Artificial Intelligence', level: 2, difficulty: 5, type: 'concept' },
   { id: 'ai_80', label: 'AI Topic 80', domain: 'Artificial Intelligence', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_8', label: 'Sponsored Content 8', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'ai_81', label: 'AI Topic 81', domain: 'Artificial Intelligence', level: 2, difficulty: 2, type: 'concept' },
   { id: 'ai_82', label: 'AI Topic 82', domain: 'Artificial Intelligence', level: 2, difficulty: 3, type: 'concept' },
   { id: 'ai_83', label: 'AI Topic 83', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
@@ -442,7 +434,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'ai_88', label: 'AI Topic 88', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
   { id: 'ai_89', label: 'AI Topic 89', domain: 'Artificial Intelligence', level: 2, difficulty: 5, type: 'concept' },
   { id: 'ai_90', label: 'AI Topic 90', domain: 'Artificial Intelligence', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_9', label: 'Sponsored Content 9', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'ai_91', label: 'AI Topic 91', domain: 'Artificial Intelligence', level: 2, difficulty: 2, type: 'concept' },
   { id: 'ai_92', label: 'AI Topic 92', domain: 'Artificial Intelligence', level: 2, difficulty: 3, type: 'concept' },
   { id: 'ai_93', label: 'AI Topic 93', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
@@ -453,9 +444,8 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'ai_98', label: 'AI Topic 98', domain: 'Artificial Intelligence', level: 2, difficulty: 4, type: 'concept' },
   { id: 'ai_99', label: 'AI Topic 99', domain: 'Artificial Intelligence', level: 2, difficulty: 5, type: 'concept' },
   { id: 'ai_100', label: 'AI Topic 100', domain: 'Artificial Intelligence', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_10', label: 'Sponsored Content 10', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
 
-  // Chemistry expansion (100 nodes, advertisement every 10 nodes)
+  // Chemistry expansion (100 nodes)
   { id: 'chem_1', label: 'Chemistry Topic 1', domain: 'Chemistry', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chem_2', label: 'Chemistry Topic 2', domain: 'Chemistry', level: 2, difficulty: 3, type: 'concept' },
   { id: 'chem_3', label: 'Chemistry Topic 3', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
@@ -466,7 +456,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'chem_8', label: 'Chemistry Topic 8', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
   { id: 'chem_9', label: 'Chemistry Topic 9', domain: 'Chemistry', level: 2, difficulty: 5, type: 'concept' },
   { id: 'chem_10', label: 'Chemistry Topic 10', domain: 'Chemistry', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_11', label: 'Sponsored Content 11', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'chem_11', label: 'Chemistry Topic 11', domain: 'Chemistry', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chem_12', label: 'Chemistry Topic 12', domain: 'Chemistry', level: 2, difficulty: 3, type: 'concept' },
   { id: 'chem_13', label: 'Chemistry Topic 13', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
@@ -477,7 +466,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'chem_18', label: 'Chemistry Topic 18', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
   { id: 'chem_19', label: 'Chemistry Topic 19', domain: 'Chemistry', level: 2, difficulty: 5, type: 'concept' },
   { id: 'chem_20', label: 'Chemistry Topic 20', domain: 'Chemistry', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_12', label: 'Sponsored Content 12', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'chem_21', label: 'Chemistry Topic 21', domain: 'Chemistry', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chem_22', label: 'Chemistry Topic 22', domain: 'Chemistry', level: 2, difficulty: 3, type: 'concept' },
   { id: 'chem_23', label: 'Chemistry Topic 23', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
@@ -488,7 +476,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'chem_28', label: 'Chemistry Topic 28', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
   { id: 'chem_29', label: 'Chemistry Topic 29', domain: 'Chemistry', level: 2, difficulty: 5, type: 'concept' },
   { id: 'chem_30', label: 'Chemistry Topic 30', domain: 'Chemistry', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_13', label: 'Sponsored Content 13', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'chem_31', label: 'Chemistry Topic 31', domain: 'Chemistry', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chem_32', label: 'Chemistry Topic 32', domain: 'Chemistry', level: 2, difficulty: 3, type: 'concept' },
   { id: 'chem_33', label: 'Chemistry Topic 33', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
@@ -499,7 +486,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'chem_38', label: 'Chemistry Topic 38', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
   { id: 'chem_39', label: 'Chemistry Topic 39', domain: 'Chemistry', level: 2, difficulty: 5, type: 'concept' },
   { id: 'chem_40', label: 'Chemistry Topic 40', domain: 'Chemistry', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_14', label: 'Sponsored Content 14', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'chem_41', label: 'Chemistry Topic 41', domain: 'Chemistry', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chem_42', label: 'Chemistry Topic 42', domain: 'Chemistry', level: 2, difficulty: 3, type: 'concept' },
   { id: 'chem_43', label: 'Chemistry Topic 43', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
@@ -510,7 +496,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'chem_48', label: 'Chemistry Topic 48', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
   { id: 'chem_49', label: 'Chemistry Topic 49', domain: 'Chemistry', level: 2, difficulty: 5, type: 'concept' },
   { id: 'chem_50', label: 'Chemistry Topic 50', domain: 'Chemistry', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_15', label: 'Sponsored Content 15', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'chem_51', label: 'Chemistry Topic 51', domain: 'Chemistry', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chem_52', label: 'Chemistry Topic 52', domain: 'Chemistry', level: 2, difficulty: 3, type: 'concept' },
   { id: 'chem_53', label: 'Chemistry Topic 53', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
@@ -521,7 +506,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'chem_58', label: 'Chemistry Topic 58', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
   { id: 'chem_59', label: 'Chemistry Topic 59', domain: 'Chemistry', level: 2, difficulty: 5, type: 'concept' },
   { id: 'chem_60', label: 'Chemistry Topic 60', domain: 'Chemistry', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_16', label: 'Sponsored Content 16', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'chem_61', label: 'Chemistry Topic 61', domain: 'Chemistry', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chem_62', label: 'Chemistry Topic 62', domain: 'Chemistry', level: 2, difficulty: 3, type: 'concept' },
   { id: 'chem_63', label: 'Chemistry Topic 63', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
@@ -532,7 +516,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'chem_68', label: 'Chemistry Topic 68', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
   { id: 'chem_69', label: 'Chemistry Topic 69', domain: 'Chemistry', level: 2, difficulty: 5, type: 'concept' },
   { id: 'chem_70', label: 'Chemistry Topic 70', domain: 'Chemistry', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_17', label: 'Sponsored Content 17', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'chem_71', label: 'Chemistry Topic 71', domain: 'Chemistry', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chem_72', label: 'Chemistry Topic 72', domain: 'Chemistry', level: 2, difficulty: 3, type: 'concept' },
   { id: 'chem_73', label: 'Chemistry Topic 73', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
@@ -543,7 +526,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'chem_78', label: 'Chemistry Topic 78', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
   { id: 'chem_79', label: 'Chemistry Topic 79', domain: 'Chemistry', level: 2, difficulty: 5, type: 'concept' },
   { id: 'chem_80', label: 'Chemistry Topic 80', domain: 'Chemistry', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_18', label: 'Sponsored Content 18', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'chem_81', label: 'Chemistry Topic 81', domain: 'Chemistry', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chem_82', label: 'Chemistry Topic 82', domain: 'Chemistry', level: 2, difficulty: 3, type: 'concept' },
   { id: 'chem_83', label: 'Chemistry Topic 83', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
@@ -554,7 +536,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'chem_88', label: 'Chemistry Topic 88', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
   { id: 'chem_89', label: 'Chemistry Topic 89', domain: 'Chemistry', level: 2, difficulty: 5, type: 'concept' },
   { id: 'chem_90', label: 'Chemistry Topic 90', domain: 'Chemistry', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_19', label: 'Sponsored Content 19', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'chem_91', label: 'Chemistry Topic 91', domain: 'Chemistry', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chem_92', label: 'Chemistry Topic 92', domain: 'Chemistry', level: 2, difficulty: 3, type: 'concept' },
   { id: 'chem_93', label: 'Chemistry Topic 93', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
@@ -565,9 +546,8 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'chem_98', label: 'Chemistry Topic 98', domain: 'Chemistry', level: 2, difficulty: 4, type: 'concept' },
   { id: 'chem_99', label: 'Chemistry Topic 99', domain: 'Chemistry', level: 2, difficulty: 5, type: 'concept' },
   { id: 'chem_100', label: 'Chemistry Topic 100', domain: 'Chemistry', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_20', label: 'Sponsored Content 20', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
 
-  // Biology expansion (100 nodes, advertisement every 10 nodes)
+  // Biology expansion (100 nodes)
   { id: 'bio_1', label: 'Biology Topic 1', domain: 'Biology', level: 2, difficulty: 2, type: 'concept' },
   { id: 'bio_2', label: 'Biology Topic 2', domain: 'Biology', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bio_3', label: 'Biology Topic 3', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
@@ -578,7 +558,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'bio_8', label: 'Biology Topic 8', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
   { id: 'bio_9', label: 'Biology Topic 9', domain: 'Biology', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bio_10', label: 'Biology Topic 10', domain: 'Biology', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_21', label: 'Sponsored Content 21', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'bio_11', label: 'Biology Topic 11', domain: 'Biology', level: 2, difficulty: 2, type: 'concept' },
   { id: 'bio_12', label: 'Biology Topic 12', domain: 'Biology', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bio_13', label: 'Biology Topic 13', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
@@ -589,7 +568,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'bio_18', label: 'Biology Topic 18', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
   { id: 'bio_19', label: 'Biology Topic 19', domain: 'Biology', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bio_20', label: 'Biology Topic 20', domain: 'Biology', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_22', label: 'Sponsored Content 22', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'bio_21', label: 'Biology Topic 21', domain: 'Biology', level: 2, difficulty: 2, type: 'concept' },
   { id: 'bio_22', label: 'Biology Topic 22', domain: 'Biology', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bio_23', label: 'Biology Topic 23', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
@@ -600,7 +578,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'bio_28', label: 'Biology Topic 28', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
   { id: 'bio_29', label: 'Biology Topic 29', domain: 'Biology', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bio_30', label: 'Biology Topic 30', domain: 'Biology', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_23', label: 'Sponsored Content 23', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'bio_31', label: 'Biology Topic 31', domain: 'Biology', level: 2, difficulty: 2, type: 'concept' },
   { id: 'bio_32', label: 'Biology Topic 32', domain: 'Biology', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bio_33', label: 'Biology Topic 33', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
@@ -611,7 +588,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'bio_38', label: 'Biology Topic 38', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
   { id: 'bio_39', label: 'Biology Topic 39', domain: 'Biology', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bio_40', label: 'Biology Topic 40', domain: 'Biology', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_24', label: 'Sponsored Content 24', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'bio_41', label: 'Biology Topic 41', domain: 'Biology', level: 2, difficulty: 2, type: 'concept' },
   { id: 'bio_42', label: 'Biology Topic 42', domain: 'Biology', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bio_43', label: 'Biology Topic 43', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
@@ -622,7 +598,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'bio_48', label: 'Biology Topic 48', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
   { id: 'bio_49', label: 'Biology Topic 49', domain: 'Biology', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bio_50', label: 'Biology Topic 50', domain: 'Biology', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_25', label: 'Sponsored Content 25', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'bio_51', label: 'Biology Topic 51', domain: 'Biology', level: 2, difficulty: 2, type: 'concept' },
   { id: 'bio_52', label: 'Biology Topic 52', domain: 'Biology', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bio_53', label: 'Biology Topic 53', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
@@ -633,7 +608,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'bio_58', label: 'Biology Topic 58', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
   { id: 'bio_59', label: 'Biology Topic 59', domain: 'Biology', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bio_60', label: 'Biology Topic 60', domain: 'Biology', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_26', label: 'Sponsored Content 26', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'bio_61', label: 'Biology Topic 61', domain: 'Biology', level: 2, difficulty: 2, type: 'concept' },
   { id: 'bio_62', label: 'Biology Topic 62', domain: 'Biology', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bio_63', label: 'Biology Topic 63', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
@@ -644,7 +618,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'bio_68', label: 'Biology Topic 68', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
   { id: 'bio_69', label: 'Biology Topic 69', domain: 'Biology', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bio_70', label: 'Biology Topic 70', domain: 'Biology', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_27', label: 'Sponsored Content 27', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'bio_71', label: 'Biology Topic 71', domain: 'Biology', level: 2, difficulty: 2, type: 'concept' },
   { id: 'bio_72', label: 'Biology Topic 72', domain: 'Biology', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bio_73', label: 'Biology Topic 73', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
@@ -655,7 +628,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'bio_78', label: 'Biology Topic 78', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
   { id: 'bio_79', label: 'Biology Topic 79', domain: 'Biology', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bio_80', label: 'Biology Topic 80', domain: 'Biology', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_28', label: 'Sponsored Content 28', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'bio_81', label: 'Biology Topic 81', domain: 'Biology', level: 2, difficulty: 2, type: 'concept' },
   { id: 'bio_82', label: 'Biology Topic 82', domain: 'Biology', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bio_83', label: 'Biology Topic 83', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
@@ -666,7 +638,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'bio_88', label: 'Biology Topic 88', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
   { id: 'bio_89', label: 'Biology Topic 89', domain: 'Biology', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bio_90', label: 'Biology Topic 90', domain: 'Biology', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_29', label: 'Sponsored Content 29', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
   { id: 'bio_91', label: 'Biology Topic 91', domain: 'Biology', level: 2, difficulty: 2, type: 'concept' },
   { id: 'bio_92', label: 'Biology Topic 92', domain: 'Biology', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bio_93', label: 'Biology Topic 93', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
@@ -677,7 +648,6 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'bio_98', label: 'Biology Topic 98', domain: 'Biology', level: 2, difficulty: 4, type: 'concept' },
   { id: 'bio_99', label: 'Biology Topic 99', domain: 'Biology', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bio_100', label: 'Biology Topic 100', domain: 'Biology', level: 2, difficulty: 1, type: 'concept' },
-  { id: 'adv_30', label: 'Sponsored Content 30', domain: 'Misc', level: 1, difficulty: 1, type: 'advertisement' },
 
   // ── SEMICONDUCTOR ──────────────────────────────────────────────
   { id: 'mosfet_operation', label: 'MOSFET Operation', domain: 'Semiconductor', level: 2, difficulty: 2, type: 'concept' },
@@ -1547,3 +1517,7 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'computability_theory', label: 'Computability Theory (Halting Problem)', domain: 'Theoretical CS', level: 3, difficulty: 4, type: 'concept' },
 
 ];
+
+export const GRAPH_NODES: GraphNode[] = RAW_GRAPH_NODES.filter(
+  (node) => node.type !== 'advertisement' && !node.label.toLowerCase().startsWith('sponsored content')
+);

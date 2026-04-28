@@ -22,6 +22,7 @@ export type KnowledgeCard = {
   explanation: string;
   wiki_url: string;
   domain: string;
+  domains?: string[];
   level: CardLevel;
   related_concepts?: string[];
   prerequisites?: PrerequisiteInfo[];
@@ -57,7 +58,7 @@ type LeaderboardRow = {
 };
 
 // Bump this whenever CARD_CONTENT changes to force a DB refresh
-const CARD_CONTENT_VERSION = '14';
+const CARD_CONTENT_VERSION = '16';
 
 let cardSchemaReady = false;
 let cardSchemaPromise: Promise<void> | null = null;
@@ -99,37 +100,74 @@ const EDGE_MAP = GRAPH_EDGES.reduce<Record<string, string[]>>((acc, edge) => {
 
 const NODE_LABEL_BY_ID = new Map<string, string>(GRAPH_NODES.map((node) => [node.id, node.label]));
 
-function mapGraphDomainToCardDomain(domain: string): KnowledgeCard['domain'] {
-  const key = domain.toLowerCase();
-  // Signal / Control
-  if (key.includes('control')) return 'control';
-  if (key.includes('signal')) return 'signal';
-  // ML / AI family (check vision/nlp before 'computer' to ensure Computer Vision → ml)
-  if (key.includes('machine') || key.includes('learning') || key.includes('intelligence')) return 'ml';
-  if (key.includes('vision') || key === 'nlp' || key.includes('natural language')) return 'ml';
-  if (key.includes('ai safety') || key.includes('federated') || key.includes('alignment')) return 'ml';
-  // Info / CS
-  if (
-    key.includes('algorithm') ||
-    key.includes('compiler') ||
-    key.includes('database') ||
-    key.includes('computer') ||
-    key.includes('data') ||
-    key.includes('architecture') ||
-    key === 'os' ||
-    key.includes('operating') ||
-    key.includes('security') ||
-    key.includes('cloud') ||
-    key.includes('devops') ||
-    key.includes('network') ||
-    key.includes('software') ||
-    key.includes('programming') ||
-    key.includes('distributed') ||
-    key.includes('theoretical') ||
-    key.includes('system')
-  )
-    return 'info';
-  return 'other';
+function normalizeDomainKey(domain: string): string {
+  return domain
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+const DOMAIN_PARENTS_BY_KEY: Record<string, string[]> = {
+  linear_algebra: ['mathematics'],
+  probability_and_statistics: ['mathematics'],
+  probability_statistics: ['mathematics'],
+  statistics: ['mathematics'],
+  optimization: ['mathematics'],
+  calculus: ['mathematics'],
+  numerical_methods: ['mathematics'],
+  information_theory: ['mathematics', 'computer_science'],
+  algorithms: ['computer_science'],
+  data_structures: ['computer_science'],
+  complexity_theory: ['computer_science'],
+  theoretical_cs: ['computer_science'],
+  os: ['computer_science'],
+  operating_systems: ['computer_science'],
+  computer_architecture: ['computer_science'],
+  compilers: ['computer_science'],
+  computer_graphics: ['computer_science'],
+  computer_networks: ['computer_science'],
+  networking: ['computer_science'],
+  databases: ['computer_science'],
+  distributed_systems: ['computer_science'],
+  embedded_systems: ['computer_science'],
+  iot: ['computer_science'],
+  systems_performance: ['computer_science'],
+  security: ['computer_science'],
+  software_engineering: ['computer_science'],
+  programming_languages: ['computer_science'],
+  cloud_and_devops: ['computer_science'],
+  cloud_computing: ['computer_science'],
+  devops: ['computer_science'],
+  supervised_learning: ['machine_learning'],
+  unsupervised_learning: ['machine_learning'],
+  reinforcement_learning: ['machine_learning'],
+  theoretical_ml: ['machine_learning'],
+  deep_learning: ['artificial_intelligence', 'machine_learning'],
+  computer_vision: ['artificial_intelligence'],
+  natural_language_processing: ['artificial_intelligence'],
+  nlp: ['artificial_intelligence'],
+  ai_safety: ['artificial_intelligence'],
+  alignment: ['artificial_intelligence'],
+  federated_learning: ['machine_learning'],
+  robotics: ['artificial_intelligence'],
+};
+
+function getGraphDomainKeys(domain: string): string[] {
+  const key = normalizeDomainKey(domain);
+  if (!key) return ['other'];
+  const parents = DOMAIN_PARENTS_BY_KEY[key] ?? [];
+  return Array.from(new Set([...parents.filter((parent) => parent !== key), key]));
+}
+
+function getCardDomainsForNode(node: (typeof GRAPH_NODES)[number] | undefined, fallbackDomain?: string | null): string[] {
+  if (!node) return getGraphDomainKeys(fallbackDomain ?? 'other');
+  return getGraphDomainKeys(node.domain);
+}
+
+function getPrimaryCardDomain(domains: string[]): KnowledgeCard['domain'] {
+  return domains[0] ?? 'other';
 }
 
 function mapDifficultyToLevel(difficulty: number): CardLevel {
@@ -187,7 +225,8 @@ const CORE_GRAPH_CARDS: KnowledgeCard[] = GRAPH_NODES
         `Type: ${node.type}`,
       ].join('\n'),
       wiki_url: `https://en.wikipedia.org/wiki/${encodeURIComponent(node.label.replace(/\s+/g, '_'))}`,
-      domain: mapGraphDomainToCardDomain(node.domain),
+      domain: getPrimaryCardDomain(getCardDomainsForNode(node)),
+      domains: getCardDomainsForNode(node),
       level: mapDifficultyToLevel(node.difficulty),
       ...relatedPayload,
     };
@@ -264,7 +303,8 @@ function generateDrillCard(node: (typeof GRAPH_NODES)[number], variantIndex: num
     summary: `Practice prompts to strengthen recall for ${node.label}.`,
     explanation: explanationParts.join('\n'),
     wiki_url: `https://en.wikipedia.org/wiki/${encodeURIComponent(node.label.replace(/\s+/g, '_'))}`,
-    domain: mapGraphDomainToCardDomain(node.domain),
+    domain: getPrimaryCardDomain(getCardDomainsForNode(node)),
+    domains: getCardDomainsForNode(node),
     level: mapDifficultyToLevel(node.difficulty),
   };
 }
@@ -293,7 +333,23 @@ const PREREQ_OUTGOING = new Map<string, string[]>();
 
 function isExcludedFromKnowledgeMap(cardId: string) {
   // Drill cards are used for practice volume, but are intentionally hidden from the graph/map UI.
-  return cardId.startsWith('drill_');
+  return cardId.startsWith('drill_') || cardId.startsWith('graph_adv_');
+}
+
+function withCardDomains<T extends { id: string; domain?: string | null; domains?: string[] | null }>(
+  card: T
+): T & { domain: string; domains: string[] } {
+  const node = NODE_BY_ID.get(normalizeGraphNodeId(card.id));
+  const domains = card.domains && card.domains.length > 0
+    ? card.domains.map(normalizeDomainKey).filter(Boolean)
+    : getCardDomainsForNode(node, card.domain);
+  const normalizedDomains = Array.from(new Set(domains.length > 0 ? domains : ['other']));
+
+  return {
+    ...card,
+    domain: getPrimaryCardDomain(normalizedDomains),
+    domains: normalizedDomains,
+  };
 }
 
 function withRelatedConcepts<T extends { id: string; related_concepts?: string[] | null }>(card: T) {
@@ -349,6 +405,11 @@ async function _initCardSchema() {
       level TEXT CHECK (level IN ('memorize', 'understand', 'connect', 'apply')),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE knowledge_cards
+      DROP CONSTRAINT IF EXISTS knowledge_cards_domain_check;
   `);
 
   // Drill cards are generated over time; store a marker so we can cheaply count them.
@@ -426,6 +487,11 @@ async function _initCardSchema() {
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_knowledge_cards_domain ON knowledge_cards(domain);
+  `);
+  await pool.query(`
+    DELETE FROM knowledge_cards
+    WHERE id LIKE 'graph_adv_%'
+       OR title ILIKE 'Sponsored Content %';
   `);
   await pool.query(`
     ALTER TABLE user_knowledge_states
@@ -699,7 +765,7 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
   }
 
   const title = node?.label ?? card?.title ?? nodeId.replace(/^graph_/, '').replace(/_/g, ' ');
-  const domain = card?.domain ?? mapGraphDomainToCardDomain(node?.domain ?? 'other');
+  const domain = card?.domain ?? getPrimaryCardDomain(getCardDomainsForNode(node));
   const cue = getRecallCue(card, title);
   const sameDomainLabels = MOCK_CARDS
     .filter((candidate) => candidate.id !== (card?.id ?? nodeId) && candidate.domain === domain)
@@ -762,6 +828,8 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
           ON kc.id = ucs.card_id AND ucs.user_id = $1
         WHERE (ucs.progress_state = 'learning' OR (ucs.progress_state IS NULL AND ucs.status = 'saved'))
           AND (ucs.due_at IS NULL OR ucs.due_at <= NOW())
+          AND kc.id NOT LIKE 'graph_adv_%'
+          AND kc.title NOT ILIKE 'Sponsored Content %'
       `;
     } else {
       query = `
@@ -774,6 +842,8 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
         FROM knowledge_cards kc
         LEFT JOIN user_card_states ucs
           ON kc.id = ucs.card_id AND ucs.user_id = $1
+        WHERE kc.id NOT LIKE 'graph_adv_%'
+          AND kc.title NOT ILIKE 'Sponsored Content %'
       `;
     }
 
@@ -783,7 +853,7 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
         ...row,
         status: deriveLegacyStatus(row),
       }))
-      .map((row) => withRelatedConcepts(row));
+      .map((row) => withCardDomains(withRelatedConcepts(row)));
 
     if (rowsWithRelated.length > 0) {
       const rows = excluded.size > 0
@@ -804,7 +874,7 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
         ...row,
         status: deriveLegacyStatus(row),
       }))
-      .map((row) => withRelatedConcepts(row));
+      .map((row) => withCardDomains(withRelatedConcepts(row)));
 
     if (retryRowsWithRelated.length > 0) {
       const rows = excluded.size > 0
@@ -816,7 +886,7 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
 
     const fallbackCards = user.isGuest ? limitCardsForGuest(MOCK_CARDS, true) : MOCK_CARDS;
     const fallbackCard = fallbackCards[Math.floor(Math.random() * fallbackCards.length)];
-    return fallbackCard ? withRelatedConcepts(fallbackCard) : null;
+    return fallbackCard ? withCardDomains(withRelatedConcepts(fallbackCard)) : null;
   } catch (error) {
     console.error('Error in getNextCard:', error);
     const mockRows: CardWithStatusRow[] = limitCardsForGuest(MOCK_CARDS, user.isGuest)
@@ -1048,7 +1118,11 @@ export async function getSavedCards() {
   const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
-    return limitCardsForGuest(MOCK_CARDS, user.isGuest).map((c) => ({ ...c, status: 'saved', last_seen: new Date() }));
+    return limitCardsForGuest(MOCK_CARDS, user.isGuest).map((c) => ({
+      ...withCardDomains(c),
+      status: 'saved',
+      last_seen: new Date(),
+    }));
   }
 
   try {
@@ -1060,13 +1134,17 @@ export async function getSavedCards() {
       JOIN user_card_states ucs ON kc.id = ucs.card_id
       WHERE ucs.user_id = $1
         AND (ucs.progress_state = 'learning' OR (ucs.progress_state IS NULL AND ucs.status = 'saved'))
+        AND kc.id NOT LIKE 'graph_adv_%'
+        AND kc.title NOT ILIKE 'Sponsored Content %'
       ORDER BY ucs.last_seen DESC;
     `;
     const res = await pool.query(query, [user.id]);
-    return limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest).map((row) => ({
-      ...row,
-      status: deriveLegacyStatus(row) ?? 'saved',
-    }));
+    return limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest)
+      .map((row) => ({
+        ...row,
+        status: deriveLegacyStatus(row) ?? 'saved',
+      }))
+      .map((row) => withCardDomains(row));
   } catch (error) {
     console.error('Error in getSavedCards:', error);
     return [];
@@ -1165,13 +1243,13 @@ export async function getAllCardsWithStatus(options?: {
 
     const limited = includeGenerated
       ? [
-          ...cards.filter((c) => !c.id.startsWith('drill_')),
+          ...cards.filter((c) => !isExcludedFromKnowledgeMap(c.id)),
           ...cards.filter((c) => c.id.startsWith('drill_')).slice(0, generatedLimit),
         ]
       : cards;
 
     return limited.map((c) => ({
-      ...c,
+      ...withCardDomains(c),
       status: ['known', 'saved', null][
         Math.floor(Math.random() * 3)
       ] as CardStatus | null,
@@ -1188,6 +1266,8 @@ export async function getAllCardsWithStatus(options?: {
         LEFT JOIN user_card_states ucs
           ON kc.id = ucs.card_id AND ucs.user_id = $1
         WHERE kc.id NOT LIKE 'drill_%'
+          AND kc.id NOT LIKE 'graph_adv_%'
+          AND kc.title NOT ILIKE 'Sponsored Content %'
         ORDER BY
           kc.domain,
           CASE kc.level
@@ -1203,7 +1283,7 @@ export async function getAllCardsWithStatus(options?: {
       const res = await pool.query(query, [user.id]);
       return limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest)
         .map((row) => ({ ...row, status: deriveLegacyStatus(row) }))
-        .map((row) => withRelatedConcepts(row));
+        .map((row) => withCardDomains(withRelatedConcepts(row)));
     }
 
     // Ensure we can satisfy the requested generatedLimit.
@@ -1221,6 +1301,8 @@ export async function getAllCardsWithStatus(options?: {
       LEFT JOIN user_card_states ucs
         ON kc.id = ucs.card_id AND ucs.user_id = $1
       WHERE kc.id NOT LIKE 'drill_%'
+        AND kc.id NOT LIKE 'graph_adv_%'
+        AND kc.title NOT ILIKE 'Sponsored Content %'
       ORDER BY
         kc.domain,
         CASE kc.level
@@ -1251,7 +1333,7 @@ export async function getAllCardsWithStatus(options?: {
     const merged = limitCardsForGuest([...coreRes.rows, ...generatedRes.rows] as CardWithStatusRow[], user.isGuest);
     return merged
       .map((row) => ({ ...row, status: deriveLegacyStatus(row) }))
-      .map((row) => withRelatedConcepts(row));
+      .map((row) => withCardDomains(withRelatedConcepts(row)));
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
     const sourceCards = limitCardsForGuest(MOCK_CARDS, user.isGuest);
@@ -1260,12 +1342,12 @@ export async function getAllCardsWithStatus(options?: {
       : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));
     const limited = includeGenerated
       ? [
-          ...cards.filter((c) => !c.id.startsWith('drill_')),
+          ...cards.filter((c) => !isExcludedFromKnowledgeMap(c.id)),
           ...cards.filter((c) => c.id.startsWith('drill_')).slice(0, generatedLimit),
         ]
       : cards;
     return limited.map((c) => ({
-      ...c,
+      ...withCardDomains(c),
       status: null as CardStatus | null,
     }));
   }

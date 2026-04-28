@@ -11,6 +11,11 @@ type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
 };
 
+function getCardDomains(card: KnowledgeCard) {
+  const domains = card.domains && card.domains.length > 0 ? card.domains : [card.domain];
+  return Array.from(new Set(domains.filter(Boolean)));
+}
+
 export default function KnowledgeMap({ initialCards }: Props) {
   const [baseCards, setBaseCards] = useState(initialCards);
   const [filter, setFilter] = useState('');
@@ -41,8 +46,11 @@ export default function KnowledgeMap({ initialCards }: Props) {
 
   const cards = includeGenerated ? (generatedCards ?? baseCards) : baseCards;
 
-  // Group cards by domain
-  const domains = useMemo(() => Array.from(new Set(cards.map(c => c.domain))), [cards]);
+  // Cards can live in multiple taxonomy domains.
+  const domains = useMemo(
+    () => Array.from(new Set(cards.flatMap(getCardDomains))).sort(),
+    [cards]
+  );
 
   const coreCardCount = useMemo(() => cards.filter((c) => !c.id.startsWith('drill_')).length, [cards]);
   const generatedCardCount = useMemo(() => cards.filter((c) => c.id.startsWith('drill_')).length, [cards]);
@@ -65,7 +73,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
   const filteredCards = cards.filter(card => {
     const matchesFilter = card.title.toLowerCase().includes(filter.toLowerCase()) || 
                           card.summary.toLowerCase().includes(filter.toLowerCase());
-    const matchesDomain = selectedDomain === 'all' || card.domain === selectedDomain;
+    const matchesDomain = selectedDomain === 'all' || getCardDomains(card).includes(selectedDomain);
     const matchesStatus =
       selectedStatus === 'all'
         ? true
@@ -76,10 +84,13 @@ export default function KnowledgeMap({ initialCards }: Props) {
   });
 
   const cardsByDomain = filteredCards.reduce((acc, card) => {
-    if (!acc[card.domain]) {
-      acc[card.domain] = [];
+    const groupingDomains = selectedDomain === 'all' ? getCardDomains(card) : [selectedDomain];
+    for (const domain of groupingDomains) {
+      if (!acc[domain]) {
+        acc[domain] = [];
+      }
+      acc[domain].push(card);
     }
-    acc[card.domain].push(card);
     return acc;
   }, {} as Record<string, typeof initialCards>);
 
@@ -254,6 +265,15 @@ function KnowledgeCardItem({ card }: { card: KnowledgeCard & { status: CardStatu
         </span>
       </div>
       <h3 className="font-bold text-lg mb-1 leading-tight text-gray-900">{card.title}</h3>
+      {card.domains && card.domains.length > 1 ? (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {card.domains.map((domain) => (
+            <span key={domain} className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+              {formatDomainLabel(domain)}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <p className="text-sm text-gray-700 line-clamp-2 mb-3">{card.summary}</p>
       
       {card.wiki_url && (
