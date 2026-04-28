@@ -16,6 +16,9 @@ pnpm-lock.yaml.bak
 # testing
 coverage
 
+# turborepo
+.turbo/
+
 # next.js
 .next/
 /out/
