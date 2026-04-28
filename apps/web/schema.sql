@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS knowledge_cards (
   summary TEXT,
   explanation TEXT,
   wiki_url TEXT,
-  domain TEXT CHECK (domain IN ('signal', 'control', 'info', 'ml', 'other')),
+  domain TEXT,
   level TEXT CHECK (level IN ('memorize', 'understand', 'connect', 'apply')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

@@ -79,6 +79,7 @@ export const DOMAIN_COLORS: Record<string, string> = {
   'machine_learning': '#a855f7',
   'artificial_intelligence': '#ec4899',
   'linear_algebra': '#f59e0b',
+  'probability_and_statistics': '#f97316',
   'probability_statistics': '#f97316',
   optimization: '#eab308',
   calculus: '#d97706',
@@ -105,31 +106,49 @@ export const DOMAIN_COLORS: Record<string, string> = {
 
 export function getDomainColor(domain: string): string {
   // Try exact match first
-  const key = domain.toLowerCase().replace(/\s+/g, '_');
+  const key = domain.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   if (DOMAIN_COLORS[key]) return DOMAIN_COLORS[key];
 
   // Try parent domain
   const parentMap: Record<string, string> = {
     linear_algebra: 'mathematics',
+    probability_and_statistics: 'mathematics',
     probability_statistics: 'mathematics',
+    statistics: 'mathematics',
     optimization: 'mathematics',
     calculus: 'mathematics',
+    numerical_methods: 'mathematics',
     algorithms: 'computer_science',
     data_structures: 'computer_science',
     complexity_theory: 'computer_science',
+    theoretical_cs: 'computer_science',
+    os: 'computer_science',
     operating_systems: 'computer_science',
+    computer_architecture: 'computer_science',
+    computer_graphics: 'computer_science',
+    compilers: 'computer_science',
     computer_networks: 'computer_science',
+    networking: 'computer_science',
     databases: 'computer_science',
     distributed_systems: 'computer_science',
+    embedded_systems: 'computer_science',
+    iot: 'computer_science',
     systems_performance: 'computer_science',
     security: 'computer_science',
     software_engineering: 'computer_science',
     programming_languages: 'computer_science',
+    cloud_and_devops: 'computer_science',
+    cloud_computing: 'computer_science',
+    information_theory: 'computer_science',
     supervised_learning: 'machine_learning',
     unsupervised_learning: 'machine_learning',
     reinforcement_learning: 'machine_learning',
     deep_learning: 'artificial_intelligence',
     theoretical_ml: 'machine_learning',
+    nlp: 'artificial_intelligence',
+    computer_vision: 'artificial_intelligence',
+    ai_safety: 'artificial_intelligence',
+    robotics: 'artificial_intelligence',
   };
 
   const parent = parentMap[key];

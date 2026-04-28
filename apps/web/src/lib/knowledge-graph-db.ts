@@ -140,7 +140,11 @@ async function getGraphNodes(): Promise<GraphNode[]> {
   if (!process.env.DATABASE_URL) return [...GRAPH_NODES];
   ensureGraphDatabase();
   const { rows } = await pool.query<GraphNodeRow>(
-    'SELECT id, label, domain, level, difficulty, type FROM graph_nodes ORDER BY domain, level, label'
+    `SELECT id, label, domain, level, difficulty, type
+     FROM graph_nodes
+     WHERE type <> 'advertisement'
+       AND label NOT ILIKE 'Sponsored Content %'
+     ORDER BY domain, level, label`
   );
   return rows;
 }

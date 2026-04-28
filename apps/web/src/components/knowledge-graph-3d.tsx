@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
+import { getDomainColor } from '@stem-brain/graph-engine';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
@@ -23,6 +24,7 @@ type SelectedNode = {
   desc?: string;
   mainContent?: string;
   domain?: string;
+  domains?: string[];
   level?: string;
   status?: CardStatus | null;
   wiki_url?: string;
@@ -35,14 +37,6 @@ const STATUS_COLORS: Record<string, string> = {
   saved: '#60a5fa',
   unknown: '#f87171',
   unseen: '#6b7280',
-};
-
-const DOMAIN_COLORS: Record<string, string> = {
-  signal: '#f97316',
-  control: '#3b82f6',
-  info: '#22c55e',
-  ml: '#a855f7',
-  other: '#6b7280',
 };
 
 export default function KnowledgeGraph3D({ cards, onClose }: Props) {
@@ -70,6 +64,11 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const domainList = useMemo(
+    () => Array.from(new Set(cards.flatMap((card) => card.domains && card.domains.length > 0 ? card.domains : [card.domain]))).sort(),
+    [cards]
+  );
+
   const graphData = useMemo(() => {
     const nodes: any[] = [];
     const links: any[] = [];
@@ -88,6 +87,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         desc: card.summary,
         mainContent: card.explanation,
         domain: card.domain,
+        domains: card.domains && card.domains.length > 0 ? card.domains : [card.domain],
         level: card.level,
         status: card.status,
         wiki_url: card.wiki_url,
@@ -261,13 +261,13 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         <div className="mt-4 border-t border-gray-800 pt-3">
           <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">Domains</p>
           <div className="space-y-2">
-            {Object.entries(DOMAIN_COLORS)
-              .filter(([key]) => key !== 'other')
-              .map(([domain, color]) => (
+            {domainList
+              .filter((domain) => domain !== 'other')
+              .map((domain) => (
                 <div key={domain} className="flex items-center gap-2.5">
                   <span
                     className="h-2.5 w-2.5 rounded-sm"
-                    style={{ backgroundColor: color }}
+                    style={{ backgroundColor: getDomainColor(domain) }}
                   />
                   <span className="text-xs text-gray-300">{formatDomainLabel(domain)}</span>
                 </div>
@@ -307,19 +307,20 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
             </h3>
 
             {/* Domain & Level badges */}
-            <div className="flex gap-2 mb-5">
-              {selectedNode.domain && (
+            <div className="flex flex-wrap gap-2 mb-5">
+              {(selectedNode.domains && selectedNode.domains.length > 0 ? selectedNode.domains : selectedNode.domain ? [selectedNode.domain] : []).map((domain) => (
                 <span
+                  key={domain}
                   className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium capitalize"
                   style={{
-                    backgroundColor: `${DOMAIN_COLORS[selectedNode.domain] || DOMAIN_COLORS.other}22`,
-                    color: DOMAIN_COLORS[selectedNode.domain] || DOMAIN_COLORS.other,
-                    border: `1px solid ${DOMAIN_COLORS[selectedNode.domain] || DOMAIN_COLORS.other}44`,
+                    backgroundColor: `${getDomainColor(domain)}22`,
+                    color: getDomainColor(domain),
+                    border: `1px solid ${getDomainColor(domain)}44`,
                   }}
                 >
-                  {selectedNode.domain ? formatDomainLabel(selectedNode.domain) : ''}
+                  {formatDomainLabel(domain)}
                 </span>
-              )}
+              ))}
               {selectedNode.level && (
                 <span className="inline-flex items-center rounded-md bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-400 border border-gray-700">
                   Difficulty {selectedLevel.rank} · {selectedLevel.label}
