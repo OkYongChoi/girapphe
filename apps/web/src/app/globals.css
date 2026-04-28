@@ -40,7 +40,7 @@ html {
 .home-hero-visual,
 .home-graph-heading,
 .home-graph-frame {
-  will-change: opacity, transform, filter;
+  will-change: opacity, transform;
 }
 
 .home-graph-section {
@@ -639,12 +639,10 @@ html {
   from {
     opacity: 0.18;
     transform: translateY(72px) scale(0.94);
-    filter: blur(18px) saturate(0.86);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-    filter: blur(0) saturate(1);
   }
 }
 
@@ -652,12 +650,10 @@ html {
   from {
     opacity: 0;
     transform: translateY(44px) scale(0.98);
-    filter: blur(12px);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-    filter: blur(0);
   }
 }
 
@@ -665,13 +661,11 @@ html {
   from {
     opacity: 0.28;
     transform: perspective(1100px) rotateX(11deg) translateY(76px) scale(0.9);
-    filter: blur(16px) saturate(0.8);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
   }
   to {
     opacity: 1;
     transform: perspective(1100px) rotateX(0deg) translateY(0) scale(1);
-    filter: blur(0) saturate(1);
     box-shadow: 0 28px 64px rgba(0, 0, 0, 0.34);
   }
 }
@@ -680,12 +674,10 @@ html {
   0% {
     opacity: 1;
     transform: translateY(0) scale(1);
-    filter: blur(0);
   }
   100% {
     opacity: 0.18;
     transform: translateY(-44px) scale(0.96);
-    filter: blur(10px);
   }
 }
 
@@ -693,12 +685,10 @@ html {
   0% {
     opacity: 1;
     transform: translateY(0) scale(1);
-    filter: blur(0) saturate(1);
   }
   100% {
     opacity: 0.3;
     transform: translateY(-72px) scale(0.9);
-    filter: blur(14px) saturate(0.82);
   }
 }
 
