@@ -11,15 +11,15 @@ export const GRAPH_NODES: GraphNode[] = [
   // ============================================================
   { id: 'mathematics', label: 'Mathematics', domain: 'Mathematics', level: 0, difficulty: 1, type: 'concept' },
   { id: 'computer_science', label: 'Computer Science', domain: 'Computer Science', level: 0, difficulty: 1, type: 'concept' },
-  { id: 'machine_learning', label: 'Machine Learning', domain: 'Machine Learning', level: 0, difficulty: 1, type: 'concept' },
-  { id: 'artificial_intelligence', label: 'Artificial Intelligence', domain: 'Artificial Intelligence', level: 0, difficulty: 1, type: 'concept' },
+  { id: 'machine_learning', label: 'Supervised Learning Signal', domain: 'Machine Learning', level: 0, difficulty: 1, type: 'concept' },
+  { id: 'artificial_intelligence', label: 'Search and Planning', domain: 'Artificial Intelligence', level: 0, difficulty: 1, type: 'concept' },
 
   // ============================================================
   // LEVEL 1 — Mathematics Core
   // ============================================================
 
   // --- Linear Algebra (parent) ---
-  { id: 'linear_algebra', label: 'Linear Algebra', domain: 'Linear Algebra', level: 1, difficulty: 2, type: 'concept' },
+  { id: 'linear_algebra', label: 'Vector Space Basis', domain: 'Linear Algebra', level: 1, difficulty: 2, type: 'concept' },
   { id: 'vector_spaces', label: 'Vector Spaces', domain: 'Linear Algebra', level: 2, difficulty: 2, type: 'concept' },
   { id: 'matrix_multiplication', label: 'Matrix Multiplication', domain: 'Linear Algebra', level: 2, difficulty: 2, type: 'algorithm' },
   { id: 'eigenvalues_eigenvectors', label: 'Eigenvalues & Eigenvectors', domain: 'Linear Algebra', level: 2, difficulty: 3, type: 'concept' },
@@ -34,7 +34,7 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'norm', label: 'Norm', domain: 'Linear Algebra', level: 2, difficulty: 2, type: 'concept' },
 
   // --- Probability & Statistics (parent) ---
-  { id: 'probability_statistics', label: 'Probability & Statistics', domain: 'Probability & Statistics', level: 1, difficulty: 2, type: 'concept' },
+  { id: 'probability_statistics', label: 'Random Variable Distribution', domain: 'Probability & Statistics', level: 1, difficulty: 2, type: 'concept' },
   { id: 'random_variables', label: 'Random Variables', domain: 'Probability & Statistics', level: 2, difficulty: 2, type: 'concept' },
   { id: 'expectation', label: 'Expectation', domain: 'Probability & Statistics', level: 2, difficulty: 2, type: 'concept' },
   { id: 'variance', label: 'Variance', domain: 'Probability & Statistics', level: 2, difficulty: 2, type: 'concept' },
@@ -52,7 +52,7 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'markov_chains', label: 'Markov Chains', domain: 'Probability & Statistics', level: 2, difficulty: 3, type: 'concept' },
 
   // --- Optimization (parent) ---
-  { id: 'optimization', label: 'Optimization', domain: 'Optimization', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'optimization', label: 'Objective Function Minimization', domain: 'Optimization', level: 1, difficulty: 3, type: 'concept' },
   { id: 'gradient_descent', label: 'Gradient Descent', domain: 'Optimization', level: 2, difficulty: 3, type: 'algorithm' },
   { id: 'convex_optimization', label: 'Convex Optimization', domain: 'Optimization', level: 2, difficulty: 4, type: 'concept' },
   { id: 'lagrange_multipliers', label: 'Lagrange Multipliers', domain: 'Optimization', level: 2, difficulty: 4, type: 'concept' },
@@ -65,7 +65,7 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'cross_entropy_loss', label: 'Cross Entropy Loss', domain: 'Optimization', level: 2, difficulty: 3, type: 'concept' },
 
   // --- Calculus (parent) ---
-  { id: 'calculus', label: 'Calculus', domain: 'Calculus', level: 1, difficulty: 2, type: 'concept' },
+  { id: 'calculus', label: 'Derivative as Local Rate', domain: 'Calculus', level: 1, difficulty: 2, type: 'concept' },
   { id: 'partial_derivatives', label: 'Partial Derivatives', domain: 'Calculus', level: 2, difficulty: 2, type: 'concept' },
   { id: 'chain_rule', label: 'Chain Rule', domain: 'Calculus', level: 2, difficulty: 2, type: 'theorem' },
   { id: 'taylor_expansion', label: 'Taylor Expansion', domain: 'Calculus', level: 2, difficulty: 3, type: 'concept' },
@@ -80,7 +80,7 @@ export const GRAPH_NODES: GraphNode[] = [
   // ============================================================
 
   // --- Algorithms (parent) ---
-  { id: 'algorithms', label: 'Algorithms', domain: 'Algorithms', level: 1, difficulty: 2, type: 'concept' },
+  { id: 'algorithms', label: 'Algorithmic Complexity', domain: 'Algorithms', level: 1, difficulty: 2, type: 'concept' },
   { id: 'sorting', label: 'Sorting', domain: 'Algorithms', level: 2, difficulty: 2, type: 'algorithm' },
   { id: 'dynamic_programming', label: 'Dynamic Programming', domain: 'Algorithms', level: 2, difficulty: 3, type: 'algorithm' },
   { id: 'graph_algorithms', label: 'Graph Algorithms', domain: 'Algorithms', level: 2, difficulty: 3, type: 'algorithm' },
@@ -158,7 +158,7 @@ export const GRAPH_NODES: GraphNode[] = [
   // LEVEL 1 — Deep Learning
   // ============================================================
 
-  { id: 'deep_learning', label: 'Deep Learning', domain: 'Deep Learning', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'deep_learning', label: 'Hierarchical Representation Learning', domain: 'Deep Learning', level: 1, difficulty: 3, type: 'concept' },
   { id: 'neural_networks', label: 'Neural Networks', domain: 'Deep Learning', level: 2, difficulty: 3, type: 'model' },
   { id: 'backpropagation', label: 'Backpropagation', domain: 'Deep Learning', level: 2, difficulty: 3, type: 'algorithm' },
   { id: 'cnn', label: 'Convolutional Neural Network', domain: 'Deep Learning', level: 2, difficulty: 3, type: 'model' },
@@ -187,6 +187,18 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'layer_normalization', label: 'Layer Normalization', domain: 'Deep Learning', level: 2, difficulty: 3, type: 'concept' },
   { id: 'bert', label: 'BERT', domain: 'Deep Learning', level: 2, difficulty: 4, type: 'model' },
   { id: 'gpt', label: 'GPT', domain: 'Deep Learning', level: 2, difficulty: 4, type: 'model' },
+  { id: 'kv_cache', label: 'KV Cache', domain: 'Deep Learning', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'paged_attention', label: 'Paged Attention', domain: 'Deep Learning', level: 3, difficulty: 5, type: 'concept' },
+  { id: 'flash_attention_advanced', label: 'IO-Aware Flash Attention', domain: 'Deep Learning', level: 3, difficulty: 5, type: 'algorithm' },
+  { id: 'rotary_position_embeddings', label: 'Rotary Position Embeddings', domain: 'Deep Learning', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'grouped_query_attention', label: 'Grouped-Query Attention', domain: 'Deep Learning', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'sliding_window_attention', label: 'Sliding Window Attention', domain: 'Deep Learning', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'speculative_decoding', label: 'Speculative Decoding', domain: 'Deep Learning', level: 3, difficulty: 5, type: 'algorithm' },
+  { id: 'continuous_batching', label: 'Continuous Batching', domain: 'Deep Learning', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'mixture_of_experts_routing', label: 'Mixture-of-Experts Routing', domain: 'Deep Learning', level: 3, difficulty: 5, type: 'concept' },
+  { id: 'lora_adapters', label: 'LoRA Adapters', domain: 'Deep Learning', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'rlhf_preference_modeling', label: 'RLHF Preference Modeling', domain: 'Deep Learning', level: 3, difficulty: 5, type: 'concept' },
+  { id: 'retrieval_augmented_generation', label: 'Retrieval-Augmented Generation', domain: 'Deep Learning', level: 3, difficulty: 4, type: 'concept' },
   { id: 'diffusion_models', label: 'Diffusion Models', domain: 'Deep Learning', level: 2, difficulty: 5, type: 'model' },
 
   // ============================================================
@@ -197,7 +209,7 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'vc_dimension', label: 'VC Dimension', domain: 'Theoretical ML', level: 2, difficulty: 4, type: 'concept' },
   { id: 'pac_learning', label: 'PAC Learning', domain: 'Theoretical ML', level: 2, difficulty: 5, type: 'concept' },
   { id: 'bias_variance_tradeoff', label: 'Bias-Variance Tradeoff', domain: 'Theoretical ML', level: 2, difficulty: 3, type: 'concept' },
-  { id: 'information_theory', label: 'Information Theory', domain: 'Theoretical ML', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'information_theory', label: 'Entropy as Uncertainty', domain: 'Theoretical ML', level: 2, difficulty: 3, type: 'concept' },
   { id: 'kl_divergence', label: 'KL Divergence', domain: 'Theoretical ML', level: 2, difficulty: 3, type: 'concept' },
   { id: 'mutual_information', label: 'Mutual Information', domain: 'Theoretical ML', level: 2, difficulty: 3, type: 'concept' },
   { id: 'entropy', label: 'Entropy', domain: 'Theoretical ML', level: 2, difficulty: 3, type: 'concept' },
@@ -679,6 +691,9 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'threshold_voltage', label: 'Threshold Voltage', domain: 'Semiconductor', level: 2, difficulty: 2, type: 'concept' },
   { id: 'short_channel_effects', label: 'Short Channel Effects', domain: 'Semiconductor', level: 3, difficulty: 4, type: 'concept' },
   { id: 'dram_sram', label: 'DRAM vs SRAM', domain: 'Semiconductor', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'six_transistor_sram_cell', label: '6T SRAM Cell', domain: 'Semiconductor', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'sram_read_write_margins', label: 'SRAM Read/Write Margins', domain: 'Semiconductor', level: 3, difficulty: 5, type: 'concept' },
+  { id: 'sram_sense_amplifier', label: 'SRAM Sense Amplifier', domain: 'Semiconductor', level: 3, difficulty: 4, type: 'concept' },
   { id: 'nand_flash', label: 'NAND Flash Memory', domain: 'Semiconductor', level: 2, difficulty: 3, type: 'concept' },
   { id: 'cmos_inverter', label: 'CMOS Inverter', domain: 'Semiconductor', level: 2, difficulty: 2, type: 'concept' },
   { id: 'latch_up_effect', label: 'Latch-Up Effect', domain: 'Semiconductor', level: 3, difficulty: 4, type: 'concept' },
@@ -698,6 +713,15 @@ export const GRAPH_NODES: GraphNode[] = [
   { id: 'von_neumann_arch', label: 'Von Neumann Architecture', domain: 'Computer Architecture', level: 1, difficulty: 1, type: 'concept' },
   { id: 'harvard_architecture', label: 'Harvard Architecture', domain: 'Computer Architecture', level: 2, difficulty: 2, type: 'concept' },
   { id: 'cache_hierarchy', label: 'Cache Hierarchy', domain: 'Computer Architecture', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'cache_tag_index_offset', label: 'Cache Tag/Index/Offset', domain: 'Computer Architecture', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'set_associative_cache', label: 'Set-Associative Cache', domain: 'Computer Architecture', level: 3, difficulty: 3, type: 'concept' },
+  { id: 'write_back_cache_policy', label: 'Write-Back Cache Policy', domain: 'Computer Architecture', level: 3, difficulty: 3, type: 'concept' },
+  { id: 'victim_cache', label: 'Victim Cache', domain: 'Computer Architecture', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'last_level_cache_llc', label: 'Last-Level Cache (LLC)', domain: 'Computer Architecture', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'system_level_cache', label: 'System-Level Cache', domain: 'Computer Architecture', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'scratchpad_memory', label: 'Scratchpad Memory', domain: 'Computer Architecture', level: 3, difficulty: 3, type: 'concept' },
+  { id: 'memory_controller_scheduling', label: 'Memory Controller Scheduling', domain: 'Computer Architecture', level: 3, difficulty: 4, type: 'concept' },
+  { id: 'cache_prefetcher_design', label: 'Cache Prefetcher Design', domain: 'Computer Architecture', level: 3, difficulty: 4, type: 'concept' },
   { id: 'cache_coherence_mesi', label: 'Cache Coherence (MESI)', domain: 'Computer Architecture', level: 3, difficulty: 3, type: 'concept' },
   { id: 'virtual_memory', label: 'Virtual Memory', domain: 'Computer Architecture', level: 2, difficulty: 2, type: 'concept' },
   { id: 'tlb', label: 'Translation Lookaside Buffer', domain: 'Computer Architecture', level: 2, difficulty: 3, type: 'concept' },

@@ -57,7 +57,7 @@ type LeaderboardRow = {
 };
 
 // Bump this whenever CARD_CONTENT changes to force a DB refresh
-const CARD_CONTENT_VERSION = '10';
+const CARD_CONTENT_VERSION = '14';
 
 let cardSchemaReady = false;
 let cardSchemaPromise: Promise<void> | null = null;
@@ -732,7 +732,7 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
   const user = await requireCurrentActor();
   const excluded = new Set(excludeIds ?? []);
 
-  if (!process.env.DATABASE_URL) {
+  if (user.isGuest || !process.env.DATABASE_URL) {
     const mockRows: CardWithStatusRow[] = limitCardsForGuest(MOCK_CARDS, user.isGuest)
       .filter((card) => !excluded.has(card.id))
       .map((card) => ({
@@ -901,6 +901,10 @@ export async function saveCardState(cardId: string, status: CardStatus) {
 
   if (user.isGuest && !GUEST_CARD_IDS.has(cardId)) {
     return { success: false, error: 'guest_card_not_available' };
+  }
+
+  if (user.isGuest) {
+    return { success: true, warning: 'Guest mode: State not saved to DB' };
   }
 
   if (!process.env.DATABASE_URL) {
@@ -1112,7 +1116,7 @@ export async function removeSavedCard(cardId: string) {
 export async function getUserStats() {
   const user = await requireCurrentActor();
 
-  if (!process.env.DATABASE_URL) {
+  if (user.isGuest || !process.env.DATABASE_URL) {
     return { explainable: 12, unclear: 5 };
   }
 

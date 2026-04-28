@@ -314,6 +314,22 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'batch_normalization', target: 'layer_normalization', type: 'related', weight: 0.7 },
   { source: 'transformer', target: 'bert', type: 'prerequisite', weight: 0.9 },
   { source: 'transformer', target: 'gpt', type: 'prerequisite', weight: 0.9 },
+  { source: 'gpt', target: 'kv_cache', type: 'prerequisite', weight: 0.9 },
+  { source: 'kv_cache', target: 'paged_attention', type: 'prerequisite', weight: 0.9 },
+  { source: 'attention_mechanism', target: 'flash_attention_advanced', type: 'prerequisite', weight: 0.8 },
+  { source: 'multi_head_attention', target: 'flash_attention_advanced', type: 'prerequisite', weight: 0.8 },
+  { source: 'positional_encoding', target: 'rotary_position_embeddings', type: 'prerequisite', weight: 0.8 },
+  { source: 'multi_head_attention', target: 'grouped_query_attention', type: 'prerequisite', weight: 0.8 },
+  { source: 'kv_cache', target: 'grouped_query_attention', type: 'related', weight: 0.7 },
+  { source: 'attention_mechanism', target: 'sliding_window_attention', type: 'prerequisite', weight: 0.8 },
+  { source: 'gpt', target: 'speculative_decoding', type: 'prerequisite', weight: 0.8 },
+  { source: 'kv_cache', target: 'continuous_batching', type: 'prerequisite', weight: 0.8 },
+  { source: 'paged_attention', target: 'continuous_batching', type: 'related', weight: 0.8 },
+  { source: 'transformer', target: 'mixture_of_experts_routing', type: 'prerequisite', weight: 0.8 },
+  { source: 'fine_tuning', target: 'lora_adapters', type: 'prerequisite', weight: 0.8 },
+  { source: 'gpt', target: 'rlhf_preference_modeling', type: 'prerequisite', weight: 0.7 },
+  { source: 'gpt', target: 'retrieval_augmented_generation', type: 'prerequisite', weight: 0.7 },
+  { source: 'embeddings', target: 'retrieval_augmented_generation', type: 'prerequisite', weight: 0.7 },
   { source: 'neural_networks', target: 'gan', type: 'prerequisite', weight: 0.8 },
   { source: 'neural_networks', target: 'vae', type: 'prerequisite', weight: 0.8 },
   { source: 'kl_divergence', target: 'vae', type: 'prerequisite', weight: 0.7 },
@@ -327,6 +343,24 @@ export const GRAPH_EDGES: GraphEdge[] = [
   { source: 'sigmoid', target: 'logistic_regression', type: 'prerequisite', weight: 0.7 },
   { source: 'softmax', target: 'cross_entropy_loss', type: 'related', weight: 0.7 },
   { source: 'cross_entropy_loss', target: 'logistic_regression', type: 'related', weight: 0.6 },
+
+  // ============================================================
+  // MEMORY SYSTEMS — SRAM, cache, and SoC hierarchy branches
+  // ============================================================
+  { source: 'dram_sram', target: 'six_transistor_sram_cell', type: 'prerequisite', weight: 0.9 },
+  { source: 'six_transistor_sram_cell', target: 'sram_read_write_margins', type: 'prerequisite', weight: 0.9 },
+  { source: 'six_transistor_sram_cell', target: 'sram_sense_amplifier', type: 'prerequisite', weight: 0.8 },
+  { source: 'six_transistor_sram_cell', target: 'cache_hierarchy', type: 'related', weight: 0.7 },
+  { source: 'cache_hierarchy', target: 'cache_tag_index_offset', type: 'prerequisite', weight: 0.9 },
+  { source: 'cache_tag_index_offset', target: 'set_associative_cache', type: 'prerequisite', weight: 0.9 },
+  { source: 'set_associative_cache', target: 'write_back_cache_policy', type: 'related', weight: 0.7 },
+  { source: 'set_associative_cache', target: 'victim_cache', type: 'related', weight: 0.7 },
+  { source: 'cache_hierarchy', target: 'last_level_cache_llc', type: 'prerequisite', weight: 0.8 },
+  { source: 'last_level_cache_llc', target: 'system_level_cache', type: 'prerequisite', weight: 0.8 },
+  { source: 'memory_hierarchy', target: 'scratchpad_memory', type: 'related', weight: 0.7 },
+  { source: 'memory_bandwidth_latency', target: 'memory_controller_scheduling', type: 'prerequisite', weight: 0.8 },
+  { source: 'hardware_prefetching', target: 'cache_prefetcher_design', type: 'prerequisite', weight: 0.8 },
+  { source: 'cache_prefetcher_design', target: 'cache_hierarchy', type: 'related', weight: 0.6 },
 
   // ============================================================
   // THEORETICAL ML — internal prerequisites

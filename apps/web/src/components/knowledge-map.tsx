@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getAllCardsWithStatus, type KnowledgeCard, type CardStatus } from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
@@ -12,6 +12,7 @@ type Props = {
 };
 
 export default function KnowledgeMap({ initialCards }: Props) {
+  const [baseCards, setBaseCards] = useState(initialCards);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
   const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
@@ -22,7 +23,23 @@ export default function KnowledgeMap({ initialCards }: Props) {
   const [loadingGenerated, setLoadingGenerated] = useState(false);
   const [generatedError, setGeneratedError] = useState<string | null>(null);
 
-  const cards = includeGenerated ? (generatedCards ?? initialCards) : initialCards;
+  useEffect(() => {
+    let active = true;
+
+    getAllCardsWithStatus()
+      .then((freshCards) => {
+        if (active) setBaseCards(freshCards);
+      })
+      .catch(() => {
+        // Keep server-rendered cards if the refresh fails.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const cards = includeGenerated ? (generatedCards ?? baseCards) : baseCards;
 
   // Group cards by domain
   const domains = useMemo(() => Array.from(new Set(cards.map(c => c.domain))), [cards]);

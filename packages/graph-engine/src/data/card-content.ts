@@ -8,8 +8,8 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
 
   // ── LINEAR ALGEBRA ────────────────────────────────────────────
   linear_algebra: {
-    summary: 'The study of vector spaces, linear maps, and systems of linear equations',
-    explanation: 'Core tools: matrix multiplication, eigendecomposition, SVD.\nFoundation for PCA, Kalman filter, neural-network weight updates, and most of ML.',
+    summary: 'A basis is a minimal set of independent vectors that spans a vector space',
+    explanation: 'Every vector in the space has a unique coordinate representation in a chosen basis.\nChanging basis changes coordinates, not the underlying vector.\nThis is the concrete idea behind matrix representations, PCA directions, embeddings, and linear model features.',
   },
   vector_spaces: {
     summary: 'A set closed under vector addition and scalar multiplication (satisfying 8 axioms)',
@@ -25,11 +25,11 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   },
   svd: {
     summary: 'A = UΣV^T: any matrix factors into rotation × scaling × rotation',
-    explanation: 'U (m×m), V (n×n) orthogonal; Σ diagonal with σ₁ ≥ σ₂ ≥ … ≥ 0.\nRank-k approximation: keep top-k singular values → best low-rank approx (Eckart-Young).\nFound: PCA, pseudoinverse, latent semantic analysis, recommender systems.',
+    explanation: 'U (m×m), V (n×n) orthogonal; Σ diagonal with σ₁ ≥ σ₂ ≥ … ≥ 0.\nRank-k approximation: keep top-k singular values → best low-rank approx (Eckart-Young).\nUsed in PCA, pseudoinverse, latent semantic analysis, recommender systems.',
   },
   matrix_inverse: {
     summary: 'A^{-1} such that AA^{-1} = I; exists iff det(A) ≠ 0',
-    explanation: 'In practice: NEVER compute A^{-1} explicitly — use LU factorization to solve Ax = b.\n2×2: [[d, -b], [-c, a]] / (ad-bc). Condition number κ = σ_max/σ_min measures numerical stability.',
+    explanation: 'In numerical work, solve Ax = b with LU/QR/SVD instead of explicitly forming A^{-1}.\n2×2: [[d, -b], [-c, a]] / (ad-bc). Condition number κ = σ_max/σ_min measures numerical stability.',
   },
   determinant: {
     summary: 'Scalar measuring the signed volume scaling of the linear transformation A',
@@ -74,8 +74,8 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
 
   // ── PROBABILITY & STATISTICS ──────────────────────────────────
   probability_statistics: {
-    summary: 'The mathematics of uncertainty, random phenomena, and inference from data',
-    explanation: 'Core concepts: probability distributions, expectation, variance, Bayes theorem.\nFoundation for all of machine learning, signal processing, and scientific inference.',
+    summary: 'A random variable maps outcomes to values and is fully described by its distribution',
+    explanation: 'Discrete variables use a PMF P(X=x); continuous variables use a PDF f(x) and CDF F(x)=P(X<=x).\nExpectation and variance summarize the distribution, while conditioning updates it with evidence.\nThis is the core object behind datasets, likelihoods, Bayesian updates, and uncertainty-aware ML.',
   },
   random_variables: {
     summary: 'A function X: Ω → R mapping outcomes to real numbers; described by its distribution',
@@ -123,7 +123,7 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   },
   hypothesis_testing: {
     summary: 'Statistical procedure to decide between null H₀ and alternative H₁ using sample data',
-    explanation: 'p-value = P(data at least as extreme | H₀ true). Reject H₀ if p < α.\nType I error: false reject (rate = α). Type II error: false accept (rate = β).\nPower = 1−β. t-test, χ² test, ANOVA are common instances.',
+    explanation: 'p-value = P(data at least as extreme | H₀ true). Reject H₀ if p < α.\nType I error: false positive/reject H₀ when true (rate = α). Type II error: false negative/fail to reject H₀ when false (rate = β).\nPower = 1−β. t-test, χ² test, ANOVA are common instances.',
   },
   bayesian_inference: {
     summary: 'Update prior P(θ) with likelihood P(data|θ) → posterior P(θ|data) ∝ P(data|θ)P(θ)',
@@ -140,8 +140,8 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
 
   // ── OPTIMIZATION ──────────────────────────────────────────────
   optimization: {
-    summary: 'Finding the minimum (or maximum) of an objective function, possibly subject to constraints',
-    explanation: 'Unconstrained: ∇f(x*) = 0 (necessary); H ≻ 0 (sufficient for local min).\nConstrained: KKT conditions generalize this. Convex → local min is global.\nCore of all machine learning: training = solving an optimization problem.',
+    summary: 'An objective function turns a goal into a scalar value that an algorithm can minimize or maximize',
+    explanation: 'Training usually means choosing parameters θ that minimize loss L(θ).\nAt an unconstrained optimum, ∇L(θ*) = 0; with convex objectives, any local minimum is global.\nThis concept connects gradient descent, constraints, regularization, and model fitting.',
   },
   gradient_descent: {
     summary: 'θ ← θ − α∇L(θ): iterate in the direction of steepest descent to minimize loss',
@@ -202,8 +202,8 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
 
   // ── CALCULUS ──────────────────────────────────────────────────
   calculus: {
-    summary: 'The mathematics of continuous change: differentiation (rates) and integration (accumulation)',
-    explanation: 'Fundamental Theorem: differentiation and integration are inverse operations.\nKey for gradient computation, probability density integration, and change-of-variables.',
+    summary: 'A derivative is the local linear rate of change of a function at a point',
+    explanation: 'For one variable, df/dx is the slope of the best local line.\nFor many variables, partial derivatives assemble into the gradient, the direction of steepest increase.\nThis is the concrete concept used by backpropagation, sensitivity analysis, and numerical optimization.',
   },
   partial_derivatives: {
     summary: '∂f/∂x_i: rate of change of f w.r.t. x_i, holding all other variables constant',
@@ -211,7 +211,7 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   },
   chain_rule: {
     summary: 'd/dx f(g(x)) = f\'(g(x))·g\'(x) — the fundamental rule for differentiating compositions',
-    explanation: 'Multivariate: ∂z/∂t = Σ_i (∂z/∂x_i)(∂x_i/∂t).\nBackpropagation IS the chain rule applied recursively on computational graphs.\nEssential for every gradient computation in deep learning.',
+    explanation: 'Multivariate: ∂z/∂t = Σ_i (∂z/∂x_i)(∂x_i/∂t).\nBackpropagation is the chain rule applied recursively on computational graphs.\nEssential for every gradient computation in deep learning.',
   },
   taylor_expansion: {
     summary: 'Polynomial approximation of f near x₀: f(x) ≈ f(x₀) + f\'(x₀)(x−x₀) + f\'\'(x₀)(x−x₀)²/2! + …',
@@ -240,8 +240,8 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
 
   // ── ALGORITHMS ────────────────────────────────────────────────
   algorithms: {
-    summary: 'Step-by-step computational procedures that solve problems with guaranteed correctness and efficiency',
-    explanation: 'Analyze: time complexity T(n), space complexity S(n), correctness proof.\nDesign paradigms: divide-and-conquer, dynamic programming, greedy, backtracking.',
+    summary: 'Algorithmic complexity predicts how runtime or memory grows as input size increases',
+    explanation: 'Big-O abstracts away constants to compare growth rates: O(log n), O(n), O(n log n), O(n^2).\nA good algorithm is not just correct; it stays feasible as n grows.\nThis concept explains why binary search, hashing, dynamic programming, and graph algorithms matter in practice.',
   },
   sorting: {
     summary: 'Arrange elements in order; comparison-based lower bound is Ω(n log n)',
@@ -257,7 +257,7 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   },
   greedy_algorithms: {
     summary: 'Make the locally optimal choice at each step, achieving a global optimum when the greedy property holds',
-    explanation: 'Works when: greedy-choice property + optimal substructure.\nExamples that work: Huffman coding, Prim\'s/Kruskal\'s MST, activity selection, fractional knapsack.\nDoesNOT always work: 0/1 knapsack, coin change with arbitrary denominations.',
+    explanation: 'Works when: greedy-choice property + optimal substructure.\nExamples that work: Huffman coding, Prim\'s/Kruskal\'s MST, activity selection, fractional knapsack.\nDoes not always work: 0/1 knapsack, coin change with arbitrary denominations.',
   },
   divide_and_conquer: {
     summary: 'Split into sub-problems, solve recursively, combine: T(n) = aT(n/b) + f(n)',
@@ -528,8 +528,8 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
 
   // ── DEEP LEARNING ─────────────────────────────────────────────
   deep_learning: {
-    summary: 'Multi-layer neural networks that learn hierarchical representations from raw data',
-    explanation: 'Depth enables compositionality: early layers = edges, mid = shapes, late = objects.\nTrained end-to-end via backpropagation + gradient descent.\nKey innovations: ReLU, dropout, batch norm, residual connections, attention.',
+    summary: 'Deep models learn hierarchical representations by composing many nonlinear layers',
+    explanation: 'Each layer transforms the previous representation into features useful for the task.\nEarly layers often capture simple patterns, while later layers combine them into task-specific abstractions.\nThis is the concrete mechanism behind CNNs, transformers, representation learning, and transfer learning.',
   },
   neural_networks: {
     summary: 'Compositions of linear layers + nonlinear activations: output = σ(W_L σ(…σ(W_1 x + b_1)…) + b_L)',
@@ -643,6 +643,54 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     summary: 'Autoregressive decoder pre-trained on next-token prediction; excels at generation and in-context learning',
     explanation: 'Causal (left-to-right) attention: each token attends only to previous tokens.\nPre-trained on next-token prediction (language modeling) at scale.\nIn-context learning: provide examples in prompt — no gradient update needed.\nGPT-3: 175B parameters. GPT-4: multimodal.',
   },
+  kv_cache: {
+    summary: 'KV cache stores past attention keys and values so autoregressive decoding does not recompute the full prefix',
+    explanation: 'During generation, each new token only needs a fresh query; previous keys and values are reused from cache.\nThis reduces per-token work from recomputing the whole sequence to attending over cached state.\nThe tradeoff is memory: cache size grows with layers, heads, sequence length, batch size, and hidden dimension.',
+  },
+  paged_attention: {
+    summary: 'Paged attention stores KV cache in fixed-size memory blocks so serving can reuse memory without large contiguous allocations',
+    explanation: 'Long LLM requests have variable-length KV caches, which causes fragmentation and wasted GPU memory.\nPaged attention treats KV cache like virtual memory pages: logical token positions map to physical cache blocks.\nThis enables higher throughput serving, efficient batching, and cheaper handling of many concurrent generations.',
+  },
+  flash_attention_advanced: {
+    summary: 'Flash attention computes exact attention with tiling to minimize high-bandwidth memory reads and writes',
+    explanation: 'Standard attention materializes the full n by n score matrix, which is memory-expensive.\nFlash attention streams Q, K, and V through SRAM-sized tiles and maintains online softmax statistics.\nIt preserves exact attention while reducing memory traffic, making long-context training and inference faster.',
+  },
+  rotary_position_embeddings: {
+    summary: 'RoPE encodes token position by rotating query and key vectors so attention depends on relative offsets',
+    explanation: 'Instead of adding a position vector, RoPE applies a position-dependent rotation to Q and K dimensions.\nThe dot product between rotated vectors naturally includes relative position information.\nThis is why many decoder LLMs use RoPE for length generalization and stable causal attention.',
+  },
+  grouped_query_attention: {
+    summary: 'Grouped-query attention shares key-value heads across groups of query heads to reduce KV cache memory',
+    explanation: 'Multi-head attention gives each query head its own K and V heads; multi-query attention shares one K/V set.\nGrouped-query attention is the middle ground: several query heads share one K/V group.\nIt preserves much of MHA quality while improving decoding speed and lowering memory pressure.',
+  },
+  sliding_window_attention: {
+    summary: 'Sliding window attention restricts each token to a local context window to make long sequences cheaper',
+    explanation: 'Full attention costs O(n^2) because every token attends to every other token.\nA sliding window lets each token attend only to nearby tokens, reducing compute and memory toward O(nw).\nGlobal tokens, recurrence, or retrieval are often added when the model still needs long-range information.',
+  },
+  speculative_decoding: {
+    summary: 'Speculative decoding uses a small draft model to propose tokens that a larger model verifies in parallel',
+    explanation: 'The draft model cheaply generates several candidate next tokens.\nThe target model evaluates those candidates in one parallel pass and accepts the longest valid prefix.\nWhen the draft is accurate, generation becomes faster without changing the target model distribution.',
+  },
+  continuous_batching: {
+    summary: 'Continuous batching keeps an inference batch full by adding and removing requests at token boundaries',
+    explanation: 'Static batching waits for all requests in a batch to finish, wasting GPU slots on short or completed generations.\nContinuous batching schedules active sequences every decoding step and admits new requests as others finish.\nIt is a core serving technique for high-throughput LLM APIs.',
+  },
+  mixture_of_experts_routing: {
+    summary: 'MoE routing activates only a small subset of expert feed-forward networks for each token',
+    explanation: 'A router scores experts and sends each token to the top-k experts, often k=1 or k=2.\nThis increases total parameter count without activating all parameters per token.\nThe hard parts are load balancing, routing stability, expert capacity, and distributed all-to-all communication.',
+  },
+  lora_adapters: {
+    summary: 'LoRA fine-tunes a model by learning low-rank update matrices instead of changing the full weight matrix',
+    explanation: 'For a frozen weight W, LoRA learns a small update delta W = BA where rank r is much smaller than model dimension.\nOnly the adapter weights train, which reduces memory and allows multiple task adapters per base model.\nAt inference, LoRA updates can be merged into the base weights or loaded dynamically.',
+  },
+  rlhf_preference_modeling: {
+    summary: 'Preference modeling trains a reward model from ranked responses so an LLM can optimize for human preference',
+    explanation: 'Humans compare candidate answers; the reward model learns which response is preferred.\nRLHF then adjusts the policy to increase reward while staying close to the base model.\nThis is a concrete alignment mechanism, but it can over-optimize reward model blind spots if not monitored.',
+  },
+  retrieval_augmented_generation: {
+    summary: 'RAG retrieves external documents at generation time and conditions the model on that evidence',
+    explanation: 'A retriever selects relevant chunks from a knowledge base, then the generator uses them in the prompt or context.\nThis separates factual memory from model weights and makes updates cheaper than retraining.\nThe main failure modes are poor chunking, weak retrieval, missing citations, and the model ignoring evidence.',
+  },
   diffusion_models: {
     summary: 'Generate data by learning to reverse a gradual Gaussian noise process over T steps',
     explanation: 'Forward: q(x_t|x_0) = N(√ᾱ_t x_0, (1−ᾱ_t)I). Adds noise over T steps.\nReverse: learn ε_θ(x_t, t) to predict the noise added.\nLoss: L = E[‖ε − ε_θ(x_t, t)‖²]. Stable training; slow sampling (DDIM speeds it up).',
@@ -698,8 +746,8 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     explanation: 'Bias = E[f̂(x)] − f(x): systematic error from wrong model assumptions.\nVariance = E[(f̂ − E[f̂])²]: sensitivity to training data fluctuations.\nRegularization increases bias to reduce variance. Cross-validation selects the optimal tradeoff.',
   },
   information_theory: {
-    summary: 'Quantifies information, uncertainty, and communication limits using entropy and divergence',
-    explanation: 'Entropy H(X) = −Σ p log p. Mutual information I(X;Y) = H(X) − H(X|Y).\nChannel capacity C = max_p I(X;Y) (Shannon, 1948).\nKL divergence, cross-entropy, rate-distortion theory underpin all of ML theory.',
+    summary: 'Entropy H(X) measures the average uncertainty or surprise in a random variable',
+    explanation: 'For a discrete variable, H(X) = -Σ p(x) log p(x).\nHigher entropy means outcomes are harder to predict; lower entropy means probability mass is concentrated.\nEntropy connects compression, decision trees, mutual information, KL divergence, and cross-entropy loss.',
   },
   kl_divergence: {
     summary: 'KL(P‖Q) = Σ P(x) log[P(x)/Q(x)] ≥ 0: information lost when using Q to approximate P',
@@ -895,6 +943,18 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     summary: 'DRAM stores one bit per capacitor+transistor (dense, slow, volatile); SRAM uses 6 transistors (fast, stable, larger)',
     explanation: 'DRAM (Dynamic RAM): 1T1C cell. Capacitor charge = 1, discharged = 0. Must refresh every ~64 ms (charge leaks).\nRead destroys data → sense amplifier restores. Access time ~10–60 ns. Density: ~6F² per bit.\nSRAM (Static RAM): 6T cell (two cross-coupled inverters + 2 access FETs). Holds data without refresh.\nSRAM faster (< 1 ns), lower power during read, but ~60–80F² per bit → used for cache.\nDRAM types: DDR5 (up to 6400 MT/s), LPDDR5 (mobile), HBM (3D stacked, high bandwidth).\nEDO → SDRAM → DDR → DDR2/3/4/5: each generation doubles peak bandwidth via wider I/O or faster clocking.',
   },
+  six_transistor_sram_cell: {
+    summary: 'A 6T SRAM cell stores one bit using two cross-coupled inverters plus two access transistors',
+    explanation: 'The cross-coupled inverters form a bistable latch: one internal node is high while the other is low.\nWordline enables the two access transistors, connecting the cell to complementary bitlines BL and BLB.\nThe 6T cell is fast and stable enough for CPU caches, but it costs much more area than a DRAM bitcell.',
+  },
+  sram_read_write_margins: {
+    summary: 'SRAM margins measure whether a bitcell can be read without flipping and written without failing',
+    explanation: 'Read static noise margin checks that connecting the cell to precharged bitlines does not disturb the stored value.\nWrite margin checks that the write drivers can overpower the cell inverters and flip the bit.\nProcess variation, low voltage, and transistor sizing trade off read stability, write ability, leakage, and area.',
+  },
+  sram_sense_amplifier: {
+    summary: 'An SRAM sense amplifier detects a tiny voltage difference between complementary bitlines and resolves it to a logic value',
+    explanation: 'Before a read, BL and BLB are precharged high; the selected cell weakly discharges one side.\nThe sense amplifier turns a small differential voltage into a full-swing digital 0 or 1.\nGood sense-amp design reduces read latency and bitline energy, which dominate large cache arrays.',
+  },
   nand_flash: {
     summary: 'Non-volatile floating-gate or charge-trap cell stores charge to shift Vth; erased in blocks, written in pages',
     explanation: 'NAND Flash: cells connected in series strings (~32–128 cells). Dense, sequential access optimized.\nSLC (1 bit/cell, fast/durable), MLC (2), TLC (3), QLC (4 bits/cell, slow, fewer P/E cycles).\nP/E (program/erase): program via Fowler-Nordheim tunneling (FN) or hot-electron injection. Erase: FN tunneling removes stored charge.\nEndurance: SLC ~100 k P/E cycles, TLC ~1000–3000, QLC ~100–300.\n3D NAND (V-NAND): cells stacked vertically (64–256+ layers) → higher density without shrinking feature size.\nWear leveling + ECC required to manage cell degradation. Over-provisioning extends lifespan.\nNAND vs NOR Flash: NAND denser/faster sequential; NOR allows random byte-level reads (used for firmware/XIP).',
@@ -964,6 +1024,42 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
   cache_hierarchy: {
     summary: 'Multi-level cache (L1/L2/L3) exploits temporal and spatial locality to bridge CPU speed and DRAM latency gap',
     explanation: 'Memory hierarchy: Registers (~1 cycle) → L1 (~4 cycles, 32–64 KB) → L2 (~12 cycles, 256 KB–1 MB) → L3 (~40 cycles, 4–64 MB) → DRAM (~100 ns, GBs).\nLocality: temporal (recently used data reused soon), spatial (nearby data accessed together) → cache prefetching.\nCache organization: sets × ways × block_size. n-way set-associative: index selects set, tag identifies block.\nReplacement policy: LRU (least recently used), pseudo-LRU, FIFO, random.\nWrite policy: write-through (update memory on every write), write-back (mark dirty, flush on eviction). Write-allocate vs. no-write-allocate on miss.\nAMDT (Average Memory Access Time): AMAT = Hit_time + Miss_rate × Miss_penalty. Reducing miss rate or penalty is key.',
+  },
+  cache_tag_index_offset: {
+    summary: 'A cache address splits into tag, index, and block offset to locate and validate cached data',
+    explanation: 'The offset selects a byte within a cache line, the index selects a set, and the tag verifies which memory block is stored there.\nOn a lookup, the cache reads all ways in the indexed set and compares tags in parallel.\nThis decomposition explains conflict misses, cache line size effects, and why alignment matters.',
+  },
+  set_associative_cache: {
+    summary: 'A set-associative cache maps each memory block to one set but allows it to occupy any way in that set',
+    explanation: 'Direct-mapped caches have one possible location per block; fully associative caches allow any location.\nSet associativity is the practical middle ground: fewer conflict misses than direct-mapped with lower cost than fully associative.\nReplacement policy decides which way to evict when all ways in a set are full.',
+  },
+  write_back_cache_policy: {
+    summary: 'A write-back cache updates lower memory only when a dirty cache line is evicted',
+    explanation: 'Writes update the cache line and set a dirty bit instead of immediately writing DRAM.\nThis reduces memory bandwidth for repeated writes to the same line, but eviction becomes more complex.\nWrite-back caches need coherence and ordering rules so other cores and devices see correct data.',
+  },
+  victim_cache: {
+    summary: 'A victim cache is a small buffer that catches recently evicted cache lines to reduce conflict misses',
+    explanation: 'When an L1 line is evicted, it moves into the victim cache instead of being discarded immediately.\nIf the processor soon accesses that line again, the victim cache supplies it faster than the next cache level.\nThis is especially useful for direct-mapped or low-associativity caches with recurring index conflicts.',
+  },
+  last_level_cache_llc: {
+    summary: 'The last-level cache is the final on-chip cache before requests go to DRAM or external memory',
+    explanation: 'LLC is usually shared across cores and absorbs misses from private L1/L2 caches.\nIt reduces off-chip bandwidth demand and can act as a coherence point for multicore systems.\nLLC design trades capacity, latency, associativity, slice hashing, and fairness between cores.',
+  },
+  system_level_cache: {
+    summary: 'A system-level cache sits beyond CPU clusters to cache memory traffic from CPUs, GPUs, NPUs, and DMA engines',
+    explanation: 'SoCs often have many masters sharing DRAM: CPU cores, GPU, display, camera ISP, modem, and accelerators.\nA system-level cache reduces DRAM bandwidth and power by capturing shared or reused data across the whole chip.\nIt must handle QoS, coherency domains, security attributes, and traffic from devices that may not use CPU caches.',
+  },
+  scratchpad_memory: {
+    summary: 'Scratchpad memory is software-managed on-chip SRAM used when predictable latency matters more than automatic caching',
+    explanation: 'Unlike a cache, a scratchpad does not decide what to keep; software or DMA explicitly moves data in and out.\nThis removes cache miss unpredictability and tag overhead, which is valuable in DSPs, GPUs, and real-time systems.\nThe cost is programmability: kernels must tile data and orchestrate transfers carefully.',
+  },
+  memory_controller_scheduling: {
+    summary: 'A memory controller schedules DRAM commands to balance row-buffer locality, latency, bandwidth, and fairness',
+    explanation: 'DRAM access is organized into banks, rows, and columns; an open row can be served faster than a closed-row miss.\nSchedulers often prioritize row hits but must avoid starving other cores or real-time devices.\nGood controllers manage refresh, bank conflicts, read/write turnarounds, QoS, and power states.',
+  },
+  cache_prefetcher_design: {
+    summary: 'A cache prefetcher predicts future memory accesses and fetches lines before the CPU demands them',
+    explanation: 'Stride prefetchers learn regular address deltas; stream prefetchers detect sequential access; spatial prefetchers fetch neighboring lines.\nA useful prefetch arrives early enough to hide latency without evicting valuable data.\nBad prefetching wastes bandwidth, pollutes caches, and can hurt latency-sensitive workloads.',
   },
   cache_coherence_mesi: {
     summary: 'MESI protocol ensures multi-core caches maintain a consistent view of shared memory via four states',

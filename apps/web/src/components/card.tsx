@@ -21,6 +21,11 @@ const DOMAIN_COLORS: Record<string, string> = {
 export default function Card({ card, revealed = true }: CardProps) {
   const domainStyle = DOMAIN_COLORS[card.domain] ?? DOMAIN_COLORS.other;
   const levelMeta = getCardLevelMeta(card.level);
+  const frontPrompts = [
+    'Define it in one sentence',
+    'Name the core formula or rule',
+    'Connect it to one adjacent concept',
+  ];
 
   return (
     <article
@@ -40,14 +45,33 @@ export default function Card({ card, revealed = true }: CardProps) {
         {card.title}
       </h2>
 
-      <p className="text-gray-600 leading-relaxed flex-grow">
-        {card.summary}
-      </p>
+      {revealed ? (
+        <p className="text-gray-600 leading-relaxed flex-grow">
+          {card.summary}
+        </p>
+      ) : (
+        <section
+          aria-label="Recall prompts"
+          className="rounded-lg border border-blue-100 bg-blue-50 p-4"
+        >
+          <h3 className="text-xs font-bold uppercase tracking-widest text-blue-800">
+            Try from memory
+          </h3>
+          <ul className="mt-3 space-y-2 text-sm text-blue-950">
+            {frontPrompts.map((prompt) => (
+              <li key={prompt} className="flex gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
+                <span>{prompt}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {card.explanation && revealed && (
         <section aria-label="Key facts and formulas" className="bg-amber-50 border border-amber-100 p-4 rounded-lg text-sm text-gray-800 overflow-y-auto max-h-48 custom-scrollbar">
            <h3 className="text-xs font-bold text-amber-800 uppercase tracking-widest mb-2">
-             💡 Key Facts & Formulas
+             Key facts and formulas
            </h3>
            <MathText text={card.explanation} className="text-sm leading-relaxed" />
         </section>

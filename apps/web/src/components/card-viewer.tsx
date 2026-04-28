@@ -252,7 +252,6 @@ export default function CardViewer({
   if (!card) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center max-w-sm mx-auto bg-white border border-gray-100 rounded-2xl shadow-sm mt-4">
-        <div className="mb-4 text-5xl" aria-hidden="true">🎉</div>
         <p className="text-xl font-bold text-gray-900">
           {mode === 'review' ? "You're all caught up on review queue items!" : "All caught up on new/unclear cards!"}
         </p>
@@ -324,11 +323,11 @@ export default function CardViewer({
           /* ── Learn New: global stats, no bar ── */
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 text-xs font-medium">
-              <span className="text-emerald-600">✓ {stats.explainable} explainable</span>
-              <span className="text-amber-600">◐ {stats.unclear} unclear</span>
+              <span className="text-emerald-600">{stats.explainable} explainable</span>
+              <span className="text-amber-600">{stats.unclear} needs review</span>
             </div>
             <span className="text-xs text-gray-500" aria-live="polite">
-              {reviewedCount > 0 ? `${reviewedCount} this session` : 'Learning new'}
+              {reviewedCount > 0 ? `${reviewedCount} rated this session` : 'Recall first, reveal second'}
             </span>
           </div>
         ) : (
@@ -336,7 +335,7 @@ export default function CardViewer({
           <>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-medium text-blue-600">
-                🔄 Reviewing learning queue
+                Reviewing learning queue
               </span>
               <span className="text-xs text-gray-500" aria-live="polite">
                 {Math.min(reviewedThisRound, reviewPool)} / {reviewPool} reviewed
@@ -357,7 +356,6 @@ export default function CardViewer({
             </div>
             {reviewRoundCompleted && (
               <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2" role="status" aria-live="polite">
-                <span className="text-base" aria-hidden="true">🎉</span>
                 <p className="text-xs font-semibold text-emerald-700">
                   Round complete! You went through all {reviewPool} card{reviewPool !== 1 ? 's' : ''} — starting next round.
                 </p>
@@ -494,12 +492,12 @@ export default function CardViewer({
       {/* Action hint */}
       <p className="mt-1 text-xs text-gray-400 text-center">
         <span className="sm:hidden">
-          {!revealed ? 'Tap "Show Answer" to reveal' : 'Tap Unclear or Can Explain to rate'}
+          {!revealed ? 'Try explaining first, then reveal' : 'Rate only after checking your explanation'}
         </span>
         <span className="hidden sm:inline">
           {!revealed
-            ? <><kbd className="font-mono">Space</kbd> or <kbd className="font-mono">Enter</kbd> to reveal · <kbd className="font-mono">→</kbd> skip</>
-            : <><kbd className="font-mono">1</kbd> can explain · <kbd className="font-mono">2</kbd> unclear · {undoVisible && <><kbd className="font-mono">Z</kbd> undo · </>}<kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
+            ? <><kbd className="font-mono">Space</kbd> or <kbd className="font-mono">Enter</kbd> reveal after recall · <kbd className="font-mono">→</kbd> skip</>
+            : <><kbd className="font-mono">1</kbd> can explain · <kbd className="font-mono">2</kbd> needs review · {undoVisible && <><kbd className="font-mono">Z</kbd> undo · </>}<kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
           }
         </span>
       </p>
