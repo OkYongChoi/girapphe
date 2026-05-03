@@ -1,11 +1,11 @@
 import Link from 'next/link';
 import { logoutAction } from '@/actions/auth-actions';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, type AuthUser } from '@/lib/auth';
 import NavLinks from '@/components/nav-links';
 import BrandLogo from '@/components/brand-logo';
 
-export default async function Navbar() {
-  const user = await getCurrentUser();
+export default async function Navbar({ user: initialUser }: { user?: AuthUser | null } = {}) {
+  const user = initialUser === undefined ? await getCurrentUser() : initialUser;
 
   return (
     <>

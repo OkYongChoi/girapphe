@@ -1235,7 +1235,7 @@ export async function getAllCardsWithStatus(options?: {
   const includeGenerated = options?.includeGenerated ?? false;
   const generatedLimit = Math.max(0, Math.min(options?.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
 
-  if (!process.env.DATABASE_URL) {
+  if (user.isGuest || !process.env.DATABASE_URL) {
     const sourceCards = limitCardsForGuest(MOCK_CARDS, user.isGuest);
     const cards = includeGenerated
       ? sourceCards
@@ -1408,6 +1408,7 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
         ) AS known_count,
         COUNT(*) AS total_count
       FROM user_card_states
+      WHERE user_id NOT LIKE 'guest\\_%' ESCAPE '\\'
       GROUP BY user_id
       ORDER BY known_count DESC, total_count DESC, user_id ASC
       LIMIT 100;

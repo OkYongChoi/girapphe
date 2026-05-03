@@ -22,25 +22,22 @@ export default function NavLinks() {
 
   return (
     <nav aria-label="Main navigation">
-      <ul className="no-scrollbar flex items-center gap-1 overflow-x-auto text-sm font-medium text-slate-700">
-        {NAV_ITEMS.map((item, index) => {
+      <ul className="no-scrollbar flex items-center gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1 text-sm font-medium text-slate-600">
+        {NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item.href);
           return (
-            <li key={item.href} className="flex items-center gap-1 shrink-0">
+            <li key={item.href} className="shrink-0">
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
-                className={`rounded-md px-2 py-1 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                className={`inline-flex min-h-8 items-center rounded-md px-3 py-1.5 transition focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white ${
                   active
-                    ? 'bg-blue-50 text-blue-700 font-semibold'
-                    : 'hover:bg-slate-100 hover:text-slate-900'
+                    ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                    : 'hover:bg-white/70 hover:text-slate-950'
                 }`}
               >
                 {item.label}
               </Link>
-              {index < NAV_ITEMS.length - 1 ? (
-                <span aria-hidden="true" className="text-slate-200 select-none">•</span>
-              ) : null}
             </li>
           );
         })}

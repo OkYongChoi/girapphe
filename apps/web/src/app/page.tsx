@@ -7,6 +7,8 @@ import { getUserCardDomainProgress, getUserStats, type UserCardDomainProgress } 
 import { getUserKnowledgeItems } from '@/actions/user-knowledge-actions';
 import GuestStartButton from '@/components/guest-start-button';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
+import { getDbGraphDataForUser } from '@/lib/knowledge-graph-db';
+import type { ForceGraphData } from '@stem-brain/graph-engine';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +20,7 @@ const HOME_FALLBACK_DOMAIN_PROGRESS: HomeDomainProgressRow[] = [
 ];
 
 const HOME_DOMAIN_TONES = ['bg-emerald-300', 'bg-sky-300', 'bg-amber-300', 'bg-cyan-300'] as const;
+const HOME_DISCIPLINES = ['Biology', 'Computer science', 'Semiconductor', 'Bio-chemistry', 'Medicine', 'Statistics', 'Economics', 'Architecture'];
 
 const HOME_FALLBACK_STATS = {
   explainable: 18,
@@ -25,11 +28,22 @@ const HOME_FALLBACK_STATS = {
   notes: 5,
 };
 
+const HOME_DEMO_GRAPH_STATS = {
+  domains: 8,
+  concepts: 42,
+  links: 58,
+};
+
 export default async function HomePage() {
   const user = await getCurrentUser();
-  const [userStats, userKnowledgeItems, domainProgress] = user
-    ? await Promise.all([getUserStats(), getUserKnowledgeItems(), getUserCardDomainProgress()])
-    : [null, [], [] as UserCardDomainProgress[]];
+  const [userStats, userKnowledgeItems, domainProgress, userGraphData] = user
+    ? await Promise.all([
+        getUserStats(),
+        getUserKnowledgeItems(),
+        getUserCardDomainProgress(),
+        getHomeUserGraphData(user.id),
+      ])
+    : [null, [], [] as UserCardDomainProgress[], null];
   const sceneStats = {
     explainable: userStats?.explainable ?? HOME_FALLBACK_STATS.explainable,
     review: userStats?.unclear ?? HOME_FALLBACK_STATS.review,
@@ -46,7 +60,7 @@ export default async function HomePage() {
         <div className="home-map-contours absolute inset-0 opacity-20" />
       </div>
       <div aria-hidden="true" className="home-scroll-progress fixed left-0 top-0 z-[70] h-0.5 w-full origin-left bg-gradient-to-r from-cyan-200 via-emerald-200 to-amber-200" />
-      <Navbar />
+      <Navbar user={user} />
 
       <section className="home-snap-section home-hero-section relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col justify-start px-6 pb-14 pt-10 md:pb-20 md:pt-14">
         <div className="home-hero-stage relative z-10 grid min-w-0 gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(20rem,0.55fr)] lg:items-start">
@@ -62,12 +76,22 @@ export default async function HomePage() {
               Learn with focused concept cards, save weak spots for review, and see your progress across science, engineering, medicine, computing, economics, and design.
             </p>
 
-            <div className="home-discipline-rail mt-7 flex max-w-2xl gap-2 overflow-hidden text-xs font-semibold uppercase text-slate-300">
-              {['Biology', 'Computer science', 'Semiconductor', 'Bio-chemistry', 'Medicine', 'Statistics', 'Economics', 'Architecture'].map((label) => (
-                <span key={label} className="shrink-0 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 backdrop-blur">
-                  {label}
-                </span>
-              ))}
+            <div className="home-discipline-rail mt-7 max-w-2xl overflow-hidden text-xs font-semibold uppercase text-slate-300" data-carousel="disciplines">
+              <div className="home-discipline-track flex w-max" aria-label="STEM disciplines" style={{ animationName: 'homeDisciplineCarousel' }}>
+                {[0, 1].map((groupIndex) => (
+                  <div
+                    key={groupIndex}
+                    aria-hidden={groupIndex === 1 ? 'true' : undefined}
+                    className="home-discipline-group flex shrink-0 gap-2 pr-2"
+                  >
+                    {HOME_DISCIPLINES.map((label) => (
+                      <span key={`${label}-${groupIndex}`} className="shrink-0 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 backdrop-blur">
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -165,20 +189,43 @@ export default async function HomePage() {
                 Concepts from biology, computer science, semiconductors, medicine, statistics, economics, architecture, and chemistry connect in one moving knowledge graph.
               </p>
             </div>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <MiniMetric value={sceneStats.explainable} label="Explainable" />
-              <MiniMetric value={sceneStats.review} label="Review" />
-              <MiniMetric value={sceneStats.notes} label={sceneStats.notes === 1 ? 'Note' : 'Notes'} />
-            </div>
+            {isPersonalized ? (
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <MiniMetric value={sceneStats.explainable} label="Explainable" />
+                <MiniMetric value={sceneStats.review} label="Review" />
+                <MiniMetric value={sceneStats.notes} label={sceneStats.notes === 1 ? 'Note' : 'Notes'} />
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <MiniMetric value={HOME_DEMO_GRAPH_STATS.domains} label="Domains" />
+                <MiniMetric value={HOME_DEMO_GRAPH_STATS.concepts} label="Concepts" />
+                <MiniMetric value={HOME_DEMO_GRAPH_STATS.links} label="Links" />
+              </div>
+            )}
           </div>
 
           <div className="home-graph-frame relative mt-8 h-[34rem] overflow-hidden rounded-lg border border-white/10 bg-slate-950/60 shadow-2xl shadow-black/30 md:h-[38rem]">
-            <HomeGraphScene explainable={sceneStats.explainable} unclear={sceneStats.review} notes={sceneStats.notes} />
+            <HomeGraphScene
+              demo={!isPersonalized}
+              explainable={sceneStats.explainable}
+              unclear={sceneStats.review}
+              notes={sceneStats.notes}
+              personalizedGraphData={userGraphData}
+            />
           </div>
         </div>
       </section>
     </main>
   );
+}
+
+async function getHomeUserGraphData(userId: string): Promise<ForceGraphData | null> {
+  try {
+    return await getDbGraphDataForUser(userId);
+  } catch (error) {
+    console.error('Error loading home user graph:', error);
+    return null;
+  }
 }
 
 function MiniMetric({ value, label }: { value: number; label: string }) {

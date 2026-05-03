@@ -212,7 +212,12 @@ html {
 }
 
 .home-discipline-rail {
-  mask-image: linear-gradient(90deg, black 0%, black 82%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
+}
+
+.home-discipline-track {
+  animation: homeDisciplineCarousel 6s linear infinite;
+  will-change: transform;
 }
 
 .home-discipline-rail span {
@@ -552,6 +557,16 @@ html {
   }
 }
 
+@keyframes homeDisciplineCarousel {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
 @keyframes homeSpaceGridShift {
   from {
     background-position: 0 0, 0 0;
@@ -741,7 +756,9 @@ html {
   .home-graph-heading,
   .home-graph-frame,
   .home-hero-copy,
-  .home-hero-visual {
+  .home-hero-visual,
+  .home-discipline-track,
+  .home-discipline-rail span {
     animation: none;
   }
 }
