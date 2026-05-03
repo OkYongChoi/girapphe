@@ -16,7 +16,7 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
 
   return (
     <main id="main-content" className="min-h-screen bg-gray-50 flex flex-col">
-      <Navbar />
+      <Navbar user={actor.isGuest ? null : actor} />
 
       <div className="mx-auto w-full max-w-lg flex-grow px-4 py-4 md:py-6">
         {/* Header */}
