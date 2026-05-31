@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "dev": "turbo dev",
-    "build": "turbo build",
+    "build": "pnpm --filter @stem-brain/web build",
+    "build:all": "turbo build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "check": "turbo check",
