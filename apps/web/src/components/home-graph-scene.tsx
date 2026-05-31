@@ -198,6 +198,12 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
     return () => window.clearInterval(intervalId);
   }, [demo, demoGraphClicked]);
 
+  useEffect(() => {
+    return () => {
+      document.body.style.cursor = '';
+    };
+  }, []);
+
   const handlePointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
     const element = wrapperRef.current;
     if (!element) return;
@@ -268,7 +274,7 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
       const links: any[] = nodes
         .filter((node) => node.id !== 'stem-brain')
         .map((node, index) => ({
-          source: index % 5 === 0 ? nodes[Math.max(1, index - 2)].id : 'stem-brain',
+          source: index > 0 && index % 5 === 0 ? nodes[Math.max(1, index - 2)].id : 'stem-brain',
           target: node.id,
           active: node.group === activeGroup,
           color: node.group === activeGroup ? 'rgba(125, 211, 252, 0.72)' : 'rgba(226, 232, 240, 0.3)',
