@@ -21,6 +21,45 @@ npm run typecheck
 npm run check
 ```
 
+## Harness
+
+Use the harness before pushing work for review:
+
+```bash
+pnpm harness
+```
+
+The local harness runs:
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm --filter @stem-brain/web build
+pnpm --filter @stem-brain/mobile typecheck
+```
+
+CI should use the frozen-lockfile harness:
+
+```bash
+pnpm harness:ci
+```
+
+Deployment readiness should also run the Cloudflare/OpenNext build:
+
+```bash
+pnpm harness:deploy
+```
+
+Release handoff checklist:
+
+```bash
+git status --short
+git push
+```
+
+After pushing, wait for CI to finish, then deploy through the configured Cloudflare
+pipeline or run the deployment command for the target environment.
+
 Optional smoke test (app must be running):
 
 ```bash
@@ -42,8 +81,8 @@ When changing `/admin`, also update:
 
 ## Graph Taxonomy Change Workflow
 
-1. Update nodes in `src/data/graph-nodes.ts`.
-2. Update edges in `src/data/graph-edges.ts`.
+1. Update nodes in `packages/graph-engine/src/data/graph-nodes.ts`.
+2. Update edges in `packages/graph-engine/src/data/graph-edges.ts`.
 3. Validate references (all edge endpoints must exist).
 4. Check cycle policy:
    - keep `prerequisite` edges acyclic-first
@@ -58,8 +97,8 @@ When changing `/admin`, also update:
 
 ## Diffusion Logic Change Workflow
 
-1. Update `src/lib/diffusion-engine.ts`.
-2. Confirm tri-state normalization remains intact in `src/lib/graph-store.ts`.
+1. Update `packages/graph-engine/src/diffusion-engine.ts`.
+2. Confirm tri-state normalization remains intact in `packages/graph-engine/src/graph-store.ts`.
 3. Verify quiz flow still runs: direct update -> propagation -> diffusion.
 4. Update algorithm notes in `docs/reference/knowledge-graph-spec.md`.
 

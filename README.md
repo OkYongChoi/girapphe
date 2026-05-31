@@ -22,6 +22,7 @@ This project implements an AI/CS knowledge graph MVP with:
 - Docs index: `docs/README.md`
 - Tech stack: `docs/tech-stack.md`
 - Architecture overview: `docs/architecture/overview.md`
+- Mobile app architecture: `docs/apps/mobile.md`
 - API spec: `docs/reference/api-spec.md`
 - Data model: `docs/reference/data-model.md`
 - Knowledge graph spec: `docs/reference/knowledge-graph-spec.md`
@@ -30,17 +31,18 @@ This project implements an AI/CS knowledge graph MVP with:
 
 ## Key Implementation Files
 
-- Graph taxonomy: `src/data/graph-nodes.ts`
-- Graph edges: `src/data/graph-edges.ts`
-- Types/schema contracts: `src/lib/graph-types.ts`
-- In-memory graph store: `src/lib/graph-store.ts`
-- Diffusion engine: `src/lib/diffusion-engine.ts`
+- Graph taxonomy: `packages/graph-engine/src/data/graph-nodes.ts`
+- Graph edges: `packages/graph-engine/src/data/graph-edges.ts`
+- Types/schema contracts: `packages/graph-engine/src/graph-types.ts`
+- In-memory graph store: `packages/graph-engine/src/graph-store.ts`
+- Diffusion engine: `packages/graph-engine/src/diffusion-engine.ts`
+- Mobile app: `apps/mobile`
 - API routes:
-  - `src/app/api/graph/route.ts`
-  - `src/app/api/quiz_result/route.ts`
-  - `src/app/api/knowledge-profile/route.ts`
-  - `src/app/api/knowledge-context/route.ts`
-- PostgreSQL schema: `schema.sql`
+  - `apps/web/src/app/api/graph/route.ts`
+  - `apps/web/src/app/api/quiz_result/route.ts`
+  - `apps/web/src/app/api/knowledge-profile/route.ts`
+  - `apps/web/src/app/api/knowledge-context/route.ts`
+- PostgreSQL schema: `apps/web/schema.sql`
 
 ## API
 
@@ -127,6 +129,33 @@ npm run db:studio
 - Navbar highlights the active route for signed-in users.
 - Home page shows quick progress summary for signed-in users.
 - Saved/My Knowledge filters include a `Clear` action.
+
+## Harness
+
+Before pushing a branch, run:
+
+```bash
+pnpm harness
+```
+
+CI should run:
+
+```bash
+pnpm harness:ci
+```
+
+Before deployment, also run:
+
+```bash
+pnpm harness:deploy
+```
+
+Push is part of release handoff, not the repeatable validation script:
+
+```bash
+git status --short
+git push
+```
 
 ## Auth Configuration
 
