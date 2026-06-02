@@ -18,9 +18,12 @@ type Props = {
   onClose?: () => void;
 };
 
+type ColorMode = 'progress' | 'domain';
+
 type SelectedNode = {
   id: string;
   name: string;
+  group?: 'card' | 'domain';
   desc?: string;
   mainContent?: string;
   domain?: string;
@@ -30,20 +33,27 @@ type SelectedNode = {
   wiki_url?: string;
   related_concepts?: string[];
   color?: string;
+  conceptCount?: number;
 };
 
 const STATUS_COLORS: Record<string, string> = {
   known: '#4ade80',
   saved: '#60a5fa',
-  unknown: '#f87171',
-  unseen: '#6b7280',
+  unseen: '#9ca3af',
 };
+
+const DOMAIN_HUB_PROGRESS_COLOR = '#cbd5e1';
+const MUTED_LINK_COLOR = 'rgba(148, 163, 184, 0.28)';
 
 export default function KnowledgeGraph3D({ cards, onClose }: Props) {
   const router = useRouter();
   const [isClient, setIsClient] = useState(false);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
+  const [query, setQuery] = useState('');
+  const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
+  const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
+  const [colorMode, setColorMode] = useState<ColorMode>('progress');
   const fgRef = useRef<any>(null);
 
   useEffect(() => {
@@ -69,35 +79,94 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
     [cards]
   );
 
+  const filteredCards = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return cards.filter((card) => {
+      const domains = card.domains && card.domains.length > 0 ? card.domains : [card.domain];
+      const matchesQuery = normalizedQuery.length === 0
+        || card.title.toLowerCase().includes(normalizedQuery)
+        || card.summary.toLowerCase().includes(normalizedQuery);
+      const matchesDomain = selectedDomain === 'all' || domains.includes(selectedDomain);
+      const matchesStatus =
+        selectedStatus === 'all'
+          ? true
+          : selectedStatus === 'unstarted'
+            ? card.status === null
+            : card.status === selectedStatus;
+
+      return matchesQuery && matchesDomain && matchesStatus;
+    });
+  }, [cards, query, selectedDomain, selectedStatus]);
+
+  const visibleDomainList = useMemo(
+    () => Array.from(new Set(filteredCards.flatMap((card) => card.domains && card.domains.length > 0 ? card.domains : [card.domain]))).sort(),
+    [filteredCards]
+  );
+
   const graphData = useMemo(() => {
     const nodes: any[] = [];
     const links: any[] = [];
     const linkSet = new Set<string>();
+    const domainCounts = new Map<string, number>();
+
+    filteredCards.forEach((card) => {
+      const domains = card.domains && card.domains.length > 0 ? card.domains : [card.domain];
+      for (const domain of domains) {
+        domainCounts.set(domain, (domainCounts.get(domain) ?? 0) + 1);
+      }
+    });
+
+    for (const [domain, count] of [...domainCounts.entries()].sort()) {
+      nodes.push({
+        id: `domain:${domain}`,
+        name: formatDomainLabel(domain),
+        val: Math.min(18, Math.max(8, 6 + count / 3)),
+        color: colorMode === 'domain' ? getDomainColor(domain) : DOMAIN_HUB_PROGRESS_COLOR,
+        group: 'domain',
+        domain,
+        domains: [domain],
+        conceptCount: count,
+        desc: `${count} visible concepts in ${formatDomainLabel(domain)}.`,
+      });
+    }
 
     // Card nodes
-    cards.forEach((card) => {
+    filteredCards.forEach((card) => {
       const statusColor = STATUS_COLORS[card.status ?? 'unseen'];
+      const domains = card.domains && card.domains.length > 0 ? card.domains : [card.domain];
+      const primaryDomain = domains[0] ?? card.domain;
 
       nodes.push({
         id: card.id,
         name: card.title,
         val: card.status === 'known' ? 8 : card.status === 'saved' ? 6 : 4,
-        color: statusColor,
+        color: colorMode === 'domain' ? getDomainColor(primaryDomain) : statusColor,
         group: 'card',
         desc: card.summary,
         mainContent: card.explanation,
         domain: card.domain,
-        domains: card.domains && card.domains.length > 0 ? card.domains : [card.domain],
+        domains,
         level: card.level,
         status: card.status,
         wiki_url: card.wiki_url,
         related_concepts: card.related_concepts,
       });
 
+      domains.forEach((domain, index) => {
+        links.push({
+          source: `domain:${domain}`,
+          target: card.id,
+          color: colorMode === 'domain' ? `${getDomainColor(domain)}${index === 0 ? '66' : '33'}` : MUTED_LINK_COLOR,
+          width: index === 0 ? 0.75 : 0.35,
+          particles: colorMode === 'domain' && index === 0 ? 1 : 0,
+        });
+      });
+
       // Link card -> related concepts
       if (card.related_concepts) {
         card.related_concepts.forEach((concept) => {
-          const targetCard = cards.find(
+          const targetCard = filteredCards.find(
             (c) => c.title.toLowerCase() === concept.toLowerCase()
           );
           if (targetCard) {
@@ -107,7 +176,9 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
             links.push({
               source: card.id,
               target: targetCard.id,
-              color: 'rgba(255,255,255,0.35)',
+              color: colorMode === 'progress' ? 'rgba(226,232,240,0.34)' : 'rgba(255,255,255,0.2)',
+              width: 0.55,
+              particles: 0,
             });
           }
         });
@@ -115,7 +186,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
     });
 
     return { nodes, links };
-  }, [cards]);
+  }, [colorMode, filteredCards]);
 
   const handleNodeClick = useCallback(
     (node: any) => {
@@ -142,7 +213,12 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
   const handleNodeHover = useCallback((node: any) => {
     document.body.style.cursor = node ? 'pointer' : 'default';
   }, []);
-  const selectedLevel = getCardLevelMeta(selectedNode?.level);
+  const selectedLevel = selectedNode?.level ? getCardLevelMeta(selectedNode.level) : null;
+  const selectedNodeColorLabel = selectedNode?.group === 'domain'
+    ? 'Domain hub'
+    : colorMode === 'domain'
+      ? 'Domain color'
+      : selectedNode?.status ?? 'Not started';
 
   if (!isClient) {
     return (
@@ -170,9 +246,11 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         nodeOpacity={0.9}
         nodeResolution={16}
         linkColor="color"
-        linkOpacity={0.6}
-        linkWidth={0.5}
-        linkDirectionalParticles={0}
+        linkOpacity={0.58}
+        linkWidth={(link: any) => link.width ?? 0.5}
+        linkDirectionalParticles={(link: any) => link.particles ?? 0}
+        linkDirectionalParticleWidth={0.7}
+        linkDirectionalParticleSpeed={0.003}
         enableNodeDrag={true}
         enableNavigationControls={true}
         onNodeClick={handleNodeClick}
@@ -185,13 +263,89 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
 
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 z-20 flex items-start justify-between gap-3 px-4 py-4 md:px-6 pointer-events-none">
-        <div className="pointer-events-auto rounded-xl border border-gray-800 bg-gray-950/75 px-3 py-2 backdrop-blur-sm shadow-lg">
-          <h2 className="text-lg font-semibold text-white tracking-tight">
-            Knowledge Graph
-          </h2>
-          <p className="text-xs text-gray-400">
-            {cards.length} concepts &middot; Click a node to inspect
-          </p>
+        <div className="pointer-events-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border border-gray-800 bg-gray-950/80 p-3 backdrop-blur-sm shadow-lg">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-white tracking-tight">
+                Knowledge Graph
+              </h2>
+              <p className="text-xs text-gray-400">
+                {filteredCards.length} of {cards.length} concepts &middot; {visibleDomainList.length} domains
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setQuery('');
+                setSelectedDomain('all');
+                setSelectedStatus('all');
+                setColorMode('progress');
+              }}
+              className="rounded-md border border-gray-700 px-2.5 py-1.5 text-xs font-medium text-gray-300 transition-colors hover:bg-white/10"
+            >
+              Reset
+            </button>
+          </div>
+
+          <div className="mt-3 grid gap-2 md:grid-cols-[1fr_10rem_9rem]">
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search concepts"
+              className="min-h-10 rounded-lg border border-gray-700 bg-black/30 px-3 text-sm text-white outline-none transition focus:border-cyan-300/70"
+            />
+            <select
+              value={selectedDomain}
+              onChange={(event) => setSelectedDomain(event.target.value)}
+              className="min-h-10 rounded-lg border border-gray-700 bg-black/30 px-3 text-sm text-white outline-none transition focus:border-cyan-300/70"
+            >
+              <option value="all">All domains</option>
+              {domainList
+                .filter((domain) => domain !== 'other')
+                .map((domain) => (
+                  <option key={domain} value={domain}>
+                    {formatDomainLabel(domain)}
+                  </option>
+                ))}
+            </select>
+            <select
+              value={selectedStatus}
+              onChange={(event) => setSelectedStatus(event.target.value as CardStatus | 'all' | 'unstarted')}
+              className="min-h-10 rounded-lg border border-gray-700 bg-black/30 px-3 text-sm text-white outline-none transition focus:border-cyan-300/70"
+            >
+              <option value="all">All progress</option>
+              <option value="known">Explainable</option>
+              <option value="saved">Unclear</option>
+              <option value="unstarted">Not started</option>
+            </select>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Color by</span>
+            {[
+              { key: 'progress', label: 'Progress' },
+              { key: 'domain', label: 'Domain' },
+            ].map((item) => {
+              const selected = colorMode === item.key;
+
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => setColorMode(item.key as ColorMode)}
+                  className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    selected
+                      ? 'border-cyan-200/70 bg-cyan-200/15 text-white'
+                      : 'border-gray-700 bg-black/20 text-gray-400 hover:bg-white/10 hover:text-gray-200'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="pointer-events-auto relative flex items-center gap-2">
@@ -240,28 +394,31 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
 
       {/* Legend - bottom left */}
       <div className="absolute bottom-6 left-6 z-10 rounded-xl bg-gray-900/80 p-4 backdrop-blur-sm border border-gray-800 pointer-events-none">
-        <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">Status</p>
-        <div className="space-y-2">
-          {[
-            { label: 'Explainable', color: STATUS_COLORS.known },
-            { label: 'Unclear', color: STATUS_COLORS.saved },
-            { label: 'Not Started', color: STATUS_COLORS.unknown },
-            { label: 'Unseen', color: STATUS_COLORS.unseen },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center gap-2.5">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: item.color }}
-              />
-              <span className="text-xs text-gray-300">{item.label}</span>
+        {colorMode === 'progress' ? (
+          <>
+            <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">Progress Colors</p>
+            <div className="space-y-2">
+              {[
+                { label: 'Explainable', color: STATUS_COLORS.known },
+                { label: 'Unclear', color: STATUS_COLORS.saved },
+                { label: 'Not Started', color: STATUS_COLORS.unseen },
+                { label: 'Domain Hub', color: DOMAIN_HUB_PROGRESS_COLOR },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center gap-2.5">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className="text-xs text-gray-300">{item.label}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-
-        <div className="mt-4 border-t border-gray-800 pt-3">
-          <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">Domains</p>
+          </>
+        ) : (
+          <>
+            <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">Domain Colors</p>
           <div className="space-y-2">
-            {domainList
+            {visibleDomainList
               .filter((domain) => domain !== 'other')
               .map((domain) => (
                 <div key={domain} className="flex items-center gap-2.5">
@@ -273,7 +430,8 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                 </div>
               ))}
           </div>
-        </div>
+          </>
+        )}
       </div>
 
       {/* Node Detail Panel - slides in from right */}
@@ -297,7 +455,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                 style={{ backgroundColor: selectedNode.color }}
               />
               <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
-                {selectedNode.status ?? 'Unseen'}
+                {selectedNodeColorLabel}
               </span>
             </div>
 
@@ -323,10 +481,19 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
               ))}
               {selectedNode.level && (
                 <span className="inline-flex items-center rounded-md bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-400 border border-gray-700">
-                  Difficulty {selectedLevel.rank} · {selectedLevel.label}
+                  Difficulty {selectedLevel?.rank} · {selectedLevel?.label}
                 </span>
               )}
             </div>
+
+            {selectedNode.group === 'domain' && selectedNode.conceptCount ? (
+              <div className="mb-6 rounded-lg border border-gray-800 bg-white/[0.04] px-3 py-2">
+                <p className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">
+                  Visible Concepts
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-white">{selectedNode.conceptCount}</p>
+              </div>
+            ) : null}
 
             {/* Summary */}
             {selectedNode.desc && (
@@ -354,7 +521,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {selectedNode.related_concepts.map((concept: string) => {
-                    const linked = cards.some(
+                    const linked = filteredCards.some(
                       (c) => c.title.toLowerCase() === concept.toLowerCase()
                     );
                     return (
@@ -367,7 +534,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                         }`}
                         onClick={() => {
                           if (linked) {
-                            const targetCard = cards.find(
+                            const targetCard = filteredCards.find(
                               (c) => c.title.toLowerCase() === concept.toLowerCase()
                             );
                             if (targetCard) {
