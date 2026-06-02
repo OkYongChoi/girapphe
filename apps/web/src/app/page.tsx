@@ -183,10 +183,10 @@ export default async function HomePage() {
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase text-cyan-100/70">Scroll graph view</p>
               <h2 className="mt-3 text-3xl font-bold tracking-tight text-white md:text-4xl">
-                A live map across disciplines.
+                A live map that changes with how you learn.
               </h2>
               <p className="mt-4 text-base leading-7 text-slate-300">
-                Concepts from biology, computer science, semiconductors, medicine, statistics, economics, architecture, and chemistry connect in one moving knowledge graph.
+                Exploration, review, personal notes, and mastery each reshape the graph so progress feels like a system you can watch.
               </p>
             </div>
             {isPersonalized ? (

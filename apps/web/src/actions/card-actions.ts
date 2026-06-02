@@ -77,6 +77,7 @@ const TARGET_CARD_COUNT = getCardPoolSize();
 
 const DEFAULT_KNOWLEDGE_CARD_LIMIT = 600;
 const MAX_KNOWLEDGE_CARD_LIMIT = 5000;
+const GUEST_KNOWLEDGE_MAP_CARD_LIMIT = 144;
 function getKnowledgeCardLimit(): number {
   const raw = process.env.KNOWLEDGE_CARD_LIMIT;
   if (!raw) return DEFAULT_KNOWLEDGE_CARD_LIMIT;
@@ -362,6 +363,46 @@ function withRelatedConcepts<T extends { id: string; related_concepts?: string[]
 function limitCardsForGuest<T extends { id: string }>(cards: T[], isGuest: boolean) {
   if (!isGuest) return cards;
   return cards.filter((card) => GUEST_CARD_IDS.has(card.id));
+}
+
+function limitCardsForGuestKnowledgeMap<T extends { id: string; domain?: string | null }>(
+  cards: T[],
+  isGuest: boolean
+) {
+  if (!isGuest) return cards;
+
+  const buckets = new Map<string, T[]>();
+  for (const card of cards.filter((candidate) => !isExcludedFromKnowledgeMap(candidate.id))) {
+    const key = normalizeDomainKey(card.domain ?? 'other');
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(card);
+    buckets.set(key, bucket);
+  }
+
+  const result: T[] = [];
+  const domainKeys = [...buckets.keys()].sort();
+  while (result.length < GUEST_KNOWLEDGE_MAP_CARD_LIMIT && domainKeys.length > 0) {
+    for (const key of [...domainKeys]) {
+      const bucket = buckets.get(key);
+      const next = bucket?.shift();
+      if (next) {
+        result.push(next);
+        if (result.length >= GUEST_KNOWLEDGE_MAP_CARD_LIMIT) break;
+      }
+      if (!bucket || bucket.length === 0) {
+        const index = domainKeys.indexOf(key);
+        if (index >= 0) domainKeys.splice(index, 1);
+      }
+    }
+  }
+
+  return result;
+}
+
+function getGuestKnowledgeMapStatus(index: number): CardStatus | null {
+  if (index % 7 === 0 || index % 11 === 0) return 'known';
+  if (index % 5 === 0 || index % 13 === 0) return 'saved';
+  return null;
 }
 
 for (const edge of GRAPH_EDGES) {
@@ -1236,7 +1277,7 @@ export async function getAllCardsWithStatus(options?: {
   const generatedLimit = Math.max(0, Math.min(options?.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    const sourceCards = limitCardsForGuest(MOCK_CARDS, user.isGuest);
+    const sourceCards = limitCardsForGuestKnowledgeMap(MOCK_CARDS, user.isGuest);
     const cards = includeGenerated
       ? sourceCards
       : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));
@@ -1248,11 +1289,9 @@ export async function getAllCardsWithStatus(options?: {
         ]
       : cards;
 
-    return limited.map((c) => ({
+    return limited.map((c, index) => ({
       ...withCardDomains(c),
-      status: ['known', 'saved', null][
-        Math.floor(Math.random() * 3)
-      ] as CardStatus | null,
+      status: user.isGuest ? getGuestKnowledgeMapStatus(index) : null,
     }));
   }
 
@@ -1281,8 +1320,11 @@ export async function getAllCardsWithStatus(options?: {
       `;
 
       const res = await pool.query(query, [user.id]);
-      return limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest)
-        .map((row) => ({ ...row, status: deriveLegacyStatus(row) }))
+      return limitCardsForGuestKnowledgeMap(res.rows as CardWithStatusRow[], user.isGuest)
+        .map((row, index) => ({
+          ...row,
+          status: user.isGuest ? getGuestKnowledgeMapStatus(index) : deriveLegacyStatus(row),
+        }))
         .map((row) => withCardDomains(withRelatedConcepts(row)));
     }
 
@@ -1330,13 +1372,16 @@ export async function getAllCardsWithStatus(options?: {
       pool.query(generatedQuery, [user.id, generatedLimit]),
     ]);
 
-    const merged = limitCardsForGuest([...coreRes.rows, ...generatedRes.rows] as CardWithStatusRow[], user.isGuest);
+    const merged = limitCardsForGuestKnowledgeMap([...coreRes.rows, ...generatedRes.rows] as CardWithStatusRow[], user.isGuest);
     return merged
-      .map((row) => ({ ...row, status: deriveLegacyStatus(row) }))
+      .map((row, index) => ({
+        ...row,
+        status: user.isGuest ? getGuestKnowledgeMapStatus(index) : deriveLegacyStatus(row),
+      }))
       .map((row) => withCardDomains(withRelatedConcepts(row)));
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
-    const sourceCards = limitCardsForGuest(MOCK_CARDS, user.isGuest);
+    const sourceCards = limitCardsForGuestKnowledgeMap(MOCK_CARDS, user.isGuest);
     const cards = includeGenerated
       ? sourceCards
       : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));
@@ -1346,9 +1391,9 @@ export async function getAllCardsWithStatus(options?: {
           ...cards.filter((c) => c.id.startsWith('drill_')).slice(0, generatedLimit),
         ]
       : cards;
-    return limited.map((c) => ({
+    return limited.map((c, index) => ({
       ...withCardDomains(c),
-      status: null as CardStatus | null,
+      status: user.isGuest ? getGuestKnowledgeMapStatus(index) : (null as CardStatus | null),
     }));
   }
 }
