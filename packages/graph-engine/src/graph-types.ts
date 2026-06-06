@@ -99,6 +99,14 @@ export const DOMAIN_COLORS: Record<string, string> = {
   'reinforcement_learning': '#7c3aed',
   'deep_learning': '#ec4899',
   'theoretical_ml': '#f43f5e',
+  'engineering_science': '#64748b',
+  'mechanics_materials': '#78716c',
+  'fluid_mechanics': '#0891b2',
+  'heat_transfer': '#dc2626',
+  'circuits_and_electromagnetics': '#2563eb',
+  'semiconductor_devices': '#16a34a',
+  'plasma_and_mhd': '#7c3aed',
+  'transport_and_control': '#0f766e',
   chemistry: '#10b981',
   biology: '#22c55e',
   misc: '#6b7280',
@@ -149,6 +157,13 @@ export function getDomainColor(domain: string): string {
     computer_vision: 'artificial_intelligence',
     ai_safety: 'artificial_intelligence',
     robotics: 'artificial_intelligence',
+    mechanics_materials: 'engineering_science',
+    fluid_mechanics: 'engineering_science',
+    heat_transfer: 'engineering_science',
+    circuits_and_electromagnetics: 'engineering_science',
+    semiconductor_devices: 'engineering_science',
+    plasma_and_mhd: 'engineering_science',
+    transport_and_control: 'engineering_science',
   };
 
   const parent = parentMap[key];

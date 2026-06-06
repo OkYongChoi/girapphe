@@ -10,14 +10,15 @@ export const ROOT_DOMAINS = [
   'Computer Science',
   'Machine Learning',
   'Artificial Intelligence',
+  'Engineering Science',
 ];
 
 export const FEATURED_NODE_IDS = [
+  'engineering_science',
+  'reynolds_number',
+  'thermal_resistance_network',
   'linear_algebra',
   'gradient_descent',
-  'bayes_theorem',
-  'transformer',
-  'graph_algorithms',
 ];
 
 export type DomainOption = 'All' | string;

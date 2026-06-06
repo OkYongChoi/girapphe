@@ -13,6 +13,7 @@ const RAW_GRAPH_NODES: GraphNode[] = [
   { id: 'computer_science', label: 'Computer Science', domain: 'Computer Science', level: 0, difficulty: 1, type: 'concept' },
   { id: 'machine_learning', label: 'Supervised Learning Signal', domain: 'Machine Learning', level: 0, difficulty: 1, type: 'concept' },
   { id: 'artificial_intelligence', label: 'Search and Planning', domain: 'Artificial Intelligence', level: 0, difficulty: 1, type: 'concept' },
+  { id: 'engineering_science', label: 'Engineering Science', domain: 'Engineering Science', level: 0, difficulty: 1, type: 'concept' },
 
   // ============================================================
   // LEVEL 1 — Mathematics Core
@@ -1515,6 +1516,63 @@ const RAW_GRAPH_NODES: GraphNode[] = [
   { id: 'synthetic_data_generation', label: 'Synthetic Data Generation', domain: 'AI Safety', level: 2, difficulty: 2, type: 'concept' },
   { id: 'formal_languages_automata', label: 'Formal Languages & Automata Theory', domain: 'Theoretical CS', level: 2, difficulty: 3, type: 'concept' },
   { id: 'computability_theory', label: 'Computability Theory (Halting Problem)', domain: 'Theoretical CS', level: 3, difficulty: 4, type: 'concept' },
+
+  // ── ENGINEERING SCIENCE ───────────────────────────────────────
+  { id: 'mechanics_materials', label: 'Mechanics & Materials', domain: 'Engineering Science', level: 1, difficulty: 2, type: 'concept' },
+  { id: 'fluid_mechanics', label: 'Fluid Mechanics', domain: 'Engineering Science', level: 1, difficulty: 2, type: 'concept' },
+  { id: 'heat_transfer', label: 'Heat Transfer', domain: 'Engineering Science', level: 1, difficulty: 2, type: 'concept' },
+  { id: 'circuits_electromagnetics', label: 'Circuits & Electromagnetics', domain: 'Engineering Science', level: 1, difficulty: 2, type: 'concept' },
+  { id: 'semiconductor_devices', label: 'Semiconductor Devices', domain: 'Engineering Science', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'plasma_mhd', label: 'Plasma & MHD', domain: 'Engineering Science', level: 1, difficulty: 4, type: 'concept' },
+  { id: 'transport_control', label: 'Transport & Control', domain: 'Engineering Science', level: 1, difficulty: 3, type: 'concept' },
+  { id: 'engineering_scaling', label: 'Engineering Scaling & Dimensionless Numbers', domain: 'Engineering Science', level: 1, difficulty: 3, type: 'concept' },
+
+  { id: 'normal_stress', label: 'Normal Stress', domain: 'Mechanics & Materials', level: 2, difficulty: 1, type: 'concept' },
+  { id: 'engineering_strain', label: 'Engineering Strain', domain: 'Mechanics & Materials', level: 2, difficulty: 1, type: 'concept' },
+  { id: 'hookes_law', label: 'Hooke Law', domain: 'Mechanics & Materials', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'shear_stress_strain', label: 'Shear Stress-Strain Law', domain: 'Mechanics & Materials', level: 2, difficulty: 2, type: 'concept' },
+
+  { id: 'continuity_equation_fluids', label: 'Continuity Equation', domain: 'Fluid Mechanics', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'bernoulli_equation', label: 'Bernoulli Equation', domain: 'Fluid Mechanics', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'hydrostatic_pressure_gradient', label: 'Hydrostatic Pressure Gradient', domain: 'Fluid Mechanics', level: 2, difficulty: 1, type: 'concept' },
+  { id: 'navier_stokes_equation', label: 'Navier-Stokes Equation', domain: 'Fluid Mechanics', level: 2, difficulty: 4, type: 'model' },
+  { id: 'poiseuille_law', label: 'Poiseuille Law', domain: 'Fluid Mechanics', level: 2, difficulty: 3, type: 'model' },
+  { id: 'darcy_weisbach_equation', label: 'Darcy-Weisbach Equation', domain: 'Fluid Mechanics', level: 2, difficulty: 3, type: 'model' },
+  { id: 'drag_equation', label: 'Drag Equation', domain: 'Fluid Mechanics', level: 2, difficulty: 2, type: 'model' },
+  { id: 'reynolds_number', label: 'Reynolds Number', domain: 'Fluid Mechanics', level: 2, difficulty: 2, type: 'concept' },
+
+  { id: 'fourier_heat_conduction', label: 'Fourier Heat Conduction', domain: 'Heat Transfer', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'newton_cooling_law', label: 'Newton Cooling Law', domain: 'Heat Transfer', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'thermal_radiation_law', label: 'Thermal Radiation Law', domain: 'Heat Transfer', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'thermal_resistance_network', label: 'Thermal Resistance Network', domain: 'Heat Transfer', level: 2, difficulty: 2, type: 'model' },
+  { id: 'heat_equation', label: 'Heat Equation', domain: 'Heat Transfer', level: 2, difficulty: 3, type: 'model' },
+  { id: 'nusselt_number', label: 'Nusselt Number', domain: 'Heat Transfer', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'prandtl_number', label: 'Prandtl Number', domain: 'Heat Transfer', level: 2, difficulty: 3, type: 'concept' },
+
+  { id: 'current_density_ohm_law', label: 'Current Density Ohm Law', domain: 'Circuits & Electromagnetics', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'capacitor_charge_law', label: 'Capacitor Charge Law', domain: 'Circuits & Electromagnetics', level: 2, difficulty: 1, type: 'concept' },
+  { id: 'capacitor_current_law', label: 'Capacitor Current Law', domain: 'Circuits & Electromagnetics', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'inductor_voltage_law', label: 'Inductor Voltage Law', domain: 'Circuits & Electromagnetics', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'rc_time_constant', label: 'RC Time Constant', domain: 'Circuits & Electromagnetics', level: 2, difficulty: 2, type: 'model' },
+
+  { id: 'semiconductor_drift_current', label: 'Semiconductor Drift Current', domain: 'Semiconductor Devices', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'semiconductor_diffusion_current', label: 'Semiconductor Diffusion Current', domain: 'Semiconductor Devices', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'einstein_relation_semiconductors', label: 'Einstein Relation', domain: 'Semiconductor Devices', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'semiconductor_conductivity', label: 'Semiconductor Conductivity', domain: 'Semiconductor Devices', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'diode_equation', label: 'Diode Equation', domain: 'Semiconductor Devices', level: 2, difficulty: 3, type: 'model' },
+  { id: 'cmos_dynamic_power', label: 'CMOS Dynamic Power', domain: 'Semiconductor Devices', level: 2, difficulty: 3, type: 'model' },
+
+  { id: 'debye_length', label: 'Debye Length', domain: 'Plasma & MHD', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'plasma_frequency', label: 'Plasma Frequency', domain: 'Plasma & MHD', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'larmor_radius', label: 'Larmor Radius', domain: 'Plasma & MHD', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'alfven_speed', label: 'Alfven Speed', domain: 'Plasma & MHD', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'plasma_beta', label: 'Plasma Beta', domain: 'Plasma & MHD', level: 2, difficulty: 4, type: 'concept' },
+  { id: 'magnetic_reynolds_number', label: 'Magnetic Reynolds Number', domain: 'Plasma & MHD', level: 2, difficulty: 4, type: 'concept' },
+
+  { id: 'fick_law', label: 'Fick Law', domain: 'Transport & Control', level: 2, difficulty: 2, type: 'concept' },
+  { id: 'advection_diffusion_equation', label: 'Advection-Diffusion Equation', domain: 'Transport & Control', level: 2, difficulty: 3, type: 'model' },
+  { id: 'material_derivative', label: 'Material Derivative', domain: 'Transport & Control', level: 2, difficulty: 3, type: 'concept' },
+  { id: 'first_order_transfer_function', label: 'First-Order Transfer Function', domain: 'Transport & Control', level: 2, difficulty: 2, type: 'model' },
 
 ];
 
