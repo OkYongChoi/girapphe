@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import Navbar from '@/components/navbar';
-import { getCurrentActor } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/auth';
 import { getCardLeaderboard } from '@/actions/card-actions';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,7 @@ function truncateUserId(userId: string): string {
 }
 
 export default async function RankingPage() {
-  const user = await getCurrentActor();
+  const user = await getCurrentUser();
 
   const rows = await getCardLeaderboard();
 
@@ -63,7 +63,7 @@ export default async function RankingPage() {
                 </tr>
               ) : (
                 rows.map((row, index) => {
-                  const isCurrentUser = row.userId === user.id;
+                  const isCurrentUser = row.userId === user?.id;
                   return (
                     <tr
                       key={row.userId}

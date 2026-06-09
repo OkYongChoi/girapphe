@@ -28,8 +28,8 @@
   - Theoretical ML
 
 Current MVP data target is maintained in:
-- `src/data/graph-nodes.ts`
-- `src/data/graph-edges.ts`
+- `packages/graph-engine/src/data/graph-nodes.ts`
+- `packages/graph-engine/src/data/graph-edges.ts`
 
 ## 3. Graph Data Model
 

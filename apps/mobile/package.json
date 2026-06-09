@@ -10,21 +10,29 @@
     "build": "pnpm run build:ios && pnpm run build:android",
     "build:ios": "expo export --platform ios --output-dir dist/ios --no-bytecode",
     "build:android": "expo export --platform android --output-dir dist/android --no-bytecode",
+    "eas:login": "eas login",
+    "eas:init": "eas init",
+    "eas:ios:preview": "eas build --platform ios --profile preview",
+    "eas:ios:production": "eas build --platform ios --profile production",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm lint && pnpm typecheck"
   },
   "dependencies": {
     "@stem-brain/graph-engine": "workspace:*",
     "@stem-brain/shared": "workspace:*",
     "expo": "~53.0.0",
-    "expo-router": "~5.0.0",
+    "expo-constants": "~17.1.0",
+    "expo-router": "~5.1.11",
     "expo-status-bar": "~2.2.0",
     "react": "19.0.0",
-    "react-native": "0.79.2"
+    "react-native": "0.79.6",
+    "react-native-screens": "~4.11.1"
   },
   "devDependencies": {
     "@babel/core": "^7.27.1",
-    "@types/react": "^19",
-    "typescript": "^5"
+    "@types/react": "^19.0.14",
+    "eas-cli": "^20.0.0",
+    "typescript": "^5.8.3"
   }
 }

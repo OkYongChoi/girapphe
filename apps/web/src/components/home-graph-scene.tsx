@@ -3,6 +3,8 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import * as THREE from 'three';
+import type { ForceGraphData } from '@stem-brain/graph-engine';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
   ssr: false,
@@ -10,9 +12,11 @@ const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
 }) as any;
 
 type HomeGraphSceneProps = {
+  demo?: boolean;
   explainable: number;
   unclear: number;
   notes: number;
+  personalizedGraphData?: ForceGraphData | null;
 };
 
 type LearningCaseKey = 'explore' | 'review' | 'notes' | 'mastery';
@@ -22,20 +26,29 @@ const NODE_GROUPS = {
   unclear: { color: '#38bdf8', hotColor: '#7dd3fc', label: 'Unclear' },
   notes: { color: '#f59e0b', hotColor: '#fcd34d', label: 'Notes' },
   core: { color: '#94a3b8', label: 'Concepts' },
+  biology: { color: '#34d399', hotColor: '#a7f3d0', label: 'Biology' },
+  computing: { color: '#38bdf8', hotColor: '#bae6fd', label: 'Computing' },
+  medicine: { color: '#f472b6', hotColor: '#fbcfe8', label: 'Medicine' },
+  engineering: { color: '#fbbf24', hotColor: '#fde68a', label: 'Engineering' },
+  economics: { color: '#a78bfa', hotColor: '#ddd6fe', label: 'Economics' },
+  design: { color: '#2dd4bf', hotColor: '#99f6e4', label: 'Design' },
 };
 
-type ActiveGroup = keyof Pick<typeof NODE_GROUPS, 'explainable' | 'unclear' | 'notes'>;
+type StatusGroup = keyof Pick<typeof NODE_GROUPS, 'explainable' | 'unclear' | 'notes'>;
+type DemoGroup = keyof Pick<typeof NODE_GROUPS, 'biology' | 'computing' | 'medicine' | 'engineering' | 'economics' | 'design'>;
+type ActiveGroup = StatusGroup | DemoGroup;
 
+const DEMO_GROUP_SEQUENCE: DemoGroup[] = ['biology', 'computing', 'medicine', 'engineering', 'economics', 'design'];
 const LEARNING_CASES: Record<
   LearningCaseKey,
   {
     label: string;
     shortLabel: string;
-    activeGroup: ActiveGroup;
+    activeGroup: StatusGroup;
     summary: string;
     signal: string;
     orbitSpeed: number;
-    focus: Record<ActiveGroup, number>;
+    focus: Record<StatusGroup, number>;
     coreBoost: number;
     bridgeEvery: number;
     flowColor: string;
@@ -124,15 +137,82 @@ const TOPICS = [
   'VLSI Design',
 ];
 
-export default function HomeGraphScene({ explainable, unclear, notes }: HomeGraphSceneProps) {
+const DEMO_DOMAIN_GROUPS = [
+  {
+    key: 'biology',
+    val: 7,
+    topics: ['Cell Signaling', 'Protein Folding', 'Genomics', 'Immunology', 'Epidemiology', 'Enzyme Kinetics', 'Neural Plasticity'],
+  },
+  {
+    key: 'computing',
+    val: 7,
+    topics: ['Graph Algorithms', 'Operating Systems', 'Databases', 'Neural Networks', 'Computer Architecture', 'Distributed Consensus', 'Compiler Design'],
+  },
+  {
+    key: 'medicine',
+    val: 6,
+    topics: ['Clinical Trials', 'Medical Imaging', 'Pharmacokinetics', 'Biostatistics', 'Diagnostic Tests', 'Pathophysiology', 'Drug Metabolism'],
+  },
+  {
+    key: 'engineering',
+    val: 6,
+    topics: ['Semiconductor Physics', 'Control Theory', 'Materials Science', 'VLSI Design', 'Structural Engineering', 'Thermal Systems', 'Signal Integrity'],
+  },
+  {
+    key: 'economics',
+    val: 5,
+    topics: ['Microeconomics', 'Behavioral Economics', 'Econometrics', 'Market Design', 'Game Theory', 'Causal Inference', 'Mechanism Design'],
+  },
+  {
+    key: 'design',
+    val: 5,
+    topics: ['Urban Systems', 'Sustainable Design', 'Architecture Systems', 'Human Factors', 'Design Systems', 'Spatial Reasoning', 'Service Design'],
+  },
+] as const;
+
+function getNodeId(node: unknown): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (node && typeof node === 'object' && 'id' in node) return String((node as { id: string }).id);
+  return '';
+}
+
+function getPersonalizedNodeGroup(knowledge: number) {
+  if (knowledge >= 0.75) return 'explainable';
+  if (knowledge >= 0.25) return 'unclear';
+  return 'core';
+}
+
+function getPersonalizedNodeColor(knowledge: number, active: boolean) {
+  if (knowledge >= 0.75) return active ? NODE_GROUPS.explainable.hotColor : NODE_GROUPS.explainable.color;
+  if (knowledge >= 0.25) return active ? NODE_GROUPS.unclear.hotColor : NODE_GROUPS.unclear.color;
+  return active ? '#cbd5e1' : NODE_GROUPS.core.color;
+}
+
+function makeNodeGeometry(node: any, shapeVariant: number) {
+  const value = Number(node.val ?? 5);
+  const radius = Math.max(3.2, Math.min(12, value * 0.9));
+  const selector = node.group === 'center' ? 0 : (shapeVariant + Number(node.shapeSeed ?? 0)) % 5;
+
+  if (selector === 0) return new THREE.IcosahedronGeometry(radius, 1);
+  if (selector === 1) return new THREE.BoxGeometry(radius * 1.45, radius * 1.45, radius * 1.45);
+  if (selector === 2) return new THREE.ConeGeometry(radius, radius * 2.2, 6);
+  if (selector === 3) return new THREE.OctahedronGeometry(radius * 1.1, 0);
+  return new THREE.TorusGeometry(radius * 0.8, radius * 0.24, 8, 18);
+}
+
+export default function HomeGraphScene({ demo = false, explainable, unclear, notes, personalizedGraphData }: HomeGraphSceneProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<any>(null);
   const [dimensions, setDimensions] = useState({ width: 720, height: 560 });
+  const [activeDemoGroup, setActiveDemoGroup] = useState<DemoGroup>('biology');
+  const [shapeVariant, setShapeVariant] = useState(0);
+  const [demoGraphClicked, setDemoGraphClicked] = useState(false);
   const [activeCaseKey, setActiveCaseKey] = useState<LearningCaseKey>('explore');
   const [isAutoCycling, setIsAutoCycling] = useState(true);
   const activeCase = LEARNING_CASES[activeCaseKey];
-  const activeGroup = activeCase.activeGroup;
+  const activeStatusGroup = activeCase.activeGroup;
+  const activeGraphGroup: ActiveGroup = demo ? activeDemoGroup : activeStatusGroup;
 
   useEffect(() => {
     const element = graphContainerRef.current;
@@ -153,7 +233,20 @@ export default function HomeGraphScene({ explainable, unclear, notes }: HomeGrap
   }, []);
 
   useEffect(() => {
-    if (!isAutoCycling) return;
+    if (!demo) return;
+
+    const intervalId = window.setInterval(() => {
+      setActiveDemoGroup((current) => {
+        const index = DEMO_GROUP_SEQUENCE.indexOf(current);
+        return DEMO_GROUP_SEQUENCE[(index + 1) % DEMO_GROUP_SEQUENCE.length];
+      });
+    }, 3400);
+
+    return () => window.clearInterval(intervalId);
+  }, [demo]);
+
+  useEffect(() => {
+    if (demo || !isAutoCycling) return;
 
     const intervalId = window.setInterval(() => {
       setActiveCaseKey((current) => {
@@ -163,22 +256,38 @@ export default function HomeGraphScene({ explainable, unclear, notes }: HomeGrap
     }, 3400);
 
     return () => window.clearInterval(intervalId);
-  }, [isAutoCycling]);
+  }, [demo, isAutoCycling]);
 
   const enableOrbit = useCallback(() => {
     const controls = graphRef.current?.controls?.();
     if (!controls) return;
 
     controls.autoRotate = true;
-    controls.autoRotateSpeed = activeCase.orbitSpeed;
+    controls.autoRotateSpeed = demo ? 0.62 : activeCase.orbitSpeed;
     controls.enablePan = false;
     controls.minDistance = 90;
     controls.maxDistance = 430;
-  }, [activeCase.orbitSpeed]);
+  }, [activeCase.orbitSpeed, demo]);
 
   useEffect(() => {
     enableOrbit();
   }, [enableOrbit]);
+
+  useEffect(() => {
+    if (!demo || demoGraphClicked) return;
+
+    const intervalId = window.setInterval(() => {
+      setShapeVariant((current) => (current + 1) % 5);
+    }, 1400);
+
+    return () => window.clearInterval(intervalId);
+  }, [demo, demoGraphClicked]);
+
+  useEffect(() => {
+    return () => {
+      document.body.style.cursor = '';
+    };
+  }, []);
 
   const handlePointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
     const element = wrapperRef.current;
@@ -192,6 +301,83 @@ export default function HomeGraphScene({ explainable, unclear, notes }: HomeGrap
   }, []);
 
   const graphData = useMemo(() => {
+    if (!demo && personalizedGraphData?.nodes?.length) {
+      const nodes = personalizedGraphData.nodes.map((node, index) => {
+        const group = getPersonalizedNodeGroup(node.knowledge);
+        const active = group === activeStatusGroup;
+        return {
+          id: node.id,
+          name: node.label,
+          group,
+          domain: node.domain,
+          val: 4 + node.level + node.difficulty + node.knowledge * 5,
+          color: getPersonalizedNodeColor(node.knowledge, active),
+          shapeSeed: index,
+        };
+      });
+      const activeNodeIds = new Set(nodes.filter((node) => node.group === activeStatusGroup).map((node) => node.id));
+      const links = personalizedGraphData.links.map((link) => {
+        const source = getNodeId(link.source);
+        const target = getNodeId(link.target);
+        const active = activeNodeIds.has(source) || activeNodeIds.has(target);
+        return {
+          source,
+          target,
+          active,
+          color: active ? 'rgba(125, 211, 252, 0.72)' : 'rgba(226, 232, 240, 0.24)',
+          width: active ? 1.05 : 0.34 + link.weight * 0.32,
+        };
+      });
+
+      return { nodes, links };
+    }
+
+    if (demo) {
+      const nodes: any[] = [
+        {
+          id: 'stem-brain',
+          name: 'STEMBrain',
+          group: 'center',
+          val: 20,
+          color: '#f8fafc',
+        },
+      ];
+
+      DEMO_DOMAIN_GROUPS.forEach((group) => {
+        group.topics.forEach((topic, index) => {
+          nodes.push({
+            id: `${group.key}-${index}`,
+            name: topic,
+            group: group.key,
+            val: group.val + (index % 3) + (group.key === activeDemoGroup ? 3 : 0),
+            color: group.key === activeDemoGroup ? NODE_GROUPS[group.key].hotColor : NODE_GROUPS[group.key].color,
+            shapeSeed: index,
+          });
+        });
+      });
+
+      const links: any[] = nodes
+        .filter((node) => node.id !== 'stem-brain')
+        .map((node, index) => ({
+          source: index > 0 && index % 5 === 0 ? nodes[Math.max(1, index - 2)].id : 'stem-brain',
+          target: node.id,
+          active: node.group === activeDemoGroup,
+          color: node.group === activeDemoGroup ? 'rgba(125, 211, 252, 0.72)' : 'rgba(226, 232, 240, 0.3)',
+          width: node.group === activeDemoGroup ? 1.15 : 0.55,
+        }));
+
+      for (let index = 3; index < nodes.length; index += 2) {
+        links.push({
+          source: nodes[index - 2].id,
+          target: nodes[index].id,
+          color: 'rgba(45, 212, 191, 0.18)',
+          width: 0.28,
+        });
+      }
+
+      return { nodes, links };
+    }
+
     const explainableCount = Math.min(12, Math.max(3, Math.ceil((explainable / 2) * activeCase.focus.explainable)));
     const unclearCount = Math.min(12, Math.max(3, Math.ceil((unclear / 2) * activeCase.focus.unclear)));
     const noteCount = Math.min(10, Math.max(2, Math.ceil(notes * activeCase.focus.notes)));
@@ -221,11 +407,12 @@ export default function HomeGraphScene({ explainable, unclear, notes }: HomeGrap
           id: `${group.key}-${index}`,
           name: topic,
           group: group.key,
-          val: group.val + (index % 3) + (group.key === activeGroup ? 4 : 0),
+          val: group.val + (index % 3) + (group.key === activeStatusGroup ? 4 : 0),
           color:
-            group.key !== 'core' && group.key === activeGroup
+            group.key !== 'core' && group.key === activeStatusGroup
               ? NODE_GROUPS[group.key].hotColor
               : NODE_GROUPS[group.key].color,
+          shapeSeed: index,
           case: activeCaseKey,
         });
       }
@@ -243,14 +430,14 @@ export default function HomeGraphScene({ explainable, unclear, notes }: HomeGrap
                 ? nodes[Math.max(1, index - 1)].id
                 : 'stem-brain',
         target: node.id,
-        active: node.group === activeGroup,
+        active: node.group === activeStatusGroup,
         color:
-          node.group === activeGroup
+          node.group === activeStatusGroup
             ? activeCase.flowColor
             : node.group === 'core'
               ? 'rgba(148, 163, 184, 0.18)'
               : 'rgba(226, 232, 240, 0.34)',
-        width: node.group === activeGroup ? 1.3 : node.group === 'core' ? 0.35 : 0.65,
+        width: node.group === activeStatusGroup ? 1.3 : node.group === 'core' ? 0.35 : 0.65,
       }));
 
     for (let index = 2; index < nodes.length; index += activeCase.bridgeEvery) {
@@ -279,7 +466,34 @@ export default function HomeGraphScene({ explainable, unclear, notes }: HomeGrap
     }
 
     return { nodes, links };
-  }, [activeCase, activeCaseKey, activeGroup, explainable, unclear, notes]);
+  }, [activeCase, activeCaseKey, activeDemoGroup, activeStatusGroup, demo, explainable, notes, personalizedGraphData, unclear]);
+
+  const nodeThreeObject = useCallback(
+    (node: any) => {
+      const geometry = makeNodeGeometry(node, demo && !demoGraphClicked ? shapeVariant : Number(node.shapeSeed ?? 0));
+      const material = new THREE.MeshStandardMaterial({
+        color: node.color,
+        emissive: node.color,
+        emissiveIntensity: node.group === activeGraphGroup || node.group === 'center' ? 0.32 : 0.14,
+        metalness: 0.18,
+        roughness: 0.48,
+        transparent: true,
+        opacity: 0.94,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.rotation.set(
+        ((Number(node.shapeSeed ?? 0) % 4) * Math.PI) / 9,
+        ((Number(node.shapeSeed ?? 0) % 6) * Math.PI) / 8,
+        0
+      );
+      return mesh;
+    },
+    [activeGraphGroup, demo, demoGraphClicked, shapeVariant]
+  );
+
+  const stopDemoShapeChanges = useCallback(() => {
+    if (demo) setDemoGraphClicked(true);
+  }, [demo]);
 
   return (
     <div
@@ -303,6 +517,7 @@ export default function HomeGraphScene({ explainable, unclear, notes }: HomeGrap
           nodeLabel={(node: any) => node.name}
           nodeVal="val"
           nodeColor="color"
+          nodeThreeObject={nodeThreeObject}
           nodeOpacity={0.95}
           nodeResolution={20}
           linkColor="color"
@@ -313,6 +528,8 @@ export default function HomeGraphScene({ explainable, unclear, notes }: HomeGrap
           linkDirectionalParticleSpeed={(link: any) => (link.active ? 0.008 : 0.003)}
           enableNodeDrag={false}
           enableNavigationControls={true}
+          onNodeClick={stopDemoShapeChanges}
+          onBackgroundClick={stopDemoShapeChanges}
           onNodeHover={(node: any) => {
             document.body.style.cursor = node ? 'crosshair' : 'default';
           }}
@@ -334,7 +551,7 @@ export default function HomeGraphScene({ explainable, unclear, notes }: HomeGrap
           <h3 className="mt-2 text-lg font-bold text-white">{activeCase.label}</h3>
           <p className="mt-2 text-sm leading-6 text-slate-300">{activeCase.summary}</p>
           <div className="mt-4 flex items-center gap-2 text-xs font-semibold uppercase text-slate-300">
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: NODE_GROUPS[activeGroup].hotColor }} />
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: NODE_GROUPS[activeStatusGroup].hotColor }} />
             {activeCase.signal}
           </div>
         </div>

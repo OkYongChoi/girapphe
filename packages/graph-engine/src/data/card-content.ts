@@ -4828,4 +4828,202 @@ export const CARD_CONTENT: Record<string, { summary: string; explanation: string
     explanation: 'Turing machine: infinite tape, read/write head, state machine; computation model; Church-Turing thesis: all reasonable computation models are equivalent.\nHalting problem: given (program P, input I), determine if P(I) halts; proven undecidable by diagonalization (Turing 1936).\nDiagonalization: assume decider H exists; construct D that halts iff H says non-halting; D(D) creates contradiction; undecidability follows.\nReduction: if A reduces to B and B decidable then A decidable; contrapositive: A undecidable + A ≤_m B → B undecidable.\nRice\'s theorem: any non-trivial semantic property of programs is undecidable; e.g., "does P output 42?" is undecidable.\nRecursively enumerable (RE): semi-decidable; Turing machine halts and accepts if x∈L; may loop on x∉L; RE ∩ co-RE = decidable.\nArithmetic hierarchy: Σ₁ (RE), Π₁ (co-RE), Δ₁ (decidable); higher levels via alternating quantifiers; Post\'s theorem links to oracle TMs.',
   },
 
+  // ── ENGINEERING SCIENCE ───────────────────────────────────────
+  engineering_science: {
+    summary: 'Engineering science turns conservation laws into usable models by adding constitutive laws, boundary conditions, and dimensionless scaling.',
+    explanation: 'Core pattern: conservation of mass, momentum, energy, or charge is not enough by itself.\nConstitutive laws close the model: elasticity, viscosity, Fourier heat conduction, Ohmic conduction, drift-diffusion, and MHD Ohm law.\nDimensionless numbers decide which terms dominate: Re, Pr, Nu, Pe, Ma, Kn, beta, and Rm tell you when to change models.\nPractical workflow: conservation law → constitutive law → governing equation → boundary conditions → dimensionless check → reduced formula.',
+  },
+  mechanics_materials: {
+    summary: 'Mechanics and materials relate force, stress, strain, stiffness, and deformation for structures and machine parts.',
+    explanation: 'The first-order design loop is load → stress → strain → deflection or failure margin.\nLinear elastic formulas are useful when deformation is small, material response is reversible, and stress concentration or yielding is handled separately.\nCommon applications include bolts, frames, pressure vessels, turbine blades, shafts, adhesive layers, and semiconductor packages.',
+  },
+  fluid_mechanics: {
+    summary: 'Fluid mechanics combines conservation of mass and momentum with viscosity and pressure laws to predict flow, pressure loss, lift, drag, and mixing.',
+    explanation: 'Continuity gives the mass budget; Bernoulli gives lossless energy intuition; Navier-Stokes is the governing momentum equation.\nReduced models such as Poiseuille and Darcy-Weisbach are used when geometry and flow regime justify them.\nReynolds number is the main gatekeeper: it tells you whether laminar, turbulent, viscous, or inertial thinking should dominate.',
+  },
+  heat_transfer: {
+    summary: 'Heat transfer models how temperature gradients, surface exchange, radiation, and thermal storage move energy through systems.',
+    explanation: 'Fourier conduction, Newton cooling, radiation, and thermal resistance networks are the everyday design tools.\nThe heat equation adds transient storage and internal heat generation.\nNu and Pr connect heat transfer to fluid mechanics, especially in heat exchangers, electronics cooling, turbine walls, and server thermal design.',
+  },
+  circuits_electromagnetics: {
+    summary: 'Circuits and electromagnetics reduce fields and stored energy into current, voltage, capacitance, inductance, and time constants.',
+    explanation: 'J = sigma E links electric field to current density in conductive media.\nQ = CV, i = C dv/dt, and v = L di/dt explain stored electric and magnetic energy.\nRC time constants set response speed for filters, sensors, power sequencing, decoupling, and digital edges.',
+  },
+  semiconductor_devices: {
+    summary: 'Semiconductor device models combine electric-field drift, concentration-driven diffusion, carrier statistics, junction barriers, and switching energy.',
+    explanation: 'Drift and diffusion are the two basic current mechanisms in pn junctions, solar cells, LEDs, BJTs, and MOSFET channels.\nThe Einstein relation links mobility and diffusion near thermal equilibrium.\nThe diode equation captures exponential junction current, while CMOS dynamic power explains why voltage and frequency dominate chip energy.',
+  },
+  plasma_mhd: {
+    summary: 'Plasma and MHD formulas identify when charged particles behave individually, collectively, or as a magnetized conducting fluid.',
+    explanation: 'Debye length and plasma frequency describe collective shielding and electron response.\nLarmor radius measures particle magnetization; Alfven speed, beta, and magnetic Reynolds number describe fluid-scale magnetic coupling.\nThese quantities are central in tokamaks, plasma processing, reconnection, liquid metals, and space plasma.',
+  },
+  transport_control: {
+    summary: 'Transport and control formulas describe how quantities move by diffusion, advection, material motion, and first-order dynamic response.',
+    explanation: 'Fick law is the mass-transfer analogue of Fourier heat conduction.\nAdvection-diffusion combines flow transport, molecular spreading, and sources.\nThe material derivative connects fixed-point measurements to a moving fluid parcel, while first-order transfer functions capture dominant-pole system response.',
+  },
+  engineering_scaling: {
+    summary: 'Engineering scaling asks which terms are large enough to keep and which can be dropped in a first model.',
+    explanation: 'The question "which formula should I use?" is usually the question "which terms are negligible?"\nRe compares inertia to viscosity, Pr compares momentum diffusion to thermal diffusion, Nu measures convective enhancement, Pe compares advection to diffusion, Ma flags compressibility, Kn flags continuum breakdown, beta compares plasma pressure to magnetic pressure, and Rm compares induction to magnetic diffusion.\nGood first estimates track units, dominant terms, geometry, operating point, and validity limits before chasing precision.',
+  },
+  normal_stress: {
+    summary: 'sigma = F/A: normal stress is force per area carried by a section.',
+    explanation: 'Use sigma in Pa, F in N, and A in m^2.\nIt gives average section stress for bolts, rods, pressure parts, blades, frames, and packages.\nValidity: stress concentration, yielding, fatigue, buckling, and multiaxial stress require additional checks.',
+  },
+  engineering_strain: {
+    summary: 'epsilon = Delta L / L0: engineering strain is relative length change.',
+    explanation: 'Strain is dimensionless and is most convenient when deformation is small.\nIt turns displacement into a scale-free measure, so a 1 mm change means different things for a 10 mm part and a 10 m beam.\nUse finite-strain models when rotations or stretches are large.',
+  },
+  hookes_law: {
+    summary: 'sigma = E epsilon: linear elastic normal stress is proportional to strain.',
+    explanation: 'E is Young modulus in Pa; higher E means lower strain for the same stress.\nThis is the basic stiffness law behind frames, shafts, housings, package warpage, and vibration estimates.\nValidity: small strain, elastic response, roughly linear material behavior, and stress below yield.',
+  },
+  shear_stress_strain: {
+    summary: 'tau = G gamma: shear stress is proportional to shear strain in a linear elastic material.',
+    explanation: 'G is shear modulus; tau is Pa; gamma is dimensionless.\nThis controls torsion, adhesive layers, polymer encapsulants, and package shear deformation.\nLayered or viscoelastic materials often need temperature- and rate-dependent G.',
+  },
+  continuity_equation_fluids: {
+    summary: 'Q = A V and mdot = rho A V: steady one-dimensional flow conserves volume or mass flow rate.',
+    explanation: 'For incompressible flow, Q stays constant along a streamtube; if area shrinks, velocity rises.\nFor compressible flow, mdot is the safer quantity because density can change.\nA common first check is Ma less than about 0.3 for treating gas density as nearly constant.',
+  },
+  bernoulli_equation: {
+    summary: 'p + 1/2 rho V^2 + rho g z = constant: pressure, kinetic, and elevation heads trade along a streamline.',
+    explanation: 'Bernoulli is an energy budget for ideal flow.\nIt is useful for nozzles, Venturi meters, Pitot tubes, spray systems, suction lines, and first-pass pump intuition.\nValidity: steady, inviscid, incompressible flow along a streamline, with no pump work, turbine work, heat transfer, or significant loss.',
+  },
+  hydrostatic_pressure_gradient: {
+    summary: 'dp/dz = -rho g: pressure in a static fluid changes with height.',
+    explanation: 'For water, 10 m of height is roughly 98 kPa of pressure.\nThis is the first model for tanks, manometers, liquid columns, level measurement, and static head in piping.\nIt does not include acceleration, flow losses, capillarity, or density variation unless those are added.',
+  },
+  navier_stokes_equation: {
+    summary: 'rho(Du/Dt) = -grad p + mu grad^2 u + rho g: fluid momentum balance closed with Newtonian viscosity.',
+    explanation: 'Navier-Stokes is the parent model behind CFD, boundary layers, pipe flow, aerodynamics, pumps, compressors, and cooling flows.\nThe left side is unsteady plus convective inertia; the right side is pressure force, viscous diffusion, and body force.\nValidity: continuum fluid, Newtonian viscosity for this form, and appropriate boundary conditions.',
+  },
+  poiseuille_law: {
+    summary: 'Q = pi r^4 Delta p / (8 mu L): laminar round-pipe flow is extremely sensitive to radius.',
+    explanation: 'The r^4 dependence means a small diameter change can dominate pressure-flow behavior.\nUse it for capillaries, microchannels, lubrication passages, and first estimates of low-Re pipe flow.\nValidity: steady, incompressible, fully developed, laminar flow in a circular tube.',
+  },
+  darcy_weisbach_equation: {
+    summary: 'Delta p = f (L/D) (rho V^2/2): pipe pressure loss scales with length, inverse diameter, and velocity squared.',
+    explanation: 'This is the workhorse pressure-loss formula for process piping, cooling loops, fuel lines, HVAC, and data-center liquid cooling.\nThe friction factor f depends on Reynolds number and roughness.\nBecause loss scales roughly as V^2, pushing more flow through the same pipe rapidly increases pump power.',
+  },
+  drag_equation: {
+    summary: 'F_D = 1/2 C_D rho V^2 A: drag is dynamic pressure times area times a shape coefficient.',
+    explanation: 'C_D hides geometry, Reynolds number, Mach number, and surface effects.\nUse it for cars, aircraft, drones, fans, rockets, and bluff-body load estimates.\nThe core intuition is that aerodynamic force grows with V^2 through dynamic pressure.',
+  },
+  reynolds_number: {
+    summary: 'Re = rho V L / mu = V L / nu: Reynolds number compares inertial and viscous effects.',
+    explanation: 'Low Re means viscosity organizes the flow; high Re means inertia and often turbulence dominate.\nIt decides whether Poiseuille, Darcy-Weisbach, boundary-layer, turbulence, or inviscid approximations make sense.\nRe is a model-selection number more than a direct performance formula.',
+  },
+  fourier_heat_conduction: {
+    summary: 'q_double_prime = -k grad T: heat flux follows the negative temperature gradient.',
+    explanation: 'Heat conduction responds to temperature gradient, not absolute temperature alone.\nUse q about k Delta T / L for first estimates through TIMs, walls, heat spreaders, insulation, and coatings.\nMaterial conductivity k can depend strongly on temperature, direction, porosity, and interfaces.',
+  },
+  newton_cooling_law: {
+    summary: 'Qdot = h A (Ts - Tinf): convection is surface area times a heat-transfer coefficient times temperature difference.',
+    explanation: 'h packages boundary-layer physics into a usable coefficient.\nIt is central for heat sinks, server airflow, heat exchangers, vehicle cooling, and turbine surface cooling.\nFor serious design, h usually comes from Nu correlations, experiments, or CFD.',
+  },
+  thermal_radiation_law: {
+    summary: 'Qdot = epsilon sigma A (T1^4 - T2^4): thermal radiation rises with absolute temperature to the fourth power.',
+    explanation: 'Radiation becomes dominant in hot furnaces, engines, nozzles, spacecraft, and vacuum equipment.\nThe simple form assumes a simplified gray-body exchange; real geometry may require view factors and spectral emissivity.\nAlways use Kelvin for the T^4 terms.',
+  },
+  thermal_resistance_network: {
+    summary: 'Rcond = L/(kA), Rconv = 1/(hA), and Qdot = Delta T / Rth: heat paths can be modeled like resistors.',
+    explanation: 'Thermal resistance networks turn chip-to-air or wall-to-fluid heat flow into a series/parallel circuit.\nThe largest resistance is usually the bottleneck, such as TIM thickness, contact resistance, or air-side convection.\nValidity is best for one-dimensional or lumped first-pass models.',
+  },
+  heat_equation: {
+    summary: 'rho cp dT/dt = k grad^2 T + qdot_triple_prime: transient conduction balances thermal storage, diffusion, and heat generation.',
+    explanation: 'The diffusion time scale is about L^2/alpha, where alpha = k/(rho cp).\nUse it for battery heating, chip warm-up, welding, solid cooling, and temperature response after power steps.\nBoundary conditions often matter as much as the equation itself.',
+  },
+  nusselt_number: {
+    summary: 'Nu = h L / kf: Nusselt number measures convective heat transfer relative to pure conduction across a fluid length scale.',
+    explanation: 'Nu turns fluid mechanics into an h value for engineering heat-transfer calculations.\nLarge Nu means convection enhances heat transfer strongly compared with conduction alone.\nIt appears in correlations for internal flow, external flow, heat exchangers, fins, and turbine cooling.',
+  },
+  prandtl_number: {
+    summary: 'Pr = nu / alpha = mu cp / k: Prandtl number compares momentum diffusion to thermal diffusion.',
+    explanation: 'Low Pr fluids spread heat faster than momentum; high Pr fluids spread momentum faster than heat.\nIt helps choose heat-transfer correlations and estimate relative velocity and thermal boundary-layer thickness.\nLiquid metals have very low Pr; oils have high Pr; air and water sit in between.',
+  },
+  current_density_ohm_law: {
+    summary: 'J = sigma E: current density is proportional to electric field in an Ohmic conductor.',
+    explanation: 'J is A/m^2, sigma is S/m, and E is V/m.\nIt connects field-level electromagnetics to wire current, busbar sizing, contact resistance, and Joule heating.\nAt very high fields, anisotropic media, semiconductors, or plasmas, the simple Ohmic relation may need replacement.',
+  },
+  capacitor_charge_law: {
+    summary: 'Q = C V: a capacitor stores charge proportional to voltage.',
+    explanation: 'Capacitance converts voltage into stored charge and stored energy, E = 1/2 C V^2.\nThis is the basis for DRAM cells, decoupling capacitors, filters, sampling circuits, and power integrity.\nThe simple law assumes a linear lumped capacitor.',
+  },
+  capacitor_current_law: {
+    summary: 'i_C = C dv/dt: changing capacitor voltage requires current.',
+    explanation: 'Fast voltage edges require large transient current, which is why decoupling and layout inductance matter.\nIt explains RC filters, sample-and-hold circuits, digital edge current, and sensor bandwidth.\nValidity depends on treating the capacitor as lumped and roughly linear over the operating range.',
+  },
+  inductor_voltage_law: {
+    summary: 'v_L = L di/dt: changing inductor current creates voltage.',
+    explanation: 'Inductors resist current change, store magnetic energy, and create voltage spikes when current is interrupted.\nThis is central in VRMs, motors, switching converters, relays, and EMI control.\nParasitic resistance, saturation, and core losses matter in real magnetic components.',
+  },
+  rc_time_constant: {
+    summary: 'tau = R C and vC(t) = V(1 - exp(-t/RC)): an RC circuit approaches its final value with a first-order time scale.',
+    explanation: 'At one time constant the response reaches about 63.2% of the final step value; at about 3 tau it is near 95%.\nRC time constants set filter cutoffs, sensor lag, power sequencing, reset delays, and digital rise/fall behavior.\nThe model assumes one dominant pole and linear lumped R and C.',
+  },
+  semiconductor_drift_current: {
+    summary: 'Jn = q n mu_n E and Jp = q p mu_p E: electric fields drive carrier drift current.',
+    explanation: 'Drift current grows with carrier density, mobility, and electric field.\nIt is the first transport mechanism behind resistive conduction, Hall sensors, channels, and many device regions.\nAt high fields, mobility saturation, velocity saturation, and heating can break the linear form.',
+  },
+  semiconductor_diffusion_current: {
+    summary: 'Jn = q Dn dn/dx and Jp = -q Dp dp/dx: carrier concentration gradients drive diffusion current.',
+    explanation: 'Diffusion current appears whenever carriers spread from high concentration to low concentration.\nIt is essential for pn junctions, BJTs, LEDs, photodiodes, and solar cells.\nSign conventions depend on coordinate direction and whether electron flux or conventional current is being written.',
+  },
+  einstein_relation_semiconductors: {
+    summary: 'D / mu = kT / q: diffusion coefficient and mobility are linked by thermal voltage near equilibrium.',
+    explanation: 'At room temperature, kT/q is about 25.9 mV.\nThis relation links random thermal spreading to field-driven mobility in nondegenerate semiconductors near equilibrium.\nDegenerate statistics, strong fields, and non-equilibrium transport require more careful models.',
+  },
+  semiconductor_conductivity: {
+    summary: 'sigma = q(n mu_n + p mu_p): semiconductor conductivity is carrier density times mobility, summed over electrons and holes.',
+    explanation: 'Doping usually increases carrier density, but it can reduce mobility through impurity scattering.\nThis formula supports wafer resistivity, channel conduction, sensors, and first-pass device estimates.\nIt is a low-field conductivity model, not a full short-channel or high-field transistor model.',
+  },
+  diode_equation: {
+    summary: 'I = Is(exp(qV/(n kT)) - 1): diode forward current rises exponentially with voltage.',
+    explanation: 'The exponential comes from lowering a junction barrier so many more carriers cross it.\nIt explains rectifiers, LEDs, photodiodes, clamps, temperature sensors, and ESD intuition.\nSeries resistance, high injection, recombination, breakdown, and heating modify the ideal equation.',
+  },
+  cmos_dynamic_power: {
+    summary: 'Pdyn = alpha C V^2 f: CMOS switching power scales with activity, capacitance, voltage squared, and clock frequency.',
+    explanation: 'Each switching event charges and discharges capacitance, so voltage is especially expensive because it enters as V^2.\nThis is the shortest useful formula for DVFS, chip thermal design, AI accelerator power, and data-center energy.\nIt excludes leakage, short-circuit power, voltage droop, and workload-dependent memory power.',
+  },
+  debye_length: {
+    summary: 'lambda_D = sqrt(epsilon0 k Te / (ne e^2)): Debye length is the distance over which a plasma shields charge imbalance.',
+    explanation: 'A system must be much larger than lambda_D for quasineutral fluid intuition to work well.\nIt sets sheath thickness, diagnostic scale, and the boundary between microscopic and collective plasma behavior.\nUse consistent electron temperature units when evaluating the formula.',
+  },
+  plasma_frequency: {
+    summary: 'omega_pe = sqrt(ne e^2 / (epsilon0 me)): plasma frequency is the natural electron collective oscillation rate.',
+    explanation: 'Higher electron density means faster collective response.\nIt affects RF propagation, cutoff, shielding, diagnostics, and plasma heating.\nThe formula is a basic cold-electron estimate; collisions, magnetic fields, and geometry add corrections.',
+  },
+  larmor_radius: {
+    summary: 'r_L = m v_perp / (q B): Larmor radius is the gyro-orbit radius of a charged particle in a magnetic field.',
+    explanation: 'Small r_L compared with device size means particles are magnetized and tied strongly to field lines.\nIt is central in tokamaks, plasma sources, mass spectrometers, and space plasma.\nUse the perpendicular velocity component, not total speed.',
+  },
+  alfven_speed: {
+    summary: 'v_A = B / sqrt(mu0 rho): Alfven speed is the MHD wave speed set by magnetic tension and mass density.',
+    explanation: 'It gives the time scale for magnetic disturbances to propagate through a conducting fluid or plasma.\nTokamak stability, reconnection, solar plasma, and liquid-metal MHD all use this scale.\nThe model assumes MHD is a meaningful fluid description.',
+  },
+  plasma_beta: {
+    summary: 'beta = p / (B^2/(2 mu0)): plasma beta compares thermal pressure to magnetic pressure.',
+    explanation: 'Low beta means the magnetic field dominates confinement; higher beta improves pressure efficiency but can stress MHD stability.\nThis is one of the most compact tokamak performance and stability indicators.\nIt is also useful in astrophysical and space plasma where pressure and magnetic field compete.',
+  },
+  magnetic_reynolds_number: {
+    summary: 'Rm = mu0 sigma V L: magnetic Reynolds number compares magnetic induction to magnetic diffusion.',
+    explanation: 'When Rm is much greater than 1, frozen-in magnetic-field intuition becomes strong.\nWhen Rm is small, magnetic fields diffuse through the conductor more easily.\nIt is used in MHD, reconnection, dynamos, liquid metals, and conducting plasma flows.',
+  },
+  fick_law: {
+    summary: 'J = -D grad c: diffusive flux goes down the concentration gradient.',
+    explanation: 'Fick law is the mass-transfer analogue of Fourier law for heat.\nIt applies to dilute diffusion, dopant spread, CVD species transport, membrane separation, environmental diffusion, and mixing estimates.\nThe minus sign means species move from high concentration toward low concentration.',
+  },
+  advection_diffusion_equation: {
+    summary: 'dC/dt + u · grad C = D grad^2 C + S: concentration changes by flow transport, diffusion, and sources.',
+    explanation: 'Advection carries material with the flow; diffusion smooths gradients; S creates or removes species.\nThe Peclet number Pe = U L / D decides whether advection or diffusion dominates.\nUse it for pollutants, process gases, combustion precursors, cooling additives, and chemical mixing.',
+  },
+  material_derivative: {
+    summary: 'D F / Dt = partial F / partial t + u · grad F: the material derivative follows a moving fluid parcel.',
+    explanation: 'A fixed sensor sees local change; a moving parcel sees local change plus spatial change carried by velocity.\nThis is the bridge between Eulerian fields and Lagrangian particle intuition.\nIt appears in Navier-Stokes, heat transport, species transport, weather, ocean, and process-flow models.',
+  },
+  first_order_transfer_function: {
+    summary: 'G(s) = K/(1 + tau s) and y(t) = K(1 - exp(-t/tau)): a single dominant pole gives a first-order step response.',
+    explanation: 'At t = tau the response reaches about 63.2% of final value; around 4 tau it is mostly settled.\nThis model captures sensors, thermal masses, pressure loops, flow loops, autopilot linear models, and RC-like dynamics.\nUse higher-order or nonlinear models when one time constant does not dominate.',
+  },
+
 };

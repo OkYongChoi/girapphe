@@ -96,7 +96,7 @@ Clerk dashboard setup:
 - `DATABASE_URL`
 - Clerk redirect URL vars (see section 4)
 4. Build command:
-- `npm run build`
+- `pnpm build:web`
 5. Deploy.
 
 Post deploy:
@@ -211,7 +211,7 @@ These cannot be completed automatically by code changes:
 ## 8. Manual Release Checklist
 
 1. `npm run check`
-2. `npm run build`
+2. `pnpm build:web`
 3. Deploy to staging/prod
 4. Verify:
 - `/api/health`

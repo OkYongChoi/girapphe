@@ -12,11 +12,22 @@
 
 ## Components
 
-### 1. Frontend (Next.js App Router)
+### 1. App Surfaces
+
+#### Web (Next.js App Router)
 
 - Renders learning/practice views and graph visualization pages.
 - Calls backend routes for graph fetch and quiz submissions.
 - Displays growth and knowledge-state driven UI effects.
+
+#### Mobile (Expo / React Native)
+
+- Uses one shared Expo app in `apps/mobile` for both iOS and Android.
+- Renders Home, Browse, Practice, and Topic Detail flows through Expo Router.
+- Reads graph nodes, graph edges, card content, and domain helpers from
+  `@stem-brain/graph-engine`.
+- See `docs/apps/mobile.md` for mobile-specific architecture and platform
+  guidance.
 
 ### 2. API Layer
 
@@ -48,8 +59,8 @@
 ### 6. Authentication Layer
 
 - Powered by [Clerk](https://clerk.com).
-- `src/middleware.ts` enforces auth on all routes except `/`, `/login`, `/signup`, `/register`, `/api/health`.
-- `src/lib/auth.ts` exports `getCurrentUser()` and `requireCurrentUser()` as thin shims over Clerk's `auth()` and `currentUser()`.
+- `apps/web/src/middleware.ts` enforces auth on all routes except `/`, `/login`, `/signup`, `/register`, `/api/health`.
+- `apps/web/src/lib/auth.ts` exports `getCurrentUser()` and `requireCurrentUser()` as thin shims over Clerk's `auth()` and `currentUser()`.
 - All existing pages and actions use these shims unchanged.
 - User IDs from Clerk (format: `user_2abc123`) are stored as `text` in `user_knowledge_states.user_id` and related tables.
 
@@ -69,5 +80,5 @@
 
 1. Keep current `graph-types.ts` as canonical contract.
 2. Replace in-memory store access with SQL repository implementation.
-3. Preserve API shape to avoid frontend rewrites.
+3. Preserve API shape to avoid web and mobile rewrites.
 4. Add caching/indexing around graph queries and per-user state reads.

@@ -9,6 +9,7 @@ import { getCardStatusShortLabel } from '@/lib/card-status';
 
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
+  isGuest?: boolean;
 };
 
 function getCardDomains(card: KnowledgeCard) {
@@ -16,7 +17,7 @@ function getCardDomains(card: KnowledgeCard) {
   return Array.from(new Set(domains.filter(Boolean)));
 }
 
-export default function KnowledgeMap({ initialCards }: Props) {
+export default function KnowledgeMap({ initialCards, isGuest = false }: Props) {
   const [baseCards, setBaseCards] = useState(initialCards);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
@@ -29,6 +30,8 @@ export default function KnowledgeMap({ initialCards }: Props) {
   const [generatedError, setGeneratedError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isGuest) return;
+
     let active = true;
 
     getAllCardsWithStatus()
@@ -42,7 +45,7 @@ export default function KnowledgeMap({ initialCards }: Props) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [isGuest]);
 
   const cards = includeGenerated ? (generatedCards ?? baseCards) : baseCards;
 

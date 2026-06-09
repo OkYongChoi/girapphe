@@ -6,6 +6,7 @@ This folder contains technical documentation for the Personal STEM Brain project
 
 - [Tech Stack](./tech-stack.md)
 - [Architecture Overview](./architecture/overview.md)
+- [Mobile App Architecture](./apps/mobile.md)
 - [Knowledge Graph Spec](./reference/knowledge-graph-spec.md)
 - [API Specification](./reference/api-spec.md)
 - [Data Model](./reference/data-model.md)
@@ -16,8 +17,9 @@ This folder contains technical documentation for the Personal STEM Brain project
 
 1. Tech Stack
 2. Architecture Overview
-3. Data Model
-4. API Specification
-5. Knowledge Graph Spec
-6. Development & Operations
-7. Admin Operations (if working on `/admin`)
+3. Mobile App Architecture (if working on iOS/Android)
+4. Data Model
+5. API Specification
+6. Knowledge Graph Spec
+7. Development & Operations
+8. Admin Operations (if working on `/admin`)

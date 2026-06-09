@@ -63,7 +63,7 @@ The system may use continuous intermediate values internally for diffusion, but 
 
 ## SQL Tables
 
-Defined in `schema.sql`.
+Defined in `apps/web/schema.sql`.
 
 Main graph tables:
 
