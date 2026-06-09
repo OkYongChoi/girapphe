@@ -32,11 +32,14 @@ pnpm harness
 The local harness runs:
 
 ```bash
-pnpm lint
-pnpm typecheck
+pnpm check
+pnpm --filter @stem-brain/web check:env:examples
 pnpm --filter @stem-brain/web build
-pnpm --filter @stem-brain/mobile typecheck
 ```
+
+`pnpm check` runs each package's `check` task through Turborepo, including lint
+and type checks for the web and mobile apps plus type checks for shared
+workspace packages.
 
 CI should use the frozen-lockfile harness:
 
@@ -49,6 +52,8 @@ Deployment readiness should also run the Cloudflare/OpenNext build:
 ```bash
 pnpm harness:deploy
 ```
+
+The deployment harness runs the local harness first, then `pnpm build:cf`.
 
 Release handoff checklist:
 

@@ -15,7 +15,8 @@
     "eas:ios:preview": "eas build --platform ios --profile preview",
     "eas:ios:production": "eas build --platform ios --profile production",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm lint && pnpm typecheck"
   },
   "dependencies": {
     "@stem-brain/graph-engine": "workspace:*",

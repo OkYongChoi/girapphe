@@ -138,6 +138,9 @@ Before pushing a branch, run:
 pnpm harness
 ```
 
+This runs workspace checks, validates checked-in environment templates, and
+builds the web app.
+
 CI should run:
 
 ```bash
@@ -149,6 +152,8 @@ Before deployment, also run:
 ```bash
 pnpm harness:deploy
 ```
+
+This runs the local harness first, then the Cloudflare/OpenNext build.
 
 Push is part of release handoff, not the repeatable validation script:
 

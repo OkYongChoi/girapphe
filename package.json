@@ -12,9 +12,9 @@
     "check": "turbo check",
     "smoke": "pnpm --filter @stem-brain/web smoke",
     "harness": "pnpm harness:local",
-    "harness:local": "pnpm lint && pnpm typecheck && pnpm --filter @stem-brain/web build && pnpm --filter @stem-brain/mobile typecheck",
+    "harness:local": "pnpm check && pnpm --filter @stem-brain/web check:env:examples && pnpm --filter @stem-brain/web build",
     "harness:ci": "pnpm install --frozen-lockfile && pnpm harness:local",
-    "harness:deploy": "pnpm build:cf",
+    "harness:deploy": "pnpm harness:local && pnpm build:cf",
     "deploy:cf": "pnpm --filter @stem-brain/web deploy:cf",
     "deploy:cf:dev": "pnpm --filter @stem-brain/web deploy:cf:dev",
     "deploy:cf:prod": "pnpm --filter @stem-brain/web deploy:cf:prod"

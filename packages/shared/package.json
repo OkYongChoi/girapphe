@@ -2,6 +2,10 @@
   "name": "@stem-brain/shared",
   "version": "0.1.0",
   "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck"
+  },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

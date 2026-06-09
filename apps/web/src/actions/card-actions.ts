@@ -869,8 +869,13 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
           ON kc.id = ucs.card_id AND ucs.user_id = $1
         WHERE (ucs.progress_state = 'learning' OR (ucs.progress_state IS NULL AND ucs.status = 'saved'))
           AND (ucs.due_at IS NULL OR ucs.due_at <= NOW())
+          AND COALESCE(kc.is_generated, FALSE) = FALSE
+          AND kc.id NOT LIKE 'drill_%'
           AND kc.id NOT LIKE 'graph_adv_%'
           AND kc.title NOT ILIKE 'Sponsored Content %'
+          AND kc.id !~ '^[0-9]+$'
+          AND kc.title !~ '^[0-9]+$'
+          AND lower(trim(kc.title)) NOT IN ('test', 'test card', 'dummy', 'dummy card', 'sample card', 'placeholder', 'placeholder card')
       `;
     } else {
       query = `
@@ -883,8 +888,13 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
         FROM knowledge_cards kc
         LEFT JOIN user_card_states ucs
           ON kc.id = ucs.card_id AND ucs.user_id = $1
-        WHERE kc.id NOT LIKE 'graph_adv_%'
+        WHERE COALESCE(kc.is_generated, FALSE) = FALSE
+          AND kc.id NOT LIKE 'drill_%'
+          AND kc.id NOT LIKE 'graph_adv_%'
           AND kc.title NOT ILIKE 'Sponsored Content %'
+          AND kc.id !~ '^[0-9]+$'
+          AND kc.title !~ '^[0-9]+$'
+          AND lower(trim(kc.title)) NOT IN ('test', 'test card', 'dummy', 'dummy card', 'sample card', 'placeholder', 'placeholder card')
       `;
     }
 
