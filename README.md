@@ -155,6 +155,19 @@ pnpm harness:deploy
 
 This runs the local harness first, then the Cloudflare/OpenNext build.
 
+Browser smoke checks use Playwright and start the web dev server automatically:
+
+```bash
+pnpm browser:smoke
+pnpm harness:browser
+```
+
+If Chromium is not installed locally yet, run:
+
+```bash
+pnpm exec playwright install --with-deps chromium
+```
+
 Push is part of release handoff, not the repeatable validation script:
 
 ```bash
@@ -202,6 +215,18 @@ Clerk handles:
 - Multi-factor authentication (optional, configure in Clerk dashboard)
 
 ## Environments & Deployment
+
+Branch flow:
+
+```text
+feature/* -> PR -> dev -> deploy dev -> PR -> main -> deploy prod
+```
+
+- `dev` deploys to Cloudflare `dev` and uses dev-scoped secrets/variables.
+- `main` deploys to Cloudflare `prod` and uses production secrets/variables.
+- Do not commit real `.env*` files. Keep local values in `apps/web/.env.local`;
+  inject CI values with GitHub Secrets/Variables and Cloudflare runtime values
+  with Wrangler Worker secrets.
 
 Cloudflare Workers (OpenNext) commands:
 

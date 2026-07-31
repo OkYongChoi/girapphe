@@ -68,6 +68,14 @@ npm run smoke
   - `200` with `"status":"ok"` in local fallback or DB healthy
   - `503` when DB configured but unavailable
 
+4. Browser smoke check
+```bash
+pnpm browser:smoke
+```
+
+This starts the web dev server automatically through Playwright. Use
+`PLAYWRIGHT_BASE_URL` only when testing an already-running local or remote app.
+
 ## 4. Production Required Config
 
 Required:
@@ -184,11 +192,13 @@ Key steps per deploy job:
   - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_DEV`
   - `CLERK_SECRET_KEY_DEV`
   - `DATABASE_URL_DEV`
+  - `ADMIN_CLERK_USER_ID_DEV`
   - `CLOUDFLARE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
   - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
   - `CLERK_SECRET_KEY`
   - `DATABASE_URL`
+  - `ADMIN_CLERK_USER_ID`
 - Variables:
   - `APP_BASE_URL_DEV`
   - `APP_BASE_URL`
@@ -316,18 +326,23 @@ Verified at: `2026-02-18 20:41:03 KST`
 
 ## 11. Branch and Environment Strategy
 
-This project uses **GitHub Flow** — no persistent `dev` branch.
+This project keeps environment branches explicit:
 
-- `main`: always deployable, auto-deploys to prod on push
-- Feature branches: created from `main`, merged back via PR
+- `dev`: protected integration branch; auto-deploys to Cloudflare `dev`.
+- `main`: protected production branch; auto-deploys to Cloudflare `prod`.
+- Feature branches: short-lived branches from the latest `dev` or `main`, merged by PR, then deleted.
 
 Basic flow:
 
-1. feature branch -> PR -> `main` -> prod auto-deploy
-2. Smoke test runs automatically after deploy
-3. Cloudflare Workers rollback available if smoke test fails
+1. Create a feature branch, for example `feature/practice-browser-smoke`.
+2. Open a PR into `dev`; CI runs quality checks.
+3. Merge to `dev`; GitHub Actions deploys the development Worker and runs smoke tests against `APP_BASE_URL_DEV`.
+4. Promote with a `dev` -> `main` PR.
+5. Merge to `main`; GitHub Actions deploys production and runs smoke tests against `APP_BASE_URL`.
+6. If production smoke fails, use Cloudflare Workers rollback and fix forward from a new branch.
 
-No staging branch. Use PR preview environments or local dev for pre-merge validation.
+Do not put real env files in git. Use `.env.local` only for local development,
+GitHub secrets/variables for CI, and Wrangler Worker secrets for Cloudflare runtime.
 
 ## 12. Progress Data Reset
 

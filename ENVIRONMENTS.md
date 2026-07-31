@@ -4,11 +4,11 @@ This project uses separate configuration for local development and production.
 
 ## 1. Environment Matrix
 
-| Environment | App Domain | Clerk Domain | Clerk Keys | Database |
-|---|---|---|---|---|
-| Local Dev | `http://localhost:3000` | active Clerk tenant | usually `pk_test` / `sk_test`, but `pk_live` / `sk_live` is also supported when intentionally sharing prod auth | optional Neon/local DB |
-| Cloudflare Dev | `*.workers.dev` or dev custom domain | active Clerk tenant | tenant-matched keys | dev or shared Neon DB |
-| Production | `https://www.girapphe.com` | `clerk.girapphe.com` | `pk_live` / `sk_live` | production Neon |
+| Environment | App Domain | Clerk Domain | Clerk Keys | Database | Deploy trigger |
+|---|---|---|---|---|---|
+| Local Dev | `http://localhost:3000` | active Clerk tenant | usually `pk_test` / `sk_test`, but `pk_live` / `sk_live` is also supported when intentionally sharing prod auth | optional Neon/local DB | manual |
+| Cloudflare Dev | `*.workers.dev` or dev custom domain | active Clerk tenant | tenant-matched keys | dev or shared Neon DB | push to `dev` |
+| Production | `https://www.girapphe.com` | `clerk.girapphe.com` | `pk_live` / `sk_live` | production Neon | push to `main` |
 
 ## 2. Where Secrets Live
 
@@ -57,14 +57,24 @@ Validation commands:
 - Local dev file check: `npm run check:env:dev`
 - Production env check (CI/runtime): `npm run check:env:prod`
 
-## 4. Deployment Rules
+## 4. Branch and Deployment Rules
 
 - Build/deploy production with production keys only.
 - Do not reuse dev keys for production domains.
-- This project uses **GitHub Flow**: `main` is the only long-lived branch.
+- This project uses two protected environment branches:
+  - `dev`: integration branch for development-network deployment.
+  - `main`: production branch and the only source for production deployment.
+- Feature branches are short-lived and should be named by scope, for example `feature/home-graph-polish`, `fix/admin-empty-state`, or `chore/env-runbook`.
 - GitHub Actions branch mapping:
-  - Push to `main` -> deploy `--env prod` -> smoke test
-- Feature branches are merged to `main` via PR and deleted after merge.
+  - PR to `dev` or `main` -> quality checks only
+  - Push to `dev` -> deploy `--env dev` -> smoke test dev URL
+  - Push to `main` -> deploy `--env prod` -> smoke test prod URL
+- Normal promotion path:
+  1. feature branch -> PR -> `dev`
+  2. smoke-test the Cloudflare dev deployment
+  3. `dev` -> PR -> `main`
+  4. smoke-test the production deployment
+- Delete feature branches after merge. Keep `dev` and `main` protected.
 
 ## 4.1 Codebase-Enforced Separation
 
@@ -86,6 +96,24 @@ Recommended secret commands:
 
 - Dev secret: `npx wrangler secret put KEY --env dev`
 - Prod secret: `npx wrangler secret put KEY --env prod`
+
+Secret classification:
+
+- Public/build-time values, safe to expose to browsers:
+  - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+  - `NEXT_PUBLIC_CLERK_SIGN_IN_URL`
+  - `NEXT_PUBLIC_CLERK_SIGN_UP_URL`
+  - `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL`
+  - `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL`
+  - `APP_BASE_URL`
+- Server-only secrets, never commit:
+  - `CLERK_SECRET_KEY`
+  - `DATABASE_URL`
+  - `ADMIN_CLERK_USER_ID`
+  - `CLOUDFLARE_API_TOKEN`
+  - `CLOUDFLARE_ACCOUNT_ID`
+  - `R2_ACCESS_KEY_ID`
+  - `R2_SECRET_ACCESS_KEY`
 
 ## 5. Google OAuth 400 (invalid_request) Checklist
 

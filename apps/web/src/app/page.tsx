@@ -21,6 +21,11 @@ const HOME_FALLBACK_DOMAIN_PROGRESS: HomeDomainProgressRow[] = [
 
 const HOME_DOMAIN_TONES = ['bg-emerald-300', 'bg-sky-300', 'bg-amber-300', 'bg-cyan-300'] as const;
 const HOME_DISCIPLINES = ['Biology', 'Computer science', 'Semiconductor', 'Bio-chemistry', 'Medicine', 'Statistics', 'Economics', 'Architecture'];
+const HOME_HERO_SIGNALS = [
+  { label: 'Practice cards', value: '1k+' },
+  { label: 'Disciplines', value: '8' },
+  { label: 'Graph-first', value: '3D' },
+];
 
 const HOME_FALLBACK_STATS = {
   explainable: 18,
@@ -62,34 +67,35 @@ export default async function HomePage() {
       <div aria-hidden="true" className="home-scroll-progress fixed left-0 top-0 z-[70] h-0.5 w-full origin-left bg-gradient-to-r from-cyan-200 via-emerald-200 to-amber-200" />
       <Navbar user={user} />
 
-      <section className="home-snap-section home-hero-section relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col justify-start px-6 pb-14 pt-10 md:pb-20 md:pt-14">
-        <div className="home-hero-stage relative z-10 grid min-w-0 gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(20rem,0.55fr)] lg:items-start">
-          <div className="home-hero-copy fade-up min-w-0 max-w-3xl">
-            <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1 text-xs font-semibold uppercase text-slate-300 shadow-sm backdrop-blur">
+      <section className="home-snap-section home-hero-section relative z-10 overflow-hidden px-6 pb-12 pt-10 md:pb-16 md:pt-14">
+        <div aria-hidden="true" className="home-hero-network pointer-events-none absolute inset-x-0 top-0 h-[calc(100vh-4rem)] min-h-[42rem]">
+          <div className="home-hero-constellation absolute left-1/2 top-[44%] h-[38rem] w-[38rem] -translate-x-1/2 -translate-y-1/2 md:h-[48rem] md:w-[48rem]" />
+          <div className="home-hero-node home-hero-node-a">Review</div>
+          <div className="home-hero-node home-hero-node-b">Notes</div>
+          <div className="home-hero-node home-hero-node-c">Mastery</div>
+          <div className="home-hero-node home-hero-node-d">Links</div>
+        </div>
+
+        <div className="home-hero-stage relative z-10 mx-auto flex min-h-[calc(100vh-10rem)] max-w-6xl flex-col justify-center">
+          <div className="home-hero-copy fade-up min-w-0 max-w-4xl">
+            <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-3 py-1 text-xs font-semibold uppercase text-slate-300 shadow-sm backdrop-blur">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-200/80 shadow-[0_0_16px_rgba(125,211,252,0.65)]" />
               Multidisciplinary Practice Graph
             </p>
-            <h1 className="mt-5 max-w-[19rem] text-2xl font-black leading-tight tracking-tight text-white sm:max-w-2xl sm:text-4xl md:text-6xl">
-              Practice STEM concepts and build your knowledge graph.
+            <h1 className="mt-5 max-w-3xl text-5xl font-black leading-[0.98] tracking-tight text-white sm:text-6xl md:text-7xl">
+              Practice STEM concepts and build your{' '}
+              <span className="text-cyan-300">knowledge graph.</span>
             </h1>
-            <p className="mt-5 max-w-[20rem] text-sm leading-7 text-slate-300 sm:max-w-2xl sm:text-base md:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 md:text-lg">
               Learn with focused concept cards, save weak spots for review, and see your progress across science, engineering, medicine, computing, economics, and design.
             </p>
 
-            <div className="home-discipline-rail mt-7 max-w-2xl overflow-hidden text-xs font-semibold uppercase text-slate-300" data-carousel="disciplines">
-              <div className="home-discipline-track flex w-max" aria-label="STEM disciplines" style={{ animationName: 'homeDisciplineCarousel' }}>
-                {[0, 1].map((groupIndex) => (
-                  <div
-                    key={groupIndex}
-                    aria-hidden={groupIndex === 1 ? 'true' : undefined}
-                    className="home-discipline-group flex shrink-0 gap-2 pr-2"
-                  >
-                    {HOME_DISCIPLINES.map((label) => (
-                      <span key={`${label}-${groupIndex}`} className="shrink-0 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 backdrop-blur">
-                        {label}
-                      </span>
-                    ))}
-                  </div>
+            <div className="mt-7 max-w-3xl text-xs font-semibold uppercase text-slate-300">
+              <div className="flex flex-wrap gap-2" aria-label="STEM disciplines">
+                {HOME_DISCIPLINES.map((label) => (
+                  <span key={label} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 backdrop-blur">
+                    {label}
+                  </span>
                 ))}
               </div>
             </div>
@@ -152,7 +158,16 @@ export default async function HomePage() {
               </div>
             ) : null}
           </div>
-
+        </div>
+        <div className="relative z-10 mx-auto mt-8 grid max-w-6xl gap-5 lg:-mt-8 lg:grid-cols-[minmax(0,0.56fr)_minmax(22rem,0.44fr)] lg:items-end">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {HOME_HERO_SIGNALS.map((signal) => (
+              <div key={signal.label} className="rounded-lg border border-white/10 bg-white/[0.055] px-4 py-3 backdrop-blur">
+                <span className="block text-2xl font-black text-white">{signal.value}</span>
+                <span className="text-xs font-semibold uppercase text-slate-400">{signal.label}</span>
+              </div>
+            ))}
+          </div>
           <div className="home-hero-visual fade-up min-w-0">
             <KnowledgeSurface
               domainProgress={homeDomainProgress}
@@ -164,7 +179,7 @@ export default async function HomePage() {
             />
           </div>
         </div>
-        <div className="mt-10 flex flex-col items-center gap-4">
+        <div className="relative z-10 mx-auto mt-8 flex max-w-6xl flex-col items-center gap-4">
           <Link
             href="#knowledge-graph"
             aria-label="Scroll to live knowledge graph"

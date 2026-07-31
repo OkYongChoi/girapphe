@@ -55,6 +55,19 @@ pnpm harness:deploy
 
 The deployment harness runs the local harness first, then `pnpm build:cf`.
 
+Browser smoke checks use Playwright and start the web dev server automatically:
+
+```bash
+pnpm browser:smoke
+pnpm harness:browser
+```
+
+If Chromium is not installed locally yet, run:
+
+```bash
+pnpm exec playwright install --with-deps chromium
+```
+
 Release handoff checklist:
 
 ```bash
@@ -62,7 +75,15 @@ git status --short
 git push
 ```
 
-After pushing, wait for CI to finish, then deploy through the configured Cloudflare
+Branch and environment handoff:
+
+1. Work on a short-lived branch such as `feature/...`, `fix/...`, or `chore/...`.
+2. Open a PR into `dev`; CI runs quality checks.
+3. Merge to `dev` for the development-network Cloudflare deploy and smoke test.
+4. Promote with a `dev` -> `main` PR.
+5. Merge to `main` for the production Cloudflare deploy and smoke test.
+
+After pushing, wait for CI to finish. Deploy through the configured Cloudflare
 pipeline or run the deployment command for the target environment.
 
 Optional smoke test (app must be running):
@@ -113,7 +134,8 @@ Cloudflare/OpenNext commands:
 
 ```bash
 npm run build:cf
-npm run deploy:cf
+npm run deploy:cf:dev
+npm run deploy:cf:prod
 ```
 
 See `DEPLOY.md` for full runbook and CI template.

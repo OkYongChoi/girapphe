@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-TEMPLATE="$ROOT_DIR/.env.dev.example"
-TARGET="$ROOT_DIR/.env.local"
+APP_DIR="$ROOT_DIR/apps/web"
+TEMPLATE="$APP_DIR/.env.dev.example"
+TARGET="$APP_DIR/.env.local"
 
 if [[ ! -f "$TEMPLATE" ]]; then
   echo "[ERROR] Missing template: $TEMPLATE"
@@ -19,6 +20,6 @@ fi
 
 echo ""
 echo "Next steps:"
-echo "1) Fill real dev values in .env.local (pk_test/sk_test recommended)"
+echo "1) Fill real dev values in apps/web/.env.local (pk_test/sk_test recommended)"
 echo "2) Run: npm run check:env:dev"
 echo "3) Run: npm run dev"
