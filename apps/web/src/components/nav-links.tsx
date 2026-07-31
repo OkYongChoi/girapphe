@@ -21,8 +21,8 @@ export default function NavLinks() {
   const pathname = usePathname();
 
   return (
-    <nav aria-label="Main navigation">
-      <ul className="no-scrollbar flex items-center gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1 text-sm font-medium text-slate-600">
+    <nav aria-label="Main navigation" className="min-w-0 overflow-hidden">
+      <ul className="no-scrollbar flex w-full min-w-0 items-center gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1 text-sm font-medium text-slate-600">
         {NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item.href);
           return (
