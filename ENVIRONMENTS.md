@@ -61,20 +61,17 @@ Validation commands:
 
 - Build/deploy production with production keys only.
 - Do not reuse dev keys for production domains.
-- This project uses two protected environment branches:
-  - `dev`: integration branch for development-network deployment.
-  - `main`: production branch and the only source for production deployment.
+- This project uses `main` as its protected deployment branch and the only
+  source for production deployment.
 - Feature branches are short-lived and should be named by scope, for example `feature/home-graph-polish`, `fix/admin-empty-state`, or `chore/env-runbook`.
 - GitHub Actions branch mapping:
-  - PR to `dev` or `main` -> quality checks only
-  - Push to `dev` -> deploy `--env dev` -> smoke test dev URL
+  - PR to `main` -> quality checks only
   - Push to `main` -> deploy `--env prod` -> smoke test prod URL
 - Normal promotion path:
-  1. feature branch -> PR -> `dev`
-  2. smoke-test the Cloudflare dev deployment
-  3. `dev` -> PR -> `main`
-  4. smoke-test the production deployment
-- Delete feature branches after merge. Keep `dev` and `main` protected.
+  1. feature branch -> PR -> `main`
+  2. merge after quality checks pass and all review conversations are resolved
+  3. smoke-test the production deployment
+- Delete feature branches after merge. Keep `main` protected.
 
 ## 4.1 Codebase-Enforced Separation
 

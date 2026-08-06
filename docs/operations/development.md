@@ -78,10 +78,8 @@ git push
 Branch and environment handoff:
 
 1. Work on a short-lived branch such as `feature/...`, `fix/...`, or `chore/...`.
-2. Open a PR into `dev`; CI runs quality checks.
-3. Merge to `dev` for the development-network Cloudflare deploy and smoke test.
-4. Promote with a `dev` -> `main` PR.
-5. Merge to `main` for the production Cloudflare deploy and smoke test.
+2. Open a PR into `main`; CI runs quality checks.
+3. Merge to `main` for the production Cloudflare deploy and smoke test.
 
 After pushing, wait for CI to finish. Deploy through the configured Cloudflare
 pipeline or run the deployment command for the target environment.

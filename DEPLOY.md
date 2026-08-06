@@ -204,7 +204,7 @@ Key steps per deploy job:
   - `APP_BASE_URL`
 
 Branch deploy behavior (current workflow):
-- `dev` branch push -> deploy to Cloudflare `dev` environment
+- PR to `main` -> runs Quality Checks
 - `main` branch push -> deploy to Cloudflare `prod` environment
 
 ## 7. Manual Steps You Must Do Yourself
@@ -326,20 +326,17 @@ Verified at: `2026-02-18 20:41:03 KST`
 
 ## 11. Branch and Environment Strategy
 
-This project keeps environment branches explicit:
+This project uses a short-lived feature-branch workflow:
 
-- `dev`: protected integration branch; auto-deploys to Cloudflare `dev`.
 - `main`: protected production branch; auto-deploys to Cloudflare `prod`.
-- Feature branches: short-lived branches from the latest `dev` or `main`, merged by PR, then deleted.
+- Feature branches: short-lived branches from the latest `main`, merged by PR, then deleted.
 
 Basic flow:
 
 1. Create a feature branch, for example `feature/practice-browser-smoke`.
-2. Open a PR into `dev`; CI runs quality checks.
-3. Merge to `dev`; GitHub Actions deploys the development Worker and runs smoke tests against `APP_BASE_URL_DEV`.
-4. Promote with a `dev` -> `main` PR.
-5. Merge to `main`; GitHub Actions deploys production and runs smoke tests against `APP_BASE_URL`.
-6. If production smoke fails, use Cloudflare Workers rollback and fix forward from a new branch.
+2. Open a PR into `main`; CI runs quality checks.
+3. Merge to `main`; GitHub Actions deploys production and runs smoke tests against `APP_BASE_URL`.
+4. If production smoke fails, use Cloudflare Workers rollback and fix forward from a new branch.
 
 Do not put real env files in git. Use `.env.local` only for local development,
 GitHub secrets/variables for CI, and Wrangler Worker secrets for Cloudflare runtime.

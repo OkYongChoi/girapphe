@@ -219,11 +219,13 @@ Clerk handles:
 Branch flow:
 
 ```text
-feature/* -> PR -> dev -> deploy dev -> PR -> main -> deploy prod
+feature/* -> PR -> Quality Checks -> main -> deploy prod
 ```
 
-- `dev` deploys to Cloudflare `dev` and uses dev-scoped secrets/variables.
 - `main` deploys to Cloudflare `prod` and uses production secrets/variables.
+- Pull requests run `Quality Checks`; Cloudflare preview deployments are not
+  configured until each PR can receive an isolated Worker, URL, and non-prod
+  runtime secrets.
 - Do not commit real `.env*` files. Keep local values in `apps/web/.env.local`;
   inject CI values with GitHub Secrets/Variables and Cloudflare runtime values
   with Wrangler Worker secrets.
