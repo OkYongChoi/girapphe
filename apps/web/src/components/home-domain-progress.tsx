@@ -41,16 +41,26 @@ export default function HomeDomainProgress({
 }) {
   const frames = useMemo(() => buildFrames(rows, demo), [rows, demo]);
   const [frameIndex, setFrameIndex] = useState(0);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   useEffect(() => {
-    if (frames.length <= 1) return undefined;
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    updatePreference();
+    mediaQuery.addEventListener('change', updatePreference);
+    return () => mediaQuery.removeEventListener('change', updatePreference);
+  }, []);
+
+  useEffect(() => {
+    if (prefersReducedMotion || frames.length <= 1) return undefined;
 
     const interval = window.setInterval(() => {
       setFrameIndex((current) => (current + 1) % frames.length);
     }, ROTATION_INTERVAL_MS);
 
     return () => window.clearInterval(interval);
-  }, [frames.length]);
+  }, [frames.length, prefersReducedMotion]);
 
   const activeRows = frames[frames.length > 0 ? frameIndex % frames.length : 0] ?? [];
 

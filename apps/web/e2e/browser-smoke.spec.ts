@@ -59,6 +59,16 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('home respects reduced-motion preferences', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+
+    await expect(page.locator('.home-scroll-cue')).toHaveCSS('animation-iteration-count', '1');
+    await assertNoBrowserFailures();
+  });
+
   test('login page renders an auth entrypoint or local config fallback', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
