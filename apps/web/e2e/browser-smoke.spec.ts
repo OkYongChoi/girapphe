@@ -47,6 +47,18 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('practice mode navigation identifies the active mode', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.goto('/practice?mode=review');
+
+    const practiceMode = page.getByRole('navigation', { name: 'Practice mode' });
+    await expect(practiceMode.getByRole('link', { name: 'Review' })).toHaveAttribute('aria-current', 'page');
+    await expect(practiceMode.getByRole('link', { name: 'Learn New' })).not.toHaveAttribute('aria-current');
+
+    await assertNoBrowserFailures();
+  });
+
   test('login page renders an auth entrypoint or local config fallback', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
