@@ -13,12 +13,14 @@ import { getDomainColor } from '@stem-brain/graph-engine';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
+type ColorMode = 'progress' | 'domain';
+
+type GraphCard = KnowledgeCard & { status: CardStatus | null };
+
 type Props = {
-  cards: (KnowledgeCard & { status: CardStatus | null })[];
+  cards: GraphCard[];
   onClose?: () => void;
 };
-
-type ColorMode = 'progress' | 'domain';
 
 type SelectedNode = {
   id: string;
@@ -44,6 +46,16 @@ const STATUS_COLORS: Record<string, string> = {
 
 const DOMAIN_HUB_PROGRESS_COLOR = '#cbd5e1';
 const MUTED_LINK_COLOR = 'rgba(148, 163, 184, 0.28)';
+
+function getCardDomains(card: GraphCard) {
+  return card.domains && card.domains.length > 0 ? card.domains : [card.domain];
+}
+
+function getStatusLabel(status: CardStatus | null) {
+  if (status === 'known') return 'Explainable';
+  if (status === 'saved') return 'Unclear';
+  return 'Not started';
+}
 
 export default function KnowledgeGraph3D({ cards, onClose }: Props) {
   const router = useRouter();
@@ -188,14 +200,23 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
     return { nodes, links };
   }, [colorMode, filteredCards]);
 
+  const selectedDomainCards = useMemo(() => {
+    if (selectedNode?.group !== 'domain' || !selectedNode.domain) return [];
+
+    return filteredCards
+      .filter((card) => getCardDomains(card).includes(selectedNode.domain as string))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [filteredCards, selectedNode]);
+
   const handleNodeClick = useCallback(
     (node: any) => {
       setSelectedNode(node);
 
       // Fly camera to the node
-      if (fgRef.current) {
+      if (fgRef.current && Number.isFinite(node.x) && Number.isFinite(node.y) && Number.isFinite(node.z)) {
         const distance = 120;
-        const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+        const nodeDistance = Math.hypot(node.x, node.y, node.z);
+        const distRatio = nodeDistance > 0 ? 1 + distance / nodeDistance : 1;
         fgRef.current.cameraPosition(
           {
             x: node.x * distRatio,
@@ -208,6 +229,29 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
       }
     },
     []
+  );
+
+  const focusDomain = useCallback(
+    (domain: string) => {
+      const domainNode = graphData.nodes.find((node: any) => node.id === `domain:${domain}`);
+      if (domainNode) {
+        handleNodeClick(domainNode);
+        return;
+      }
+
+      const count = filteredCards.filter((card) => getCardDomains(card).includes(domain)).length;
+      setSelectedNode({
+        id: `domain:${domain}`,
+        name: formatDomainLabel(domain),
+        group: 'domain',
+        domain,
+        domains: [domain],
+        conceptCount: count,
+        color: getDomainColor(domain),
+        desc: `${count} visible concepts in ${formatDomainLabel(domain)}.`,
+      });
+    },
+    [filteredCards, graphData.nodes, handleNodeClick]
   );
 
   const handleNodeHover = useCallback((node: any) => {
@@ -393,7 +437,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
       </div>
 
       {/* Legend - bottom left */}
-      <div className="absolute bottom-6 left-6 z-10 rounded-xl bg-gray-900/80 p-4 backdrop-blur-sm border border-gray-800 pointer-events-none">
+      <div className="pointer-events-auto absolute bottom-4 left-4 right-4 z-10 max-h-80 overflow-hidden rounded-xl border border-gray-800 bg-gray-900/85 p-4 shadow-xl backdrop-blur-sm md:bottom-6 md:left-6 md:right-auto md:w-72 md:max-h-[28rem]">
         {colorMode === 'progress' ? (
           <>
             <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">Progress Colors</p>
@@ -416,20 +460,41 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
           </>
         ) : (
           <>
-            <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">Domain Colors</p>
-          <div className="space-y-2">
-            {visibleDomainList
-              .filter((domain) => domain !== 'other')
-              .map((domain) => (
-                <div key={domain} className="flex items-center gap-2.5">
-                  <span
-                    className="h-2.5 w-2.5 rounded-sm"
-                    style={{ backgroundColor: getDomainColor(domain) }}
-                  />
-                  <span className="text-xs text-gray-300">{formatDomainLabel(domain)}</span>
-                </div>
-              ))}
-          </div>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">Domain Colors</p>
+              <span className="text-[10px] text-gray-500">Click to inspect</span>
+            </div>
+            <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1 md:max-h-96">
+              {visibleDomainList
+                .filter((domain) => domain !== 'other')
+                .map((domain) => {
+                  const active = selectedNode?.group === 'domain' && selectedNode.domain === domain;
+                  const count = filteredCards.filter((card) => getCardDomains(card).includes(domain)).length;
+
+                  return (
+                    <button
+                      key={domain}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => focusDomain(domain)}
+                      className={`flex w-full items-center justify-between gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                        active
+                          ? 'border-white/20 bg-white/10'
+                          : 'border-transparent hover:border-white/10 hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                          style={{ backgroundColor: getDomainColor(domain) }}
+                        />
+                        <span className="truncate text-xs text-gray-300">{formatDomainLabel(domain)}</span>
+                      </span>
+                      <span className="shrink-0 text-[10px] text-gray-500">{count}</span>
+                    </button>
+                  );
+                })}
+            </div>
           </>
         )}
       </div>
@@ -487,11 +552,45 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
             </div>
 
             {selectedNode.group === 'domain' && selectedNode.conceptCount ? (
-              <div className="mb-6 rounded-lg border border-gray-800 bg-white/[0.04] px-3 py-2">
+              <div className="mb-5 rounded-lg border border-gray-800 bg-white/[0.04] px-3 py-2">
                 <p className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">
                   Visible Concepts
                 </p>
                 <p className="mt-1 text-2xl font-semibold text-white">{selectedNode.conceptCount}</p>
+              </div>
+            ) : null}
+
+            {selectedNode.group === 'domain' && selectedDomainCards.length > 0 ? (
+              <div className="mb-6">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                  Knowledge in this domain
+                </p>
+                <div className="space-y-2">
+                  {selectedDomainCards.map((card) => {
+                    const node = graphData.nodes.find((item: any) => item.id === card.id);
+
+                    return (
+                      <button
+                        key={card.id}
+                        type="button"
+                        onClick={() => {
+                          if (node) handleNodeClick(node);
+                        }}
+                        className="w-full rounded-lg border border-gray-800 bg-white/[0.04] px-3 py-2 text-left transition-colors hover:border-white/20 hover:bg-white/[0.07]"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="min-w-0 text-sm font-medium text-white">{card.title}</span>
+                          <span className="shrink-0 rounded-full bg-gray-900 px-2 py-0.5 text-[10px] text-gray-400">
+                            {getStatusLabel(card.status)}
+                          </span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-gray-400">
+                          {card.summary}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
 
@@ -573,7 +672,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
       )}
 
       {/* Keyboard hint */}
-      <div className="absolute bottom-6 right-6 z-10 pointer-events-none">
+      <div className="pointer-events-none absolute bottom-6 right-6 z-10 hidden md:block">
         <p className="text-[10px] text-gray-600">
           Drag to rotate &middot; Scroll to zoom &middot; Right-drag to pan
         </p>
