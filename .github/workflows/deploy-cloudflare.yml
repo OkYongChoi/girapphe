@@ -117,7 +117,17 @@ jobs:
 
       - name: Smoke test preview
         working-directory: apps/web
-        run: SMOKE_BASE_URL="$PREVIEW_URL" pnpm smoke
+        run: |
+          # Preview aliases can return 404 briefly while Cloudflare propagates a new version.
+          for attempt in $(seq 1 12); do
+            if SMOKE_BASE_URL="$PREVIEW_URL" pnpm smoke; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              exit 1
+            fi
+            sleep 5
+          done
 
   deploy_prod:
     name: Deploy to Cloudflare (prod)

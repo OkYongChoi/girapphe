@@ -22,6 +22,9 @@ The workflow first deploys the preview Worker to apply its non-versioned Worker 
 uploads the PR-specific alias. Review and share only the PR alias URL; the base preview Worker
 is not a review environment.
 
+The smoke test retries for up to one minute because a newly assigned preview alias can briefly
+return `404` while Cloudflare propagates it.
+
 Fork PRs run quality checks only because GitHub does not provide repository secrets to them.
 
 ### Production
