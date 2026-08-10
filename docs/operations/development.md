@@ -78,10 +78,9 @@ git push
 Branch and environment handoff:
 
 1. Work on a short-lived branch such as `feature/...`, `fix/...`, or `chore/...`.
-2. Open a PR into `dev`; CI runs quality checks.
-3. Merge to `dev` for the development-network Cloudflare deploy and smoke test.
-4. Promote with a `dev` -> `main` PR.
-5. Merge to `main` for the production Cloudflare deploy and smoke test.
+2. Open a PR into `main`; CI runs quality checks and deploys its isolated Preview Worker.
+3. Review the preview URL and merge to `main`.
+4. The `main` push runs production migrations, deploys the production Worker, and smoke tests it.
 
 After pushing, wait for CI to finish. Deploy through the configured Cloudflare
 pipeline or run the deployment command for the target environment.
@@ -133,12 +132,11 @@ When changing `/admin`, also update:
 Cloudflare/OpenNext commands:
 
 ```bash
-npm run build:cf
-npm run deploy:cf:dev
-npm run deploy:cf:prod
+pnpm build:cf
 ```
 
-See `DEPLOY.md` for full runbook and CI template.
+Production deployment is GitHub Actions only. See `DEPLOY.md` for the runbook and required
+repository settings.
 
 ## Common Issues
 

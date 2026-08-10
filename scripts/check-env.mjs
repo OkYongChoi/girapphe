@@ -126,15 +126,15 @@ function validate({ envName, map, allowPlaceholders }) {
   requireKeys(map, requiredCommon, allowPlaceholders, errors);
 
   const databaseUrl = valueFor(map, 'DATABASE_URL');
-  if (envName === 'prod') {
+  if (envName === 'prod' || envName === 'preview') {
     if (!databaseUrl) {
-      errors.push('Missing required key for prod: DATABASE_URL');
+      errors.push(`Missing required key for ${envName}: DATABASE_URL`);
     }
     if (!allowPlaceholders && isPlaceholder(databaseUrl)) {
       errors.push('Key has placeholder/empty value: DATABASE_URL');
     }
   } else if (!databaseUrl) {
-    warnings.push('DATABASE_URL is missing in dev (in-memory fallback mode will be used).');
+    warnings.push('DATABASE_URL is missing in local development (in-memory fallback mode will be used).');
   }
 
   const signInUrl = valueFor(map, 'NEXT_PUBLIC_CLERK_SIGN_IN_URL');
@@ -166,10 +166,10 @@ function validate({ envName, map, allowPlaceholders }) {
       }
     } else {
       if (publishable && publishable.startsWith('pk_live_')) {
-        warnings.push('Dev is using a live Clerk publishable key. Prefer pk_test_...');
+        warnings.push(`${envName} is using a live Clerk publishable key. Prefer pk_test_...`);
       }
       if (secret && secret.startsWith('sk_live_')) {
-        warnings.push('Dev is using a live Clerk secret key. Prefer sk_test_...');
+        warnings.push(`${envName} is using a live Clerk secret key. Prefer sk_test_...`);
       }
     }
   }
@@ -187,8 +187,8 @@ function validate({ envName, map, allowPlaceholders }) {
 
 function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (options.env !== 'dev' && options.env !== 'prod') {
-    console.error('Usage: node scripts/check-env.mjs --env <dev|prod> [--file <path>] [--allow-placeholders]');
+  if (!['dev', 'preview', 'prod'].includes(options.env)) {
+    console.error('Usage: node scripts/check-env.mjs --env <dev|preview|prod> [--file <path>] [--allow-placeholders]');
     process.exit(2);
   }
 

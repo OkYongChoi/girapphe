@@ -219,11 +219,11 @@ Clerk handles:
 Branch flow:
 
 ```text
-feature/* -> PR -> dev -> deploy dev -> PR -> main -> deploy prod
+feature branch -> PR preview -> PR merge to main -> production deploy
 ```
 
-- `dev` deploys to Cloudflare `dev` and uses dev-scoped secrets/variables.
-- `main` deploys to Cloudflare `prod` and uses production secrets/variables.
+- Pull requests deploy an isolated Cloudflare Preview Worker. They never run migrations.
+- `main` deploys to Cloudflare `prod`, runs migrations, then smoke tests production.
 - Do not commit real `.env*` files. Keep local values in `apps/web/.env.local`;
   inject CI values with GitHub Secrets/Variables and Cloudflare runtime values
   with Wrangler Worker secrets.
@@ -231,12 +231,12 @@ feature/* -> PR -> dev -> deploy dev -> PR -> main -> deploy prod
 Cloudflare Workers (OpenNext) commands:
 
 ```bash
-npm run build:cf
-npm run deploy:cf:prod
+pnpm build:cf
 ```
 
 Pull requests automatically receive a Cloudflare Worker preview. Its stable address is
-`https://pr-<number>-girapphe-preview.<workers-subdomain>.workers.dev`.
+`https://pr-<number>-girapphe-preview.<workers-subdomain>.workers.dev`; it uses preview
+Clerk keys and an isolated Neon database.
 
 GitHub Actions deployment template and required secrets are documented in:
 - `DEPLOY.md` (`6.1 GitHub Actions Template`)

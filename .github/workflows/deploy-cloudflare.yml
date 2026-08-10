@@ -79,7 +79,7 @@ jobs:
 
       - name: Validate preview environment
         working-directory: apps/web
-        run: APP_BASE_URL="$PREVIEW_URL" pnpm check:env:dev:runtime
+        run: APP_BASE_URL="$PREVIEW_URL" pnpm check:env:preview:runtime
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_PREVIEW }}
@@ -88,15 +88,17 @@ jobs:
           NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /practice
           NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /practice
           DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
-          ADMIN_CLERK_USER_ID: ${{ secrets.ADMIN_CLERK_USER_ID_PREVIEW }}
 
       - name: Upload preview Worker version
         working-directory: apps/web
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_PREVIEW }}
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /login
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /signup
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /practice
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /practice
           DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
-          ADMIN_CLERK_USER_ID: ${{ secrets.ADMIN_CLERK_USER_ID_PREVIEW }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
@@ -104,7 +106,7 @@ jobs:
           umask 077
           secrets_file="$(mktemp)"
           trap 'rm -f "$secrets_file"' EXIT
-          for key in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY DATABASE_URL APP_BASE_URL ADMIN_CLERK_USER_ID; do
+          for key in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY NEXT_PUBLIC_CLERK_SIGN_IN_URL NEXT_PUBLIC_CLERK_SIGN_UP_URL NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL DATABASE_URL APP_BASE_URL; do
             printf '%s=%s\n' "$key" "${!key}" >> "$secrets_file"
           done
           pnpm build:cf
@@ -159,22 +161,32 @@ jobs:
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /login
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /signup
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /practice
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /practice
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           ADMIN_CLERK_USER_ID: ${{ secrets.ADMIN_CLERK_USER_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          for key in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY DATABASE_URL APP_BASE_URL ADMIN_CLERK_USER_ID; do
+          for key in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY NEXT_PUBLIC_CLERK_SIGN_IN_URL NEXT_PUBLIC_CLERK_SIGN_UP_URL NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL DATABASE_URL APP_BASE_URL ADMIN_CLERK_USER_ID; do
             printf '%s' "${!key}" | pnpm exec wrangler secret put "$key" --env prod
           done
 
       - name: Deploy Worker
         working-directory: apps/web
-        run: pnpm deploy:cf
+        run: |
+          pnpm build:cf
+          pnpm exec wrangler deploy --env prod .open-next/worker.js
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /login
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /signup
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /practice
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /practice
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
