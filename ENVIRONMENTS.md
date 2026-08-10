@@ -5,7 +5,7 @@ Girapphe uses GitHub Flow. There is no deployed `dev` environment.
 | Environment | Trigger | Worker | Data and auth |
 |---|---|---|---|
 | Local | `pnpm dev` | none | `.env.local`; test Clerk keys recommended; database optional |
-| PR Preview | non-fork pull request | `girapphe-preview`, alias `pr-<number>` | preview Clerk keys and an isolated Neon database |
+| PR Preview | non-fork pull request | `girapphe-preview`, alias `pr-<number>` | preview Clerk keys and an isolated schema-only Neon database |
 | Production | push to `main` | `girapphe` on `girapphe.com` and `www.girapphe.com` | production Clerk keys and production Neon database |
 
 ## Configuration ownership

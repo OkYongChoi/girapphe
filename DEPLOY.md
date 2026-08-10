@@ -35,7 +35,7 @@ Configure these under GitHub repository Settings → Secrets and variables → A
 | Both | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID. |
 | Preview | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW` | Test/development Clerk instance. |
 | Preview | `CLERK_SECRET_KEY_PREVIEW` | Matching preview Clerk secret. |
-| Preview | `DATABASE_URL_PREVIEW` | Isolated Neon branch/database; never production. |
+| Preview | `DATABASE_URL_PREVIEW` | Isolated **schema-only** Neon branch/database for PR QA; never production. |
 | Production | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Live Clerk publishable key. |
 | Production | `CLERK_SECRET_KEY` | Live Clerk secret key. |
 | Production | `DATABASE_URL` | Production Neon connection string. |
@@ -47,13 +47,19 @@ They are included in both Worker environments; do not add redundant GitHub secre
 
 ## First-time preview database setup
 
-1. In Neon, create a dedicated branch/database for previews.
-2. Apply the current Drizzle migrations to that database.
+1. In Neon, create a dedicated **schema-only** branch/database for previews. Do not
+   select current production data.
+2. Apply the current Drizzle migrations to that database. Add only synthetic or
+   anonymized seed data when representative QA data is needed.
 3. Save its connection string as `DATABASE_URL_PREVIEW`.
 4. In Clerk, use a development/preview instance for the preview keys. Confirm sign-in works on a PR URL.
 
 Do not point preview at production. Preview deploys deliberately skip migrations so every PR
 uses a known, already-migrated schema.
+
+Preview URLs are public by default. If a future per-PR QA workflow needs data cloned from
+production, use anonymized data and protect the Worker with Cloudflare Access before assigning
+that database URL to a preview deployment.
 
 ## Configuration verification
 
