@@ -59,6 +59,19 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('practice answer control exposes its reveal state', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.goto('/practice');
+
+    const revealButton = page.getByRole('button', { name: 'Show answer' });
+    await expect(revealButton).toHaveAttribute('aria-expanded', 'false');
+    await revealButton.click();
+    await expect(page.getByRole('button', { name: 'Hide answer' })).toHaveAttribute('aria-expanded', 'true');
+
+    await assertNoBrowserFailures();
+  });
+
   test('home respects reduced-motion preferences', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 

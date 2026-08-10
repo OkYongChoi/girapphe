@@ -433,10 +433,14 @@ export default function CardViewer({
         onClick={() => setRevealed((prev) => !prev)}
         disabled={loading}
         aria-label={revealed ? 'Hide answer' : 'Show answer'}
+        aria-expanded={revealed}
         className="mt-3 w-full py-4 bg-gray-900 hover:bg-gray-700 active:scale-95 text-white font-semibold rounded-2xl transition-all text-sm tracking-wide disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-700"
       >
         {revealed ? 'Hide Answer ↑' : 'Show Answer ↓'}
       </button>
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {revealed ? 'Answer is shown. You can now rate this card.' : 'Answer is hidden. Recall the concept before revealing it.'}
+      </p>
 
       {/* ── AFTER reveal: Unclear | Can Explain + Undo ── */}
       {revealed && (
