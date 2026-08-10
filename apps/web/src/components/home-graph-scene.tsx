@@ -210,9 +210,19 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
   const [demoGraphClicked, setDemoGraphClicked] = useState(false);
   const [activeCaseKey, setActiveCaseKey] = useState<LearningCaseKey>('explore');
   const [isAutoCycling, setIsAutoCycling] = useState(true);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const activeCase = LEARNING_CASES[activeCaseKey];
   const activeStatusGroup = activeCase.activeGroup;
   const activeGraphGroup: ActiveGroup = demo ? activeDemoGroup : activeStatusGroup;
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    updatePreference();
+    mediaQuery.addEventListener('change', updatePreference);
+    return () => mediaQuery.removeEventListener('change', updatePreference);
+  }, []);
 
   useEffect(() => {
     const element = graphContainerRef.current;
@@ -233,7 +243,7 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
   }, []);
 
   useEffect(() => {
-    if (!demo) return;
+    if (!demo || prefersReducedMotion) return;
 
     const intervalId = window.setInterval(() => {
       setActiveDemoGroup((current) => {
@@ -243,10 +253,10 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
     }, 3400);
 
     return () => window.clearInterval(intervalId);
-  }, [demo]);
+  }, [demo, prefersReducedMotion]);
 
   useEffect(() => {
-    if (demo || !isAutoCycling) return;
+    if (demo || !isAutoCycling || prefersReducedMotion) return;
 
     const intervalId = window.setInterval(() => {
       setActiveCaseKey((current) => {
@@ -256,18 +266,18 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
     }, 3400);
 
     return () => window.clearInterval(intervalId);
-  }, [demo, isAutoCycling]);
+  }, [demo, isAutoCycling, prefersReducedMotion]);
 
   const enableOrbit = useCallback(() => {
     const controls = graphRef.current?.controls?.();
     if (!controls) return;
 
-    controls.autoRotate = true;
+    controls.autoRotate = !prefersReducedMotion;
     controls.autoRotateSpeed = demo ? 0.62 : activeCase.orbitSpeed;
     controls.enablePan = false;
     controls.minDistance = 90;
     controls.maxDistance = 430;
-  }, [activeCase.orbitSpeed, demo]);
+  }, [activeCase.orbitSpeed, demo, prefersReducedMotion]);
 
   useEffect(() => {
     enableOrbit();
