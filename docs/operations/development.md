@@ -82,8 +82,7 @@ Branch and environment handoff:
 3. Review the preview URL and merge to `main`.
 4. The `main` push runs production migrations, deploys the production Worker, and smoke tests it.
 
-After pushing, wait for CI to finish. Deploy through the configured Cloudflare
-pipeline or run the deployment command for the target environment.
+After pushing, wait for CI to finish. GitHub Actions is the only shared deployment path.
 
 Optional smoke test (app must be running):
 

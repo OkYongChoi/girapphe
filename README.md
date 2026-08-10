@@ -238,10 +238,6 @@ Pull requests automatically receive a Cloudflare Worker preview. Its stable addr
 `https://pr-<number>-girapphe-preview.<workers-subdomain>.workers.dev`; it uses preview
 Clerk keys and an isolated Neon database.
 
-GitHub Actions deployment template and required secrets are documented in:
-- `DEPLOY.md` (`6.1 GitHub Actions Template`)
-- `DEPLOY.md` (`6. Production Deploy - Cloudflare Workers (OpenNext)`)
-
-See full runbook:
+GitHub Actions deployment details and required secrets are documented in:
 - `DEPLOY.md`
 - `ENVIRONMENTS.md`
