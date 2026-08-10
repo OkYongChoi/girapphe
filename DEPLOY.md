@@ -61,6 +61,10 @@ They are included in both Worker environments; do not add redundant GitHub secre
 3. Save its connection string as `DATABASE_URL_PREVIEW`.
 4. In Clerk, use a development/preview instance for the preview keys. Confirm sign-in works on a PR URL.
 
+The preview preflight rejects placeholder, malformed, and live Clerk keys. Set the matching
+development-instance values as `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW` (`pk_test_...`) and
+`CLERK_SECRET_KEY_PREVIEW` (`sk_test_...`) in GitHub before rerunning the PR workflow.
+
 Do not point preview at production. Preview deploys deliberately skip migrations so every PR
 uses a known, already-migrated schema.
 

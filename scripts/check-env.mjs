@@ -74,12 +74,21 @@ function isPlaceholder(value) {
   const normalized = value.trim().toLowerCase();
   return (
     normalized.includes('...') ||
+    /your|example|changeme/.test(normalized) ||
     normalized === '' ||
     normalized === 'changeme' ||
     normalized === 'replace_me' ||
     normalized === 'your_value_here' ||
     normalized === '...'
   );
+}
+
+function isValidClerkPublishableKey(value) {
+  return /^(pk_test_|pk_live_)[A-Za-z0-9_]+$/.test(value) && value.length > 20 && !isPlaceholder(value);
+}
+
+function isValidClerkSecretKey(value) {
+  return /^(sk_test_|sk_live_)[A-Za-z0-9_]+$/.test(value) && value.length > 20 && !isPlaceholder(value);
 }
 
 function isValidUrl(value) {
@@ -157,12 +166,26 @@ function validate({ envName, map, allowPlaceholders }) {
   const secret = valueFor(map, 'CLERK_SECRET_KEY');
 
   if (!allowPlaceholders) {
+    if (!isValidClerkPublishableKey(publishable)) {
+      errors.push('NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY must be a valid Clerk pk_test_... or pk_live_... key.');
+    }
+    if (!isValidClerkSecretKey(secret)) {
+      errors.push('CLERK_SECRET_KEY must be a valid Clerk sk_test_... or sk_live_... key.');
+    }
+
     if (envName === 'prod') {
       if (publishable && !publishable.startsWith('pk_live_')) {
         errors.push('Prod must use Clerk live publishable key (pk_live_...).');
       }
       if (secret && !secret.startsWith('sk_live_')) {
         errors.push('Prod must use Clerk live secret key (sk_live_...).');
+      }
+    } else if (envName === 'preview') {
+      if (publishable && !publishable.startsWith('pk_test_')) {
+        errors.push('Preview must use a dedicated Clerk test publishable key (pk_test_...).');
+      }
+      if (secret && !secret.startsWith('sk_test_')) {
+        errors.push('Preview must use the matching Clerk test secret key (sk_test_...).');
       }
     } else {
       if (publishable && publishable.startsWith('pk_live_')) {
