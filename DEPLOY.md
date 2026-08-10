@@ -55,6 +55,35 @@ They are included in both Worker environments; do not add redundant GitHub secre
 Do not point preview at production. Preview deploys deliberately skip migrations so every PR
 uses a known, already-migrated schema.
 
+## Configuration verification
+
+Run these checks before opening the first PR that needs a preview:
+
+```bash
+# Names only; GitHub never reveals secret values.
+gh secret list --repo OkYongChoi/girapphe
+gh variable list --repo OkYongChoi/girapphe
+
+# Local configuration and the production health endpoint.
+pnpm --filter @stem-brain/web check:env:dev
+curl --fail-with-body https://www.girapphe.com/api/health
+```
+
+Expected GitHub Secrets are the entries in the table above. A missing preview secret causes the
+preview job to fail before upload; a missing production secret blocks production validation.
+
+After the first PR preview deploys, verify all three of the following:
+
+1. Its Preview Worker upload and smoke-test steps succeed in GitHub Actions.
+2. `GET <preview-url>/api/health` returns `200` with the preview database connected.
+3. Sign in and sign out in a browser. This verifies the preview Clerk instance and redirect flow;
+   a status code alone cannot validate a social OAuth provider.
+
+For production, the `main` deployment job is the source of truth for synchronized Cloudflare
+runtime secrets. Do not copy them manually from GitHub or commit them locally. A local Wrangler
+session is optional; it requires a separately authenticated Cloudflare account or a securely
+injected `CLOUDFLARE_API_TOKEN` and should only inspect secret names, never values.
+
 ## Local work and verification
 
 ```bash
