@@ -89,7 +89,7 @@ jobs:
           NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /practice
           DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
 
-      - name: Upload preview Worker version
+      - name: Deploy preview Worker settings and upload PR version
         working-directory: apps/web
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW }}
@@ -110,6 +110,9 @@ jobs:
             printf '%s=%s\n' "$key" "${!key}" >> "$secrets_file"
           done
           pnpm build:cf
+          # `versions upload` creates the PR alias but does not activate non-versioned
+          # Worker settings such as Preview URLs on an existing Worker.
+          pnpm exec wrangler deploy --env preview --message "Preview settings for PR #${{ github.event.number }}" --secrets-file "$secrets_file"
           pnpm exec wrangler versions upload --env preview .open-next/worker.js --preview-alias "pr-${{ github.event.number }}" --message "PR #${{ github.event.number }}" --secrets-file "$secrets_file"
 
       - name: Smoke test preview

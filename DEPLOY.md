@@ -18,6 +18,10 @@ Preview alias `pr-<number>-girapphe-preview.<workers-subdomain>.workers.dev`, an
 it. The preview uses preview Clerk keys and `DATABASE_URL_PREVIEW`; it does not run migrations
 and cannot access `/admin`.
 
+The workflow first deploys the preview Worker to apply its non-versioned Worker settings, then
+uploads the PR-specific alias. Review and share only the PR alias URL; the base preview Worker
+is not a review environment.
+
 Fork PRs run quality checks only because GitHub does not provide repository secrets to them.
 
 ### Production
