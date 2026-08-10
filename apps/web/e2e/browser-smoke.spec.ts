@@ -69,6 +69,13 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('unknown routes provide a usable not-found recovery', async ({ page }) => {
+    await page.goto('/this-route-does-not-exist');
+
+    await expect(page.locator('main#main-content')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Return Home' })).toHaveAttribute('href', '/');
+  });
   test('login page renders an auth entrypoint or local config fallback', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
