@@ -11,8 +11,11 @@
     "typecheck": "turbo typecheck",
     "check": "turbo check",
     "smoke": "pnpm --filter @stem-brain/web smoke",
+    "browser:smoke": "playwright test",
+    "browser:smoke:headed": "playwright test --headed",
     "harness": "pnpm harness:local",
     "harness:local": "pnpm check && pnpm --filter @stem-brain/web check:env:examples && pnpm --filter @stem-brain/web build",
+    "harness:browser": "pnpm harness:local && pnpm browser:smoke",
     "harness:ci": "pnpm install --frozen-lockfile && pnpm harness:local",
     "harness:deploy": "pnpm harness:local && pnpm build:cf",
     "deploy:cf": "pnpm --filter @stem-brain/web deploy:cf",
@@ -20,6 +23,7 @@
     "deploy:cf:prod": "pnpm --filter @stem-brain/web deploy:cf:prod"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "turbo": "^2.5.4"
   },
   "engines": {

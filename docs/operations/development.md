@@ -55,6 +55,19 @@ pnpm harness:deploy
 
 The deployment harness runs the local harness first, then `pnpm build:cf`.
 
+Browser smoke checks use Playwright and start the web dev server automatically:
+
+```bash
+pnpm browser:smoke
+pnpm harness:browser
+```
+
+If Chromium is not installed locally yet, run:
+
+```bash
+pnpm exec playwright install --with-deps chromium
+```
+
 Release handoff checklist:
 
 ```bash

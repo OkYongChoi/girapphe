@@ -7,7 +7,7 @@ This project uses separate configuration for local development and production.
 | Environment | App Domain | Clerk Domain | Clerk Keys | Database |
 |---|---|---|---|---|
 | Local Dev | `http://localhost:3000` | active Clerk tenant | usually `pk_test` / `sk_test`, but `pk_live` / `sk_live` is also supported when intentionally sharing prod auth | optional Neon/local DB |
-| Cloudflare Dev | `*.workers.dev` or dev custom domain | active Clerk tenant | tenant-matched keys | dev or shared Neon DB |
+| PR Preview | `pr-<number>-girapphe-preview.<subdomain>.workers.dev` | preview Clerk tenant | preview/test keys | isolated Neon preview DB |
 | Production | `https://www.girapphe.com` | `clerk.girapphe.com` | `pk_live` / `sk_live` | production Neon |
 
 ## 2. Where Secrets Live
@@ -29,7 +29,7 @@ npm run check:env:dev
 Local file rule:
 - Use `.env.local` for local development values.
 - Do not keep a persistent `.env.production` file with real production secrets.
-- Local dev deploy commands (`deploy:cf:dev`, `preview:cf`) load from `.env.local`.
+- Local `preview:cf` loads from `.env.local`; it does not create a persistent shared deployment.
 - Local prod deploy command (`deploy:cf:prod`) can read an optional `.env.production`, but the preferred path is already-injected shell/CI environment variables.
 - In CI, these commands fall back to already-injected environment variables when env files are absent.
 
@@ -63,17 +63,20 @@ Validation commands:
 - Do not reuse dev keys for production domains.
 - This project uses **GitHub Flow**: `main` is the only long-lived branch.
 - GitHub Actions branch mapping:
+  - Pull request -> upload an isolated Preview Worker version and smoke test its `pr-<number>` URL
   - Push to `main` -> deploy `--env prod` -> smoke test
 - Feature branches are merged to `main` via PR and deleted after merge.
 
 ## 4.1 Codebase-Enforced Separation
 
-This repository separates Cloudflare deployments by command and Wrangler environment:
+This repository separates local development, PR previews, and production deployments:
 
-- Dev deploy: `npm run deploy:cf:dev`
-  - Wrangler env: `dev`
-  - Worker name: `girapphe-dev`
-  - Intended domain: `*.workers.dev` (or separate dev custom domain)
+- PR preview: GitHub Actions on `pull_request`
+  - Wrangler env: `preview`
+  - Worker name: `girapphe-preview`
+  - Stable URL: `https://pr-<number>-girapphe-preview.<subdomain>.workers.dev`
+  - The CI job reads `<subdomain>` from the Cloudflare API at runtime.
+  - Uses preview Clerk keys and an isolated `DATABASE_URL_PREVIEW`; it never runs migrations.
 - Prod deploy: `npm run deploy:cf:prod`
   - Wrangler env: `prod`
   - Worker name: `girapphe`
@@ -84,7 +87,7 @@ Backward compatibility:
 
 Recommended secret commands:
 
-- Dev secret: `npx wrangler secret put KEY --env dev`
+- Preview secret: `npx wrangler secret put KEY --env preview`
 - Prod secret: `npx wrangler secret put KEY --env prod`
 
 ## 5. Google OAuth 400 (invalid_request) Checklist

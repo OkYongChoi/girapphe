@@ -135,15 +135,13 @@ This command can load runtime vars from an optional `.env.production`, but the r
 - `APP_BASE_URL`
 - Clerk redirect URL vars
 
-Dev deploy command:
-```bash
-npm run deploy:cf:dev
-```
-This command loads runtime vars from `.env.local` (local dev path).
+PR preview deploys run automatically when a pull request is opened or updated. They
+upload a version to the `preview` environment without changing production traffic or
+running migrations. Each preview uses its `pr-<number>` alias.
 
 Per-environment secret update:
 ```bash
-npx wrangler secret put CLERK_SECRET_KEY --env dev
+npx wrangler secret put CLERK_SECRET_KEY --env preview
 npx wrangler secret put CLERK_SECRET_KEY --env prod
 ```
 
@@ -174,27 +172,29 @@ Wrangler requirement:
 2. See `.github/workflows/deploy-cloudflare.yml` for the current workflow.
 
 Key steps per deploy job:
-- Validate env vars (`pnpm check:env:prod`)
-- Run Drizzle migrations (`pnpm db:migrate`)
-- Deploy Worker (`pnpm deploy:cf`)
-- **Smoke test** (`pnpm smoke`) — runs after deploy, fails the job if any endpoint is down
+- Pull requests upload a version-only preview Worker and smoke test its PR URL. They never run migrations.
+- Pushes to `main` validate production variables, run migrations, deploy production, then smoke test.
 
 3. Configure GitHub repository secrets and variables:
 - Secrets:
-  - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_DEV`
-  - `CLERK_SECRET_KEY_DEV`
-  - `DATABASE_URL_DEV`
+  - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW`
+  - `CLERK_SECRET_KEY_PREVIEW`
+  - `DATABASE_URL_PREVIEW`
+  - `ADMIN_CLERK_USER_ID_PREVIEW`
   - `CLOUDFLARE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
   - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
   - `CLERK_SECRET_KEY`
   - `DATABASE_URL`
+  - `ADMIN_CLERK_USER_ID`
 - Variables:
-  - `APP_BASE_URL_DEV`
   - `APP_BASE_URL`
 
+The preview job retrieves the current Workers.dev account subdomain from the
+Cloudflare API, so it does not require a duplicated GitHub variable.
+
 Branch deploy behavior (current workflow):
-- `dev` branch push -> deploy to Cloudflare `dev` environment
+- Pull request -> upload `girapphe-preview` version with stable `pr-<number>` preview alias
 - `main` branch push -> deploy to Cloudflare `prod` environment
 
 ## 7. Manual Steps You Must Do Yourself
