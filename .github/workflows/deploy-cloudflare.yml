@@ -112,7 +112,7 @@ jobs:
           pnpm build:cf
           # `versions upload` creates the PR alias but does not activate non-versioned
           # Worker settings such as Preview URLs on an existing Worker.
-          pnpm exec wrangler deploy --env preview --message "Preview settings for PR #${{ github.event.number }}" --secrets-file "$secrets_file"
+          pnpm exec wrangler deploy --env preview --secrets-file "$secrets_file"
           pnpm exec wrangler versions upload --env preview .open-next/worker.js --preview-alias "pr-${{ github.event.number }}" --message "PR #${{ github.event.number }}" --secrets-file "$secrets_file"
 
       - name: Smoke test preview
