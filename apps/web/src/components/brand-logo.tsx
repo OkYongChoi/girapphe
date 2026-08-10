@@ -8,9 +8,9 @@ type BrandLogoProps = {
 
 export default function BrandLogo({ className = '', textClassName = '', iconClassName = '' }: BrandLogoProps) {
   return (
-    <span className={`inline-flex items-center gap-2 ${className}`.trim()}>
-      <LogoMark className={iconClassName} />
-      <span className={`font-bold tracking-tight text-slate-900 ${textClassName}`.trim()}>
+    <span className={`inline-flex min-w-0 items-center gap-2 ${className}`.trim()}>
+      <LogoMark className={`shrink-0 ${iconClassName}`.trim()} />
+      <span className={`truncate font-bold tracking-tight text-slate-900 ${textClassName}`.trim()}>
         STEM<span className="text-sky-600">Brain</span>
       </span>
     </span>

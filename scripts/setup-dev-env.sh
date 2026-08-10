@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-TEMPLATE="$ROOT_DIR/.env.dev.example"
-TARGET="$ROOT_DIR/.env.local"
+WEB_DIR="$ROOT_DIR/apps/web"
+TEMPLATE="$WEB_DIR/.env.dev.example"
+TARGET="$WEB_DIR/.env.local"
 
 if [[ ! -f "$TEMPLATE" ]]; then
   echo "[ERROR] Missing template: $TEMPLATE"

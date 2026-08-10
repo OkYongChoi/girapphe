@@ -55,6 +55,19 @@ pnpm harness:deploy
 
 The deployment harness runs the local harness first, then `pnpm build:cf`.
 
+Browser smoke checks use Playwright and start the web dev server automatically:
+
+```bash
+pnpm browser:smoke
+pnpm harness:browser
+```
+
+If Chromium is not installed locally yet, run:
+
+```bash
+pnpm exec playwright install --with-deps chromium
+```
+
 Release handoff checklist:
 
 ```bash
@@ -62,8 +75,14 @@ git status --short
 git push
 ```
 
-After pushing, wait for CI to finish, then deploy through the configured Cloudflare
-pipeline or run the deployment command for the target environment.
+Branch and environment handoff:
+
+1. Work on a short-lived branch such as `feature/...`, `fix/...`, or `chore/...`.
+2. Open a PR into `main`; CI runs quality checks and deploys its isolated Preview Worker.
+3. Review the preview URL and merge to `main`.
+4. The `main` push runs production migrations, deploys the production Worker, and smoke tests it.
+
+After pushing, wait for CI to finish. GitHub Actions is the only shared deployment path.
 
 Optional smoke test (app must be running):
 
@@ -112,11 +131,11 @@ When changing `/admin`, also update:
 Cloudflare/OpenNext commands:
 
 ```bash
-npm run build:cf
-npm run deploy:cf
+pnpm build:cf
 ```
 
-See `DEPLOY.md` for full runbook and CI template.
+Production deployment is GitHub Actions only. See `DEPLOY.md` for the runbook and required
+repository settings.
 
 ## Common Issues
 

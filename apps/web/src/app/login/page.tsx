@@ -1,14 +1,7 @@
-import { SignIn } from '@clerk/nextjs';
 import { getClerkConfigProblem } from '@/lib/clerk-env';
-import { getCurrentUser } from '@/lib/auth';
-import { redirect } from 'next/navigation';
+import { AuthEntrypoint } from '@/components/auth-entrypoint';
 
-export default async function LoginPage() {
-  const user = await getCurrentUser();
-  if (user) {
-    redirect('/practice');
-  }
-
+export default function LoginPage() {
   const clerkConfigProblem = getClerkConfigProblem();
   if (clerkConfigProblem) {
     return (
@@ -20,9 +13,5 @@ export default async function LoginPage() {
     );
   }
 
-  return (
-    <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-16">
-      <SignIn forceRedirectUrl="/practice" fallbackRedirectUrl="/practice" />
-    </main>
-  );
+  return <AuthEntrypoint mode="sign-in" />;
 }

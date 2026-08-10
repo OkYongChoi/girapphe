@@ -1,107 +1,62 @@
-# Environment Configuration Guide
+# Environment Configuration
 
-This project uses separate configuration for local development and production.
+Girapphe uses GitHub Flow. There is no deployed `dev` environment.
 
-## 1. Environment Matrix
+| Environment | Trigger | Worker | Data and auth |
+|---|---|---|---|
+| Local | `pnpm dev` | none | `.env.local`; test Clerk keys recommended; database optional |
+| PR Preview | non-fork pull request | `girapphe-preview`, alias `pr-<number>` | preview Clerk keys and an isolated schema-only Neon database |
+| Production | push to `main` | `girapphe` on `girapphe.com` and `www.girapphe.com` | production Clerk keys and production Neon database |
 
-| Environment | App Domain | Clerk Domain | Clerk Keys | Database |
-|---|---|---|---|---|
-| Local Dev | `http://localhost:3000` | active Clerk tenant | usually `pk_test` / `sk_test`, but `pk_live` / `sk_live` is also supported when intentionally sharing prod auth | optional Neon/local DB |
-| Cloudflare Dev | `*.workers.dev` or dev custom domain | active Clerk tenant | tenant-matched keys | dev or shared Neon DB |
-| Production | `https://www.girapphe.com` | `clerk.girapphe.com` | `pk_live` / `sk_live` | production Neon |
+## Configuration ownership
 
-## 2. Where Secrets Live
+- `.env.local` is local-only and gitignored. Create it with `pnpm env:setup:dev`.
+- GitHub Actions owns deployment credentials and injects runtime configuration.
+- Cloudflare Workers receives version-specific values during deployment; do not manage a parallel manual secret set.
+- Repository templates contain placeholders only.
 
-- Local only: `.env.local` (gitignored)
-- Cloudflare runtime: Worker Secrets (`wrangler secret put ...`)
-- CI/CD: GitHub Secrets
-- Repository files (`.env.dev.example`, `.env.prod.example`, `.env.example`, docs): placeholders only
+## Required GitHub settings
 
-Never commit real keys, tokens, or database credentials.
+Secrets required by both deploy paths:
 
-Template usage:
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
 
-```bash
-npm run env:setup:dev
-npm run check:env:dev
-```
+Preview-only secrets:
 
-Local file rule:
-- Use `.env.local` for local development values.
-- Do not keep a persistent `.env.production` file with real production secrets.
-- Local dev deploy commands (`deploy:cf:dev`, `preview:cf`) load from `.env.local`.
-- Local prod deploy command (`deploy:cf:prod`) can read an optional `.env.production`, but the preferred path is already-injected shell/CI environment variables.
-- In CI, these commands fall back to already-injected environment variables when env files are absent.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW`
+- `CLERK_SECRET_KEY_PREVIEW`
+- `DATABASE_URL_PREVIEW`
 
-Current project note:
-- If you only maintain one live Clerk tenant and one Neon database right now, `.env.local` may intentionally point at those real services for local debugging.
-- Production deploy credentials should live in Worker secrets, GitHub secrets, or temporary shell exports, not in a checked or persistent local prod env file.
-- `scripts/check-env.mjs` warns when dev uses live Clerk keys, but that warning is advisory and does not block local validation.
-
-## 3. Required Variables
-
-Always set:
+Production-only secrets:
 
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
-- `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/login`
-- `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/signup`
-- `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/practice`
-- `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/practice`
 - `DATABASE_URL`
-- `APP_BASE_URL`
+- `ADMIN_CLERK_USER_ID`
 
-Validation commands:
+Repository variable:
 
-- Template consistency check: `npm run check:env:examples`
-- Local dev file check: `npm run check:env:dev`
-- Production env check (CI/runtime): `npm run check:env:prod`
+- `APP_BASE_URL=https://www.girapphe.com`
 
-## 4. Deployment Rules
+The preview URL is derived from the Cloudflare account at runtime, so no Workers.dev
+subdomain variable is stored in GitHub. Preview admin access is intentionally disabled.
 
-- Build/deploy production with production keys only.
-- Do not reuse dev keys for production domains.
-- This project uses **GitHub Flow**: `main` is the only long-lived branch.
-- GitHub Actions branch mapping:
-  - Push to `main` -> deploy `--env prod` -> smoke test
-- Feature branches are merged to `main` via PR and deleted after merge.
+## Validation
 
-## 4.1 Codebase-Enforced Separation
+```bash
+pnpm check:env:examples
+pnpm check:env:dev
+pnpm harness
+```
 
-This repository separates Cloudflare deployments by command and Wrangler environment:
+`DATABASE_URL` is optional only for local development. It is required for preview and
+production. Preview schema migrations are not automatic: create the isolated Neon database
+from the current production schema before enabling preview deploys.
 
-- Dev deploy: `npm run deploy:cf:dev`
-  - Wrangler env: `dev`
-  - Worker name: `girapphe-dev`
-  - Intended domain: `*.workers.dev` (or separate dev custom domain)
-- Prod deploy: `npm run deploy:cf:prod`
-  - Wrangler env: `prod`
-  - Worker name: `girapphe`
-  - Intended domains: `girapphe.com`, `www.girapphe.com`
+## Deployment rules
 
-Backward compatibility:
-- `npm run deploy:cf` is mapped to `npm run deploy:cf:prod`.
-
-Recommended secret commands:
-
-- Dev secret: `npx wrangler secret put KEY --env dev`
-- Prod secret: `npx wrangler secret put KEY --env prod`
-
-## 5. Google OAuth 400 (invalid_request) Checklist
-
-If Google signup/login shows `Error 400: invalid_request`, check:
-
-1. Clerk is using production keys (`pk_live` / `sk_live`) on production.
-2. Clerk primary domain is `girapphe.com` and frontend API is `clerk.girapphe.com`.
-3. DNS CNAME records exist and resolve:
-   - `clerk.girapphe.com` -> `frontend-api.clerk.services`
-   - `accounts.girapphe.com` -> `accounts.clerk.services`
-4. Google OAuth app (in Clerk dashboard) is configured for production.
-5. In Google Cloud Console OAuth client:
-   - Authorized JavaScript origins include:
-     - `https://www.girapphe.com`
-     - `https://accounts.girapphe.com`
-   - Authorized redirect URIs include:
-     - `https://accounts.girapphe.com/v1/oauth_callback`
-
-After changing Google/Clerk settings, wait a few minutes and retry in a fresh browser session.
+- Open, update, reopen, or mark ready a non-fork PR: quality checks, Preview Worker upload, then smoke test.
+- Merge to `main`: quality checks, Drizzle migrations, production deploy, then smoke test.
+- Fork PRs receive quality checks but no preview because repository secrets are not exposed to them.
+- Preview URLs are public `workers.dev` URLs unless Cloudflare Access is applied in the dashboard.

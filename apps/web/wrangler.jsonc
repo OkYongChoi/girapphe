@@ -1,25 +1,28 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "girapphe-dev",
+  "name": "girapphe",
   "main": ".open-next/worker.js",
   "compatibility_date": "2024-12-30",
   "compatibility_flags": [
-    "nodejs_compat"
+    "nodejs_compat",
+    "global_fetch_strictly_public"
   ],
-  "workers_dev": true,
+  "workers_dev": false,
+  "preview_urls": false,
   "vars": {
-    "APP_ENV": "dev"
+    "APP_ENV": "base"
   },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
   "env": {
-    "dev": {
-      "name": "girapphe-dev",
+    "preview": {
+      "name": "girapphe-preview",
       "workers_dev": true,
+      "preview_urls": true,
       "vars": {
-        "APP_ENV": "dev"
+        "APP_ENV": "preview"
       }
     },
     "prod": {

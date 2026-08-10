@@ -155,6 +155,19 @@ pnpm harness:deploy
 
 This runs the local harness first, then the Cloudflare/OpenNext build.
 
+Browser smoke checks use Playwright and start the web dev server automatically:
+
+```bash
+pnpm browser:smoke
+pnpm harness:browser
+```
+
+If Chromium is not installed locally yet, run:
+
+```bash
+pnpm exec playwright install --with-deps chromium
+```
+
 Push is part of release handoff, not the repeatable validation script:
 
 ```bash
@@ -203,18 +216,28 @@ Clerk handles:
 
 ## Environments & Deployment
 
+Branch flow:
+
+```text
+feature branch -> PR preview -> PR merge to main -> production deploy
+```
+
+- Pull requests deploy an isolated Cloudflare Preview Worker. They never run migrations.
+- `main` deploys to Cloudflare `prod`, runs migrations, then smoke tests production.
+- Do not commit real `.env*` files. Keep local values in `apps/web/.env.local`;
+  inject CI values with GitHub Secrets/Variables and Cloudflare runtime values
+  with Wrangler Worker secrets.
+
 Cloudflare Workers (OpenNext) commands:
 
 ```bash
-npm run build:cf
-npm run deploy:cf:dev
-npm run deploy:cf:prod
+pnpm build:cf
 ```
 
-GitHub Actions deployment template and required secrets are documented in:
-- `DEPLOY.md` (`6.1 GitHub Actions Template`)
-- `DEPLOY.md` (`6. Production Deploy - Cloudflare Workers (OpenNext)`)
+Pull requests automatically receive a Cloudflare Worker preview. Its stable address is
+`https://pr-<number>-girapphe-preview.<workers-subdomain>.workers.dev`; it uses preview
+Clerk keys and an isolated Neon database.
 
-See full runbook:
+GitHub Actions deployment details and required secrets are documented in:
 - `DEPLOY.md`
 - `ENVIRONMENTS.md`
