@@ -321,7 +321,7 @@ export default function CardViewer({
       <div className="mb-4 rounded-xl bg-white border border-gray-100 shadow-sm px-4 py-2.5">
         {mode === 'new' ? (
           /* ── Learn New: global stats, no bar ── */
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <div className="flex items-center gap-3 text-xs font-medium">
               <span className="text-emerald-600">{stats.explainable} explainable</span>
               <span className="text-amber-600">{stats.unclear} needs review</span>
