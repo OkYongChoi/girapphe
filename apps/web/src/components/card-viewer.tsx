@@ -261,16 +261,16 @@ export default function CardViewer({
             : `You reviewed ${reviewedCount} card${reviewedCount !== 1 ? 's' : ''} this session.`}
         </p>
 
-        <div className="mt-6 w-full grid grid-cols-2 gap-2 text-center">
+        <dl aria-label="Learning progress" className="mt-6 grid w-full grid-cols-2 gap-2 text-center">
           <div className="rounded-xl bg-emerald-50 border border-emerald-100 py-3">
-            <span className="block text-2xl font-bold text-emerald-700">{stats.explainable}</span>
-            <span className="text-xs text-emerald-600">Explainable</span>
+            <dd className="block text-2xl font-bold text-emerald-700">{stats.explainable}</dd>
+            <dt className="text-xs text-emerald-600">Explainable</dt>
           </div>
           <div className="rounded-xl bg-blue-50 border border-blue-100 py-3">
-            <span className="block text-2xl font-bold text-blue-600">{stats.unclear}</span>
-            <span className="text-xs text-blue-500">Unclear</span>
+            <dd className="block text-2xl font-bold text-blue-600">{stats.unclear}</dd>
+            <dt className="text-xs text-blue-500">Unclear</dt>
           </div>
-        </div>
+        </dl>
 
         <div className="mt-6 flex flex-col gap-2 w-full">
           {isGuest && (
