@@ -282,10 +282,10 @@ export default function CardViewer({
             </Link>
           )}
           <Link
-            href="/practice?mode=review"
+            href={mode === 'review' ? '/practice?mode=new' : '/practice?mode=review'}
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
-            Review learning queue
+            {mode === 'review' ? 'Learn new concepts' : 'Review learning queue'}
           </Link>
           <Link
             href="/saved"
