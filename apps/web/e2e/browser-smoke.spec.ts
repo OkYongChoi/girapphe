@@ -67,7 +67,11 @@ test.describe('browser smoke', () => {
     const revealButton = page.getByRole('button', { name: 'Show answer' });
     await expect(revealButton).toHaveAttribute('aria-expanded', 'false');
     await revealButton.click();
-    await expect(page.getByRole('button', { name: 'Hide answer' })).toHaveAttribute('aria-expanded', 'true');
+
+    const hideButton = page.getByRole('button', { name: 'Hide answer' });
+    await expect(hideButton).toHaveAttribute('aria-expanded', 'true');
+    await hideButton.click();
+    await expect(page.getByRole('button', { name: 'Show answer' })).toHaveAttribute('aria-expanded', 'false');
 
     await assertNoBrowserFailures();
   });
