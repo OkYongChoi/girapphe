@@ -438,9 +438,6 @@ export default function CardViewer({
       >
         {revealed ? 'Hide Answer ↑' : 'Show Answer ↓'}
       </button>
-      <p className="sr-only" aria-live="polite" aria-atomic="true">
-        {revealed ? 'Answer is shown. You can now rate this card.' : 'Answer is hidden. Recall the concept before revealing it.'}
-      </p>
 
       {/* ── AFTER reveal: Unclear | Can Explain + Undo ── */}
       {revealed && (
