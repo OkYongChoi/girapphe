@@ -53,7 +53,7 @@ test.describe('browser smoke', () => {
     await page.goto('/practice?mode=review');
 
     const practiceMode = page.getByRole('navigation', { name: 'Practice mode' });
-    await expect(practiceMode.getByRole('link', { name: 'Review' })).toHaveAttribute('aria-current', 'page');
+    await expect(practiceMode.getByRole('link', { name: /Review .*card.*needing review/i })).toHaveAttribute('aria-current', 'page');
     await expect(practiceMode.getByRole('link', { name: 'Learn New' })).not.toHaveAttribute('aria-current');
 
     await assertNoBrowserFailures();

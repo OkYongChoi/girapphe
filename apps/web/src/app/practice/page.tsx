@@ -43,9 +43,10 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
           <Link
             href="/practice?mode=review"
             aria-current={mode === 'review' ? 'page' : undefined}
+            aria-label={`Review ${stats.unclear} card${stats.unclear === 1 ? '' : 's'} needing review`}
             className={`flex-1 rounded-md px-4 py-2 text-center text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-200 ${mode === 'review' ? 'bg-white text-gray-900 shadow' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            Review
+            Review ({stats.unclear})
           </Link>
         </nav>
         <p id="practice-mode-description" className="mb-6 text-xs text-gray-500">
