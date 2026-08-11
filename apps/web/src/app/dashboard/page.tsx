@@ -65,12 +65,12 @@ function DomainCard({
         aria-label={`${formatDomainLabel(domain)} explainable progress`}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={roundedExplainablePercent}
+        aria-valuenow={explainablePercent}
         aria-valuetext={`${roundedExplainablePercent}% of reviewed cards are explainable`}
       >
         <div
           className="h-full rounded-full bg-emerald-500 transition-[width]"
-          style={{ width: `${roundedExplainablePercent}%` }}
+          style={{ width: `${explainablePercent}%` }}
         />
       </div>
     </div>
