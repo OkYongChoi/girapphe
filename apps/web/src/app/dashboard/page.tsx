@@ -18,9 +18,9 @@ function SummaryBox({
 }) {
   return (
     <div className={`rounded-xl border p-4 ${colorClass}`}>
-      <p className="text-xs font-medium uppercase tracking-wide opacity-70">{label}</p>
-      <p className="mt-1 text-2xl font-bold">{value}</p>
-      {sub && <p className="mt-0.5 text-xs opacity-60">{sub}</p>}
+      <dt className="text-xs font-medium uppercase tracking-wide opacity-70">{label}</dt>
+      <dd className="mt-1 text-2xl font-bold">{value}</dd>
+      {sub && <dd className="mt-0.5 text-xs opacity-60">{sub}</dd>}
     </div>
   );
 }
@@ -119,7 +119,7 @@ export default async function DashboardPage() {
           </div>
         ) : (
           <>
-            <div aria-label="Overall progress summary" className="mt-6 grid gap-3 sm:grid-cols-3">
+            <dl aria-label="Overall progress summary" className="mt-6 grid gap-3 sm:grid-cols-3">
               <SummaryBox
                 label="Explainable"
                 value={stats.explainable}
@@ -138,7 +138,7 @@ export default async function DashboardPage() {
                 sub={`${domains.length} domain${domains.length !== 1 ? 's' : ''}`}
                 colorClass="bg-slate-50 text-slate-900 border-slate-200"
               />
-            </div>
+            </dl>
 
             <h2 className="mt-8 text-base font-semibold text-slate-700">Domain Breakdown</h2>
             {domains.length === 0 ? (
