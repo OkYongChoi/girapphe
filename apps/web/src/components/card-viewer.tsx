@@ -262,13 +262,13 @@ export default function CardViewer({
         </p>
 
         <dl aria-label="Learning progress" className="mt-6 grid w-full grid-cols-2 gap-2 text-center">
-          <div className="rounded-xl bg-emerald-50 border border-emerald-100 py-3">
-            <dd className="block text-2xl font-bold text-emerald-700">{stats.explainable}</dd>
-            <dt className="text-xs text-emerald-600">Explainable</dt>
+          <div className="flex flex-col rounded-xl border border-emerald-100 bg-emerald-50 py-3">
+            <dt className="order-2 text-xs text-emerald-600">Explainable</dt>
+            <dd className="order-1 block text-2xl font-bold text-emerald-700">{stats.explainable}</dd>
           </div>
-          <div className="rounded-xl bg-blue-50 border border-blue-100 py-3">
-            <dd className="block text-2xl font-bold text-blue-600">{stats.unclear}</dd>
-            <dt className="text-xs text-blue-500">Unclear</dt>
+          <div className="flex flex-col rounded-xl border border-blue-100 bg-blue-50 py-3">
+            <dt className="order-2 text-xs text-blue-500">Unclear</dt>
+            <dd className="order-1 block text-2xl font-bold text-blue-600">{stats.unclear}</dd>
           </div>
         </dl>
 
