@@ -95,12 +95,22 @@ export default async function DashboardPage() {
               Card progress summary based on what feels explainable vs still unclear.
             </p>
           </div>
-          <Link
-            href="/practice"
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Practice now →
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {stats.unclear > 0 && (
+              <Link
+                href="/practice?mode=review"
+                className="rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                Review {stats.unclear} unclear {stats.unclear === 1 ? 'card' : 'cards'}
+              </Link>
+            )}
+            <Link
+              href="/practice"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              Practice now →
+            </Link>
+          </div>
         </div>
 
         {totalReviewed === 0 ? (
