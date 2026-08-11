@@ -37,6 +37,7 @@ function DomainCard({
   unclear: number;
 }) {
   const explainablePercent = reviewed > 0 ? (explainable / reviewed) * 100 : 0;
+  const roundedExplainablePercent = Math.round(explainablePercent);
 
   return (
     <div className="rounded-xl border bg-white p-5">
@@ -46,7 +47,7 @@ function DomainCard({
           <p className="mt-1 text-sm text-slate-600">{reviewed} reviewed cards</p>
         </div>
         <div className="rounded-lg bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700">
-          {explainablePercent.toFixed(0)}% explainable
+          {roundedExplainablePercent}% explainable
         </div>
       </div>
 
@@ -57,6 +58,20 @@ function DomainCard({
         <div className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-blue-800">
           Unclear: {unclear}
         </div>
+      </div>
+      <div
+        className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"
+        role="progressbar"
+        aria-label={`${formatDomainLabel(domain)} explainable progress`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={roundedExplainablePercent}
+        aria-valuetext={`${roundedExplainablePercent}% of reviewed cards are explainable`}
+      >
+        <div
+          className="h-full rounded-full bg-emerald-500 transition-[width]"
+          style={{ width: `${roundedExplainablePercent}%` }}
+        />
       </div>
     </div>
   );
@@ -104,7 +119,7 @@ export default async function DashboardPage() {
           </div>
         ) : (
           <>
-            <div aria-label="Overall progress summary" className="mt-6 grid grid-cols-3 gap-3">
+            <div aria-label="Overall progress summary" className="mt-6 grid gap-3 sm:grid-cols-3">
               <SummaryBox
                 label="Explainable"
                 value={stats.explainable}
