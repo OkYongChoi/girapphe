@@ -30,6 +30,7 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
         {/* Mode Toggle */}
         <nav
           aria-label="Practice mode"
+          aria-describedby="practice-mode-description"
           className="mb-2 flex w-full max-w-lg bg-gray-200 p-1 rounded-lg"
         >
           <Link 
@@ -47,7 +48,7 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
             Review
           </Link>
         </nav>
-        <p className="mb-6 text-xs text-gray-500">
+        <p id="practice-mode-description" className="mb-6 text-xs text-gray-500">
           {mode === 'new'
             ? 'Learn New: unseen and unclear cards first'
             : 'Review: concepts you marked as still unclear'}
