@@ -52,7 +52,7 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
         <p id="practice-mode-description" className="mb-6 text-xs text-gray-500">
           {mode === 'new'
             ? 'Learn New: unseen and unclear cards first'
-            : 'Review: concepts you marked as still unclear'}
+            : `Review: ${stats.unclear} concept${stats.unclear === 1 ? '' : 's'} you marked as still unclear`}
         </p>
 
         {/* Card viewer — stats are shown inside */}
