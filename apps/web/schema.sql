@@ -110,6 +110,11 @@ CREATE INDEX IF NOT EXISTS idx_graph_edges_type ON graph_edges(type);
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_states_user ON user_knowledge_states(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_states_node ON user_knowledge_states(node_id);
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_states_source_type ON user_knowledge_states(source_type);
+
+CREATE TABLE IF NOT EXISTS user_quiz_rate_limits (
+  user_id TEXT PRIMARY KEY,
+  next_allowed_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_user ON user_knowledge_evidence(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_node ON user_knowledge_evidence(node_id);
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_source_type ON user_knowledge_evidence(source_type);

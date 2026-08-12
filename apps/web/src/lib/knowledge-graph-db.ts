@@ -106,6 +106,20 @@ export type KnowledgeContextExport = {
   prompt_block: string;
 };
 
+export class QuizRateLimitError extends Error {
+  constructor() {
+    super('Quiz submissions are temporarily rate limited.');
+    this.name = 'QuizRateLimitError';
+  }
+}
+
+export class UnknownGraphNodeError extends Error {
+  constructor() {
+    super('The requested graph node does not exist.');
+    this.name = 'UnknownGraphNodeError';
+  }
+}
+
 function ensureGraphDatabase() {
   if (!process.env.DATABASE_URL) {
     throw new Error('Graph database access requires DATABASE_URL to be configured.');
@@ -216,6 +230,22 @@ async function persistUserStates(userId: string, states: UserKnowledgeState[]): 
     `,
     values
   );
+}
+
+async function claimQuizSubmission(userId: string): Promise<void> {
+  const { rows } = await pool.query<{ user_id: string }>(
+    `
+    INSERT INTO user_quiz_rate_limits (user_id, next_allowed_at)
+    VALUES ($1, NOW() + INTERVAL '2 seconds')
+    ON CONFLICT (user_id)
+    DO UPDATE SET next_allowed_at = EXCLUDED.next_allowed_at
+    WHERE user_quiz_rate_limits.next_allowed_at <= NOW()
+    RETURNING user_id;
+    `,
+    [userId]
+  );
+
+  if (rows.length === 0) throw new QuizRateLimitError();
 }
 
 export async function getDbGraphDataForUser(userId: string): Promise<ForceGraphData> {
@@ -351,11 +381,17 @@ export async function submitDbQuizResult(
 
   ensureGraphDatabase();
 
+  await claimQuizSubmission(userId);
+
   const [nodes, edges, states] = await Promise.all([
     getGraphNodes(),
     getGraphEdges(),
     getUserStateMap(userId),
   ]);
+
+  if (!nodes.some((node) => node.id === nodeId)) {
+    throw new UnknownGraphNodeError();
+  }
 
   const now = new Date().toISOString();
   const existingState = states.get(nodeId);
