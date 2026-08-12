@@ -43,6 +43,9 @@ jobs:
       - name: Lint and Typecheck
         run: pnpm turbo check
 
+      - name: Build mobile bundles
+        run: pnpm --filter @stem-brain/mobile build
+
       - name: Build Cloudflare Bundle
         working-directory: apps/web
         run: pnpm build:cf
