@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "eas-cli": "21.8.0",
     "turbo": "^2.5.4"
   },
   "engines": {

@@ -10,10 +10,10 @@
     "build": "pnpm run build:ios && pnpm run build:android",
     "build:ios": "expo export --platform ios --output-dir dist/ios --no-bytecode",
     "build:android": "expo export --platform android --output-dir dist/android --no-bytecode",
-    "eas:login": "pnpm dlx eas-cli@21.8.0 login",
-    "eas:init": "pnpm dlx eas-cli@21.8.0 init",
-    "eas:ios:preview": "pnpm dlx eas-cli@21.8.0 build --platform ios --profile preview",
-    "eas:ios:production": "pnpm dlx eas-cli@21.8.0 build --platform ios --profile production",
+    "eas:login": "pnpm --workspace-root exec eas login",
+    "eas:init": "pnpm --workspace-root exec eas init",
+    "eas:ios:preview": "pnpm --workspace-root exec eas build --platform ios --profile preview",
+    "eas:ios:production": "pnpm --workspace-root exec eas build --platform ios --profile production",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "check": "pnpm lint && pnpm typecheck"
@@ -31,7 +31,7 @@
     "react-dom": "19.2.3",
     "react-native": "0.86.2",
     "react-native-screens": "~4.26.2",
-    "react-native-worklets": "^0.10.0"
+    "react-native-worklets": "^0.10.1"
   },
   "devDependencies": {
     "@babel/core": "^7.27.1",
