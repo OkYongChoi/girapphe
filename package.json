@@ -43,7 +43,9 @@
       "tar": "^7.5.19",
       "@xmldom/xmldom": "^0.8.13",
       "js-yaml": "^4.3.1",
-      "ws": "^7.5.13",
+      "@react-native/dev-middleware>ws": "^7.5.13",
+      "metro>ws": "^7.5.13",
+      "react-devtools-core>ws": "^7.5.13",
       "uuid": "^11.1.1"
     }
   }
