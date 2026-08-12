@@ -43,6 +43,9 @@ jobs:
       - name: Lint and Typecheck
         run: pnpm turbo check
 
+      - name: Verify patched image parser
+        run: pnpm verify:image-size-hardening
+
       - name: Build mobile bundles
         run: pnpm --filter @stem-brain/mobile build
 
