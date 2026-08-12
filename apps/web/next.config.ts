@@ -6,6 +6,7 @@ const appDir = path.dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = path.resolve(appDir, '../..');
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ['127.0.0.1'],
   turbopack: {
     root: monorepoRoot,
   },
