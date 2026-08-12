@@ -28,12 +28,13 @@ export async function GET() {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
+    console.error('Health database check failed:', error);
     return NextResponse.json(
       {
         status: 'degraded',
         mode: 'database',
         database: 'disconnected',
-        error: error instanceof Error ? error.message : 'unknown_error',
+        error: 'database_unavailable',
         duration_ms: Date.now() - startedAt,
         timestamp: new Date().toISOString(),
       },

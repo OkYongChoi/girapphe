@@ -92,6 +92,11 @@ export const userKnowledgeStates = pgTable("user_knowledge_states", {
   index("idx_user_knowledge_states_source_type").on(t.sourceType),
 ]);
 
+export const userQuizRateLimits = pgTable("user_quiz_rate_limits", {
+  userId: text("user_id").primaryKey(),
+  nextAllowedAt: timestamp("next_allowed_at", { withTimezone: true }).notNull(),
+});
+
 export const userKnowledgeEvidence = pgTable("user_knowledge_evidence", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull(),

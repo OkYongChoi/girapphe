@@ -38,6 +38,15 @@ test.describe('browser smoke', () => {
     expect(response.status()).toBe(200);
   });
 
+  test('quiz mutation rejects unauthenticated callers', async ({ request }) => {
+    const response = await request.post('/api/quiz_result', {
+      data: { node_id: 'math_derivative', result: 1 },
+    });
+
+    expect(response.status()).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' });
+  });
+
   test('home page renders the app shell', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
