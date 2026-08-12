@@ -17,6 +17,7 @@
     "smoke": "pnpm --filter @stem-brain/web smoke",
     "browser:smoke": "playwright test",
     "browser:smoke:headed": "playwright test --headed",
+    "verify:image-size-hardening": "node scripts/verify-image-size-hardening.mjs",
     "harness": "pnpm harness:local",
     "harness:local": "pnpm check && pnpm --filter @stem-brain/web check:env:examples && pnpm --filter @stem-brain/web build",
     "harness:browser": "pnpm harness:local && pnpm browser:smoke",
@@ -48,6 +49,9 @@
       "metro>ws": "^7.5.13",
       "react-devtools-core>ws": "^7.5.13",
       "uuid": "^11.1.1"
+    },
+    "patchedDependencies": {
+      "image-size@1.2.1": "patches/image-size@1.2.1.patch"
     }
   }
 }
