@@ -11,10 +11,16 @@ on:
 permissions:
   contents: read
 
+# Prevent an older commit from deploying after a newer push to the same PR or main.
+concurrency:
+  group: cloudflare-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     name: Quality Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -48,6 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: ci
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -129,11 +136,31 @@ jobs:
             sleep 5
           done
 
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser smoke test preview
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ env.PREVIEW_URL }}
+        run: pnpm browser:smoke
+
+      - name: Upload browser test artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-preview-pr-${{ github.event.number }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
   deploy_prod:
     name: Deploy to Cloudflare (prod)
     runs-on: ubuntu-latest
     needs: ci
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
