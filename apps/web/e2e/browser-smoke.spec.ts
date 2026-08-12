@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 const toleratedConsoleErrors = [
   /favicon\.ico/i,
 ];
+const usesDeployedPreview = Boolean(process.env.PLAYWRIGHT_BASE_URL);
 
 const authEntrypointOrConfigFallback = /Sign in|Sign up|Clerk keys are missing|Live Clerk keys cannot be used/i;
 
@@ -87,6 +88,11 @@ test.describe('browser smoke', () => {
   });
 
   test('unknown routes provide a usable not-found recovery', async ({ page }) => {
+    test.skip(
+      usesDeployedPreview,
+      'Not-found recovery is covered by the local Next.js browser suite.',
+    );
+
     await page.goto('/this-route-does-not-exist');
 
     await expect(page.locator('main#main-content')).toBeVisible();
