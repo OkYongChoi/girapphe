@@ -66,7 +66,8 @@ html {
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.04),
     0 0 140px rgba(14, 165, 233, 0.14);
-  animation: homeConstellationTurn 26s linear infinite;
+  animation: homeConstellationTurn 38s linear infinite;
+  opacity: 0.58;
 }
 
 .home-hero-constellation::before,
@@ -101,6 +102,16 @@ html {
   box-shadow: 0 18px 48px rgba(2, 6, 23, 0.42);
   backdrop-filter: blur(14px);
   animation: homeHeroNodeFloat 7s ease-in-out infinite;
+}
+
+@media (min-width: 1024px) {
+  .home-hero-node {
+    display: none;
+  }
+
+  .home-hero-copy {
+    padding-bottom: 3.5rem;
+  }
 }
 
 .home-hero-node-a {
@@ -158,6 +169,37 @@ html {
   will-change: opacity, transform;
 }
 
+.home-hero-visual {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 35rem);
+  min-height: 36rem;
+}
+
+.home-hero-copy {
+  position: relative;
+  z-index: 2;
+}
+
+.home-hero-orb-art {
+  position: absolute;
+  inset: -4rem -5rem -2rem -1rem;
+  z-index: 0;
+  filter: drop-shadow(0 26px 40px rgba(2, 6, 23, 0.56));
+  mix-blend-mode: screen;
+  opacity: 0.94;
+  mask-image: radial-gradient(ellipse 29% 47% at 62% 53%, black 30%, rgba(0,0,0,0.9) 51%, transparent 82%);
+  animation: homeHeroOrbFloat 9s ease-in-out infinite;
+}
+
+.home-hero-progress-surface {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: -1rem;
+  width: min(100%, 26rem);
+}
+
 .home-graph-section {
   isolation: isolate;
   view-transition-name: home-graph;
@@ -198,22 +240,74 @@ html {
 }
 
 .home-reveal {
-  animation: homeSectionReveal ease-out both;
-  animation-timeline: view();
-  animation-range: entry 0% cover 46%;
+  animation: homeSectionReveal 720ms ease-out both;
 }
 
 .home-graph-heading {
-  animation: homeGraphHeading ease-out both;
-  animation-timeline: view();
-  animation-range: entry 0% cover 38%;
+  animation: homeGraphHeading 760ms 80ms ease-out both;
 }
 
 .home-graph-frame {
   transform-origin: 50% 0%;
-  animation: homeGraphFrameReveal ease-out both;
-  animation-timeline: view();
-  animation-range: entry 2% cover 52%;
+  animation: homeGraphFrameReveal 860ms 140ms ease-out both;
+  border-color: rgba(125, 211, 252, 0.18);
+  box-shadow:
+    0 42px 96px rgba(2, 6, 23, 0.56),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 8px rgba(15, 23, 42, 0.32);
+  transform-style: preserve-3d;
+}
+
+.home-graph-frame::before,
+.home-graph-frame::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.home-graph-frame::before {
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(124deg, rgba(255,255,255,0.08), transparent 18%, transparent 74%, rgba(34,211,238,0.06));
+}
+
+.home-graph-frame::after {
+  left: 1.25rem;
+  right: 1.25rem;
+  bottom: 0.9rem;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(125,211,252,0.44), rgba(110,231,183,0.28), transparent);
+  box-shadow: 0 0 18px rgba(34,211,238,0.24);
+}
+
+.home-graph-metric {
+  box-shadow: 0 16px 30px rgba(2,6,23,0.22), inset 0 1px 0 rgba(255,255,255,0.1);
+  transition: transform 280ms ease, border-color 280ms ease;
+}
+
+@media (min-width: 768px) {
+  .home-graph-metric-rail {
+    position: relative;
+    z-index: 4;
+    margin-bottom: -2.15rem;
+    padding: 0.5rem;
+    border: 1px solid rgba(125, 211, 252, 0.14);
+    border-radius: 1rem;
+    background: rgba(2, 6, 23, 0.48);
+    box-shadow: 0 12px 38px rgba(2, 6, 23, 0.3), inset 0 1px 0 rgba(255,255,255,0.08);
+    backdrop-filter: blur(18px);
+  }
+
+  .home-graph-frame {
+    margin-top: 1.15rem;
+  }
+}
+
+.home-graph-metric:hover {
+  border-color: rgba(125,211,252,0.38);
+  transform: translateY(-3px) rotateX(4deg);
 }
 
 @supports (animation-timeline: view()) {
@@ -309,9 +403,53 @@ html {
   animation: homeScan 5.5s ease-in-out infinite;
 }
 
-.home-knowledge-surface,
 .home-stat-tile {
   animation: homePanelPulse 5.6s ease-in-out infinite;
+}
+
+.home-knowledge-surface {
+  transform: perspective(1200px) rotateY(-7deg) rotateX(2deg);
+  transform-style: preserve-3d;
+  isolation: isolate;
+  animation: homeKnowledgeSurfacePulse 5.6s ease-in-out infinite;
+}
+
+.home-knowledge-surface::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(255,255,255,0.11), transparent 24%, transparent 67%, rgba(103,232,249,0.08));
+  mix-blend-mode: screen;
+}
+
+.home-surface-orb {
+  border: 1px solid rgba(186, 230, 253, 0.34);
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255,255,255,0.72) 0 1.5%, transparent 4%),
+    radial-gradient(circle at 45% 45%, rgba(45,212,191,0.46), rgba(8,47,73,0.16) 38%, transparent 65%);
+  box-shadow: inset -22px -18px 44px rgba(2,6,23,0.48), inset 18px 14px 34px rgba(186,230,253,0.16), 0 0 56px rgba(34,211,238,0.18);
+  animation: homeSurfaceOrb 11s ease-in-out infinite;
+  transform: translateZ(44px);
+}
+
+.home-surface-orbit {
+  border: 1px solid rgba(125,211,252,0.24);
+  box-shadow: 0 0 28px rgba(34,211,238,0.1);
+  transform: translateZ(22px) rotateX(62deg) rotateZ(-20deg);
+  animation: homeSurfaceOrbit 14s linear infinite;
+}
+
+.home-surface-orbit-b {
+  border-color: rgba(110,231,183,0.22);
+  animation-duration: 17s;
+  animation-direction: reverse;
+}
+
+.home-stage-caption {
+  border-right: 1px solid rgba(125,211,252,0.3);
+  padding-right: 1rem;
 }
 
 .home-depth-frame {
@@ -602,6 +740,60 @@ html {
   }
 }
 
+@keyframes homeSurfaceOrb {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-12px, 12px, 26px) scale(1.05); }
+}
+
+@keyframes homeSurfaceOrbit {
+  from { transform: translateZ(22px) rotateX(62deg) rotateZ(-20deg) rotateY(0deg); }
+  to { transform: translateZ(22px) rotateX(62deg) rotateZ(-20deg) rotateY(360deg); }
+}
+
+@keyframes homeHeroOrbFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-8px, -14px, 0) scale(1.025); }
+}
+
+@media (max-width: 1023px) {
+  .home-knowledge-surface {
+    transform: none;
+  }
+
+  .home-hero-visual {
+    width: 100%;
+    min-height: auto;
+    padding-top: 20rem;
+  }
+
+  .home-hero-orb-art {
+    inset: -2rem -2rem auto;
+    height: 23rem;
+  }
+
+  .home-hero-progress-surface {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: 100%;
+  }
+}
+
+@media (max-width: 767px) {
+  .home-graph-frame {
+    height: 40rem;
+  }
+
+  .home-graph-canvas {
+    top: 13.5rem;
+    width: 116%;
+  }
+
+  .home-graph-case-controls {
+    gap: 0.75rem;
+  }
+}
+
 @keyframes homeConstellationTurn {
   from {
     transform: translate(-50%, -50%) rotate(0deg) scale(1);
@@ -656,6 +848,18 @@ html {
   50% {
     filter: drop-shadow(0 18px 42px rgba(14, 165, 233, 0.16));
     transform: translateY(-2px);
+  }
+}
+
+@keyframes homeKnowledgeSurfacePulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 rgba(14, 165, 233, 0));
+    transform: perspective(1200px) rotateY(-7deg) rotateX(2deg) translateY(0);
+  }
+  50% {
+    filter: drop-shadow(0 18px 42px rgba(14, 165, 233, 0.16));
+    transform: perspective(1200px) rotateY(-7deg) rotateX(2deg) translateY(-2px);
   }
 }
 
@@ -921,6 +1125,7 @@ html {
   .home-graph-frame,
   .home-hero-copy,
   .home-hero-visual,
+  .home-hero-orb-art,
   .home-discipline-track,
   .home-hero-constellation,
   .home-hero-node,

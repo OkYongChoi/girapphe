@@ -24,7 +24,7 @@ export default function GuestStartButton() {
           router.push('/practice');
         });
       }}
-      className="rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-100 disabled:cursor-wait disabled:bg-sky-100 disabled:text-slate-600"
+      className="rounded-lg border border-cyan-100/70 bg-gradient-to-b from-cyan-200 to-cyan-400 px-5 py-3 text-sm font-bold text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,0.25),inset_0_1px_0_rgba(255,255,255,0.82)] transition duration-300 hover:-translate-y-0.5 hover:from-cyan-100 hover:to-cyan-300 hover:shadow-[0_18px_42px_rgba(34,211,238,0.34)] disabled:cursor-wait disabled:from-sky-100 disabled:to-sky-200 disabled:text-slate-600"
     >
       {isBusy ? 'Starting...' : 'Start as guest'}
     </button>

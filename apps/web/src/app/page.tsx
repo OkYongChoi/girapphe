@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import Navbar from '@/components/navbar';
 import HomeDomainProgress, { type HomeDomainProgressRow } from '@/components/home-domain-progress';
 import HomeGraphScene from '@/components/home-graph-scene';
@@ -65,7 +66,7 @@ export default async function HomePage() {
         <div className="home-map-contours absolute inset-0 opacity-20" />
       </div>
       <div aria-hidden="true" className="home-scroll-progress fixed left-0 top-0 z-[70] h-0.5 w-full origin-left bg-gradient-to-r from-cyan-200 via-emerald-200 to-amber-200" />
-      <Navbar user={user} />
+      <Navbar user={user} variant="home" />
 
       <section className="home-snap-section home-hero-section relative z-10 overflow-hidden px-6 pb-12 pt-10 md:pb-16 md:pt-14">
         <div aria-hidden="true" className="home-hero-network pointer-events-none absolute inset-x-0 top-0 h-[calc(100vh-4rem)] min-h-[42rem]">
@@ -76,13 +77,9 @@ export default async function HomePage() {
           <div className="home-hero-node home-hero-node-d">Links</div>
         </div>
 
-        <div className="home-hero-stage relative z-10 mx-auto flex min-h-[calc(100vh-10rem)] max-w-6xl flex-col justify-center">
+        <div className="home-hero-stage relative z-10 mx-auto grid min-h-[calc(100vh-7rem)] max-w-6xl items-center gap-10 lg:grid-cols-[minmax(0,0.88fr)_minmax(27rem,0.72fr)] lg:gap-4">
           <div className="home-hero-copy fade-up min-w-0 max-w-4xl">
-            <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-3 py-1 text-xs font-semibold uppercase text-slate-300 shadow-sm backdrop-blur">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-200/80 shadow-[0_0_16px_rgba(125,211,252,0.65)]" />
-              Multidisciplinary Practice Graph
-            </p>
-            <h1 className="mt-5 max-w-3xl text-5xl font-black leading-[0.98] tracking-tight text-white sm:text-6xl md:text-7xl">
+            <h1 className="max-w-3xl text-5xl font-black leading-[0.98] tracking-[-0.055em] text-white sm:text-6xl md:text-[4.25rem]">
               Practice STEM concepts and build your{' '}
               <span className="text-cyan-300">knowledge graph.</span>
             </h1>
@@ -90,10 +87,10 @@ export default async function HomePage() {
               Learn with focused concept cards, save weak spots for review, and see your progress across science, engineering, medicine, computing, economics, and design.
             </p>
 
-            <div className="mt-7 max-w-3xl text-xs font-semibold uppercase text-slate-300">
-              <div className="flex flex-wrap gap-2" aria-label="STEM disciplines">
-                {HOME_DISCIPLINES.map((label) => (
-                  <span key={label} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 backdrop-blur">
+            <div className="home-discipline-rail mt-7 max-w-3xl overflow-hidden text-xs font-semibold uppercase text-slate-300" aria-label="STEM disciplines">
+              <div className="home-discipline-track flex w-max gap-2">
+                {[...HOME_DISCIPLINES, ...HOME_DISCIPLINES].map((label, index) => (
+                  <span key={`${label}-${index}`} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 backdrop-blur">
                     {label}
                   </span>
                 ))}
@@ -105,7 +102,7 @@ export default async function HomePage() {
                 <>
                   <Link
                     href="/practice"
-                    className="rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition duration-300 hover:-translate-y-0.5 hover:bg-sky-100 hover:shadow-xl hover:shadow-cyan-950/20"
+                    className="rounded-lg border border-cyan-100/70 bg-gradient-to-b from-cyan-200 to-cyan-400 px-5 py-3 text-sm font-bold text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,0.25),inset_0_1px_0_rgba(255,255,255,0.82)] transition duration-300 hover:-translate-y-0.5 hover:from-cyan-100 hover:to-cyan-300 hover:shadow-[0_18px_42px_rgba(34,211,238,0.34)]"
                   >
                     Keep practicing
                   </Link>
@@ -158,26 +155,39 @@ export default async function HomePage() {
               </div>
             ) : null}
           </div>
+          <div className="home-hero-visual fade-up min-w-0 lg:justify-self-end">
+            <div aria-hidden="true" className="home-hero-orb-art">
+              <Image
+                src="/images/knowledge-orb-hero.png"
+                alt=""
+                fill
+                priority
+                sizes="(min-width: 1024px) 42vw, 100vw"
+                className="object-contain"
+              />
+            </div>
+            <div className="home-hero-progress-surface">
+              <KnowledgeSurface
+                domainProgress={homeDomainProgress}
+                demoDomainProgress={!isPersonalized || domainProgress.length === 0}
+                showStats={isPersonalized}
+                explainable={sceneStats.explainable}
+                review={sceneStats.review}
+                notes={sceneStats.notes}
+              />
+            </div>
+          </div>
         </div>
-        <div className="relative z-10 mx-auto mt-8 grid max-w-6xl gap-5 lg:-mt-8 lg:grid-cols-[minmax(15rem,0.48fr)_minmax(0,0.52fr)] lg:items-end xl:-mt-12">
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="relative z-10 mx-auto -mt-4 grid max-w-6xl gap-5 lg:-mt-14 lg:grid-cols-[minmax(0,0.56fr)_minmax(22rem,0.44fr)] lg:items-end">
+          <div className="grid gap-3 sm:grid-cols-3">
             {HOME_HERO_SIGNALS.map((signal) => (
-              <div key={signal.label} className="min-w-0 rounded-lg border border-white/10 bg-white/[0.055] px-3 py-3 backdrop-blur sm:px-4">
-                <span className="block text-xl font-black text-white sm:text-2xl">{signal.value}</span>
-                <span className="block text-[10px] font-semibold uppercase leading-4 text-slate-400 sm:text-xs">{signal.label}</span>
+              <div key={signal.label} className="rounded-lg border border-white/10 bg-white/[0.055] px-4 py-3 backdrop-blur">
+                <span className="block text-2xl font-black text-white">{signal.value}</span>
+                <span className="text-xs font-semibold uppercase text-slate-400">{signal.label}</span>
               </div>
             ))}
           </div>
-          <div className="home-hero-visual fade-up min-w-0">
-            <KnowledgeSurface
-              domainProgress={homeDomainProgress}
-              demoDomainProgress={!isPersonalized || domainProgress.length === 0}
-              showStats={isPersonalized}
-              explainable={sceneStats.explainable}
-              review={sceneStats.review}
-              notes={sceneStats.notes}
-            />
-          </div>
+          <p className="home-stage-caption hidden max-w-sm justify-self-end text-right text-sm leading-6 text-slate-400 lg:block">Explore concepts in context, then bring the next useful connection into focus.</p>
         </div>
         <div className="relative z-10 mx-auto mt-8 flex max-w-6xl flex-col items-center gap-4">
           <Link
@@ -205,13 +215,13 @@ export default async function HomePage() {
               </p>
             </div>
             {isPersonalized ? (
-              <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="home-graph-metric-rail grid grid-cols-3 gap-3 text-center">
                 <MiniMetric value={sceneStats.explainable} label="Explainable" />
                 <MiniMetric value={sceneStats.review} label="Review" />
                 <MiniMetric value={sceneStats.notes} label={sceneStats.notes === 1 ? 'Note' : 'Notes'} />
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="home-graph-metric-rail grid grid-cols-3 gap-3 text-center">
                 <MiniMetric value={HOME_DEMO_GRAPH_STATS.domains} label="Domains" />
                 <MiniMetric value={HOME_DEMO_GRAPH_STATS.concepts} label="Concepts" />
                 <MiniMetric value={HOME_DEMO_GRAPH_STATS.links} label="Links" />
@@ -245,7 +255,7 @@ async function getHomeUserGraphData(userId: string): Promise<ForceGraphData | nu
 
 function MiniMetric({ value, label }: { value: number; label: string }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.05] px-4 py-3 backdrop-blur">
+    <div className="home-graph-metric rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 backdrop-blur">
       <span className="block text-2xl font-bold text-white">{value}</span>
       <span className="text-xs uppercase text-slate-400">{label}</span>
     </div>
@@ -292,21 +302,24 @@ function KnowledgeSurface({
   notes: number;
 }) {
   return (
-    <div className="home-knowledge-surface home-depth-frame relative min-h-[29rem] overflow-hidden rounded-lg border border-white/10 bg-slate-950/35 p-4 shadow-2xl shadow-black/25 backdrop-blur sm:min-h-[30rem] sm:p-5">
+    <div className="home-knowledge-surface home-depth-frame relative min-h-[30rem] overflow-hidden rounded-2xl border border-cyan-100/15 bg-slate-950/45 p-5 shadow-[0_32px_90px_rgba(2,6,23,0.56),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl">
+      <div aria-hidden="true" className="home-surface-orb absolute -right-24 -top-28 h-64 w-64 rounded-full" />
+      <div aria-hidden="true" className="home-surface-orbit home-surface-orbit-a absolute -right-10 -top-10 h-48 w-72 rounded-full" />
+      <div aria-hidden="true" className="home-surface-orbit home-surface-orbit-b absolute -right-3 -top-4 h-60 w-52 rounded-full" />
       <div className="home-surface-grid absolute inset-0 opacity-70" />
       <div className="home-depth-glow absolute inset-0" />
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/40 to-transparent" />
-      <div className="relative flex h-full min-h-[26.5rem] flex-col justify-between sm:min-h-[27.5rem]">
+      <div className="relative flex h-full min-h-[27.5rem] flex-col justify-between">
         <div>
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase text-slate-400">Knowledge system</p>
-              <h2 className="mt-2 max-w-sm text-xl font-bold tracking-tight text-white sm:text-2xl">Your concepts, review queue, and notes in one map</h2>
+              <h2 className="mt-2 max-w-xs text-2xl font-bold tracking-tight text-white">Your concepts, review queue, and notes in one map</h2>
             </div>
             <span className="home-status-pill mt-1 h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.72)]" />
           </div>
 
-          <div className="home-node-map home-orbit-stage relative mt-6 h-48 rounded-lg border border-white/10 bg-slate-900/30 sm:mt-8 sm:h-52">
+          <div className="home-node-map home-orbit-stage relative mt-8 h-52 rounded-lg border border-white/10 bg-slate-900/30">
             <span className="home-space-grid" />
             <span className="home-orbit-ring home-orbit-ring-a" />
             <span className="home-orbit-ring home-orbit-ring-b" />
