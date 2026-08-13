@@ -552,6 +552,34 @@ html {
   box-shadow: 0 0 12px rgba(125, 211, 252, 0.22);
 }
 
+@media (max-width: 420px) {
+  .home-map-node {
+    min-width: 3.8rem;
+    height: 1.9rem;
+    font-size: 0.58rem;
+  }
+
+  .home-map-node-core {
+    min-width: 3.5rem;
+  }
+
+  .home-node-map .left-\[10\%\] {
+    left: 5%;
+  }
+
+  .home-node-map .right-\[11\%\] {
+    right: 5%;
+  }
+
+  .home-node-map .bottom-\[10\%\] {
+    bottom: 7%;
+  }
+
+  .home-node-map .bottom-\[17\%\] {
+    bottom: 14%;
+  }
+}
+
 .home-progress-line {
   animation: homeProgressPulse 4.8s ease-in-out infinite;
 }

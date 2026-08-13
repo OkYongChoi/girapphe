@@ -159,12 +159,12 @@ export default async function HomePage() {
             ) : null}
           </div>
         </div>
-        <div className="relative z-10 mx-auto mt-8 grid max-w-6xl gap-5 lg:-mt-8 lg:grid-cols-[minmax(0,0.56fr)_minmax(22rem,0.44fr)] lg:items-end">
-          <div className="grid gap-3 sm:grid-cols-3">
+        <div className="relative z-10 mx-auto mt-8 grid max-w-6xl gap-5 lg:-mt-8 lg:grid-cols-[minmax(15rem,0.48fr)_minmax(0,0.52fr)] lg:items-end xl:-mt-12">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
             {HOME_HERO_SIGNALS.map((signal) => (
-              <div key={signal.label} className="rounded-lg border border-white/10 bg-white/[0.055] px-4 py-3 backdrop-blur">
-                <span className="block text-2xl font-black text-white">{signal.value}</span>
-                <span className="text-xs font-semibold uppercase text-slate-400">{signal.label}</span>
+              <div key={signal.label} className="min-w-0 rounded-lg border border-white/10 bg-white/[0.055] px-3 py-3 backdrop-blur sm:px-4">
+                <span className="block text-xl font-black text-white sm:text-2xl">{signal.value}</span>
+                <span className="block text-[10px] font-semibold uppercase leading-4 text-slate-400 sm:text-xs">{signal.label}</span>
               </div>
             ))}
           </div>
@@ -292,21 +292,21 @@ function KnowledgeSurface({
   notes: number;
 }) {
   return (
-    <div className="home-knowledge-surface home-depth-frame relative min-h-[30rem] overflow-hidden rounded-lg border border-white/10 bg-slate-950/35 p-5 shadow-2xl shadow-black/25 backdrop-blur">
+    <div className="home-knowledge-surface home-depth-frame relative min-h-[29rem] overflow-hidden rounded-lg border border-white/10 bg-slate-950/35 p-4 shadow-2xl shadow-black/25 backdrop-blur sm:min-h-[30rem] sm:p-5">
       <div className="home-surface-grid absolute inset-0 opacity-70" />
       <div className="home-depth-glow absolute inset-0" />
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/40 to-transparent" />
-      <div className="relative flex h-full min-h-[27.5rem] flex-col justify-between">
+      <div className="relative flex h-full min-h-[26.5rem] flex-col justify-between sm:min-h-[27.5rem]">
         <div>
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase text-slate-400">Knowledge system</p>
-              <h2 className="mt-2 max-w-xs text-2xl font-bold tracking-tight text-white">Your concepts, review queue, and notes in one map</h2>
+              <h2 className="mt-2 max-w-sm text-xl font-bold tracking-tight text-white sm:text-2xl">Your concepts, review queue, and notes in one map</h2>
             </div>
             <span className="home-status-pill mt-1 h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.72)]" />
           </div>
 
-          <div className="home-node-map home-orbit-stage relative mt-8 h-52 rounded-lg border border-white/10 bg-slate-900/30">
+          <div className="home-node-map home-orbit-stage relative mt-6 h-48 rounded-lg border border-white/10 bg-slate-900/30 sm:mt-8 sm:h-52">
             <span className="home-space-grid" />
             <span className="home-orbit-ring home-orbit-ring-a" />
             <span className="home-orbit-ring home-orbit-ring-b" />
