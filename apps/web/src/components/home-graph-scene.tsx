@@ -3,7 +3,6 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
-import * as THREE from 'three';
 import type { ForceGraphData } from '@stem-brain/graph-engine';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
@@ -22,11 +21,10 @@ type HomeGraphSceneProps = {
 type LearningCaseKey = 'explore' | 'review' | 'notes' | 'mastery';
 
 const NODE_GROUPS = {
-  // Keep the home preview on the same progress palette as the full Knowledge Map.
-  explainable: { color: '#4ade80', hotColor: '#86efac', label: 'Explainable' },
-  unclear: { color: '#60a5fa', hotColor: '#93c5fd', label: 'Unclear' },
+  explainable: { color: '#22c55e', hotColor: '#86efac', label: 'Explainable' },
+  unclear: { color: '#38bdf8', hotColor: '#7dd3fc', label: 'Unclear' },
   notes: { color: '#f59e0b', hotColor: '#fcd34d', label: 'Notes' },
-  core: { color: '#9ca3af', label: 'Concepts' },
+  core: { color: '#94a3b8', label: 'Concepts' },
   biology: { color: '#34d399', hotColor: '#a7f3d0', label: 'Biology' },
   computing: { color: '#38bdf8', hotColor: '#bae6fd', label: 'Computing' },
   medicine: { color: '#f472b6', hotColor: '#fbcfe8', label: 'Medicine' },
@@ -37,7 +35,6 @@ const NODE_GROUPS = {
 
 type StatusGroup = keyof Pick<typeof NODE_GROUPS, 'explainable' | 'unclear' | 'notes'>;
 type DemoGroup = keyof Pick<typeof NODE_GROUPS, 'biology' | 'computing' | 'medicine' | 'engineering' | 'economics' | 'design'>;
-type ActiveGroup = StatusGroup | DemoGroup;
 
 const DEMO_GROUP_SEQUENCE: DemoGroup[] = ['biology', 'computing', 'medicine', 'engineering', 'economics', 'design'];
 const LEARNING_CASES: Record<
@@ -189,29 +186,17 @@ function getPersonalizedNodeColor(knowledge: number, active: boolean) {
   return active ? '#cbd5e1' : NODE_GROUPS.core.color;
 }
 
-function makeNodeGeometry(node: any, shapeVariant: number) {
-  const value = Number(node.val ?? 5);
-  const radius = Math.max(3.2, Math.min(12, value * 0.9));
-  // The full map uses calm, round progress nodes. Retain a subtle detail change
-  // in the demo without introducing a second visual language.
-  const detail = node.group === 'center' ? 20 : 14 + ((shapeVariant + Number(node.shapeSeed ?? 0)) % 3) * 2;
-  return new THREE.SphereGeometry(radius, detail, detail);
-}
-
 export default function HomeGraphScene({ demo = false, explainable, unclear, notes, personalizedGraphData }: HomeGraphSceneProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<any>(null);
   const [dimensions, setDimensions] = useState({ width: 720, height: 560 });
   const [activeDemoGroup, setActiveDemoGroup] = useState<DemoGroup>('biology');
-  const [shapeVariant, setShapeVariant] = useState(0);
-  const [demoGraphClicked, setDemoGraphClicked] = useState(false);
   const [activeCaseKey, setActiveCaseKey] = useState<LearningCaseKey>('explore');
   const [isAutoCycling, setIsAutoCycling] = useState(true);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const activeCase = LEARNING_CASES[activeCaseKey];
   const activeStatusGroup = activeCase.activeGroup;
-  const activeGraphGroup: ActiveGroup = demo ? activeDemoGroup : activeStatusGroup;
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -280,16 +265,6 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
   useEffect(() => {
     enableOrbit();
   }, [enableOrbit]);
-
-  useEffect(() => {
-    if (!demo || demoGraphClicked) return;
-
-    const intervalId = window.setInterval(() => {
-      setShapeVariant((current) => (current + 1) % 5);
-    }, 1400);
-
-    return () => window.clearInterval(intervalId);
-  }, [demo, demoGraphClicked]);
 
   useEffect(() => {
     return () => {
@@ -476,33 +451,6 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
     return { nodes, links };
   }, [activeCase, activeCaseKey, activeDemoGroup, activeStatusGroup, demo, explainable, notes, personalizedGraphData, unclear]);
 
-  const nodeThreeObject = useCallback(
-    (node: any) => {
-      const geometry = makeNodeGeometry(node, demo && !demoGraphClicked ? shapeVariant : Number(node.shapeSeed ?? 0));
-      const material = new THREE.MeshStandardMaterial({
-        color: node.color,
-        emissive: node.color,
-        emissiveIntensity: node.group === activeGraphGroup || node.group === 'center' ? 0.32 : 0.14,
-        metalness: 0.18,
-        roughness: 0.48,
-        transparent: true,
-        opacity: 0.94,
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.rotation.set(
-        ((Number(node.shapeSeed ?? 0) % 4) * Math.PI) / 9,
-        ((Number(node.shapeSeed ?? 0) % 6) * Math.PI) / 8,
-        0
-      );
-      return mesh;
-    },
-    [activeGraphGroup, demo, demoGraphClicked, shapeVariant]
-  );
-
-  const stopDemoShapeChanges = useCallback(() => {
-    if (demo) setDemoGraphClicked(true);
-  }, [demo]);
-
   return (
     <div
       ref={wrapperRef}
@@ -510,12 +458,9 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
       onPointerMove={handlePointerMove}
       className="pointer-events-none absolute inset-0 z-0 overflow-hidden [--pointer-x:72%] [--pointer-y:36%]"
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_36%,rgba(14,165,233,0.16),transparent_34%),radial-gradient(circle_at_26%_68%,rgba(20,184,166,0.12),transparent_30%),linear-gradient(135deg,#020617_0%,#0b1120_54%,#111827_100%)]" />
-      <div className="home-grid-lines absolute inset-0 opacity-55" />
-      <div className="home-map-contours absolute inset-0 opacity-35" />
-      <div className="home-scan-beam absolute inset-y-[-20%] left-[52%] w-16 rotate-12 bg-gradient-to-r from-transparent via-cyan-300/[0.08] to-transparent blur-sm" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--pointer-x)_var(--pointer-y),rgba(255,255,255,0.08),transparent_18rem)] transition-[background] duration-300" />
-      <div ref={graphContainerRef} aria-hidden="true" className="home-graph-canvas pointer-events-auto absolute inset-y-0 left-1/2 w-[138%] -translate-x-1/2 opacity-95 sm:w-[116%] md:w-[92%] lg:w-[82%]">
+      <div className="absolute inset-0 bg-[#030712]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--pointer-x)_var(--pointer-y),rgba(255,255,255,0.04),transparent_18rem)] transition-[background] duration-300" />
+      <div ref={graphContainerRef} aria-hidden="true" className="home-graph-canvas pointer-events-auto absolute inset-y-0 left-1/2 w-[120%] -translate-x-1/2 md:w-[92%] lg:w-[82%]">
         <ForceGraph3D
           ref={graphRef}
           graphData={graphData}
@@ -525,21 +470,18 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
           nodeLabel={(node: any) => node.name}
           nodeVal="val"
           nodeColor="color"
-          nodeThreeObject={nodeThreeObject}
-          nodeOpacity={0.95}
-          nodeResolution={20}
+          nodeOpacity={0.9}
+          nodeResolution={16}
           linkColor="color"
-          linkOpacity={0.9}
+          linkOpacity={0.58}
           linkWidth={(link: any) => link.width}
           linkDirectionalParticles={(link: any) => (link.active ? 4 : 1)}
           linkDirectionalParticleWidth={(link: any) => (link.active ? 0.9 : 0.42)}
           linkDirectionalParticleSpeed={(link: any) => (link.active ? 0.008 : 0.003)}
           enableNodeDrag={false}
           enableNavigationControls={true}
-          onNodeClick={stopDemoShapeChanges}
-          onBackgroundClick={stopDemoShapeChanges}
           onNodeHover={(node: any) => {
-            document.body.style.cursor = node ? 'crosshair' : 'default';
+            document.body.style.cursor = node ? 'pointer' : 'default';
           }}
           d3AlphaDecay={0.015}
           d3VelocityDecay={0.24}
@@ -553,17 +495,17 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
       </div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,transparent_0%,rgba(2,6,23,0.08)_58%,rgba(2,6,23,0.5)_100%)]" />
       <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950 to-transparent" />
-      <div className="pointer-events-auto absolute left-3 right-3 top-3 z-10 grid gap-2 sm:left-4 sm:right-auto sm:top-4 sm:max-w-sm md:left-6">
-        <div className="rounded-lg border border-slate-700/80 bg-slate-950/80 p-3 shadow-xl shadow-black/25 backdrop-blur-md sm:p-4">
-          <p className="text-xs font-semibold uppercase text-cyan-100/70">Knowledge map · Live</p>
-          <h3 className="mt-1 text-base font-bold text-white sm:mt-2 sm:text-lg">{activeCase.label}</h3>
-          <p className="mt-1 hidden text-sm leading-6 text-slate-300 sm:mt-2 sm:block">{activeCase.summary}</p>
+      <div className="home-graph-case-controls pointer-events-auto absolute left-4 right-4 top-4 z-10 grid gap-3 md:left-6 md:right-auto md:max-w-sm">
+        <div className="rounded-lg border border-white/10 bg-slate-950/72 p-4 shadow-xl shadow-black/25 backdrop-blur-md">
+          <p className="text-xs font-semibold uppercase text-cyan-100/70">Learning case</p>
+          <h3 className="mt-2 text-lg font-bold text-white">{activeCase.label}</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-300">{activeCase.summary}</p>
           <div className="mt-4 flex items-center gap-2 text-xs font-semibold uppercase text-slate-300">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: NODE_GROUPS[activeStatusGroup].hotColor }} />
             {activeCase.signal}
           </div>
         </div>
-        <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+        <div className="grid grid-cols-4 gap-2">
           {CASE_SEQUENCE.map((caseKey) => {
             const learningCase = LEARNING_CASES[caseKey];
             const selected = caseKey === activeCaseKey;
@@ -577,7 +519,7 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
                   setIsAutoCycling(false);
                   setActiveCaseKey(caseKey);
                 }}
-                className={`min-h-9 rounded-lg border px-1.5 text-[11px] font-semibold transition focus:outline-none focus:ring-2 focus:ring-cyan-200/60 sm:min-h-10 sm:px-2 sm:text-xs ${
+                className={`min-h-10 rounded-lg border px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-cyan-200/60 ${
                   selected
                     ? 'border-cyan-200/60 bg-cyan-200/20 text-white shadow-lg shadow-cyan-950/20'
                     : 'border-white/10 bg-white/[0.06] text-slate-300 hover:border-white/25 hover:bg-white/[0.1]'
