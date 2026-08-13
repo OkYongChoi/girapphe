@@ -22,10 +22,11 @@ type HomeGraphSceneProps = {
 type LearningCaseKey = 'explore' | 'review' | 'notes' | 'mastery';
 
 const NODE_GROUPS = {
-  explainable: { color: '#22c55e', hotColor: '#86efac', label: 'Explainable' },
-  unclear: { color: '#38bdf8', hotColor: '#7dd3fc', label: 'Unclear' },
+  // Keep the home preview on the same progress palette as the full Knowledge Map.
+  explainable: { color: '#4ade80', hotColor: '#86efac', label: 'Explainable' },
+  unclear: { color: '#60a5fa', hotColor: '#93c5fd', label: 'Unclear' },
   notes: { color: '#f59e0b', hotColor: '#fcd34d', label: 'Notes' },
-  core: { color: '#94a3b8', label: 'Concepts' },
+  core: { color: '#9ca3af', label: 'Concepts' },
   biology: { color: '#34d399', hotColor: '#a7f3d0', label: 'Biology' },
   computing: { color: '#38bdf8', hotColor: '#bae6fd', label: 'Computing' },
   medicine: { color: '#f472b6', hotColor: '#fbcfe8', label: 'Medicine' },
@@ -191,13 +192,10 @@ function getPersonalizedNodeColor(knowledge: number, active: boolean) {
 function makeNodeGeometry(node: any, shapeVariant: number) {
   const value = Number(node.val ?? 5);
   const radius = Math.max(3.2, Math.min(12, value * 0.9));
-  const selector = node.group === 'center' ? 0 : (shapeVariant + Number(node.shapeSeed ?? 0)) % 5;
-
-  if (selector === 0) return new THREE.IcosahedronGeometry(radius, 1);
-  if (selector === 1) return new THREE.BoxGeometry(radius * 1.45, radius * 1.45, radius * 1.45);
-  if (selector === 2) return new THREE.ConeGeometry(radius, radius * 2.2, 6);
-  if (selector === 3) return new THREE.OctahedronGeometry(radius * 1.1, 0);
-  return new THREE.TorusGeometry(radius * 0.8, radius * 0.24, 8, 18);
+  // The full map uses calm, round progress nodes. Retain a subtle detail change
+  // in the demo without introducing a second visual language.
+  const detail = node.group === 'center' ? 20 : 14 + ((shapeVariant + Number(node.shapeSeed ?? 0)) % 3) * 2;
+  return new THREE.SphereGeometry(radius, detail, detail);
 }
 
 export default function HomeGraphScene({ demo = false, explainable, unclear, notes, personalizedGraphData }: HomeGraphSceneProps) {
@@ -517,7 +515,7 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
       <div className="home-map-contours absolute inset-0 opacity-35" />
       <div className="home-scan-beam absolute inset-y-[-20%] left-[52%] w-16 rotate-12 bg-gradient-to-r from-transparent via-cyan-300/[0.08] to-transparent blur-sm" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--pointer-x)_var(--pointer-y),rgba(255,255,255,0.08),transparent_18rem)] transition-[background] duration-300" />
-      <div ref={graphContainerRef} aria-hidden="true" className="home-graph-canvas pointer-events-auto absolute inset-y-0 left-1/2 w-[120%] -translate-x-1/2 opacity-95 md:w-[92%] lg:w-[82%]">
+      <div ref={graphContainerRef} aria-hidden="true" className="home-graph-canvas pointer-events-auto absolute inset-y-0 left-1/2 w-[138%] -translate-x-1/2 opacity-95 sm:w-[116%] md:w-[92%] lg:w-[82%]">
         <ForceGraph3D
           ref={graphRef}
           graphData={graphData}
@@ -555,17 +553,17 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
       </div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,transparent_0%,rgba(2,6,23,0.08)_58%,rgba(2,6,23,0.5)_100%)]" />
       <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950 to-transparent" />
-      <div className="pointer-events-auto absolute left-4 right-4 top-4 z-10 grid gap-3 md:left-6 md:right-auto md:max-w-sm">
-        <div className="rounded-lg border border-white/10 bg-slate-950/72 p-4 shadow-xl shadow-black/25 backdrop-blur-md">
-          <p className="text-xs font-semibold uppercase text-cyan-100/70">Learning case</p>
-          <h3 className="mt-2 text-lg font-bold text-white">{activeCase.label}</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-300">{activeCase.summary}</p>
+      <div className="pointer-events-auto absolute left-3 right-3 top-3 z-10 grid gap-2 sm:left-4 sm:right-auto sm:top-4 sm:max-w-sm md:left-6">
+        <div className="rounded-lg border border-slate-700/80 bg-slate-950/80 p-3 shadow-xl shadow-black/25 backdrop-blur-md sm:p-4">
+          <p className="text-xs font-semibold uppercase text-cyan-100/70">Knowledge map · Live</p>
+          <h3 className="mt-1 text-base font-bold text-white sm:mt-2 sm:text-lg">{activeCase.label}</h3>
+          <p className="mt-1 hidden text-sm leading-6 text-slate-300 sm:mt-2 sm:block">{activeCase.summary}</p>
           <div className="mt-4 flex items-center gap-2 text-xs font-semibold uppercase text-slate-300">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: NODE_GROUPS[activeStatusGroup].hotColor }} />
             {activeCase.signal}
           </div>
         </div>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
           {CASE_SEQUENCE.map((caseKey) => {
             const learningCase = LEARNING_CASES[caseKey];
             const selected = caseKey === activeCaseKey;
@@ -579,7 +577,7 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
                   setIsAutoCycling(false);
                   setActiveCaseKey(caseKey);
                 }}
-                className={`min-h-10 rounded-lg border px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-cyan-200/60 ${
+                className={`min-h-9 rounded-lg border px-1.5 text-[11px] font-semibold transition focus:outline-none focus:ring-2 focus:ring-cyan-200/60 sm:min-h-10 sm:px-2 sm:text-xs ${
                   selected
                     ? 'border-cyan-200/60 bg-cyan-200/20 text-white shadow-lg shadow-cyan-950/20'
                     : 'border-white/10 bg-white/[0.06] text-slate-300 hover:border-white/25 hover:bg-white/[0.1]'
