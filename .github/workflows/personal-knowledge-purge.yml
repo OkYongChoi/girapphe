@@ -1,0 +1,29 @@
+name: Purge expired personal knowledge cards
+
+on:
+  schedule:
+    # 00:20 Asia/Seoul (15:20 UTC) each day.
+    - cron: '20 15 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Purge cards past their restore deadline
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          PERSONAL_KNOWLEDGE_PURGE_TOKEN: ${{ secrets.PERSONAL_KNOWLEDGE_PURGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APP_BASE_URL}" ] || [ -z "${PERSONAL_KNOWLEDGE_PURGE_TOKEN}" ]; then
+            echo "Skipping: APP_BASE_URL or PERSONAL_KNOWLEDGE_PURGE_TOKEN is not configured."
+            exit 0
+          fi
+          curl --fail --silent --show-error --request POST \
+            --header "Authorization: Bearer ${PERSONAL_KNOWLEDGE_PURGE_TOKEN}" \
+            "${APP_BASE_URL%/}/api/internal/personal-knowledge-purge"

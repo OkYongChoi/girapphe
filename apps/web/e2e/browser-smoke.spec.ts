@@ -47,6 +47,11 @@ test.describe('browser smoke', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' });
   });
 
+  test('personal knowledge purge rejects unauthenticated callers', async ({ request }) => {
+    const response = await request.post('/api/internal/personal-knowledge-purge');
+    expect(response.status()).toBe(401);
+  });
+
   test('home page renders the app shell', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
@@ -140,6 +145,21 @@ test.describe('browser smoke', () => {
     const box = await canvas.boundingBox();
     expect(box?.width ?? 0, 'knowledge graph canvas width').toBeGreaterThan(0);
     expect(box?.height ?? 0, 'knowledge graph canvas height').toBeGreaterThan(0);
+
+    await assertNoBrowserFailures();
+  });
+
+  test('personal knowledge exposes date controls and a trash view', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.goto('/my-knowledge');
+    await expect(page.getByRole('heading', { name: 'My Knowledge' })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Added date range' })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Group cards by date' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Trash' })).toBeVisible();
+
+    await page.getByRole('link', { name: 'Trash' }).click();
+    await expect(page.getByRole('heading', { name: 'Knowledge Trash' })).toBeVisible();
 
     await assertNoBrowserFailures();
   });
