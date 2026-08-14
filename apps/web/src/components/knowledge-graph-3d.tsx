@@ -9,12 +9,18 @@ import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { getDomainColor } from '@stem-brain/graph-engine';
+import { deleteKnowledgeItem } from '@/actions/user-knowledge-actions';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
 type ColorMode = 'progress' | 'domain';
 
-type GraphCard = KnowledgeCard & { status: CardStatus | null };
+type GraphCard = KnowledgeCard & {
+  status: CardStatus | null;
+  isPersonal?: boolean;
+  personalItemId?: string;
+  createdAt?: string;
+};
 
 type Props = {
   cards: GraphCard[];
@@ -33,6 +39,9 @@ type SelectedNode = {
   status?: CardStatus | null;
   wiki_url?: string;
   related_concepts?: string[];
+  isPersonal?: boolean;
+  personalItemId?: string;
+  createdAt?: string;
   color?: string;
   conceptCount?: number;
 };
@@ -45,6 +54,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const DOMAIN_HUB_PROGRESS_COLOR = '#cbd5e1';
 const MUTED_LINK_COLOR = 'rgba(148, 163, 184, 0.28)';
+const PERSONAL_CARD_COLOR = '#c084fc';
 
 function getCardDomains(card: GraphCard) {
   return card.domains && card.domains.length > 0 ? card.domains : [card.domain];
@@ -152,7 +162,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         id: card.id,
         name: card.title,
         val: card.status === 'known' ? 8 : card.status === 'saved' ? 6 : 4,
-        color: colorMode === 'domain' ? getDomainColor(primaryDomain) : statusColor,
+        color: card.isPersonal ? PERSONAL_CARD_COLOR : colorMode === 'domain' ? getDomainColor(primaryDomain) : statusColor,
         group: 'card',
         desc: card.summary,
         mainContent: card.explanation,
@@ -162,13 +172,16 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         status: card.status,
         wiki_url: card.wiki_url,
         related_concepts: card.related_concepts,
+        isPersonal: card.isPersonal,
+        personalItemId: card.personalItemId,
+        createdAt: card.createdAt,
       });
 
       domains.forEach((domain, index) => {
         links.push({
           source: `domain:${domain}`,
           target: card.id,
-          color: colorMode === 'domain' ? `${getDomainColor(domain)}${index === 0 ? '66' : '33'}` : MUTED_LINK_COLOR,
+          color: card.isPersonal ? 'rgba(192, 132, 252, 0.35)' : colorMode === 'domain' ? `${getDomainColor(domain)}${index === 0 ? '66' : '33'}` : MUTED_LINK_COLOR,
           width: index === 0 ? 0.75 : 0.35,
           particles: colorMode === 'domain' && index === 0 ? 1 : 0,
         });
@@ -445,6 +458,7 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                 { label: 'Explainable', color: STATUS_COLORS.known },
                 { label: 'Unclear', color: STATUS_COLORS.saved },
                 { label: 'Not Started', color: STATUS_COLORS.unseen },
+                { label: 'Private card', color: PERSONAL_CARD_COLOR },
                 { label: 'Domain Hub', color: DOMAIN_HUB_PROGRESS_COLOR },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2.5">
@@ -610,6 +624,22 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                 </p>
               </div>
             )}
+
+            {selectedNode.isPersonal && selectedNode.personalItemId ? (
+              <form
+                className="mb-6"
+                action={async (formData) => {
+                  await deleteKnowledgeItem(formData);
+                  setSelectedNode(null);
+                  router.refresh();
+                }}
+              >
+                <input type="hidden" name="id" value={selectedNode.personalItemId} />
+                <button type="submit" className="rounded-lg border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm font-medium text-red-200 hover:bg-red-400/20">
+                  Move to trash (restore within 14 days)
+                </button>
+              </form>
+            ) : null}
 
             {/* Related concepts */}
             {selectedNode.related_concepts && selectedNode.related_concepts.length > 0 && (

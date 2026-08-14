@@ -124,6 +124,9 @@ export const userKnowledgeItems = pgTable("user_knowledge_items", {
   topic: text("topic").notNull().default("general"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  purgeAt: timestamp("purge_at", { withTimezone: true }),
 }, (t) => [
   index("idx_user_knowledge_items_user").on(t.userId),
+  index("idx_user_knowledge_items_active_created").on(t.userId, t.createdAt),
 ]);

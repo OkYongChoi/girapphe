@@ -146,6 +146,10 @@ function validate({ envName, map, allowPlaceholders }) {
     warnings.push('DATABASE_URL is missing in local development (in-memory fallback mode will be used).');
   }
 
+  if (envName === 'prod') {
+    requireKeys(map, ['PERSONAL_KNOWLEDGE_PURGE_TOKEN'], allowPlaceholders, errors);
+  }
+
   const signInUrl = valueFor(map, 'NEXT_PUBLIC_CLERK_SIGN_IN_URL');
   const signUpUrl = valueFor(map, 'NEXT_PUBLIC_CLERK_SIGN_UP_URL');
   const afterSignInUrl = valueFor(map, 'NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL');

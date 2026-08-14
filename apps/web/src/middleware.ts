@@ -16,6 +16,7 @@ const isPublicRoute = createRouteMatcher([
   '/register(.*)',
   '/api/graph(.*)',
   '/api/health(.*)',
+  '/api/internal/personal-knowledge-purge(.*)',
   '/api/quiz_result(.*)',
 ]);
 

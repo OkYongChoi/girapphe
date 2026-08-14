@@ -6,9 +6,19 @@ import KnowledgeGraph3D from './knowledge-graph-3d';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { getCardStatusShortLabel } from '@/lib/card-status';
+import { deleteKnowledgeItem, type UserKnowledgeItem } from '@/actions/user-knowledge-actions';
+import ConfirmDeleteButton from '@/components/confirm-delete-button';
+
+type MapCard = KnowledgeCard & {
+  status: CardStatus | null;
+  isPersonal?: boolean;
+  personalItemId?: string;
+  createdAt?: string;
+};
 
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
+  personalItems?: UserKnowledgeItem[];
   isGuest?: boolean;
 };
 
@@ -17,7 +27,7 @@ function getCardDomains(card: KnowledgeCard) {
   return Array.from(new Set(domains.filter(Boolean)));
 }
 
-export default function KnowledgeMap({ initialCards, isGuest = false }: Props) {
+export default function KnowledgeMap({ initialCards, personalItems = [], isGuest = false }: Props) {
   const [baseCards, setBaseCards] = useState(initialCards);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
@@ -47,7 +57,25 @@ export default function KnowledgeMap({ initialCards, isGuest = false }: Props) {
     };
   }, [isGuest]);
 
-  const cards = includeGenerated ? (generatedCards ?? baseCards) : baseCards;
+  const personalCards = useMemo<MapCard[]>(() => personalItems.map((item) => ({
+    id: `personal:${item.id}`,
+    personalItemId: item.id,
+    isPersonal: true,
+    title: item.title,
+    summary: item.content || 'Private personal card',
+    explanation: item.content,
+    wiki_url: '',
+    domain: 'personal',
+    domains: ['personal'],
+    level: 'understand',
+    status: null,
+    createdAt: item.created_at,
+  })), [personalItems]);
+  const publicCards = useMemo(
+    () => includeGenerated ? (generatedCards ?? baseCards) : baseCards,
+    [baseCards, generatedCards, includeGenerated]
+  );
+  const cards = useMemo<MapCard[]>(() => [...publicCards, ...personalCards], [publicCards, personalCards]);
 
   // Cards can live in multiple taxonomy domains.
   const domains = useMemo(
@@ -55,7 +83,7 @@ export default function KnowledgeMap({ initialCards, isGuest = false }: Props) {
     [cards]
   );
 
-  const coreCardCount = useMemo(() => cards.filter((c) => !c.id.startsWith('drill_')).length, [cards]);
+  const coreCardCount = useMemo(() => cards.filter((c) => !c.isPersonal && !c.id.startsWith('drill_')).length, [cards]);
   const generatedCardCount = useMemo(() => cards.filter((c) => c.id.startsWith('drill_')).length, [cards]);
 
   const loadGenerated = async (nextLimit: number) => {
@@ -112,6 +140,7 @@ export default function KnowledgeMap({ initialCards, isGuest = false }: Props) {
               </p>
               <p className="mt-1 text-xs text-gray-500">
                 Core: {coreCardCount} · Generated: {generatedCardCount}{includeGenerated ? ` (showing up to ${generatedLimit})` : ' (hidden)'}
+                {personalCards.length > 0 ? ` · Private: ${personalCards.length}` : ''}
               </p>
             </div>
             
@@ -242,7 +271,7 @@ export default function KnowledgeMap({ initialCards, isGuest = false }: Props) {
   );
 }
 
-function KnowledgeCardItem({ card }: { card: KnowledgeCard & { status: CardStatus | null } }) {
+function KnowledgeCardItem({ card }: { card: MapCard }) {
   const levelMeta = getCardLevelMeta(card.level);
 
   const getStatusColor = (status: CardStatus | null) => {
@@ -261,13 +290,14 @@ function KnowledgeCardItem({ card }: { card: KnowledgeCard & { status: CardStatu
     <div className={`p-4 rounded-lg border shadow-sm transition-all hover:shadow-md ${getStatusColor(card.status)}`}>
       <div className="flex justify-between items-start mb-2">
         <span className="text-xs tracking-wider text-gray-700 font-semibold">
-          Difficulty {levelMeta.rank} · {levelMeta.label}
+          {card.isPersonal ? 'Private card' : `Difficulty ${levelMeta.rank} · ${levelMeta.label}`}
         </span>
         <span className={`text-xs px-2 py-0.5 rounded-full bg-white/80 text-gray-700`}>
           {getStatusLabel(card.status)}
         </span>
       </div>
       <h3 className="font-bold text-lg mb-1 leading-tight text-gray-900">{card.title}</h3>
+      {card.isPersonal && card.createdAt ? <p className="mb-2 text-xs text-gray-500">Added {new Date(card.createdAt).toLocaleDateString()}</p> : null}
       {card.domains && card.domains.length > 1 ? (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {card.domains.map((domain) => (
@@ -289,6 +319,17 @@ function KnowledgeCardItem({ card }: { card: KnowledgeCard & { status: CardStatu
           Wiki &rarr;
         </a>
       )}
+      {card.isPersonal && card.personalItemId ? (
+        <form action={deleteKnowledgeItem} className="mt-3">
+          <input type="hidden" name="id" value={card.personalItemId} />
+          <ConfirmDeleteButton
+            label="Move to trash"
+            confirmMessage={`Move "${card.title}" to trash? You can restore it for 14 days.`}
+            ariaLabel={`Move ${card.title} to trash`}
+            className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+          />
+        </form>
+      ) : null}
     </div>
   );
 }

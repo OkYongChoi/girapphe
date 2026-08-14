@@ -155,11 +155,21 @@ CREATE TABLE IF NOT EXISTS user_knowledge_items (
   content TEXT NOT NULL DEFAULT '',
   topic TEXT NOT NULL DEFAULT 'general',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  deleted_at TIMESTAMP WITH TIME ZONE,
+  purge_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_user
 ON user_knowledge_items(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_active_created
+ON user_knowledge_items(user_id, created_at DESC)
+WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_purge_at
+ON user_knowledge_items(purge_at)
+WHERE purge_at IS NOT NULL;
 
 -- Initial Seed Data (Example)
 INSERT INTO knowledge_cards (id, title, summary, explanation, wiki_url, domain, level) VALUES

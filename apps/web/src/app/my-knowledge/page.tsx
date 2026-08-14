@@ -4,9 +4,12 @@ import Link from 'next/link';
 import {
   createKnowledgeItem,
   deleteKnowledgeItem,
+  getDeletedKnowledgeItems,
   getUserKnowledgeItems,
+  restoreKnowledgeItem,
   updateKnowledgeItem,
 } from '@/actions/user-knowledge-actions';
+import { PERSONAL_CARD_RETENTION_DAYS } from '@/lib/personal-knowledge';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import SubmitButton from '@/components/submit-button';
 
@@ -16,31 +19,84 @@ type MyKnowledgePageProps = {
   searchParams?: Promise<{
     q?: string;
     topic?: string;
-    sort?: 'recent' | 'title';
+    sort?: 'created' | 'updated' | 'title';
+    period?: 'all' | 'today' | 'week' | 'month' | 'custom';
+    start?: string;
+    end?: string;
+    group?: 'none' | 'week' | 'month';
+    view?: 'active' | 'trash';
   }>;
 };
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function kstDateKey(value: Date) {
+  const shifted = new Date(value.getTime() + KST_OFFSET_MS);
+  return shifted.toISOString().slice(0, 10);
+}
+
+function kstStart(value: string) {
+  return new Date(`${value}T00:00:00+09:00`).getTime();
+}
+
+function calendarDayOfWeek(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+function periodBounds(period: string, customStart?: string, customEnd?: string) {
+  const today = kstDateKey(new Date());
+  if (period === 'today') return { start: today, end: today };
+  if (period === 'week') {
+    const mondayOffset = (calendarDayOfWeek(today) + 6) % 7;
+    return { start: kstDateKey(new Date(kstStart(today) - mondayOffset * 86_400_000)), end: today };
+  }
+  if (period === 'month') return { start: `${today.slice(0, 7)}-01`, end: today };
+  if (period === 'custom') return { start: customStart || undefined, end: customEnd || undefined };
+  return {};
+}
+
+function groupLabel(date: string, group: 'week' | 'month') {
+  const key = kstDateKey(new Date(date));
+  if (group === 'month') return key.slice(0, 7);
+  const day = new Date(`${key}T00:00:00+09:00`);
+  const monday = new Date(day.getTime() - ((calendarDayOfWeek(key) + 6) % 7) * 86_400_000);
+  return `Week of ${kstDateKey(monday)}`;
+}
 
 export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageProps) {
   const params = (await searchParams) ?? {};
   const query = (params.q ?? '').trim().toLowerCase();
   const topicFilter = (params.topic ?? 'all').trim().toLowerCase();
-  const sortBy = params.sort === 'title' ? 'title' : 'recent';
+  const sortBy = params.sort === 'title' ? 'title' : params.sort === 'updated' ? 'updated' : 'created';
+  const period = ['today', 'week', 'month', 'custom'].includes(params.period ?? '') ? params.period! : 'all';
+  const groupBy = params.group === 'week' || params.group === 'month' ? params.group : 'none';
+  const isTrash = params.view === 'trash';
 
-  const items = await getUserKnowledgeItems();
+  const items = isTrash ? await getDeletedKnowledgeItems() : await getUserKnowledgeItems();
   const topics = Array.from(new Set(items.map((item) => item.topic))).sort();
+  const bounds = periodBounds(period, params.start, params.end);
   const filteredItems = items
     .filter((item) => {
       const matchesTopic = topicFilter === 'all' || item.topic.toLowerCase() === topicFilter;
       const haystack = `${item.title} ${item.content} ${item.topic}`.toLowerCase();
       const matchesQuery = !query || haystack.includes(query);
-      return matchesTopic && matchesQuery;
+      const created = new Date(item.created_at).getTime();
+      const matchesStart = !bounds.start || created >= kstStart(bounds.start);
+      const matchesEnd = !bounds.end || created < kstStart(bounds.end) + 86_400_000;
+      return matchesTopic && matchesQuery && matchesStart && matchesEnd;
     })
     .sort((a, b) => {
       if (sortBy === 'title') return a.title.localeCompare(b.title);
-      return +new Date(b.updated_at) - +new Date(a.updated_at);
+      return +(sortBy === 'updated' ? new Date(b.updated_at) : new Date(b.created_at))
+        - +(sortBy === 'updated' ? new Date(a.updated_at) : new Date(a.created_at));
     });
 
-  const hasActiveFilter = !!params.q || (params.topic && params.topic !== 'all') || params.sort === 'title';
+  const itemGroups = groupBy === 'none'
+    ? [{ label: null, items: filteredItems }]
+    : Object.entries(Object.groupBy(filteredItems, (item) => groupLabel(item.created_at, groupBy)))
+      .map(([label, grouped]) => ({ label, items: grouped ?? [] }));
+  const hasActiveFilter = !!params.q || (params.topic && params.topic !== 'all') || sortBy !== 'created' || period !== 'all' || groupBy !== 'none';
   const createRequestId = randomUUID();
 
   return (
@@ -50,19 +106,22 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
       <section className="mx-auto w-full max-w-4xl p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">My Knowledge</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{isTrash ? 'Knowledge Trash' : 'My Knowledge'}</h1>
             <p className="mt-1 text-sm text-gray-600">
-              Save your own notes, frameworks, and concepts. Everything here is private to your browser or account.
+              {isTrash
+                ? `Restore deleted cards within ${PERSONAL_CARD_RETENTION_DAYS} days before they are permanently removed.`
+                : 'Save your own notes, frameworks, and concepts. Everything here is private to your browser or account.'}
             </p>
           </div>
           <div className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-600">
-            {filteredItems.length} of {items.length} personal notes
+            {filteredItems.length} of {items.length} {isTrash ? 'deleted' : 'personal'} cards
           </div>
         </div>
 
         {/* Filter form */}
         <form role="search" aria-label="Filter knowledge items" className="mt-4 rounded-xl border bg-white p-3">
-          <div className="grid gap-2 md:grid-cols-[1fr_auto_auto_auto_auto]">
+          <input type="hidden" name="view" value={isTrash ? 'trash' : 'active'} />
+          <div className="grid gap-2 lg:grid-cols-[minmax(12rem,1fr)_auto_auto_auto_auto_auto]">
             <div className="flex flex-col gap-1">
               <label htmlFor="knowledge-search" className="sr-only">
                 Search notes
@@ -106,10 +165,25 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 defaultValue={sortBy}
                 className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
-                <option value="recent">Recently updated</option>
+                <option value="created">Recently added</option>
+                <option value="updated">Recently updated</option>
                 <option value="title">Title A–Z</option>
               </select>
             </div>
+
+            <select name="period" defaultValue={period} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="Added date range">
+              <option value="all">Any added date</option>
+              <option value="today">Today</option>
+              <option value="week">This week</option>
+              <option value="month">This month</option>
+              <option value="custom">Custom range</option>
+            </select>
+
+            <select name="group" defaultValue={groupBy} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="Group cards by date">
+              <option value="none">No date grouping</option>
+              <option value="week">Group by week</option>
+              <option value="month">Group by month</option>
+            </select>
 
             <button
               type="submit"
@@ -127,10 +201,18 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
               </Link>
             )}
           </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:max-w-md">
+            <label className="text-xs text-gray-600">From<input type="date" name="start" defaultValue={params.start ?? ''} className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm" /></label>
+            <label className="text-xs text-gray-600">To<input type="date" name="end" defaultValue={params.end ?? ''} className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm" /></label>
+          </div>
         </form>
 
-        {/* Add new item form */}
-        <form action={createKnowledgeItem} className="mt-6 rounded-xl border bg-white p-4 md:p-6">
+        <div className="mt-3 flex items-center gap-2 text-sm">
+          <Link href="/my-knowledge" className={`rounded-lg border px-3 py-1.5 ${!isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>My cards</Link>
+          <Link href="/my-knowledge?view=trash" className={`rounded-lg border px-3 py-1.5 ${isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>Trash</Link>
+        </div>
+
+        {!isTrash && <form action={createKnowledgeItem} className="mt-6 rounded-xl border bg-white p-4 md:p-6">
           <input type="hidden" name="request_id" value={createRequestId} />
           <h2 className="text-base font-semibold">Add knowledge item</h2>
           <p className="mt-1 text-xs text-gray-500">Use concise titles and reusable insights you want to revisit.</p>
@@ -177,7 +259,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             />
           </div>
-        </form>
+        </form>}
 
         {/* Items list */}
         <div className="mt-6 grid gap-4">
@@ -202,8 +284,12 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
               </Link>
             </div>
           ) : (
-            <ol aria-label="Your knowledge items" className="grid gap-4">
-              {filteredItems.map((item) => (
+            <div className="grid gap-6">
+              {itemGroups.map(({ label, items: groupedItems }) => (
+                <section key={label ?? 'all'}>
+                  {label && <h2 className="mb-2 text-sm font-semibold text-gray-600">{label}</h2>}
+                  <ol aria-label="Your knowledge items" className="grid gap-4">
+              {groupedItems.map((item) => (
                 <li key={item.id}>
                   <details className="rounded-xl border bg-white p-4 md:p-5 group">
                     <summary className="flex cursor-pointer items-start justify-between gap-3 list-none">
@@ -213,9 +299,8 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                           <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 font-medium">
                             {item.topic}
                           </span>
-                          <span className="ml-2">
-                            Updated {new Date(item.updated_at).toLocaleDateString()}
-                          </span>
+                          <span className="ml-2">Added {new Date(item.created_at).toLocaleDateString()}</span>
+                          <span className="ml-2">Updated {new Date(item.updated_at).toLocaleDateString()}</span>
                         </p>
                         {item.content && (
                           <p className="mt-2 line-clamp-2 text-sm text-gray-600">{item.content}</p>
@@ -235,8 +320,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                       </span>
                     </summary>
 
-                    {/* Edit form */}
-                    <form action={updateKnowledgeItem} className="mt-4 grid gap-3">
+                    {!isTrash && <><form action={updateKnowledgeItem} className="mt-4 grid gap-3">
                       <input type="hidden" name="id" value={item.id} />
 
                       <div className="flex flex-col gap-1">
@@ -297,11 +381,18 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                         ariaLabel={`Remove "${item.title}" from your knowledge items`}
                         className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400"
                       />
-                    </form>
+                    </form></>}
+                    {isTrash && <form action={restoreKnowledgeItem} className="mt-3 border-t pt-3">
+                      <input type="hidden" name="id" value={item.id} />
+                      <SubmitButton label="Restore card" loadingLabel="Restoring…" className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50" />
+                      {item.purge_at && <p className="mt-2 text-xs text-gray-500">Permanently removed after {new Date(item.purge_at).toLocaleDateString()}.</p>}
+                    </form>}
                   </details>
                 </li>
+              ))}</ol>
+                </section>
               ))}
-            </ol>
+            </div>
           )}
         </div>
       </section>
