@@ -1,0 +1,41 @@
+name: Expire closed pull request previews
+
+on:
+  schedule:
+    # Scheduled workflows run from the default branch. This bounds preview
+    # lifetime without retaining a long-running job for every closed PR.
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Report eligible Preview deletions without deleting versions
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# This is deliberately separate from deploy-cloudflare.yml so a scheduled
+# cleanup can never cancel a production migration or deployment.
+concurrency:
+  group: preview-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Expire eligible Preview versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Expire eligible Preview versions
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PREVIEW_CLEANUP_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+        run: node scripts/cleanup-pr-previews.mjs
