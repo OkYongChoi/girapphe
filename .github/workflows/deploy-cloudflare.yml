@@ -6,10 +6,21 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # Runs on the default branch. This bounds preview lifetime without retaining
+    # a long-running GitHub Actions job for every closed pull request.
+    - cron: '17 */6 * * *'
   workflow_dispatch:
+    inputs:
+      preview_cleanup_dry_run:
+        description: Report eligible Preview deletions without deleting versions
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Prevent an older commit from deploying after a newer push to the same PR or main.
 concurrency:
@@ -20,6 +31,7 @@ jobs:
   ci:
     name: Quality Checks
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -243,3 +255,22 @@ jobs:
         run: pnpm smoke
         env:
           SMOKE_BASE_URL: ${{ vars.APP_BASE_URL }}
+
+  cleanup_preview_versions:
+    name: Expire closed pull request previews
+    runs-on: ubuntu-latest
+    # Scheduled runs use main. Manual runs default to dry-run so an operator can
+    # inspect eligibility before requesting a live cleanup.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Expire eligible Preview versions
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PREVIEW_CLEANUP_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.preview_cleanup_dry_run || false }}
+        run: node scripts/cleanup-pr-previews.mjs
