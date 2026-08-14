@@ -44,8 +44,10 @@ async function listPreviewVersions() {
   let page = 1;
 
   while (true) {
+    // The beta Versions API returns annotations (including workers/message),
+    // which lets us identify only versions uploaded by this PR workflow.
     const url = new URL(
-      `https://api.cloudflare.com/client/v4/accounts/${cloudflareAccountId}/workers/scripts/${workerName}/versions`
+      `https://api.cloudflare.com/client/v4/accounts/${cloudflareAccountId}/workers/workers/${workerName}/versions`
     );
     url.searchParams.set('page', String(page));
     url.searchParams.set('per_page', '100');
@@ -53,10 +55,14 @@ async function listPreviewVersions() {
     const payload = await request(url, {
       headers: { Authorization: `Bearer ${cloudflareToken}` },
     });
-    versions.push(...(payload.result ?? []));
+    const pageVersions = payload.result;
+    if (!Array.isArray(pageVersions)) {
+      throw new Error('Cloudflare returned an unexpected Versions list response. Refusing cleanup.');
+    }
+    versions.push(...pageVersions);
 
     const totalPages = payload.result_info?.total_pages ?? page;
-    if (page >= totalPages) return versions;
+    if (page >= totalPages || pageVersions.length < 100) return versions;
     page += 1;
   }
 }
