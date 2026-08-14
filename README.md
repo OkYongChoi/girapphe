@@ -238,6 +238,10 @@ Pull requests automatically receive a Cloudflare Worker preview. Its stable addr
 `https://pr-<number>-girapphe-preview.<workers-subdomain>.workers.dev`; it uses preview
 Clerk keys and an isolated Neon database.
 
+Preview retention is automatic: merged PR previews remain available for 24 hours, and
+closed-but-unmerged previews remain for 7 days. A six-hour cleanup job then removes their
+Cloudflare Worker versions. Reopened PRs are never removed while open.
+
 GitHub Actions deployment details and required secrets are documented in:
 - `DEPLOY.md`
 - `ENVIRONMENTS.md`

@@ -60,3 +60,4 @@ from the current production schema before enabling preview deploys.
 - Merge to `main`: quality checks, Drizzle migrations, production deploy, then smoke test.
 - Fork PRs receive quality checks but no preview because repository secrets are not exposed to them.
 - Preview URLs are public `workers.dev` URLs unless Cloudflare Access is applied in the dashboard.
+- Preview cleanup runs every six hours. It deletes versions only after their PR is closed: 24 hours after a merge, or 7 days after an unmerged close. A reopened/open PR is retained. Run the workflow manually with its dry-run input before an ad-hoc cleanup.
