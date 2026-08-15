@@ -34,6 +34,7 @@ Production-only secrets:
 - `CLERK_SECRET_KEY`
 - `DATABASE_URL`
 - `ADMIN_CLERK_USER_ID`
+- `PERSONAL_KNOWLEDGE_PURGE_TOKEN` (random shared secret for the daily expired personal-card cleanup job)
 
 Repository variable:
 
@@ -60,4 +61,8 @@ from the current production schema before enabling preview deploys.
 - Merge to `main`: quality checks, Drizzle migrations, production deploy, then smoke test.
 - Fork PRs receive quality checks but no preview because repository secrets are not exposed to them.
 - Preview URLs are public `workers.dev` URLs unless Cloudflare Access is applied in the dashboard.
+- The daily personal-card cleanup workflow is separate from deployment and uses
+  `PERSONAL_KNOWLEDGE_PURGE_TOKEN` to authenticate its request to production. GitHub Actions is
+  the current scheduler; consider Cloudflare Cron only when several scheduled tasks warrant a
+  custom Worker and unified Cloudflare operations.
 - Preview cleanup runs every six hours. It deletes versions only after their PR is closed: 24 hours after a merge, or 7 days after an unmerged close. A reopened/open PR is retained. Run the workflow manually with its dry-run input before an ad-hoc cleanup.
