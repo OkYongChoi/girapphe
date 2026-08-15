@@ -47,6 +47,7 @@ Configure these under GitHub repository Settings → Secrets and variables → A
 | Production | `CLERK_SECRET_KEY` | Live Clerk secret key. |
 | Production | `DATABASE_URL` | Production Neon connection string. |
 | Production | `ADMIN_CLERK_USER_ID` | Clerk user ID permitted to use `/admin`. |
+| Production | `PERSONAL_KNOWLEDGE_PURGE_TOKEN` | Random shared secret used only by the daily expired-personal-card cleanup job. |
 | Variable | `APP_BASE_URL` | `https://www.girapphe.com` |
 
 The four Clerk route values are deployment-managed constants: `/login`, `/signup`, and `/practice`.
@@ -100,6 +101,28 @@ For production, the `main` deployment job is the source of truth for synchronize
 runtime secrets. Do not copy them manually from GitHub or commit them locally. A local Wrangler
 session is optional; it requires a separately authenticated Cloudflare account or a securely
 injected `CLOUDFLARE_API_TOKEN` and should only inspect secret names, never values.
+
+## Scheduled personal-card cleanup
+
+Deleted personal knowledge cards remain recoverable for 14 days. The `Purge expired personal
+knowledge cards` GitHub Actions workflow runs once a day at 00:20 Asia/Seoul and asks the
+production application to permanently remove only cards whose individual restore deadline has
+passed. A card can therefore remain in the trash for up to roughly one additional day after its
+14-day deadline, depending on when the daily job runs.
+
+The job sends `PERSONAL_KNOWLEDGE_PURGE_TOKEN` as a bearer token. Generate this value locally
+with a cryptographically secure random generator (for example, `openssl rand -hex 32`) and store
+it only as a GitHub Actions repository secret. The production deployment copies the same value
+to the Cloudflare Worker runtime; do not send it in chat, commit it, or maintain a separate
+manual Worker value. It can be rotated by replacing the GitHub secret and running a production
+deployment.
+
+This GitHub Actions job is intentionally the current scheduling mechanism: it keeps the task
+separate from the OpenNext Worker entry point and is appropriate for this single daily task.
+Reconsider a Cloudflare Cron Trigger only when several scheduled jobs need unified Cloudflare
+execution, logs, and retry operations. That migration requires a custom OpenNext Worker with a
+`scheduled` handler and a deliberate redesign of how the cleanup function is invoked; it is not
+an automatic token-removal change.
 
 ## Local work and verification
 
