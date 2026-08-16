@@ -10,6 +10,7 @@ import { getCardStatusShortLabel } from '@/lib/card-status';
 import { deleteKnowledgeItem, type UserKnowledgeItem } from '@/actions/user-knowledge-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import type { KnowledgeLinkTarget } from '@/actions/knowledge-ingestion-actions';
+import type { Locale } from '@stem-brain/shared';
 
 type MapCard = KnowledgeCard & {
   status: CardStatus | null;
@@ -29,6 +30,7 @@ type Props = {
   } | null;
   graphLinkTargets?: KnowledgeLinkTarget[];
   isGuest?: boolean;
+  locale: Locale;
 };
 
 const EDGE_TYPES = new Set(['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to']);
@@ -82,6 +84,7 @@ export default function KnowledgeMap({
   privateGraph = null,
   graphLinkTargets = [],
   isGuest = false,
+  locale,
 }: Props) {
   const [baseCards, setBaseCards] = useState(initialCards);
   const [filter, setFilter] = useState('');
@@ -99,7 +102,7 @@ export default function KnowledgeMap({
 
     let active = true;
 
-    getAllCardsWithStatus()
+    getAllCardsWithStatus({ locale })
       .then((freshCards) => {
         if (active) setBaseCards(freshCards);
       })
@@ -110,7 +113,7 @@ export default function KnowledgeMap({
     return () => {
       active = false;
     };
-  }, [isGuest]);
+  }, [isGuest, locale]);
 
   const personalItemById = useMemo(
     () => new Map(personalItems.map((item) => [item.id, item])),
@@ -249,7 +252,11 @@ export default function KnowledgeMap({
     setLoadingGenerated(true);
     setGeneratedError(null);
     try {
-      const next = await getAllCardsWithStatus({ includeGenerated: true, generatedLimit: nextLimit });
+      const next = await getAllCardsWithStatus({
+        includeGenerated: true,
+        generatedLimit: nextLimit,
+        locale,
+      });
       setGeneratedCards(next);
     } catch {
       setGeneratedError('Could not load generated cards.');

@@ -14,6 +14,7 @@ import Purchases, {
   type PurchasesPackage,
 } from 'react-native-purchases';
 import { useMobileAuth } from '@/auth';
+import { getActiveLocale, translate, useI18n } from '@/i18n';
 import { purchaseAfterServerEntitlementCheck } from '@/subscription-purchase-guard';
 
 export const AD_FREE_ENTITLEMENT_ID = 'ad_free';
@@ -98,7 +99,7 @@ function isEntitled(customerInfo: CustomerInfo): boolean {
 
 async function readServerEntitlement(getToken: () => Promise<string | null>): Promise<boolean> {
   const token = await getToken();
-  if (!token) throw new Error('Unable to verify the account subscription.');
+  if (!token) throw new Error(translate(getActiveLocale(), 'subscription.verifyError'));
 
   const response = await fetch(`${appBaseUrl}/api/billing/entitlement`, {
     headers: {
@@ -106,21 +107,18 @@ async function readServerEntitlement(getToken: () => Promise<string | null>): Pr
       Authorization: `Bearer ${token}`,
     },
   });
-  if (!response.ok) throw new Error('Unable to verify the account subscription.');
+  if (!response.ok) throw new Error(translate(getActiveLocale(), 'subscription.verifyError'));
 
   const body = await response.json() as { isAdFree?: unknown } | null;
   if (!body || typeof body.isAdFree !== 'boolean') {
-    throw new Error('Unable to verify the account subscription.');
+    throw new Error(translate(getActiveLocale(), 'subscription.verifyError'));
   }
   return body.isAdFree;
 }
 
-function getPurchasesErrorMessage(cause: unknown): string {
-  if (cause && typeof cause === 'object' && 'message' in cause) {
-    const message = (cause as { message?: unknown }).message;
-    if (typeof message === 'string' && message.trim()) return message;
-  }
-  return 'The store could not complete this request. Please try again.';
+function getPurchasesErrorMessage(_cause?: unknown): string {
+  void _cause;
+  return translate(getActiveLocale(), 'subscription.storeError');
 }
 
 function wasCancelled(cause: unknown): boolean {
@@ -154,6 +152,7 @@ async function readStoreState(): Promise<StoreStateSnapshot> {
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const auth = useMobileAuth();
+  const { t } = useI18n();
   const apiKey = getPlatformApiKey();
   const isConfigured = auth.configured && Boolean(apiKey);
   const [sdkReady, setSdkReady] = useState(false);
@@ -182,7 +181,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         monthly
           ? {
               id: 'monthly' as const,
-              title: 'Monthly',
+              title: t('subscription.monthly'),
               price: monthly.product.priceString,
               productIdentifier: monthly.product.identifier,
             }
@@ -190,14 +189,14 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         annual
           ? {
               id: 'annual' as const,
-              title: 'Annual',
+              title: t('subscription.annual'),
               price: annual.product.priceString,
               productIdentifier: annual.product.identifier,
             }
           : null,
       ].filter((plan): plan is SubscriptionPlan => Boolean(plan)),
     );
-  }, [applyCustomerInfo]);
+  }, [applyCustomerInfo, t]);
 
   const loadStoreState = useCallback(async () => {
     const expectedUserId = auth.userId;

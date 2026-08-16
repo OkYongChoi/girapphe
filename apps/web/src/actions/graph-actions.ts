@@ -15,14 +15,20 @@ import {
   submitDbQuizResult,
 } from '@/lib/knowledge-graph-db';
 import type { AssessmentSubmission } from '@/lib/assessment-retry';
+import { localizeGraphNodes } from '@/lib/content-localization';
 
 async function getUserId() {
   const user = await requireCurrentActor();
   return user.id;
 }
 
-export async function getGraphData(): Promise<ForceGraphData> {
-  return getDbGraphDataForUser(await getUserId());
+export async function getGraphData(locale?: string): Promise<ForceGraphData> {
+  const graph = await getDbGraphDataForUser(await getUserId());
+  if (!locale) return graph;
+  return {
+    ...graph,
+    nodes: await localizeGraphNodes(graph.nodes, locale, { generateMissing: false }),
+  };
 }
 
 export async function submitQuizResult(

@@ -29,6 +29,26 @@ export const knowledgeCards = pgTable("knowledge_cards", {
   index("idx_knowledge_cards_domain").on(t.domain),
 ]);
 
+// Translation ids are constrained by the server-side static allowlist and source hash.
+// They are not foreign-keyed to the intentionally smaller operational graph/card datasets.
+export const knowledgeCardTranslations = pgTable("knowledge_card_translations", {
+  cardId: text("card_id").notNull(),
+  locale: text("locale").notNull(),
+  title: text("title"),
+  summary: text("summary"),
+  explanation: text("explanation"),
+  sourceHash: text("source_hash").notNull(),
+  status: text("status").notNull(),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.cardId, t.locale] }),
+  check("knowledge_card_translations_locale_check", sql`${t.locale} IN ('ja', 'zh-CN', 'es', 'ar', 'hi')`),
+  check("knowledge_card_translations_status_check", sql`${t.status} IN ('machine', 'reviewed', 'human', 'failed')`),
+  index("idx_knowledge_card_translations_locale_status").on(t.locale, t.status),
+]);
+
 export const userCardStates = pgTable("user_card_states", {
   userId: text("user_id").notNull(),
   cardId: text("card_id").notNull().references(() => knowledgeCards.id, { onDelete: "cascade" }),
@@ -57,6 +77,25 @@ export const graphNodes = pgTable("graph_nodes", {
 }, (t) => [
   index("idx_graph_nodes_domain").on(t.domain),
   index("idx_graph_nodes_level").on(t.level),
+]);
+
+export const graphNodeTranslations = pgTable("graph_node_translations", {
+  nodeId: text("node_id").notNull(),
+  locale: text("locale").notNull(),
+  label: text("label"),
+  domainLabel: text("domain_label"),
+  typeLabel: text("type_label"),
+  aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
+  sourceHash: text("source_hash").notNull(),
+  status: text("status").notNull(),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.nodeId, t.locale] }),
+  check("graph_node_translations_locale_check", sql`${t.locale} IN ('ja', 'zh-CN', 'es', 'ar', 'hi')`),
+  check("graph_node_translations_status_check", sql`${t.status} IN ('machine', 'reviewed', 'human', 'failed')`),
+  index("idx_graph_node_translations_locale_status").on(t.locale, t.status),
 ]);
 
 export const graphEdges = pgTable("graph_edges", {

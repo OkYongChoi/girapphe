@@ -1,6 +1,7 @@
 'use client';
 
 import { useFormStatus } from 'react-dom';
+import { useI18n } from '@/i18n/client';
 
 interface SubmitButtonProps {
   label: string;
@@ -10,9 +11,10 @@ interface SubmitButtonProps {
 
 export default function SubmitButton({ label, loadingLabel, className }: SubmitButtonProps) {
   const { pending } = useFormStatus();
+  const { t } = useI18n();
   return (
     <button type="submit" disabled={pending} className={className}>
-      {pending ? (loadingLabel ?? 'Saving…') : label}
+      {pending ? (loadingLabel ?? t('common.saving')) : label}
     </button>
   );
 }

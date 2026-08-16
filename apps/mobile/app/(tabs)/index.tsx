@@ -27,12 +27,19 @@ import {
   getPrerequisiteCount,
 } from '@/knowledge';
 import { mobileApi, type PersonalNoteSummary } from '@/api';
+import type { MobileCard } from '@/api';
 import { useMobileAuth } from '@/auth';
+import { LanguageSelector } from '@/components/language-selector';
+import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
+import { useI18n } from '@/i18n';
+import { normalizeCardNodeId, useLocalizedContent } from '@/localized-content';
+import { localizeDomain, localizeType } from '@stem-brain/shared';
 
 export default function HomeScreen() {
   const router = useRouter();
   const auth = useMobileAuth();
   const { isSignedIn, userId } = auth;
+  const { direction, formatNumber, locale, t } = useI18n();
   const [selectedDomain, setSelectedDomain] = useState<DomainOption>('All');
   const [selectedNode, setSelectedNode] = useState<GraphNode>(() => {
     return GRAPH_NODES.find((node) => node.id === FEATURED_NODE_IDS[0]) ?? GRAPH_NODES[0];
@@ -42,32 +49,43 @@ export default function HomeScreen() {
   const featuredNodes = useMemo(() => getFeaturedNodes(), []);
   const levelCount = useMemo(() => getLevelCount(), []);
   const visibleNodes = useMemo(() => filterNodes({ domain: selectedDomain, limit: 36 }), [selectedDomain]);
-  const selectedContent = getNodeSummary(selectedNode.id);
   const prerequisiteCount = useMemo(() => getPrerequisiteCount(selectedNode.id), [selectedNode.id]);
   const [personalNotes, setPersonalNotes] = useState<PersonalNoteSummary[]>([]);
+  const [cardsByNodeId, setCardsByNodeId] = useState<Map<string, MobileCard>>(new Map());
+  const contentIds = useMemo(() => [...new Set([...visibleNodes.map((node) => node.id), ...featuredNodes.map((node) => node.id), selectedNode.id])], [featuredNodes, selectedNode.id, visibleNodes]);
+  const localized = useLocalizedContent(contentIds, selectedNode.id);
+
+  function cardFor(node: GraphNode) { return cardsByNodeId.get(node.id); }
+  function labelFor(node: GraphNode) { return cardFor(node)?.title ?? localized.get(node.id)?.label ?? localized.get(node.id)?.title ?? node.label; }
+  function domainFor(node: GraphNode) { return cardFor(node)?.domain_label ?? localized.get(node.id)?.domain_label ?? localizeDomain(locale, node.domain); }
+  function typeFor(node: GraphNode) { return cardFor(node)?.type_label ?? localized.get(node.id)?.type_label ?? localizeType(locale, node.type); }
+  function summaryFor(node: GraphNode) { return cardFor(node)?.summary ?? localized.get(node.id)?.summary ?? getNodeSummary(node.id); }
 
   useEffect(() => {
     let active = true;
     setPersonalNotes([]);
+    setCardsByNodeId(new Map());
     if (!isSignedIn || !userId) return () => { active = false; };
 
-    void mobileApi.graph()
-      .then(({ personalItems }) => {
-        if (active) setPersonalNotes(personalItems);
-      })
-      .catch(() => {
-        if (active) setPersonalNotes([]);
-      });
+    void mobileApi.graph().then(({ cards, personalItems }) => {
+      if (!active) return;
+      setPersonalNotes(personalItems);
+      setCardsByNodeId(new Map(cards.map((card) => [normalizeCardNodeId(card.id), card])));
+    }).catch(() => {
+      if (!active) return;
+      setPersonalNotes([]);
+      setCardsByNodeId(new Map());
+    });
 
     return () => { active = false; };
-  }, [isSignedIn, userId]);
+  }, [isSignedIn, locale, userId]);
 
   function openSelectedTopic() {
     router.push({ pathname: '/topic/[id]', params: { id: selectedNode.id } });
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { direction }]}>
       <FlatList
         data={visibleNodes}
         keyExtractor={(item) => item.id}
@@ -77,35 +95,36 @@ export default function HomeScreen() {
             <View style={styles.header}>
               <View>
                 <Text style={styles.kicker}>stem-brain</Text>
-                <Text style={styles.title}>Knowledge map</Text>
+                <Text style={styles.title}>{t('home.title')}</Text>
               </View>
               <View style={styles.headerActions}>
                 <Pressable accessibilityRole="button" onPress={() => isSignedIn ? void auth.signOut() : router.push('/sign-in' as Href)} style={styles.accountButton}>
-                  <Text style={styles.accountButtonText}>{isSignedIn ? 'Sign out' : 'Sign in'}</Text>
+                  <Text style={styles.accountButtonText}>{isSignedIn ? t('auth.signOut') : t('auth.signIn')}</Text>
                 </Pressable>
+                <LanguageSelector />
                 <View style={styles.statPill}>
-                  <Text style={styles.statValue}>{GRAPH_NODES.length}</Text>
-                  <Text style={styles.statLabel}>nodes</Text>
+                  <Text style={styles.statValue}>{formatNumber(GRAPH_NODES.length)}</Text>
+                  <Text style={styles.statLabel}>{t('home.nodes')}</Text>
                 </View>
               </View>
             </View>
 
             <View style={styles.summaryRow}>
               <View style={styles.summaryPanel}>
-                <Text style={styles.summaryValue}>{ROOT_DOMAINS.length}</Text>
-                <Text style={styles.summaryLabel}>root tracks</Text>
+                <Text style={styles.summaryValue}>{formatNumber(ROOT_DOMAINS.length)}</Text>
+                <Text style={styles.summaryLabel}>{t('home.rootTracks')}</Text>
               </View>
               <View style={styles.summaryPanel}>
-                <Text style={styles.summaryValue}>{GRAPH_EDGES.length}</Text>
-                <Text style={styles.summaryLabel}>relations</Text>
+                <Text style={styles.summaryValue}>{formatNumber(GRAPH_EDGES.length)}</Text>
+                <Text style={styles.summaryLabel}>{t('home.relations')}</Text>
               </View>
               <View style={styles.summaryPanel}>
-                <Text style={styles.summaryValue}>{levelCount}</Text>
-                <Text style={styles.summaryLabel}>levels</Text>
+                <Text style={styles.summaryValue}>{formatNumber(levelCount)}</Text>
+                <Text style={styles.summaryLabel}>{t('home.levels')}</Text>
               </View>
             </View>
 
-            <Text style={styles.sectionTitle}>Continue</Text>
+            <Text style={styles.sectionTitle}>{t('home.continue')}</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -115,7 +134,7 @@ export default function HomeScreen() {
                 <Pressable
                   key={node.id}
                   accessibilityRole="button"
-                  accessibilityLabel={`Open ${node.label}`}
+                  accessibilityLabel={t('topic.openA11y', { topic: labelFor(node) })}
                   onPress={() => setSelectedNode(node)}
                   style={({ pressed }) => [
                     styles.featuredCard,
@@ -125,9 +144,9 @@ export default function HomeScreen() {
                 >
                   <View style={[styles.domainDot, { backgroundColor: getDomainColor(node.domain) }]} />
                   <Text style={styles.featuredTitle} numberOfLines={2}>
-                    {node.label}
+                    {labelFor(node)}
                   </Text>
-                  <Text style={styles.featuredMeta}>Difficulty {node.difficulty}</Text>
+                  <Text style={styles.featuredMeta}>{t('home.difficulty', { value: formatNumber(node.difficulty) })}</Text>
                 </Pressable>
               ))}
             </ScrollView>
@@ -135,39 +154,40 @@ export default function HomeScreen() {
             <View style={styles.detailPanel}>
               <View style={styles.detailHeader}>
                 <View style={[styles.domainDot, { backgroundColor: getDomainColor(selectedNode.domain) }]} />
-                <Text style={styles.detailDomain}>{selectedNode.domain}</Text>
+                <Text style={styles.detailDomain}>{domainFor(selectedNode)}</Text>
               </View>
-              <Text style={styles.detailTitle}>{selectedNode.label}</Text>
-              <Text style={styles.detailText}>{selectedContent}</Text>
+              <Text style={styles.detailTitle}>{labelFor(selectedNode)}</Text>
+              <Text style={styles.detailText}>{summaryFor(selectedNode)}</Text>
+              <TranslationFallbackNotice dark translation={cardFor(selectedNode) ?? localized.get(selectedNode.id)} />
               <View style={styles.metaRow}>
-                <Text style={styles.metaChip}>{selectedNode.type}</Text>
-                <Text style={styles.metaChip}>level {selectedNode.level}</Text>
-                <Text style={styles.metaChip}>{prerequisiteCount} prereqs</Text>
+                <Text style={styles.metaChip}>{typeFor(selectedNode)}</Text>
+                <Text style={styles.metaChip}>{t('home.level', { value: formatNumber(selectedNode.level) })}</Text>
+                <Text style={styles.metaChip}>{t('home.prerequisites', { count: formatNumber(prerequisiteCount) })}</Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Open ${selectedNode.label} details`}
+                accessibilityLabel={t('home.openTopicA11y', { topic: labelFor(selectedNode) })}
                 onPress={openSelectedTopic}
                 style={({ pressed }) => [styles.detailButton, pressed && styles.pressed]}
               >
-                <Text style={styles.detailButtonText}>Open topic</Text>
+                <Text style={styles.detailButtonText}>{t('home.openTopic')}</Text>
               </Pressable>
             </View>
 
             {isSignedIn && userId && personalNotes.length > 0 ? (
               <View style={styles.personalPanel}>
                 <View style={styles.personalHeader}>
-                  <Text style={styles.personalTitle}>My Notes · private nodes</Text>
+                  <Text style={styles.personalTitle}>{t('home.myNotesPrivate')}</Text>
                   <Pressable accessibilityRole="button" onPress={() => router.push('/(tabs)/notes' as Href)}>
-                    <Text style={styles.personalLink}>Open</Text>
+                    <Text style={styles.personalLink}>{t('common.open')}</Text>
                   </Pressable>
                 </View>
-                <Text style={styles.personalCopy}>Your notes appear as private purple nodes in the web Knowledge Map and are available here.</Text>
+                <Text style={styles.personalCopy}>{t('home.privateNotesCopy')}</Text>
                 {personalNotes.slice(0, 3).map((note) => <Text key={note.id} style={styles.personalNote} numberOfLines={1}>● {note.title}</Text>)}
               </View>
             ) : null}
 
-            <Text style={styles.sectionTitle}>Browse</Text>
+            <Text style={styles.sectionTitle}>{t('home.browse')}</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -186,7 +206,7 @@ export default function HomeScreen() {
                   ]}
                 >
                   <Text style={[styles.filterText, selectedDomain === domain && styles.filterTextSelected]}>
-                    {domain}
+                    {domain === 'All' ? t('common.all') : localizeDomain(locale, domain)}
                   </Text>
                 </Pressable>
               ))}
@@ -196,7 +216,7 @@ export default function HomeScreen() {
         renderItem={({ item }) => (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Select ${item.label}`}
+            accessibilityLabel={t('home.selectTopic', { topic: labelFor(item) })}
             onPress={() => setSelectedNode(item)}
             style={({ pressed }) => [
               styles.nodeRow,
@@ -207,13 +227,13 @@ export default function HomeScreen() {
             <View style={[styles.nodeAccent, { backgroundColor: getDomainColor(item.domain) }]} />
             <View style={styles.nodeTextBlock}>
               <Text style={styles.nodeTitle} numberOfLines={1}>
-                {item.label}
+                {labelFor(item)}
               </Text>
               <Text style={styles.nodeMeta} numberOfLines={1}>
-                {item.domain} / difficulty {item.difficulty}
+                {domainFor(item)} / {t('topic.difficulty', { value: formatNumber(item.difficulty) })}
               </Text>
             </View>
-            <Text style={styles.nodeLevel}>L{item.level}</Text>
+            <Text style={styles.nodeLevel}>{t('home.level', { value: formatNumber(item.level) })}</Text>
           </Pressable>
         )}
       />
@@ -233,9 +253,7 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: 12,
     paddingBottom: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     gap: 16,
   },
   kicker: {
@@ -257,7 +275,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#111827',
     alignItems: 'center',
   },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   accountButton: { borderWidth: 1, borderColor: '#d8dee8', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: '#ffffff' },
   accountButtonText: { color: '#111827', fontSize: 12, fontWeight: '800' },
   statValue: {

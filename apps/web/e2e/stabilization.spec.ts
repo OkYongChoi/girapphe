@@ -7,7 +7,7 @@ test.describe('main stabilization regressions', () => {
     await expect(page.getByRole('heading', { name: 'Knowledge Trash' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Clear', exact: true })).toHaveAttribute(
       'href',
-      '/my-knowledge?view=trash'
+      /\/(?:en\/)?my-knowledge\?view=trash$/
     );
   });
 

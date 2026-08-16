@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import Navbar from '@/components/navbar';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
   createKnowledgeItem,
@@ -20,6 +19,9 @@ import {
   getKnowledgeLinkTargets,
   getPrivateKnowledgeGraph,
 } from '@/actions/knowledge-ingestion-actions';
+import { LocalizedLink } from '@/i18n/navigation';
+import { getServerI18n } from '@/i18n/server';
+import type { Translate } from '@/i18n/core';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,12 +67,17 @@ function periodBounds(period: string, customStart?: string, customEnd?: string) 
   return {};
 }
 
-function groupLabel(date: string, group: 'week' | 'month') {
+function groupLabel(
+  date: string,
+  group: 'week' | 'month',
+  formatDate: (value: Date | string | number, options?: Intl.DateTimeFormatOptions) => string,
+  t: Translate,
+) {
   const key = kstDateKey(new Date(date));
-  if (group === 'month') return key.slice(0, 7);
+  if (group === 'month') return formatDate(`${key.slice(0, 7)}-01T00:00:00+09:00`, { year: 'numeric', month: 'long' });
   const day = new Date(`${key}T00:00:00+09:00`);
   const monday = new Date(day.getTime() - ((calendarDayOfWeek(key) + 6) % 7) * 86_400_000);
-  return `Week of ${kstDateKey(monday)}`;
+  return t('notes.weekOf', { date: formatDate(monday) });
 }
 
 function getItemSourceProvider(item: unknown) {
@@ -86,6 +93,7 @@ async function createPrivateKnowledgeEdgeAction(formData: FormData) {
 }
 
 export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageProps) {
+  const { locale, t, formatDate } = await getServerI18n();
   const params = (await searchParams) ?? {};
   const query = (params.q ?? '').trim().toLowerCase();
   const topicFilter = (params.topic ?? 'all').trim().toLowerCase();
@@ -115,14 +123,14 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
       return matchesTopic && matchesQuery && matchesStart && matchesEnd;
     })
     .sort((a, b) => {
-      if (sortBy === 'title') return a.title.localeCompare(b.title);
+      if (sortBy === 'title') return a.title.localeCompare(b.title, locale);
       return +(sortBy === 'updated' ? new Date(b.updated_at) : new Date(b.created_at))
         - +(sortBy === 'updated' ? new Date(a.updated_at) : new Date(a.created_at));
     });
 
   const itemGroups = groupBy === 'none'
     ? [{ label: null, items: filteredItems }]
-    : Object.entries(Object.groupBy(filteredItems, (item) => groupLabel(item.created_at, groupBy)))
+    : Object.entries(Object.groupBy(filteredItems, (item) => groupLabel(item.created_at, groupBy, formatDate, t)))
       .map(([label, grouped]) => ({ label, items: grouped ?? [] }));
   const hasActiveFilter = !!params.q || (params.topic && params.topic !== 'all') || sortBy !== 'created' || period !== 'all' || groupBy !== 'none';
   const createRequestId = randomUUID();
@@ -134,15 +142,19 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
       <section className="mx-auto w-full max-w-4xl p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{isTrash ? 'Knowledge Trash' : 'My Notes'}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{isTrash ? t('notes.trashTitle') : t('notes.title')}</h1>
             <p className="mt-1 text-sm text-gray-600">
               {isTrash
-                ? `Restore deleted cards within ${PERSONAL_CARD_RETENTION_DAYS} days before they are permanently removed.`
-                : 'Save your own notes, frameworks, and concepts. Everything here is private to your browser or account.'}
+                ? t('notes.trashSubtitle', { days: PERSONAL_CARD_RETENTION_DAYS })
+                : t('notes.subtitle')}
             </p>
           </div>
           <div className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-600">
-            {filteredItems.length} of {items.length} {isTrash ? 'deleted' : 'personal'} cards
+            {t('notes.count', {
+              filtered: filteredItems.length,
+              total: items.length,
+              kind: isTrash ? t('notes.deleted') : t('notes.personal'),
+            })}
           </div>
         </div>
 
@@ -157,26 +169,26 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
         ) : null}
 
         {/* Filter form */}
-        <form role="search" aria-label="Filter knowledge items" className="mt-4 rounded-xl border bg-white p-3">
+        <form role="search" aria-label={t('notes.filterAria')} className="mt-4 rounded-xl border bg-white p-3">
           <input type="hidden" name="view" value={isTrash ? 'trash' : 'active'} />
           <div className="grid gap-2 lg:grid-cols-[minmax(12rem,1fr)_auto_auto_auto_auto_auto]">
             <div className="flex flex-col gap-1">
               <label htmlFor="knowledge-search" className="sr-only">
-                Search notes
+                {t('notes.search')}
               </label>
               <input
                 id="knowledge-search"
                 type="text"
                 name="q"
                 defaultValue={params.q ?? ''}
-                placeholder="Search title, summary, content, or #tag"
+                placeholder={t('notes.searchPlaceholder')}
                 className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
 
             <div className="flex flex-col gap-1">
               <label htmlFor="knowledge-topic" className="sr-only">
-                Filter by topic
+                {t('notes.topicFilter')}
               </label>
               <select
                 id="knowledge-topic"
@@ -184,7 +196,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 defaultValue={topicFilter}
                 className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
-                <option value="all">All topics</option>
+                <option value="all">{t('notes.allTopics')}</option>
                 {topics.map((topic) => (
                   <option key={topic} value={topic.toLowerCase()}>
                     {topic}
@@ -195,7 +207,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
 
             <div className="flex flex-col gap-1">
               <label htmlFor="knowledge-sort" className="sr-only">
-                Sort order
+                {t('notes.sort')}
               </label>
               <select
                 id="knowledge-sort"
@@ -203,51 +215,51 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 defaultValue={sortBy}
                 className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
-                <option value="created">Recently added</option>
-                <option value="updated">Recently updated</option>
-                <option value="title">Title A–Z</option>
+                <option value="created">{t('notes.recentAdded')}</option>
+                <option value="updated">{t('notes.recentUpdated')}</option>
+                <option value="title">{t('notes.titleSort')}</option>
               </select>
             </div>
 
-            <select name="period" defaultValue={period} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="Added date range">
-              <option value="all">Any added date</option>
-              <option value="today">Today</option>
-              <option value="week">This week</option>
-              <option value="month">This month</option>
-              <option value="custom">Custom range</option>
+            <select name="period" defaultValue={period} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('notes.dateRange')}>
+              <option value="all">{t('notes.anyDate')}</option>
+              <option value="today">{t('notes.today')}</option>
+              <option value="week">{t('notes.thisWeek')}</option>
+              <option value="month">{t('notes.thisMonth')}</option>
+              <option value="custom">{t('notes.customRange')}</option>
             </select>
 
-            <select name="group" defaultValue={groupBy} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="Group cards by date">
-              <option value="none">No date grouping</option>
-              <option value="week">Group by week</option>
-              <option value="month">Group by month</option>
+            <select name="group" defaultValue={groupBy} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('notes.groupByDate')}>
+              <option value="none">{t('notes.noGrouping')}</option>
+              <option value="week">{t('notes.byWeek')}</option>
+              <option value="month">{t('notes.byMonth')}</option>
             </select>
 
             <button
               type="submit"
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500"
             >
-              Search
+              {t('common.search')}
             </button>
 
             {hasActiveFilter && (
-              <Link
+              <LocalizedLink
                 href={clearFiltersHref}
                 className="rounded-lg border px-4 py-2 text-center text-sm text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                Clear
-              </Link>
+                {t('common.clear')}
+              </LocalizedLink>
             )}
           </div>
           <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:max-w-md">
-            <label className="text-xs text-gray-600">From<input type="date" name="start" defaultValue={params.start ?? ''} className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm" /></label>
-            <label className="text-xs text-gray-600">To<input type="date" name="end" defaultValue={params.end ?? ''} className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm" /></label>
+            <label className="text-xs text-gray-600">{t('notes.from')}<input type="date" name="start" defaultValue={params.start ?? ''} className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm" /></label>
+            <label className="text-xs text-gray-600">{t('notes.to')}<input type="date" name="end" defaultValue={params.end ?? ''} className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm" /></label>
           </div>
         </form>
 
         <div className="mt-3 flex items-center gap-2 text-sm">
-          <Link href="/my-knowledge" className={`rounded-lg border px-3 py-1.5 ${!isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>My notes</Link>
-          <Link href="/my-knowledge?view=trash" className={`rounded-lg border px-3 py-1.5 ${isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>Trash</Link>
+          <LocalizedLink href="/my-knowledge" className={`rounded-lg border px-3 py-1.5 ${!isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.title')}</LocalizedLink>
+          <LocalizedLink href="/my-knowledge?view=trash" className={`rounded-lg border px-3 py-1.5 ${isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.trash')}</LocalizedLink>
         </div>
 
         {!isTrash && linkTargets.length > 0 ? (
@@ -260,29 +272,29 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
 
         {!isTrash && <form action={createKnowledgeItem} className="mt-6 rounded-xl border bg-white p-4 md:p-6">
           <input type="hidden" name="request_id" value={createRequestId} />
-          <h2 className="text-base font-semibold">Add knowledge item</h2>
-          <p className="mt-1 text-xs text-gray-500">Use concise titles and reusable insights you want to revisit.</p>
+          <h2 className="text-base font-semibold">{t('notes.addHeading')}</h2>
+          <p className="mt-1 text-xs text-gray-500">{t('notes.addHelp')}</p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <div className="flex flex-col gap-1">
               <label htmlFor="new-title" className="text-xs font-medium text-gray-700">
-                Title <span aria-hidden="true" className="text-red-500">*</span>
+                {t('notes.titleLabel')} <span aria-hidden="true" className="text-red-500">*</span>
               </label>
               <input
                 id="new-title"
                 name="title"
                 required
-                placeholder="e.g., Gradient Descent Pitfalls"
+                placeholder={t('notes.titleExample')}
                 className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
             <div className="flex flex-col gap-1">
               <label htmlFor="new-topic" className="text-xs font-medium text-gray-700">
-                Topic
+                {t('notes.newTopic')}
               </label>
               <input
                 id="new-topic"
                 name="topic"
-                placeholder="e.g., ml, control, signal"
+                placeholder={t('notes.topicExample')}
                 className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
@@ -300,12 +312,12 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
             </div>
             <div className="flex flex-col gap-1 md:col-span-2">
               <label htmlFor="new-content" className="text-xs font-medium text-gray-700">
-                Content
+                {t('notes.contentLabel')}
               </label>
               <textarea
                 id="new-content"
                 name="content"
-                placeholder="What should you remember?"
+                placeholder={t('notes.contentExample')}
                 className="min-h-28 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
@@ -353,8 +365,8 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <SubmitButton
-              label="Save item"
-              loadingLabel="Saving…"
+              label={t('notes.saveItem')}
+              loadingLabel={t('common.saving')}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             />
           </div>
@@ -365,29 +377,28 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
           {items.length === 0 ? (
             <div className="rounded-xl border bg-white p-8 text-center">
               <p className="text-2xl">📝</p>
-              <p className="mt-2 font-semibold text-gray-800">No notes yet</p>
+              <p className="mt-2 font-semibold text-gray-800">{isTrash ? t('notes.trashEmpty') : t('notes.empty')}</p>
               <p className="mt-1 text-sm text-gray-500">
-                Add your first knowledge item using the form above. Great for frameworks, pitfalls, and
-                hard-to-remember insights.
+                {isTrash ? t('notes.trashEmptyBody') : t('notes.emptyBody')}
               </p>
             </div>
           ) : filteredItems.length === 0 ? (
             <div className="rounded-xl border bg-white p-8 text-center">
               <p className="text-2xl">🔍</p>
-              <p className="mt-2 font-semibold text-gray-800">No matches found</p>
+              <p className="mt-2 font-semibold text-gray-800">{t('notes.noMatches')}</p>
               <p className="mt-1 text-sm text-gray-500">
-                Try a different search term or topic filter.
+                {t('notes.noMatchesBody')}
               </p>
-              <Link href={clearFiltersHref} className="mt-3 inline-block text-sm text-blue-600 hover:underline">
-                Clear filters
-              </Link>
+              <LocalizedLink href={clearFiltersHref} className="mt-3 inline-block text-sm text-blue-600 hover:underline">
+                {t('notes.clearFilters')}
+              </LocalizedLink>
             </div>
           ) : (
             <div className="grid gap-6">
               {itemGroups.map(({ label, items: groupedItems }) => (
                 <section key={label ?? 'all'}>
                   {label && <h2 className="mb-2 text-sm font-semibold text-gray-600">{label}</h2>}
-                  <ol aria-label="Your knowledge items" className="grid gap-4">
+                  <ol aria-label={t('notes.itemsAria')} className="grid gap-4">
               {groupedItems.map((item) => (
                 <li key={item.id}>
                   <details className="rounded-xl border bg-white p-4 md:p-5 group">
@@ -398,8 +409,8 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                           <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 font-medium">
                             {item.topic}
                           </span>
-                          <span className="ml-2">Added {new Date(item.created_at).toLocaleDateString()}</span>
-                          <span className="ml-2">Updated {new Date(item.updated_at).toLocaleDateString()}</span>
+                          <span className="ms-2">{t('notes.added', { date: formatDate(item.created_at) })}</span>
+                          <span className="ms-2">{t('notes.updated', { date: formatDate(item.updated_at) })}</span>
                         </p>
                         {getItemSourceProvider(item) ? (
                           <span className="mt-2 inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold capitalize text-violet-700">
@@ -419,13 +430,13 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                         className="shrink-0 rounded border px-2 py-1 text-xs text-gray-500 group-open:hidden hover:bg-gray-50"
                         aria-hidden="true"
                       >
-                        Edit ✎
+                        {t('common.edit')} ✎
                       </span>
                       <span
                         className="hidden shrink-0 rounded border px-2 py-1 text-xs text-gray-500 group-open:inline hover:bg-gray-50"
                         aria-hidden="true"
                       >
-                        Close ×
+                        {t('common.close')} ×
                       </span>
                     </summary>
 
@@ -434,7 +445,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
 
                       <div className="flex flex-col gap-1">
                         <label htmlFor={`title-${item.id}`} className="text-xs font-medium text-gray-700">
-                          Title <span aria-hidden="true" className="text-red-500">*</span>
+                          {t('notes.titleLabel')} <span aria-hidden="true" className="text-red-500">*</span>
                         </label>
                         <input
                           id={`title-${item.id}`}
@@ -447,7 +458,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
 
                       <div className="flex flex-col gap-1">
                         <label htmlFor={`topic-${item.id}`} className="text-xs font-medium text-gray-700">
-                          Topic
+                          {t('notes.newTopic')}
                         </label>
                         <input
                           id={`topic-${item.id}`}
@@ -464,7 +475,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
 
                       <div className="flex flex-col gap-1">
                         <label htmlFor={`content-${item.id}`} className="text-xs font-medium text-gray-700">
-                          Content
+                          {t('notes.contentLabel')}
                         </label>
                         <textarea
                           id={`content-${item.id}`}
@@ -482,8 +493,8 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
 
                       <div className="flex items-center gap-2">
                         <SubmitButton
-                          label="Save changes"
-                          loadingLabel="Saving…"
+                          label={t('notes.save')}
+                          loadingLabel={t('common.saving')}
                           className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
                         />
                       </div>
@@ -556,16 +567,16 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                     >
                       <input type="hidden" name="id" value={item.id} />
                       <ConfirmDeleteButton
-                        label="Remove item"
-                        confirmMessage={`Move "${item.title}" to trash? You can restore it within ${PERSONAL_CARD_RETENTION_DAYS} days.`}
-                        ariaLabel={`Remove "${item.title}" from your knowledge items`}
+                        label={t('notes.moveTrash')}
+                        confirmMessage={t('notes.moveTrashConfirm', { title: item.title })}
+                        ariaLabel={t('notes.moveTrashAria', { title: item.title })}
                         className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400"
                       />
                     </form></>}
                     {isTrash && <form action={restoreKnowledgeItem} className="mt-3 border-t pt-3">
                       <input type="hidden" name="id" value={item.id} />
-                      <SubmitButton label="Restore card" loadingLabel="Restoring…" className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50" />
-                      {item.purge_at && <p className="mt-2 text-xs text-gray-500">Permanently removed after {new Date(item.purge_at).toLocaleDateString()}.</p>}
+                      <SubmitButton label={t('notes.restoreCard')} loadingLabel={t('notes.restoring')} className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50" />
+                      {item.purge_at && <p className="mt-2 text-xs text-gray-500">{t('notes.purgeAfter', { date: formatDate(item.purge_at) })}</p>}
                     </form>}
                   </details>
                 </li>

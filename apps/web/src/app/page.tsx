@@ -1,5 +1,3 @@
-import Link from 'next/link';
-import Image from 'next/image';
 import Navbar from '@/components/navbar';
 import HomeDomainProgress, { type HomeDomainProgressRow } from '@/components/home-domain-progress';
 import HomeGraphScene from '@/components/home-graph-scene';
@@ -7,26 +5,33 @@ import { getCurrentUser } from '@/lib/auth';
 import { getUserCardDomainProgress, getUserStats, type UserCardDomainProgress } from '@/actions/card-actions';
 import { getUserKnowledgeItems } from '@/actions/user-knowledge-actions';
 import GuestStartButton from '@/components/guest-start-button';
-import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { getDbGraphDataForUser } from '@/lib/knowledge-graph-db';
 import type { ForceGraphData } from '@stem-brain/graph-engine';
+import { getServerI18n } from '@/i18n/server';
+import { LocalizedLink } from '@/i18n/navigation';
+import type { MessageKey } from '@/i18n/messages';
+import type { Translate } from '@/i18n/core';
+import { localizeDomain, type Locale } from '@stem-brain/shared';
+import { localizeGraphNodes } from '@/lib/content-localization';
 
 export const dynamic = 'force-dynamic';
 
-const HOME_FALLBACK_DOMAIN_PROGRESS: HomeDomainProgressRow[] = [
-  { label: 'Linear systems', value: 82, tone: 'bg-emerald-300' },
-  { label: 'Bayes rule', value: 64, tone: 'bg-sky-300' },
-  { label: 'Fourier analysis', value: 48, tone: 'bg-amber-300' },
-  { label: 'Graph search', value: 72, tone: 'bg-cyan-300' },
-];
-
 const HOME_DOMAIN_TONES = ['bg-emerald-300', 'bg-sky-300', 'bg-amber-300', 'bg-cyan-300'] as const;
-const HOME_DISCIPLINES = ['Biology', 'Computer science', 'Semiconductor', 'Bio-chemistry', 'Medicine', 'Statistics', 'Economics', 'Architecture'];
-const HOME_HERO_SIGNALS = [
-  { label: 'Practice cards', value: '1k+' },
-  { label: 'Disciplines', value: '8' },
-  { label: 'Graph-first', value: '3D' },
+const HOME_DISCIPLINES: MessageKey[] = [
+  'home.disciplineBiology',
+  'home.disciplineComputerScience',
+  'home.disciplineSemiconductor',
+  'home.disciplineBiochemistry',
+  'home.disciplineMedicine',
+  'home.disciplineStatistics',
+  'home.disciplineEconomics',
+  'home.disciplineArchitecture',
 ];
+const HOME_LEARNING_LOOP = [
+  { step: '01', title: 'home.loop1Title', copy: 'home.loop1Copy' },
+  { step: '02', title: 'home.loop2Title', copy: 'home.loop2Copy' },
+  { step: '03', title: 'home.loop3Title', copy: 'home.loop3Copy' },
+] satisfies Array<{ step: string; title: MessageKey; copy: MessageKey }>;
 
 const HOME_FALLBACK_STATS = {
   explainable: 18,
@@ -41,13 +46,14 @@ const HOME_DEMO_GRAPH_STATS = {
 };
 
 export default async function HomePage() {
+  const { t, formatNumber, locale } = await getServerI18n();
   const user = await getCurrentUser();
   const [userStats, userKnowledgeItems, domainProgress, userGraphData] = user
     ? await Promise.all([
         getUserStats(),
         getUserKnowledgeItems(),
-        getUserCardDomainProgress(),
-        getHomeUserGraphData(user.id),
+        getUserCardDomainProgress(locale),
+        getHomeUserGraphData(user.id, locale),
       ])
     : [null, [], [] as UserCardDomainProgress[], null];
   const sceneStats = {
@@ -55,7 +61,7 @@ export default async function HomePage() {
     review: userStats?.unclear ?? HOME_FALLBACK_STATS.review,
     notes: user ? userKnowledgeItems.length : HOME_FALLBACK_STATS.notes,
   };
-  const homeDomainProgress = buildHomeDomainProgress(domainProgress);
+  const homeDomainProgress = buildHomeDomainProgress(domainProgress, t, locale);
   const isPersonalized = Boolean(user);
 
   return (
@@ -71,27 +77,27 @@ export default async function HomePage() {
       <section className="home-snap-section home-hero-section relative z-10 overflow-hidden px-6 pb-12 pt-10 md:pb-16 md:pt-14">
         <div aria-hidden="true" className="home-hero-network pointer-events-none absolute inset-x-0 top-0 h-[calc(100vh-4rem)] min-h-[42rem]">
           <div className="home-hero-constellation absolute left-1/2 top-[44%] h-[38rem] w-[38rem] -translate-x-1/2 -translate-y-1/2 md:h-[48rem] md:w-[48rem]" />
-          <div className="home-hero-node home-hero-node-a">Review</div>
-          <div className="home-hero-node home-hero-node-b">Notes</div>
-          <div className="home-hero-node home-hero-node-c">Mastery</div>
-          <div className="home-hero-node home-hero-node-d">Links</div>
+          <div className="home-hero-node home-hero-node-a">{t('home.heroNodeReview')}</div>
+          <div className="home-hero-node home-hero-node-b">{t('home.heroNodeNotes')}</div>
+          <div className="home-hero-node home-hero-node-c">{t('home.heroNodeMastery')}</div>
+          <div className="home-hero-node home-hero-node-d">{t('home.heroNodeLinks')}</div>
         </div>
 
         <div className="home-hero-stage relative z-10 mx-auto grid min-h-[calc(100vh-7rem)] max-w-6xl items-center gap-10 lg:grid-cols-[minmax(0,0.88fr)_minmax(27rem,0.72fr)] lg:gap-4">
           <div className="home-hero-copy fade-up min-w-0 max-w-4xl">
             <h1 className="max-w-3xl text-5xl font-black leading-[0.98] tracking-[-0.055em] text-white sm:text-6xl md:text-[4.25rem]">
-              Practice STEM concepts and build your{' '}
-              <span className="text-cyan-300">knowledge graph.</span>
+              {t('home.heroTitle')}{' '}
+              <span className="text-cyan-300">{t('home.heroAccent')}</span>
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 md:text-lg">
-              Learn with focused concept cards, save weak spots for review, and see your progress across science, engineering, medicine, computing, economics, and design.
+              {t('home.heroBody')}
             </p>
 
-            <div className="home-discipline-rail mt-7 max-w-3xl overflow-hidden text-xs font-semibold uppercase text-slate-300" aria-label="STEM disciplines">
+            <div className="home-discipline-rail mt-7 max-w-3xl overflow-hidden text-xs font-semibold uppercase text-slate-300" aria-label={t('home.disciplinesAria')}>
               <div className="home-discipline-track flex w-max gap-2">
-                {[...HOME_DISCIPLINES, ...HOME_DISCIPLINES].map((label, index) => (
-                  <span key={`${label}-${index}`} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 backdrop-blur">
-                    {label}
+                {[...HOME_DISCIPLINES, ...HOME_DISCIPLINES].map((key, index) => (
+                  <span key={`${key}-${index}`} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 backdrop-blur">
+                    {t(key)}
                   </span>
                 ))}
               </div>
@@ -100,103 +106,94 @@ export default async function HomePage() {
             <div className="mt-8 flex flex-wrap gap-3">
               {user ? (
                 <>
-                  <Link
+                  <LocalizedLink
                     href="/practice"
                     className="rounded-lg border border-cyan-100/70 bg-gradient-to-b from-cyan-200 to-cyan-400 px-5 py-3 text-sm font-bold text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,0.25),inset_0_1px_0_rgba(255,255,255,0.82)] transition duration-300 hover:-translate-y-0.5 hover:from-cyan-100 hover:to-cyan-300 hover:shadow-[0_18px_42px_rgba(34,211,238,0.34)]"
                   >
-                    Keep practicing
-                  </Link>
-                  <Link
+                    {t('home.keepPracticing')}
+                  </LocalizedLink>
+                  <LocalizedLink
                     href="/knowledge"
                     className="rounded-lg border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur transition duration-300 hover:-translate-y-0.5 hover:bg-white/15"
                   >
-                    View knowledge graph
-                  </Link>
-                  <Link
+                    {t('home.viewKnowledgeGraph')}
+                  </LocalizedLink>
+                  <LocalizedLink
                     href="/dashboard"
                     className="rounded-lg border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur transition duration-300 hover:-translate-y-0.5 hover:bg-white/15"
                   >
-                    Progress dashboard
-                  </Link>
-                  <Link
+                    {t('home.progressDashboard')}
+                  </LocalizedLink>
+                  <LocalizedLink
                     href="#knowledge-graph"
                     className="rounded-lg border border-cyan-200/25 bg-cyan-300/10 px-5 py-3 text-sm font-semibold text-cyan-50 backdrop-blur transition duration-300 hover:-translate-y-0.5 hover:bg-cyan-300/15"
                   >
-                    See live graph
-                  </Link>
+                    {t('home.seeLiveGraph')}
+                  </LocalizedLink>
                 </>
               ) : (
                 <>
                   <GuestStartButton />
-                  <Link
+                  <LocalizedLink
                     href="/signup"
                     className="rounded-lg border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur transition duration-300 hover:-translate-y-0.5 hover:bg-white/15"
                   >
-                    Create account
-                  </Link>
-                  <Link
+                    {t('home.createAccount')}
+                  </LocalizedLink>
+                  <LocalizedLink
                     href="#knowledge-graph"
                     className="rounded-lg border border-cyan-200/25 bg-cyan-300/10 px-5 py-3 text-sm font-semibold text-cyan-50 backdrop-blur transition duration-300 hover:-translate-y-0.5 hover:bg-cyan-300/15"
                   >
-                    See live graph
-                  </Link>
+                    {t('home.seeLiveGraph')}
+                  </LocalizedLink>
                 </>
               )}
             </div>
 
             {user && userStats ? (
               <div
-                aria-label="Your learning stats"
+                aria-label={t('home.learningStatsAria')}
                 className="mt-7 grid max-w-xl grid-cols-3 gap-2"
               >
-                <StatBox value={sceneStats.explainable} label="Explainable" color="text-emerald-200" bg="bg-emerald-400/10 border-emerald-300/20" delay="0ms" />
-                <StatBox value={sceneStats.review} label="Review" color="text-sky-200" bg="bg-sky-400/10 border-sky-300/20" delay="160ms" />
-                <StatBox value={sceneStats.notes} label={sceneStats.notes === 1 ? 'Note' : 'Notes'} color="text-amber-200" bg="bg-amber-400/10 border-amber-300/20" delay="320ms" />
+                <StatBox value={formatNumber(sceneStats.explainable)} label={t('common.explainable')} color="text-emerald-200" bg="bg-emerald-400/10 border-emerald-300/20" delay="0ms" />
+                <StatBox value={formatNumber(sceneStats.review)} label={t('home.review')} color="text-sky-200" bg="bg-sky-400/10 border-sky-300/20" delay="160ms" />
+                <StatBox value={formatNumber(sceneStats.notes)} label={t('home.note', { count: sceneStats.notes })} color="text-amber-200" bg="bg-amber-400/10 border-amber-300/20" delay="320ms" />
               </div>
             ) : null}
           </div>
           <div className="home-hero-visual fade-up min-w-0 lg:justify-self-end">
-            <div aria-hidden="true" className="home-hero-orb-art">
-              <Image
-                src="/images/knowledge-orb-hero.png"
-                alt=""
-                fill
-                priority
-                sizes="(min-width: 1024px) 42vw, 100vw"
-                className="object-contain"
-              />
-            </div>
-            <div className="home-hero-progress-surface">
-              <KnowledgeSurface
-                domainProgress={homeDomainProgress}
-                demoDomainProgress={!isPersonalized || domainProgress.length === 0}
-                showStats={isPersonalized}
-                explainable={sceneStats.explainable}
-                review={sceneStats.review}
-                notes={sceneStats.notes}
-              />
-            </div>
+            <KnowledgeSurface
+              domainProgress={homeDomainProgress}
+              demoDomainProgress={!isPersonalized || domainProgress.length === 0}
+              showStats={isPersonalized}
+              explainable={sceneStats.explainable}
+              review={sceneStats.review}
+              notes={sceneStats.notes}
+              t={t}
+              formatNumber={formatNumber}
+            />
           </div>
         </div>
         <div className="relative z-10 mx-auto -mt-4 grid max-w-6xl gap-5 lg:-mt-14 lg:grid-cols-[minmax(0,0.56fr)_minmax(22rem,0.44fr)] lg:items-end">
-          <div className="grid gap-3 sm:grid-cols-3">
-            {HOME_HERO_SIGNALS.map((signal) => (
-              <div key={signal.label} className="rounded-lg border border-white/10 bg-white/[0.055] px-4 py-3 backdrop-blur">
-                <span className="block text-2xl font-black text-white">{signal.value}</span>
-                <span className="text-xs font-semibold uppercase text-slate-400">{signal.label}</span>
+          <div className="home-learning-loop grid gap-3 sm:grid-cols-3" aria-label={t('home.learningLoopAria')}>
+            {HOME_LEARNING_LOOP.map((item) => (
+              <div key={item.step} className="home-learning-step rounded-lg border border-white/10 bg-white/[0.055] px-4 py-4 backdrop-blur">
+                <span className="text-xs font-bold tracking-[0.16em] text-cyan-200">{item.step}</span>
+                <h2 className="mt-2 text-base font-bold text-white">{t(item.title)}</h2>
+                <p className="mt-1.5 text-sm leading-5 text-slate-400">{t(item.copy)}</p>
               </div>
             ))}
           </div>
-          <p className="home-stage-caption hidden max-w-sm justify-self-end text-right text-sm leading-6 text-slate-400 lg:block">Explore concepts in context, then bring the next useful connection into focus.</p>
+          <p className="home-stage-caption hidden max-w-sm justify-self-end text-end text-sm leading-6 text-slate-400 lg:block">{t('home.stageCaption')}</p>
         </div>
         <div className="relative z-10 mx-auto mt-8 flex max-w-6xl flex-col items-center gap-4">
-          <Link
+          <LocalizedLink
             href="#knowledge-graph"
-            aria-label="Scroll to live knowledge graph"
+            aria-label={t('home.scrollGraphAria')}
             className="home-scroll-cue group inline-flex h-14 w-9 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-cyan-100 shadow-lg shadow-black/20 backdrop-blur transition hover:border-cyan-200/40 hover:bg-cyan-300/10 focus:outline-none focus:ring-2 focus:ring-cyan-200/60"
           >
             <span className="home-scroll-dot h-2 w-2 rounded-full bg-cyan-100" />
-          </Link>
+          </LocalizedLink>
           <div className="h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent" />
         </div>
       </section>
@@ -206,25 +203,25 @@ export default async function HomePage() {
         <div className="mx-auto max-w-6xl">
           <div className="home-graph-heading flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase text-cyan-100/70">Scroll graph view</p>
+              <p className="text-xs font-semibold uppercase text-cyan-100/70">{t('home.graphEyebrow')}</p>
               <h2 className="mt-3 text-3xl font-bold tracking-tight text-white md:text-4xl">
-                A live map that changes with how you learn.
+                {t('home.graphTitle')}
               </h2>
               <p className="mt-4 text-base leading-7 text-slate-300">
-                Exploration, review, personal notes, and mastery each reshape the graph so progress feels like a system you can watch.
+                {t('home.graphBody')}
               </p>
             </div>
             {isPersonalized ? (
               <div className="home-graph-metric-rail grid grid-cols-3 gap-3 text-center">
-                <MiniMetric value={sceneStats.explainable} label="Explainable" />
-                <MiniMetric value={sceneStats.review} label="Review" />
-                <MiniMetric value={sceneStats.notes} label={sceneStats.notes === 1 ? 'Note' : 'Notes'} />
+                <MiniMetric value={formatNumber(sceneStats.explainable)} label={t('common.explainable')} />
+                <MiniMetric value={formatNumber(sceneStats.review)} label={t('home.review')} />
+                <MiniMetric value={formatNumber(sceneStats.notes)} label={t('home.note', { count: sceneStats.notes })} />
               </div>
             ) : (
               <div className="home-graph-metric-rail grid grid-cols-3 gap-3 text-center">
-                <MiniMetric value={HOME_DEMO_GRAPH_STATS.domains} label="Domains" />
-                <MiniMetric value={HOME_DEMO_GRAPH_STATS.concepts} label="Concepts" />
-                <MiniMetric value={HOME_DEMO_GRAPH_STATS.links} label="Links" />
+                <MiniMetric value={formatNumber(HOME_DEMO_GRAPH_STATS.domains)} label={t('home.domains')} />
+                <MiniMetric value={formatNumber(HOME_DEMO_GRAPH_STATS.concepts)} label={t('home.concepts')} />
+                <MiniMetric value={formatNumber(HOME_DEMO_GRAPH_STATS.links)} label={t('home.links')} />
               </div>
             )}
           </div>
@@ -245,16 +242,20 @@ export default async function HomePage() {
   );
 }
 
-async function getHomeUserGraphData(userId: string): Promise<ForceGraphData | null> {
+async function getHomeUserGraphData(userId: string, locale: Locale): Promise<ForceGraphData | null> {
   try {
-    return await getDbGraphDataForUser(userId);
+    const graphData = await getDbGraphDataForUser(userId);
+    return {
+      ...graphData,
+      nodes: await localizeGraphNodes(graphData.nodes, locale, { generateMissing: false }),
+    };
   } catch (error) {
     console.error('Error loading home user graph:', error);
     return null;
   }
 }
 
-function MiniMetric({ value, label }: { value: number; label: string }) {
+function MiniMetric({ value, label }: { value: string; label: string }) {
   return (
     <div className="home-graph-metric rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 backdrop-blur">
       <span className="block text-2xl font-bold text-white">{value}</span>
@@ -270,7 +271,7 @@ function StatBox({
   bg,
   delay,
 }: {
-  value: number;
+  value: string;
   label: string;
   color: string;
   bg: string;
@@ -294,6 +295,8 @@ function KnowledgeSurface({
   explainable,
   review,
   notes,
+  t,
+  formatNumber,
 }: {
   domainProgress: HomeDomainProgressRow[];
   demoDomainProgress: boolean;
@@ -301,52 +304,34 @@ function KnowledgeSurface({
   explainable: number;
   review: number;
   notes: number;
+  t: Translate;
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string;
 }) {
   return (
-    <div className="home-knowledge-surface home-depth-frame relative min-h-[30rem] overflow-hidden rounded-2xl border border-cyan-100/15 bg-slate-950/45 p-5 shadow-[0_32px_90px_rgba(2,6,23,0.56),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl">
-      <div aria-hidden="true" className="home-surface-orb absolute -right-24 -top-28 h-64 w-64 rounded-full" />
-      <div aria-hidden="true" className="home-surface-orbit home-surface-orbit-a absolute -right-10 -top-10 h-48 w-72 rounded-full" />
-      <div aria-hidden="true" className="home-surface-orbit home-surface-orbit-b absolute -right-3 -top-4 h-60 w-52 rounded-full" />
-      <div className="home-surface-grid absolute inset-0 opacity-70" />
-      <div className="home-depth-glow absolute inset-0" />
+    <div className="home-knowledge-surface relative min-h-[31rem] overflow-hidden rounded-2xl border border-cyan-100/15 bg-slate-950/75 p-5 shadow-[0_32px_90px_rgba(2,6,23,0.56),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl">
+      <div aria-hidden="true" className="home-surface-grid absolute inset-0 opacity-50" />
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/40 to-transparent" />
-      <div className="relative flex h-full min-h-[27.5rem] flex-col justify-between">
+      <div className="relative flex h-full min-h-[28.5rem] flex-col justify-between">
         <div>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-400">Knowledge system</p>
-              <h2 className="mt-2 max-w-xs text-2xl font-bold tracking-tight text-white">Your concepts, review queue, and notes in one map</h2>
+              <p className="text-xs font-semibold uppercase text-slate-400">{t('home.learningSpace')}</p>
+              <h2 className="mt-2 max-w-xs text-2xl font-bold tracking-tight text-white">{t('home.surfaceTitle')}</h2>
             </div>
             <span className="home-status-pill mt-1 h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.72)]" />
           </div>
 
-          <div className="home-node-map home-orbit-stage relative mt-8 h-52 rounded-lg border border-white/10 bg-slate-900/30">
-            <span className="home-space-grid" />
-            <span className="home-orbit-ring home-orbit-ring-a" />
-            <span className="home-orbit-ring home-orbit-ring-b" />
-            <span className="home-orbit-ring home-orbit-ring-c" />
-            <span className="home-depth-plane home-depth-plane-back" />
-            <span className="home-depth-plane home-depth-plane-mid" />
-            <span className="home-depth-plane home-depth-plane-front" />
-            <span className="home-tesseract" aria-hidden="true">
-              <span className="home-tesseract-cube home-tesseract-cube-back" />
-              <span className="home-tesseract-cube home-tesseract-cube-front" />
-              <span className="home-tesseract-connector home-tesseract-connector-1" />
-              <span className="home-tesseract-connector home-tesseract-connector-2" />
-              <span className="home-tesseract-connector home-tesseract-connector-3" />
-              <span className="home-tesseract-connector home-tesseract-connector-4" />
-            </span>
-            <span className="home-map-node home-map-node-core left-[44%] top-[34%] h-16 w-16 border-white/30 bg-white/12 text-white">
-              Core
-            </span>
-            <span className="home-map-node home-map-node-deep left-[10%] top-[17%] border-emerald-200/30 bg-emerald-300/12 text-emerald-100">Explain</span>
-            <span className="home-map-node home-map-node-near right-[11%] top-[11%] border-sky-200/30 bg-sky-300/12 text-sky-100">Review</span>
-            <span className="home-map-node home-map-node-near bottom-[10%] left-[16%] border-amber-200/30 bg-amber-300/12 text-amber-100">Notes</span>
-            <span className="home-map-node home-map-node-deep bottom-[17%] right-[14%] border-cyan-200/30 bg-cyan-300/12 text-cyan-100">Links</span>
-            <span className="home-map-line left-[25%] top-[31%] w-[31%] rotate-[18deg]" />
-            <span className="home-map-line right-[26%] top-[30%] w-[25%] rotate-[-22deg]" />
-            <span className="home-map-line bottom-[31%] left-[27%] w-[29%] rotate-[-20deg]" />
-            <span className="home-map-line bottom-[34%] right-[25%] w-[29%] rotate-[22deg]" />
+          <div className="home-next-concept mt-7 rounded-xl border border-white/10 bg-slate-900/55 p-4">
+            <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <span>{t('home.nextConcept')}</span>
+              <span className="rounded-full bg-cyan-300/10 px-2.5 py-1 text-cyan-100">{t('home.tenMinutes')}</span>
+            </div>
+            <p className="mt-4 text-xl font-bold tracking-tight text-white">{t('home.bayesRule')}</p>
+            <p className="mt-1 text-sm leading-6 text-slate-300">{t('home.bayesCopy')}</p>
+            <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/10">
+              <span className="block h-full w-[38%] rounded-full bg-gradient-to-r from-cyan-300 to-emerald-300" />
+            </div>
+            <div className="mt-2 flex justify-between text-xs text-slate-400"><span>{t('home.inProgress')}</span><span>{formatNumber(38)}%</span></div>
           </div>
         </div>
 
@@ -354,15 +339,15 @@ function KnowledgeSurface({
 
         <div className="mt-6">
           <p className="max-w-sm text-sm leading-6 text-slate-200">
-            Your graph updates as you mark concepts explainable, keep review items, and add your own notes.
+            {t('home.surfaceBody')}
           </p>
           {showStats ? (
             <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs uppercase text-slate-400">
-              <span><strong className="mr-1 text-base text-emerald-200">{explainable}</strong>explainable</span>
+              <span><strong className="me-1 text-base text-emerald-200">{formatNumber(explainable)}</strong>{t('common.explainable')}</span>
               <span className="h-1 w-1 rounded-full bg-slate-500" />
-              <span><strong className="mr-1 text-base text-sky-200">{review}</strong>review</span>
+              <span><strong className="me-1 text-base text-sky-200">{formatNumber(review)}</strong>{t('home.review')}</span>
               <span className="h-1 w-1 rounded-full bg-slate-500" />
-              <span><strong className="mr-1 text-base text-amber-200">{notes}</strong>{notes === 1 ? 'note' : 'notes'}</span>
+              <span><strong className="me-1 text-base text-amber-200">{formatNumber(notes)}</strong>{t('home.note', { count: notes })}</span>
             </div>
           ) : null}
         </div>
@@ -371,20 +356,31 @@ function KnowledgeSurface({
   );
 }
 
-function buildHomeDomainProgress(domains: UserCardDomainProgress[]): HomeDomainProgressRow[] {
+function buildHomeDomainProgress(
+  domains: UserCardDomainProgress[],
+  t: Translate,
+  locale: Locale,
+): HomeDomainProgressRow[] {
+  const fallbackRows: HomeDomainProgressRow[] = [
+    { label: t('home.fallbackLinearSystems'), value: 82, tone: 'bg-emerald-300' },
+    { label: t('home.fallbackBayesRule'), value: 64, tone: 'bg-sky-300' },
+    { label: t('home.fallbackFourierAnalysis'), value: 48, tone: 'bg-amber-300' },
+    { label: t('home.fallbackGraphSearch'), value: 72, tone: 'bg-cyan-300' },
+  ];
+
   if (domains.length === 0) {
-    return HOME_FALLBACK_DOMAIN_PROGRESS;
+    return fallbackRows;
   }
 
   const rows = domains
     .filter((domain) => domain.reviewed > 0)
-    .sort((a, b) => b.reviewed - a.reviewed || a.domain.localeCompare(b.domain))
+    .sort((a, b) => b.reviewed - a.reviewed || a.domain.localeCompare(b.domain, locale))
     .slice(0, 4)
     .map((domain, index) => ({
-      label: formatDomainLabel(domain.domain),
+      label: domain.domain_label ?? localizeDomain(locale, domain.domain),
       value: Math.round((domain.explainable / domain.reviewed) * 100),
       tone: HOME_DOMAIN_TONES[index % HOME_DOMAIN_TONES.length],
     }));
 
-  return rows.length > 0 ? rows : HOME_FALLBACK_DOMAIN_PROGRESS;
+  return rows.length > 0 ? rows : fallbackRows;
 }

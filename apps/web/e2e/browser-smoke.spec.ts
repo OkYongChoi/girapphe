@@ -5,7 +5,7 @@ const toleratedConsoleErrors = [
 ];
 const usesDeployedPreview = Boolean(process.env.PLAYWRIGHT_BASE_URL);
 
-const authEntrypointOrConfigFallback = /Sign in|Sign up|Clerk keys are missing|Live Clerk keys cannot be used/i;
+const authEntrypointOrConfigFallback = /Sign in|Sign up|Authentication is (?:unavailable|not available)|Clerk keys are missing|Live Clerk keys cannot be used/i;
 
 function attachBrowserFailureGuards(page: Page) {
   const consoleErrors: string[] = [];
@@ -50,7 +50,10 @@ test.describe('browser smoke', () => {
   test('mobile API rejects unauthenticated callers', async ({ request }) => {
     const response = await request.get('/api/mobile?resource=notes');
     expect(response.status()).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: 'Sign in is required.' });
+    await expect(response.json()).resolves.toEqual({
+      error: 'Sign in is required.',
+      code: 'AUTH_REQUIRED',
+    });
   });
 
   test('personal knowledge purge rejects unauthenticated callers', async ({ request }) => {
@@ -177,7 +180,7 @@ test.describe('browser smoke', () => {
 
     await expect(page.locator('main#main-content')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Return Home' })).toHaveAttribute('href', '/');
+    await expect(page.getByRole('link', { name: 'Return Home' })).toHaveAttribute('href', '/en');
   });
   test('login page renders an auth entrypoint or local config fallback', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);

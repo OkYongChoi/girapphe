@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS user_quiz_rate_limits (
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_user ON user_knowledge_evidence(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_node ON user_knowledge_evidence(node_id);
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_source_type ON user_knowledge_evidence(source_type);
+
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_event_type ON user_knowledge_evidence(event_type);
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_evidence_created_at ON user_knowledge_evidence(created_at);
 
@@ -564,3 +565,45 @@ INSERT INTO knowledge_cards (id, title, summary, explanation, wiki_url, domain, 
 ('burg_method', 'Burg Method', 'Maximum Entropy Spectral Estimation', 'Minimizes the forward and backward prediction errors...', 'https://en.wikipedia.org/wiki/Burg_method', 'signal', 'understand'),
 ('kalman_filter', 'Kalman Filter', 'Optimal estimation algorithm', 'Uses a series of measurements observed over time...', 'https://en.wikipedia.org/wiki/Kalman_filter', 'control', 'apply')
 ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
+-- LOCALIZED PUBLIC CONTENT (source rows remain English)
+-- ============================================================
+
+-- Cache ids are validated against checked-in GRAPH_NODES/CARD_CONTENT rather
+-- than foreign-keyed to the smaller operational practice/graph datasets.
+
+CREATE TABLE IF NOT EXISTS knowledge_card_translations (
+  card_id TEXT NOT NULL,
+  locale TEXT NOT NULL CHECK (locale IN ('ja', 'zh-CN', 'es', 'ar', 'hi')),
+  title TEXT,
+  summary TEXT,
+  explanation TEXT,
+  source_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('machine', 'reviewed', 'human', 'failed')),
+  error_code TEXT,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (card_id, locale)
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_card_translations_locale_status
+ON knowledge_card_translations(locale, status);
+
+CREATE TABLE IF NOT EXISTS graph_node_translations (
+  node_id TEXT NOT NULL,
+  locale TEXT NOT NULL CHECK (locale IN ('ja', 'zh-CN', 'es', 'ar', 'hi')),
+  label TEXT,
+  domain_label TEXT,
+  type_label TEXT,
+  aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
+  source_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('machine', 'reviewed', 'human', 'failed')),
+  error_code TEXT,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (node_id, locale)
+);
+
+CREATE INDEX IF NOT EXISTS idx_graph_node_translations_locale_status
+ON graph_node_translations(locale, status);

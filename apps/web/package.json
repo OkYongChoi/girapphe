@@ -4,11 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "tsx ../../scripts/export-card-content-asset.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm lint && pnpm typecheck && pnpm test:server",
+    "check": "pnpm lint && pnpm typecheck && pnpm test:server && pnpm test:localization && pnpm check:worker-types",
     "test:server": "NODE_ENV=test NODE_OPTIONS=--conditions=react-server tsx --test src/app/api/mcp/*.test.ts src/lib/mcp/*.test.ts src/lib/knowledge-ingestion.test.ts src/lib/practice-ad-schedule.test.ts src/lib/private-practice-cards.test.ts src/lib/stabilization.test.ts src/lib/billing/*.test.ts src/components/draft-review-selection.test.ts",
     "test:knowledge-ingestion": "pnpm test:server",
     "env:setup:dev": "bash ../../scripts/setup-dev-env.sh",
@@ -22,10 +23,13 @@
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
     "build:cf": "opennextjs-cloudflare build",
-    "preview:cf": "node ../../scripts/run-with-env.mjs --file .env.local --optional -- opennextjs-cloudflare build && node ../../scripts/run-with-env.mjs --file .env.local --optional -- wrangler dev --env preview"
+    "preview:cf": "node ../../scripts/run-with-env.mjs --file .env.local --optional -- opennextjs-cloudflare build && node ../../scripts/run-with-env.mjs --file .env.local --optional -- wrangler dev --env preview",
+    "test:localization": "tsx --test src/i18n/messages.test.ts src/lib/content-translation-guards.test.ts",
+    "check:worker-types": "wrangler types worker-configuration.d.ts --env-interface CloudflareEnv --check"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1108.0",
+    "@clerk/localizations": "4.15.3",
     "@clerk/mcp-tools": "^0.6.0",
     "@clerk/nextjs": "^7.7.6",
     "@modelcontextprotocol/server": "2.0.0",

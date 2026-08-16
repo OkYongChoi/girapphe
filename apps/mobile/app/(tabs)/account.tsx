@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useMobileAuth } from '@/auth';
+import { useI18n } from '@/i18n';
 import { useSubscription } from '@/subscriptions';
 
 export default function AccountScreen() {
   const router = useRouter();
   const auth = useMobileAuth();
   const subscription = useSubscription();
+  const { direction, formatNumber, t } = useI18n();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [privacyNotice, setPrivacyNotice] = useState<string | null>(null);
 
@@ -27,72 +29,72 @@ export default function AccountScreen() {
       const { AdsConsent } = await import('react-native-google-mobile-ads');
       await AdsConsent.showPrivacyOptionsForm();
     } catch {
-      setPrivacyNotice('Ad privacy choices are available in a configured native build when required for your region.');
+      setPrivacyNotice(t('account.adPrivacyUnavailable'));
     }
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { direction }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.kicker}>Account</Text>
-        <Text style={styles.title}>{auth.isSignedIn ? 'Your Girapphe account' : 'Practice now, sync when ready'}</Text>
+        <Text style={styles.kicker}>{t('tabs.account')}</Text>
+        <Text style={styles.title}>{auth.isSignedIn ? t('account.signedInTitle') : t('account.guestTitle')}</Text>
 
         {!auth.isLoaded ? (
-          <InfoCard title="Loading account…" body="Checking your saved mobile session." />
+          <InfoCard title={t('auth.loading')} body={t('account.loadingBody')} />
         ) : !auth.configured ? (
           <>
             <InfoCard
-              title="Guest practice is available"
-              body="Clerk is not configured for this build. Add the mobile publishable key to enable account-linked purchases and restore."
+              title={t('account.guestAvailable')}
+              body={t('account.clerkMissingBody')}
             />
-            <PrimaryButton label="View setup status" onPress={() => router.push('/sign-in')} />
+            <PrimaryButton label={t('account.viewSetup')} onPress={() => router.push('/sign-in')} />
           </>
         ) : !auth.isSignedIn ? (
           <>
             <InfoCard
-              title="Sign in before purchasing"
-              body="A signed-in Clerk user ID prevents a subscription from becoming attached only to an anonymous device."
+              title={t('account.signInBeforePurchase')}
+              body={t('account.signInBeforePurchaseBody')}
             />
-            <PrimaryButton label="Sign in" onPress={() => router.push('/sign-in')} />
+            <PrimaryButton label={t('auth.signIn')} onPress={() => router.push('/sign-in')} />
           </>
         ) : (
           <>
             <View style={styles.accountCard}>
-              <Text style={styles.accountLabel}>Signed in as</Text>
-              <Text style={styles.accountValue}>{auth.email || 'Clerk account'}</Text>
-              <Text style={styles.accountLabel}>Subscription customer ID</Text>
-              <Text selectable style={styles.userId}>{auth.userId}</Text>
+              <Text style={styles.accountLabel}>{t('account.signedInAs')}</Text>
+              <Text style={[styles.accountValue, auth.email ? styles.ltrText : null]}>{auth.email || t('account.clerkAccount')}</Text>
+              <Text style={styles.accountLabel}>{t('account.subscriptionCustomerId')}</Text>
+              <Text selectable style={[styles.userId, styles.ltrText]}>{auth.userId}</Text>
             </View>
 
             <View style={styles.entitlementCard}>
               <View style={styles.entitlementHeader}>
-                <Text style={styles.entitlementTitle}>Ad-free</Text>
+                <Text style={styles.entitlementTitle}>{t('subscription.kicker')}</Text>
                 <Text style={[styles.statusPill, subscription.isAdFree && styles.statusPillActive]}>
-                  {subscription.isAdFree ? 'ACTIVE' : 'FREE'}
+                  {subscription.isAdFree ? t('account.statusActive') : t('account.statusFree')}
                 </Text>
               </View>
               <Text style={styles.entitlementBody}>
                 {subscription.isAdFree
-                  ? 'This Clerk account has ad_free from the web or a supported store. Sponsored practice cards are not mounted.'
-                  : 'Free practice includes one clearly labeled sponsored card after every 5 card advances.'}
+                  ? t('account.adFreeActiveBody')
+                  : t('account.freePracticeBody', { count: formatNumber(5) })}
               </Text>
             </View>
 
-            <PrimaryButton label={subscription.isAdFree ? 'Manage subscription' : 'See ad-free plans'} onPress={() => router.push('/subscription')} />
-            <SecondaryButton label="Refresh purchase status" onPress={() => void subscription.refresh()} />
-            <SecondaryButton label={isSigningOut ? 'Signing out…' : 'Sign out'} disabled={isSigningOut} onPress={() => void signOut()} />
+            <PrimaryButton label={subscription.isAdFree ? t('account.manageSubscription') : t('account.seePlans')} onPress={() => router.push('/subscription')} />
+            <SecondaryButton label={t('account.refreshPurchase')} onPress={() => void subscription.refresh()} />
+            <SecondaryButton label={isSigningOut ? t('account.signingOut') : t('auth.signOut')} disabled={isSigningOut} onPress={() => void signOut()} />
           </>
         )}
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Learning tools</Text>
-          <Text style={styles.sectionBody}>Open the synced progress, review, and community views without crowding the tab bar.</Text>
-          <SecondaryButton label="Progress" onPress={() => router.push('/(tabs)/progress')} />
-          <SecondaryButton label="Review queue" onPress={() => router.push('/(tabs)/review')} />
-          <SecondaryButton label="Ranking" onPress={() => router.push('/(tabs)/ranking')} />
+          <Text style={styles.sectionTitle}>{t('account.learningTools')}</Text>
+          <Text style={styles.sectionBody}>{t('account.learningToolsBody')}</Text>
+          <SecondaryButton label={t('progress.title')} onPress={() => router.push('/(tabs)/progress')} />
+          <SecondaryButton label={t('account.reviewQueue')} onPress={() => router.push('/(tabs)/review')} />
+          <SecondaryButton label={t('ranking.title')} onPress={() => router.push('/(tabs)/ranking')} />
         </View>
 
-        <SecondaryButton label="Ad privacy choices" onPress={() => void openAdPrivacyChoices()} />
+        <SecondaryButton label={t('account.adPrivacyChoices')} onPress={() => void openAdPrivacyChoices()} />
         {privacyNotice ? <Text style={styles.privacyNotice}>{privacyNotice}</Text> : null}
       </ScrollView>
     </SafeAreaView>
@@ -142,6 +144,7 @@ const styles = StyleSheet.create({
   accountLabel: { color: '#aebac9', fontSize: 11, fontWeight: '900', textTransform: 'uppercase', marginTop: 7 },
   accountValue: { color: '#ffffff', fontSize: 20, fontWeight: '900', marginTop: 4, marginBottom: 12 },
   userId: { color: '#d7dee8', fontSize: 13, lineHeight: 19, marginTop: 4 },
+  ltrText: { textAlign: 'left', writingDirection: 'ltr' },
   entitlementCard: { borderRadius: 12, borderWidth: 1, borderColor: '#d8dee8', backgroundColor: '#ffffff', padding: 18, marginBottom: 14 },
   entitlementHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   entitlementTitle: { color: '#111827', fontSize: 19, fontWeight: '900' },

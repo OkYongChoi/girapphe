@@ -10,15 +10,17 @@ import {
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import SubmitButton from '@/components/submit-button';
 
-export default function DraftReviewMcpConnections({ tokens, currentTime }: { tokens: McpAccessToken[]; currentTime: number }) {
+export default function DraftReviewMcpConnections({ tokens }: { tokens: McpAccessToken[] }) {
   const router = useRouter();
   const [rawToken, setRawToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [endpointUrl, setEndpointUrl] = useState('/api/mcp');
+  const [currentTime, setCurrentTime] = useState(0);
 
   useEffect(() => {
     setEndpointUrl(`${window.location.origin}/api/mcp`);
+    setCurrentTime(Date.now());
   }, []);
 
   return (

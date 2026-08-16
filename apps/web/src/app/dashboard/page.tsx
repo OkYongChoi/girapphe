@@ -1,7 +1,9 @@
-import Link from 'next/link';
 import Navbar from '@/components/navbar';
 import { getUserCardDomainProgress, getUserStats } from '@/actions/card-actions';
-import { formatDomainLabel } from '@stem-brain/graph-engine';
+import { LocalizedLink } from '@/i18n/navigation';
+import { getServerI18n } from '@/i18n/server';
+import type { Translate } from '@/i18n/core';
+import { localizeDomain } from '@stem-brain/shared';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,15 +28,18 @@ function SummaryBox({
 }
 
 function DomainCard({
-  domain,
+  domainLabel,
   reviewed,
   explainable,
   unclear,
+  t,
 }: {
   domain: string;
+  domainLabel: string;
   reviewed: number;
   explainable: number;
   unclear: number;
+  t: Translate;
 }) {
   const explainablePercent = reviewed > 0 ? (explainable / reviewed) * 100 : 0;
   const roundedExplainablePercent = Math.round(explainablePercent);
@@ -43,30 +48,30 @@ function DomainCard({
     <div className="rounded-xl border bg-white p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold text-slate-900">{formatDomainLabel(domain)}</h2>
-          <p className="mt-1 text-sm text-slate-600">{reviewed} reviewed cards</p>
+          <h2 className="text-base font-semibold text-slate-900">{domainLabel}</h2>
+          <p className="mt-1 text-sm text-slate-600">{t('dashboard.reviewedCards', { count: reviewed })}</p>
         </div>
         <div className="rounded-lg bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700">
-          {roundedExplainablePercent}% explainable
+          {t('dashboard.explainablePercent', { percent: roundedExplainablePercent })}
         </div>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
         <div className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">
-          Explainable: {explainable}
+          {t('dashboard.explainableCount', { count: explainable })}
         </div>
         <div className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-blue-800">
-          Unclear: {unclear}
+          {t('dashboard.unclearCount', { count: unclear })}
         </div>
       </div>
       <div
         className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"
         role="progressbar"
-        aria-label={`${formatDomainLabel(domain)} explainable progress`}
+        aria-label={t('dashboard.progressAria', { domain: domainLabel })}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={explainablePercent}
-        aria-valuetext={`${roundedExplainablePercent}% of reviewed cards are explainable`}
+        aria-valuetext={t('dashboard.progressText', { percent: roundedExplainablePercent })}
       >
         <div
           className="h-full rounded-full bg-emerald-500 transition-[width]"
@@ -78,7 +83,8 @@ function DomainCard({
 }
 
 export default async function DashboardPage() {
-  const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress()]);
+  const { locale, t, formatNumber } = await getServerI18n();
+  const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress(locale)]);
 
   const totalReviewed = stats.explainable + stats.unclear;
   const explainablePercent = totalReviewed > 0 ? (stats.explainable / totalReviewed) * 100 : 0;
@@ -90,75 +96,80 @@ export default async function DashboardPage() {
       <section className="mx-auto w-full max-w-5xl p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Progress Dashboard</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{t('dashboard.title')}</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Card progress summary based on what feels explainable vs still unclear.
+              {t('dashboard.subtitle')}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {stats.unclear > 0 && (
-              <Link
+              <LocalizedLink
                 href="/practice?mode=review"
                 className="rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                Review {stats.unclear} unclear {stats.unclear === 1 ? 'card' : 'cards'}
-              </Link>
+                {t('dashboard.reviewUnclear', { count: stats.unclear })}
+              </LocalizedLink>
             )}
-            <Link
+            <LocalizedLink
               href="/practice"
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              Practice now →
-            </Link>
+              {t('dashboard.practiceNow')}
+            </LocalizedLink>
           </div>
         </div>
 
         {totalReviewed === 0 ? (
           <div className="mt-8 rounded-xl border bg-white p-10 text-center">
             <p className="text-3xl">📊</p>
-            <p className="mt-3 text-lg font-semibold text-slate-800">No data yet</p>
+            <p className="mt-3 text-lg font-semibold text-slate-800">{t('dashboard.noData')}</p>
             <p className="mt-2 text-sm text-slate-500">
-              Start practicing to build your card progress.
+              {t('dashboard.noDataBody')}
             </p>
-            <Link
+            <LocalizedLink
               href="/practice"
               className="mt-4 inline-block rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
             >
-              Start practicing
-            </Link>
+              {t('dashboard.start')}
+            </LocalizedLink>
           </div>
         ) : (
           <>
-            <dl aria-label="Overall progress summary" className="mt-6 grid gap-3 sm:grid-cols-3">
+            <dl aria-label={t('dashboard.summaryAria')} className="mt-6 grid gap-3 sm:grid-cols-3">
               <SummaryBox
-                label="Explainable"
-                value={stats.explainable}
-                sub={`${explainablePercent.toFixed(0)}% of reviewed`}
+                label={t('common.explainable')}
+                value={formatNumber(stats.explainable)}
+                sub={t('dashboard.percentReviewed', { percent: Math.round(explainablePercent) })}
                 colorClass="bg-emerald-50 text-emerald-900 border-emerald-200"
               />
               <SummaryBox
-                label="Unclear"
-                value={stats.unclear}
-                sub="still needs review"
+                label={t('common.unclear')}
+                value={formatNumber(stats.unclear)}
+                sub={t('dashboard.stillNeedsReview')}
                 colorClass="bg-blue-50 text-blue-900 border-blue-200"
               />
               <SummaryBox
-                label="Total Reviewed"
-                value={totalReviewed}
-                sub={`${domains.length} domain${domains.length !== 1 ? 's' : ''}`}
+                label={t('dashboard.totalReviewed')}
+                value={formatNumber(totalReviewed)}
+                sub={t('dashboard.domainCount', { count: domains.length })}
                 colorClass="bg-slate-50 text-slate-900 border-slate-200"
               />
             </dl>
 
-            <h2 className="mt-8 text-base font-semibold text-slate-700">Domain Breakdown</h2>
+            <h2 className="mt-8 text-base font-semibold text-slate-700">{t('dashboard.breakdown')}</h2>
             {domains.length === 0 ? (
               <p className="mt-3 rounded-xl border bg-white p-4 text-sm text-slate-500">
-                Domain data is not available yet.
+                {t('dashboard.noDomains')}
               </p>
             ) : (
               <div className="mt-3 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {domains.map((item) => (
-                  <DomainCard key={item.domain} {...item} />
+                  <DomainCard
+                    key={item.domain}
+                    {...item}
+                    domainLabel={item.domain_label ?? localizeDomain(locale, item.domain)}
+                    t={t}
+                  />
                 ))}
               </div>
             )}

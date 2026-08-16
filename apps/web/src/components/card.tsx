@@ -2,7 +2,10 @@
 
 import { KnowledgeCard } from '@/actions/card-actions';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
+import { localizeDomain, localizeLevel } from '@stem-brain/shared';
 import MathText from './math-text';
+import { useI18n } from '@/i18n/client';
+import TranslationFallbackBadge from '@/components/translation-fallback-badge';
 
 interface CardProps {
   card: KnowledgeCard;
@@ -19,25 +22,32 @@ const DOMAIN_COLORS: Record<string, string> = {
 };
 
 export default function Card({ card, revealed = true }: CardProps) {
+  const { locale, t } = useI18n();
   const domainStyle = DOMAIN_COLORS[card.domain] ?? DOMAIN_COLORS.other;
   const levelMeta = getCardLevelMeta(card.level);
   const frontPrompts = [
-    'Define it in one sentence',
-    'Name the core formula or rule',
-    'Connect it to one adjacent concept',
+    t('card.promptDefine'),
+    t('card.promptFormula'),
+    t('card.promptConnect'),
   ];
 
   return (
     <article
-      aria-label={`Concept card: ${card.title}`}
+      aria-label={t('card.aria', { title: card.title })}
       className="w-full max-w-md bg-white border border-gray-200 rounded-xl shadow-sm p-6 flex flex-col gap-4"
     >
       <div className="flex justify-between items-start gap-2">
-        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold uppercase border ${domainStyle}`}>
-          {card.domain}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold uppercase border ${domainStyle}`}>
+            {card.domain_label ?? localizeDomain(locale, card.domain)}
+          </span>
+          <TranslationFallbackBadge resolvedLocale={card.resolved_locale} status={card.translation_status} />
+        </div>
         <span className="text-xs text-gray-500 shrink-0">
-          Difficulty {levelMeta.rank} · {levelMeta.label}
+          {t('common.difficulty', {
+            rank: levelMeta.rank,
+            label: card.level_label ?? localizeLevel(locale, card.level),
+          })}
         </span>
       </div>
 
@@ -51,11 +61,11 @@ export default function Card({ card, revealed = true }: CardProps) {
         </p>
       ) : (
         <section
-          aria-label="Recall prompts"
+          aria-label={t('card.recallAria')}
           className="rounded-lg border border-blue-100 bg-blue-50 p-4"
         >
           <h3 className="text-xs font-bold uppercase tracking-widest text-blue-800">
-            Try from memory
+            {t('card.recallTitle')}
           </h3>
           <ul className="mt-3 space-y-2 text-sm text-blue-950">
             {frontPrompts.map((prompt) => (
@@ -69,9 +79,9 @@ export default function Card({ card, revealed = true }: CardProps) {
       )}
 
       {card.explanation && revealed && (
-        <section aria-label="Key facts and formulas" className="bg-amber-50 border border-amber-100 p-4 rounded-lg text-sm text-gray-800 overflow-y-auto max-h-48 custom-scrollbar">
+        <section aria-label={t('card.factsAria')} className="bg-amber-50 border border-amber-100 p-4 rounded-lg text-sm text-gray-800 overflow-y-auto max-h-48 custom-scrollbar">
            <h3 className="text-xs font-bold text-amber-800 uppercase tracking-widest mb-2">
-             Key facts and formulas
+             {t('card.factsTitle')}
            </h3>
            <MathText text={card.explanation} className="text-sm leading-relaxed" />
         </section>
@@ -82,17 +92,17 @@ export default function Card({ card, revealed = true }: CardProps) {
           href={card.wiki_url}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label={`Read more about ${card.title} on Wikipedia (opens in new tab)`}
+          aria-label={t('card.wikipediaAria', { title: card.title })}
           className="text-xs text-blue-500 hover:underline inline-flex items-center gap-1"
         >
-          View on Wikipedia <span aria-hidden="true">↗</span>
+          {t('card.wikipedia')} <span aria-hidden="true">↗</span>
         </a>
       )}
 
       {card.related_concepts && card.related_concepts.length > 0 && (
-        <section aria-label="Connected concepts" className="pt-4 border-t border-gray-100">
+        <section aria-label={t('card.connectedAria')} className="pt-4 border-t border-gray-100">
           <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
-            Connected Concepts
+            {t('card.connectedTitle')}
           </span>
           <ul className="flex flex-wrap gap-2 list-none p-0 m-0">
             {card.related_concepts.map((concept, i) => (

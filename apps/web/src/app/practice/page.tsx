@@ -1,21 +1,23 @@
 import { getNextCard, getUserStats } from '@/actions/card-actions';
 import CardViewer from '@/components/card-viewer';
 import Navbar from '@/components/navbar';
-import Link from 'next/link';
 import { getCurrentActor } from '@/lib/auth';
 import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 import { hasAdFreeEntitlement } from '@/lib/billing/database';
+import { LocalizedLink } from '@/i18n/navigation';
+import { getServerI18n } from '@/i18n/server';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PracticePage(props: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
+  const { locale, t } = await getServerI18n();
   const actor = await getCurrentActor();
   const searchParams = await props.searchParams;
   const mode = searchParams?.mode === 'review' ? 'review' : 'new';
   const adsenseConsentReady = process.env.NEXT_PUBLIC_ADSENSE_CONSENT_READY === 'true';
 
   const [initialCard, stats, isAdFree] = await Promise.all([
-    getNextCard(mode),
+    getNextCard(mode, undefined, locale),
     getUserStats(),
     hasAdFreeEntitlement(actor.isGuest ? null : actor.id),
   ]);
@@ -28,37 +30,37 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
         {/* Header */}
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Practice</h1>
-            <p className="text-sm text-gray-600">Mark what is unclear, and only promote concepts you can actually explain.</p>
+            <h1 className="text-2xl font-bold text-gray-900">{t('practice.title')}</h1>
+            <p className="text-sm text-gray-600">{t('practice.subtitle')}</p>
           </div>
         </div>
 
         {/* Mode Toggle */}
         <nav
-          aria-label="Practice mode"
+          aria-label={t('practice.modeAria')}
           aria-describedby="practice-mode-description"
           className="mb-2 flex w-full max-w-lg bg-gray-200 p-1 rounded-lg"
         >
-          <Link 
+          <LocalizedLink
             href="/practice?mode=new" 
             aria-current={mode === 'new' ? 'page' : undefined}
             className={`flex-1 rounded-md px-4 py-2 text-center text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-200 ${mode === 'new' ? 'bg-white text-gray-900 shadow' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            Learn New
-          </Link>
-          <Link
+            {t('practice.learnNew')}
+          </LocalizedLink>
+          <LocalizedLink
             href="/practice?mode=review"
             aria-current={mode === 'review' ? 'page' : undefined}
-            aria-label={`Review ${stats.unclear} card${stats.unclear === 1 ? '' : 's'} needing review`}
+            aria-label={t('practice.reviewAria', { count: stats.unclear })}
             className={`flex-1 rounded-md px-4 py-2 text-center text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-200 ${mode === 'review' ? 'bg-white text-gray-900 shadow' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            Review ({stats.unclear})
-          </Link>
+            {t('practice.reviewCount', { count: stats.unclear })}
+          </LocalizedLink>
         </nav>
         <p id="practice-mode-description" className="mb-6 text-xs text-gray-500">
           {mode === 'new'
-            ? 'Learn New: unseen cards only'
-            : `Review: ${stats.unclear} concept${stats.unclear === 1 ? '' : 's'} you marked as still unclear`}
+            ? t('practice.newDescription')
+            : t('practice.reviewDescription', { count: stats.unclear })}
         </p>
 
         {/* Card viewer — stats are shown inside */}

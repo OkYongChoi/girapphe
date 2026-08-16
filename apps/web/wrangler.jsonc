@@ -17,6 +17,9 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  "ai": {
+    "binding": "AI"
+  },
   "env": {
     "preview": {
       "name": "girapphe-preview",
@@ -24,6 +27,9 @@
       "preview_urls": true,
       "vars": {
         "APP_ENV": "preview"
+      },
+      "ai": {
+        "binding": "AI"
       }
     },
     "prod": {
@@ -41,6 +47,9 @@
       ],
       "vars": {
         "APP_ENV": "prod"
+      },
+      "ai": {
+        "binding": "AI"
       }
     }
   }

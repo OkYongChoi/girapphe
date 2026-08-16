@@ -6,8 +6,8 @@ import { requireCurrentActor } from '@/lib/auth';
 import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 import { GRAPH_EDGES } from '@stem-brain/graph-engine';
 import { GRAPH_NODES } from '@stem-brain/graph-engine';
-import { CARD_CONTENT } from '@stem-brain/graph-engine';
 import { getCardLevelMeta, type CardLevel, type EdgeType } from '@stem-brain/graph-engine';
+import { getStaticCardContent, type StaticCardContent } from '@/lib/static-card-content';
 import {
   getMockCardStatus,
   getMockPracticeStats,
@@ -24,6 +24,14 @@ import {
   resetPrivatePracticeProgress,
   savePrivatePracticeCardState,
 } from '@/lib/private-practice-cards';
+import { localizeDomain } from '@stem-brain/shared';
+import {
+  localizeGraphNodes,
+  localizeKnowledgeCards,
+  parseContentLocale,
+  type ContentLocale,
+  type TranslationResolutionStatus,
+} from '@/lib/content-localization';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -39,9 +47,18 @@ export type KnowledgeCard = {
   wiki_url: string;
   domain: string;
   domains?: string[];
+  type?: string;
+  domain_label?: string;
+  type_label?: string;
+  level_label?: string;
+  aliases?: string[];
   level: CardLevel;
   related_concepts?: string[];
   prerequisites?: PrerequisiteInfo[];
+  source_locale?: 'en';
+  resolved_locale?: ContentLocale;
+  translation_status?: TranslationResolutionStatus;
+  translation_error_code?: string;
 };
 
 export type KnowledgeMapEdge = {
@@ -262,11 +279,12 @@ function hasSubstantiveContent(content: { summary: string; explanation: string }
   return summary.length >= 20 && explanation.length >= 80;
 }
 
-const CORE_GRAPH_CARDS: KnowledgeCard[] = GRAPH_NODES
+function buildCoreGraphCards(cardContent: StaticCardContent): KnowledgeCard[] {
+  return GRAPH_NODES
   .filter((node) => node.level > 0 && !META_NODE_IDS.has(node.id))
   .slice(0, KNOWLEDGE_CARD_LIMIT)
   .map<KnowledgeCard | null>((node) => {
-    const content = CARD_CONTENT[node.id];
+    const content = cardContent[node.id];
     if (!hasSubstantiveContent(content)) return null;
     const related = (EDGE_MAP[node.id] ?? [])
       .map((id) => NODE_LABEL_BY_ID.get(id))
@@ -290,8 +308,7 @@ const CORE_GRAPH_CARDS: KnowledgeCard[] = GRAPH_NODES
     };
   })
   .filter((card): card is KnowledgeCard => Boolean(card));
-
-const CORE_CARDS: KnowledgeCard[] = CORE_GRAPH_CARDS;
+}
 
 const DRILL_ELIGIBLE_NODES = [...GRAPH_NODES]
   .filter((node) => node.level > 0)
@@ -300,8 +317,12 @@ const DRILL_ELIGIBLE_NODES = [...GRAPH_NODES]
     return a.label.localeCompare(b.label);
   });
 
-function generateDrillCard(node: (typeof GRAPH_NODES)[number], variantIndex: number): KnowledgeCard {
-  const content = CARD_CONTENT[node.id];
+function generateDrillCard(
+  node: (typeof GRAPH_NODES)[number],
+  variantIndex: number,
+  cardContent: StaticCardContent,
+): KnowledgeCard {
+  const content = cardContent[node.id];
   const related = (EDGE_MAP[node.id] ?? [])
     .map((id) => NODE_LABEL_BY_ID.get(id))
     .filter((label): label is string => Boolean(label))
@@ -367,7 +388,11 @@ function generateDrillCard(node: (typeof GRAPH_NODES)[number], variantIndex: num
   };
 }
 
-function generateDrillCards(count: number, startIndex: number): KnowledgeCard[] {
+function generateDrillCards(
+  count: number,
+  startIndex: number,
+  cardContent: StaticCardContent,
+): KnowledgeCard[] {
   if (count <= 0) return [];
   if (DRILL_ELIGIBLE_NODES.length === 0) return [];
 
@@ -376,16 +401,30 @@ function generateDrillCards(count: number, startIndex: number): KnowledgeCard[] 
     const globalIndex = startIndex + i;
     const node = DRILL_ELIGIBLE_NODES[globalIndex % DRILL_ELIGIBLE_NODES.length];
     const variantIndex = Math.floor(globalIndex / DRILL_ELIGIBLE_NODES.length);
-    cards.push(generateDrillCard(node, variantIndex));
+    cards.push(generateDrillCard(node, variantIndex, cardContent));
   }
   return cards;
 }
 
-const MOCK_CARDS: KnowledgeCard[] = [...CORE_CARDS].slice(0, TARGET_CARD_COUNT);
-const GUEST_CARD_IDS = new Set(MOCK_CARDS.slice(0, GUEST_PRACTICE_CARD_LIMIT).map((card) => card.id));
+let mockCardsPromise: Promise<KnowledgeCard[]> | null = null;
+
+async function getMockCards(): Promise<KnowledgeCard[]> {
+  if (!mockCardsPromise) {
+    mockCardsPromise = getStaticCardContent().then((content) =>
+      buildCoreGraphCards(content).slice(0, TARGET_CARD_COUNT),
+    );
+  }
+  return mockCardsPromise;
+}
+
+const GUEST_CARD_IDS = new Set(
+  GRAPH_NODES
+    .filter((node) => node.level > 0 && !META_NODE_IDS.has(node.id))
+    .slice(0, GUEST_PRACTICE_CARD_LIMIT)
+    .map((node) => `graph_${node.id}`),
+);
 
 const NODE_BY_ID = new Map(GRAPH_NODES.map((node) => [node.id, node]));
-const CARDS_BY_ID = new Map(MOCK_CARDS.map((card) => [card.id, card]));
 const PREREQ_INCOMING = new Map<string, string[]>();
 const PREREQ_OUTGOING = new Map<string, string[]>();
 
@@ -412,7 +451,11 @@ function withCardDomains<T extends { id: string; domain?: string | null; domains
 
 function withRelatedConcepts<T extends { id: string; related_concepts?: string[] | null }>(card: T) {
   if (card.related_concepts && card.related_concepts.length > 0) return card;
-  const related = CARDS_BY_ID.get(card.id)?.related_concepts;
+  const nodeId = normalizeGraphNodeId(card.id);
+  const related = (EDGE_MAP[nodeId] ?? [])
+    .map((id) => NODE_LABEL_BY_ID.get(id))
+    .filter((label): label is string => Boolean(label))
+    .slice(0, 4);
   if (!related || related.length === 0) return card;
   return { ...card, related_concepts: related };
 }
@@ -661,7 +704,8 @@ async function _initCardSchema() {
     'SELECT COUNT(*)::text AS count FROM knowledge_cards;'
   );
   const cardCount = parseInt(cardCountRes.rows[0]?.count ?? '0', 10);
-  const expectedCardCount = MOCK_CARDS.length;
+  const mockCards = await getMockCards();
+  const expectedCardCount = mockCards.length;
   if (storedVersion === CARD_CONTENT_VERSION && cardCount >= expectedCardCount) {
     cardSchemaReady = true;
     cardSchemaPromise = null;
@@ -670,7 +714,7 @@ async function _initCardSchema() {
 
   const params: unknown[] = [];
   const tuples: string[] = [];
-  for (const card of MOCK_CARDS) {
+  for (const card of mockCards) {
     const base = params.length;
     tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`);
     params.push(
@@ -726,7 +770,7 @@ async function ensureMoreGeneratedCards(minAdd: number) {
   const existing = parseInt(existingRes.rows[0]?.count ?? '0', 10);
 
   const toAdd = Math.max(minAdd, DRILL_GENERATION_BATCH);
-  const newCards = generateDrillCards(toAdd, existing);
+  const newCards = generateDrillCards(toAdd, existing, await getStaticCardContent());
   if (newCards.length === 0) return;
 
   const params: unknown[] = [];
@@ -845,7 +889,9 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
 
   const normalizedNodeId = normalizeGraphNodeId(nodeId);
   const node = NODE_BY_ID.get(normalizedNodeId);
-  let card = CARDS_BY_ID.get(nodeId) ?? CARDS_BY_ID.get(`graph_${normalizedNodeId}`);
+  const mockCards = await getMockCards();
+  const cardsById = new Map(mockCards.map((candidate) => [candidate.id, candidate]));
+  let card = cardsById.get(nodeId) ?? cardsById.get(`graph_${normalizedNodeId}`);
   if (!card && process.env.DATABASE_URL) {
     try {
       await ensureCardSchema();
@@ -859,10 +905,10 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
   const title = node?.label ?? card?.title ?? nodeId.replace(/^graph_/, '').replace(/_/g, ' ');
   const domain = card?.domain ?? getPrimaryCardDomain(getCardDomainsForNode(node));
   const cue = getRecallCue(card, title);
-  const sameDomainLabels = MOCK_CARDS
+  const sameDomainLabels = mockCards
     .filter((candidate) => candidate.id !== (card?.id ?? nodeId) && candidate.domain === domain)
     .map((candidate) => candidate.title);
-  const crossDomainLabels = MOCK_CARDS
+  const crossDomainLabels = mockCards
     .filter((candidate) => candidate.id !== (card?.id ?? nodeId) && candidate.domain !== domain)
     .map((candidate) => candidate.title);
 
@@ -886,12 +932,12 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
   };
 }
 
-export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: string[]) {
+async function getNextCardSource(mode: 'new' | 'review' = 'new', excludeIds?: string[]) {
   const user = await requireCurrentActor();
   const excluded = new Set(excludeIds ?? []);
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    const mockRows: CardWithStatusRow[] = limitCardsForGuest(MOCK_CARDS, user.isGuest)
+    const mockRows: CardWithStatusRow[] = limitCardsForGuest(await getMockCards(), user.isGuest)
       .map((card, index) => ({
         ...card,
         status: getMockCardStatus(index),
@@ -1001,7 +1047,7 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
     return null;
   } catch (error) {
     console.error('Error in getNextCard:', error);
-    const mockRows: CardWithStatusRow[] = limitCardsForGuest(MOCK_CARDS, user.isGuest)
+    const mockRows: CardWithStatusRow[] = limitCardsForGuest(await getMockCards(), user.isGuest)
       .map((card, index) => ({
         ...card,
         status: getMockCardStatus(index),
@@ -1010,6 +1056,21 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
       .filter((card) => !excluded.has(card.id));
     return selectSmartSuggestedCard(mockRows, mode);
   }
+}
+
+export async function getNextCard(
+  mode: 'new' | 'review' = 'new',
+  excludeIds?: string[],
+  locale?: string
+) {
+  const card = await getNextCardSource(mode, excludeIds);
+  if (!card || !locale) return card;
+  const [localized] = await localizeKnowledgeCards([card], locale, {
+    generateMissing: false,
+    maxGenerations: 0,
+    maxRelatedGenerations: 0,
+  });
+  return localized ?? card;
 }
 
 function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'review'): KnowledgeCard | null {
@@ -1239,11 +1300,11 @@ export async function saveCardState(cardId: string, status: CardStatus) {
   }
 }
 
-export async function getSavedCards() {
+async function getSavedCardsSource() {
   const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
-    return limitCardsForGuest(MOCK_CARDS, user.isGuest)
+    return limitCardsForGuest(await getMockCards(), user.isGuest)
       .map((card, index) => ({ card, status: getMockCardStatus(index) }))
       .filter((entry) => entry.status === 'saved')
       .map(({ card }) => ({
@@ -1286,6 +1347,12 @@ export async function getSavedCards() {
     console.error('Error in getSavedCards:', error);
     return [];
   }
+}
+
+export async function getSavedCards(locale?: string) {
+  const cards = await getSavedCardsSource() as CardWithStatusRow[];
+  if (!locale) return cards;
+  return localizeKnowledgeCards(cards, locale, { generateMissing: false });
 }
 
 export async function removeSavedCard(cardId: string) {
@@ -1349,7 +1416,7 @@ export async function getUserStats() {
   const user = await requireCurrentActor();
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    return getMockPracticeStats(limitCardsForGuest(MOCK_CARDS, user.isGuest).length);
+    return getMockPracticeStats(limitCardsForGuest(await getMockCards(), user.isGuest).length);
   }
 
   try {
@@ -1380,20 +1447,25 @@ export async function getUserStats() {
     };
   } catch (error) {
     console.error('Error in getUserStats:', error);
-    return getMockPracticeStats(MOCK_CARDS.length);
+    return getMockPracticeStats((await getMockCards()).length);
   }
 }
 
-export async function getAllCardsWithStatus(options?: {
+type GetAllCardsWithStatusOptions = {
   includeGenerated?: boolean;
   generatedLimit?: number;
-}) {
+  locale?: string;
+  generateTranslations?: boolean;
+  maxTranslationGenerations?: number;
+};
+
+async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOptions) {
   const user = await requireCurrentActor();
   const includeGenerated = options?.includeGenerated ?? false;
   const generatedLimit = Math.max(0, Math.min(options?.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    const sourceCards = limitCardsForGuestKnowledgeMap(MOCK_CARDS, user.isGuest);
+    const sourceCards = limitCardsForGuestKnowledgeMap(await getMockCards(), user.isGuest);
     const cards = includeGenerated
       ? sourceCards
       : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));
@@ -1497,7 +1569,7 @@ export async function getAllCardsWithStatus(options?: {
       .map((row) => withCardDomains(withRelatedConcepts(row)));
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
-    const sourceCards = limitCardsForGuestKnowledgeMap(MOCK_CARDS, user.isGuest);
+    const sourceCards = limitCardsForGuestKnowledgeMap(await getMockCards(), user.isGuest);
     const cards = includeGenerated
       ? sourceCards
       : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));
@@ -1512,6 +1584,16 @@ export async function getAllCardsWithStatus(options?: {
       status: user.isGuest ? getMockCardStatus(index) : (null as CardStatus | null),
     }));
   }
+}
+
+export async function getAllCardsWithStatus(options?: GetAllCardsWithStatusOptions) {
+  const cards = await getAllCardsWithStatusSource(options);
+  if (!options?.locale) return cards;
+  return localizeKnowledgeCards(cards, options.locale, {
+    generateMissing: options.generateTranslations ?? false,
+    maxGenerations: options.maxTranslationGenerations ?? 0,
+    maxRelatedGenerations: Math.min(8, Math.max(0, options.maxTranslationGenerations ?? 0) * 4),
+  });
 }
 
 export async function resetUserCardProgress() {
@@ -1548,6 +1630,7 @@ export type CardLeaderboardEntry = {
 
 export type UserCardDomainProgress = {
   domain: string;
+  domain_label?: string;
   reviewed: number;
   explainable: number;
   unclear: number;
@@ -1593,7 +1676,7 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
   }
 }
 
-export async function getUserCardDomainProgress(): Promise<UserCardDomainProgress[]> {
+async function getUserCardDomainProgressSource(): Promise<UserCardDomainProgress[]> {
   const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
@@ -1657,4 +1740,49 @@ export async function getUserCardDomainProgress(): Promise<UserCardDomainProgres
     console.error('Error in getUserCardDomainProgress:', error);
     return [];
   }
+}
+
+const LEGACY_DOMAIN_NODE_IDS: Record<string, string> = {
+  signal: 'signal_processing',
+  control: 'control_systems',
+  info: 'information_theory',
+  ml: 'machine_learning',
+};
+
+function representativeNodeForDomain(domain: string) {
+  const domainKey = normalizeDomainKey(domain);
+  return NODE_BY_ID.get(LEGACY_DOMAIN_NODE_IDS[domainKey] ?? domainKey)
+    ?? GRAPH_NODES.find((node) => normalizeDomainKey(node.domain) === domainKey);
+}
+
+export async function getUserCardDomainProgress(locale?: string): Promise<UserCardDomainProgress[]> {
+  const rows = await getUserCardDomainProgressSource();
+  if (!locale || rows.length === 0) return rows;
+
+  const parsedLocale = parseContentLocale(locale);
+  if (!parsedLocale) {
+    return rows.map((row) => ({ ...row, domain_label: localizeDomain('en', row.domain) }));
+  }
+
+  const representativeByDomain = new Map(
+    rows.map((row) => [row.domain, representativeNodeForDomain(row.domain)] as const)
+  );
+  const representatives = Array.from(new Map(
+    [...representativeByDomain.values()]
+      .filter((node): node is NonNullable<typeof node> => Boolean(node))
+      .map((node) => [node.id, node])
+  ).values());
+  const localized = await localizeGraphNodes(representatives, parsedLocale, {
+    generateMissing: false,
+  });
+  const labelByNodeId = new Map(localized.map((node) => [node.id, node.domain_label]));
+
+  return rows.map((row) => {
+    const node = representativeByDomain.get(row.domain);
+    return {
+      ...row,
+      domain_label: (node ? labelByNodeId.get(node.id) : undefined)
+        ?? localizeDomain(parsedLocale, row.domain),
+    };
+  });
 }

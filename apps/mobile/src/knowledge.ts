@@ -1,9 +1,9 @@
 import {
-  CARD_CONTENT,
   GRAPH_EDGES,
   GRAPH_NODES,
   type GraphNode,
 } from '@stem-brain/graph-engine';
+import { CARD_CONTENT } from '@stem-brain/graph-engine/card-content';
 
 export const ROOT_DOMAINS = [
   'Mathematics',
@@ -63,11 +63,11 @@ export function getDependentNodes(nodeId: string): GraphNode[] {
 }
 
 export function getNodeSummary(nodeId: string): string {
-  return CARD_CONTENT[nodeId]?.summary ?? 'No practice summary has been added for this topic yet.';
+  return CARD_CONTENT[nodeId]?.summary ?? '';
 }
 
 export function getNodeExplanation(nodeId: string): string {
-  return CARD_CONTENT[nodeId]?.explanation ?? 'No explanation has been added for this topic yet.';
+  return CARD_CONTENT[nodeId]?.explanation ?? '';
 }
 
 export function getPracticeNodes(): GraphNode[] {
