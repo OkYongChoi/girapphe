@@ -317,9 +317,13 @@ export const billingCustomers = pgTable("billing_customers", {
   stripeCustomerId: text("stripe_customer_id").unique(),
   tossCustomerKey: text("toss_customer_key").unique(),
   trialConsumedAt: timestamp("trial_consumed_at", { withTimezone: true }),
+  stripePortalWindowStartedAt: timestamp("stripe_portal_window_started_at", { withTimezone: true }).notNull().defaultNow(),
+  stripePortalRequestCount: integer("stripe_portal_request_count").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check("billing_customers_stripe_portal_request_count_check", sql`${t.stripePortalRequestCount} >= 0`),
+]);
 
 export const tossPrepareRateLimits = pgTable("toss_prepare_rate_limits", {
   userId: text("user_id").primaryKey(),

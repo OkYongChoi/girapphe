@@ -19,6 +19,7 @@ import {
   rateLimitMcpOAuthPrincipal,
   restoreMemoryKnowledgeItemForUser,
   softDeleteMemoryKnowledgeItemForUser,
+  updateMemoryKnowledgeItemForUser,
 } from './knowledge-ingestion';
 
 test('normalizes Korean topics without collapsing them to general', () => {
@@ -289,4 +290,53 @@ test('skips prerequisite cycles and symmetric duplicates, then restores trashed 
   const restored = await getPrivateKnowledgeGraphForUser(userId);
   assert.equal(restored.nodes.length, 2);
   assert.equal(restored.edges.length, 2);
+});
+
+test('keeps guest item CRUD out of the private graph while signed-in CRUD stays synchronized', async () => {
+  const guestId = `guest_item_only_${crypto.randomUUID()}`;
+  const guestItem = createMemoryKnowledgeItemForUser(
+    guestId,
+    { title: 'Guest note', content: 'Guest content', topic: 'guest-topic' },
+    { syncGraph: false }
+  );
+
+  assert.equal(getMemoryKnowledgeItemsForUser(guestId).length, 1);
+  assert.deepEqual(await getPrivateKnowledgeGraphForUser(guestId), { nodes: [], edges: [] });
+
+  updateMemoryKnowledgeItemForUser(
+    guestId,
+    guestItem.id,
+    { title: 'Updated guest note', content: 'Updated guest content', topic: 'guest-updated' },
+    { syncGraph: false }
+  );
+  assert.equal(getMemoryKnowledgeItemsForUser(guestId)[0]?.title, 'Updated guest note');
+  assert.deepEqual(await getPrivateKnowledgeGraphForUser(guestId), { nodes: [], edges: [] });
+
+  softDeleteMemoryKnowledgeItemForUser(guestId, guestItem.id, 14, { syncGraph: false });
+  assert.ok(getMemoryKnowledgeItemsForUser(guestId)[0]?.deleted_at);
+  assert.deepEqual(await getPrivateKnowledgeGraphForUser(guestId), { nodes: [], edges: [] });
+
+  restoreMemoryKnowledgeItemForUser(guestId, guestItem.id, { syncGraph: false });
+  assert.equal(getMemoryKnowledgeItemsForUser(guestId)[0]?.deleted_at, null);
+  assert.deepEqual(await getPrivateKnowledgeGraphForUser(guestId), { nodes: [], edges: [] });
+
+  const signedInUserId = `user_graph_sync_${crypto.randomUUID()}`;
+  const signedInItem = createMemoryKnowledgeItemForUser(signedInUserId, {
+    title: 'Signed-in note',
+    content: 'Signed-in content',
+    topic: 'signed-in-topic',
+  });
+  assert.equal((await getPrivateKnowledgeGraphForUser(signedInUserId)).nodes.length, 1);
+
+  updateMemoryKnowledgeItemForUser(signedInUserId, signedInItem.id, {
+    title: 'Updated signed-in note',
+    content: 'Updated signed-in content',
+    topic: 'signed-in-updated',
+  });
+  assert.equal((await getPrivateKnowledgeGraphForUser(signedInUserId)).nodes[0]?.label, 'Updated signed-in note');
+
+  softDeleteMemoryKnowledgeItemForUser(signedInUserId, signedInItem.id, 14);
+  assert.equal((await getPrivateKnowledgeGraphForUser(signedInUserId)).nodes.length, 0);
+  restoreMemoryKnowledgeItemForUser(signedInUserId, signedInItem.id);
+  assert.equal((await getPrivateKnowledgeGraphForUser(signedInUserId)).nodes.length, 1);
 });

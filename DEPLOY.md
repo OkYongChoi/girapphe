@@ -75,7 +75,8 @@ They are included in both Worker environments; do not add redundant GitHub secre
 1. In Neon, create a dedicated **schema-only** branch/database for previews. Do not
    select current production data.
 2. Apply the current Drizzle migrations to that database, including
-   `0007_private_knowledge_ingestion.sql` and `0008_billing_entitlements.sql`. Add only
+   `0007_private_knowledge_ingestion.sql`, `0008_billing_entitlements.sql`,
+   `0009_private_card_practice.sql`, and `0010_stripe_portal_rate_limit.sql`. Add only
    synthetic or anonymized seed data when representative QA data is needed.
 3. Save its connection string as `DATABASE_URL_PREVIEW`.
 4. In Clerk, use a development/preview instance for the preview keys. Confirm sign-in works on a PR URL.

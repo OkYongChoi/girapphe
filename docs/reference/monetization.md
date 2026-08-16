@@ -22,7 +22,9 @@
 `POST /api/billing/checkout` creates or reuses a Checkout Session after same-origin and
 Clerk checks. Customer mapping, an open-session mutex, provider idempotency, and existing
 subscription checks prevent parallel subscriptions. `POST /api/billing/portal` opens the
-Stripe Customer Portal for the mapped customer.
+Stripe Customer Portal for the mapped customer. It atomically limits each Clerk user to ten
+portal creation attempts per ten-minute database window; excess attempts return HTTP 429 with
+`Retry-After: 600` before any Stripe request is sent.
 
 `POST /api/webhooks/stripe` verifies the raw-body signature and reconciles the current
 subscription from Stripe before writing `ad_free`. Checkout completion only links state;
@@ -118,9 +120,10 @@ checker rejects partially configured groups and test/live mismatches.
 
 ## Activation checklist
 
-1. Apply migrations `0007_private_knowledge_ingestion.sql` and
-   `0008_billing_entitlements.sql` to the isolated preview database. Preview deploys do not
-   run migrations. Production runs committed Drizzle migrations before deployment.
+1. Apply migrations `0007_private_knowledge_ingestion.sql`,
+   `0008_billing_entitlements.sql`, `0009_private_card_practice.sql`, and
+   `0010_stripe_portal_rate_limit.sql` to the isolated preview database. Preview deploys do
+   not run migrations. Production runs committed Drizzle migrations before deployment.
 2. In Stripe, create the USD 1 monthly and USD 10 annual recurring prices, configure the
    Customer Portal and signed webhook, then test trial, renewal, cancellation, payment
    failure, and duplicate Checkout attempts in test mode.

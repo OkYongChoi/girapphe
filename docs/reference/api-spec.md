@@ -129,7 +129,9 @@ bound writes; OAuth discovery metadata is public under `/.well-known/`.
   used by mobile to honor Stripe, Toss, or reconciled RevenueCat state for the same Clerk user.
 - `POST /api/billing/checkout`: same-origin, signed-in Stripe Checkout creation for a
   `monthly` or `annual` plan. Existing nonterminal subscriptions block a second checkout.
-- `POST /api/billing/portal`: same-origin, signed-in Stripe Customer Portal session.
+- `POST /api/billing/portal`: same-origin, signed-in Stripe Customer Portal session, limited
+  to ten provider attempts per user in each ten-minute window. Excess attempts return `429`
+  with `Retry-After: 600` before Stripe is called.
 - `POST /api/billing/toss/prepare`: creates a signed-in, one-time Toss billing-authorization
   state bound to the user, customer key, and selected plan. It returns unavailable unless
   `TOSS_BILLING_ENABLED` is exactly `true` and the complete Toss configuration is present.

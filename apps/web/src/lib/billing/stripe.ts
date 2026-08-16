@@ -1,5 +1,6 @@
 import {
   AD_FREE_ENTITLEMENT,
+  claimStripePortalRateSlot,
   claimWebhookEvent,
   claimTrial,
   consumeTrialFromWebhook,
@@ -26,6 +27,14 @@ type StripeEvent = {
 
 export class BillingConfigurationError extends Error {}
 export class ExistingSubscriptionError extends Error {}
+export class StripePortalRateLimitError extends Error {
+  readonly retryAfterSeconds = 600;
+
+  constructor() {
+    super('Too many Stripe Customer Portal sessions. Try again later.');
+    this.name = 'StripePortalRateLimitError';
+  }
+}
 
 function isObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -295,9 +304,14 @@ export async function createStripeCheckout(input: {
 export async function createStripePortal(input: { userId: string; requestUrl: string }) {
   const customerId = await getStripeCustomerId(input.userId);
   if (!customerId) throw new Error('No Stripe customer is linked to this account.');
+  const returnUrl = `${checkoutBaseUrl(input.requestUrl)}/subscription`;
+  requiredSecret('STRIPE_SECRET_KEY');
+  if (!await claimStripePortalRateSlot(input.userId)) {
+    throw new StripePortalRateLimitError();
+  }
   const body = new URLSearchParams({
     customer: customerId,
-    return_url: `${checkoutBaseUrl(input.requestUrl)}/subscription`,
+    return_url: returnUrl,
   });
   const session = await stripeRequest<JsonObject>('billing_portal/sessions', body);
   const url = stringValue(session.url);

@@ -389,6 +389,7 @@ export async function submitDbQuizResult(
   }
 
   ensureGraphDatabase();
+  await claimQuizSubmission(userId);
 
   const [nodes, edges, states] = await Promise.all([
     getGraphNodes(),
@@ -399,8 +400,6 @@ export async function submitDbQuizResult(
   if (!nodes.some((node) => node.id === nodeId)) {
     throw new UnknownGraphNodeError();
   }
-
-  await claimQuizSubmission(userId);
 
   const now = new Date().toISOString();
   const existingState = states.get(nodeId);

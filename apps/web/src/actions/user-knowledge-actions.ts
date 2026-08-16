@@ -134,6 +134,7 @@ export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
 
 export async function createKnowledgeItem(formData: FormData): Promise<void> {
   const user = await requireCurrentActor();
+  const syncGraph = !user.isGuest;
   const title = sanitizeKnowledgeTitle(String(formData.get('title') ?? ''));
   const summary = sanitizeKnowledgeContent(String(formData.get('summary') ?? ''), 500);
   const content = sanitizeKnowledgeContent(String(formData.get('content') ?? ''));
@@ -150,8 +151,8 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
 
   if (!process.env.DATABASE_URL) {
     if (requestId && hasMemoryCreateRequest(user.id, requestId)) return;
-    const item = createMemoryKnowledgeItemForUser(user.id, { title, summary, content, topic, tags });
-    if (relatedNodeId) {
+    const item = createMemoryKnowledgeItemForUser(user.id, { title, summary, content, topic, tags }, { syncGraph });
+    if (syncGraph && relatedNodeId) {
       await createPrivateKnowledgeEdgeForUser(user.id, `personal:${item.id}`, relatedNodeId,
         ['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to'].includes(relationType)
           ? relationType as 'prerequisite' | 'related' | 'generalizes' | 'derived_from' | 'equivalent_to'
@@ -176,21 +177,21 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
            RETURNING id, user_id, title, topic
          ), inserted_node AS (
            INSERT INTO user_graph_nodes (id, user_id, knowledge_item_id, label, topic, origin)
-           SELECT $7, user_id, id, title, topic, 'manual' FROM inserted_item
+           SELECT $7, user_id, id, title, topic, 'manual' FROM inserted_item WHERE $10::boolean
            RETURNING knowledge_item_id
-         ) SELECT knowledge_item_id AS id FROM inserted_node`
+         ) SELECT id FROM inserted_item`
       : `WITH inserted_item AS (
            INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags)
            SELECT $3, $1, $4, $9, $5, $6, $8::jsonb WHERE $2::text IS NULL
            RETURNING id, user_id, title, topic
          ), inserted_node AS (
            INSERT INTO user_graph_nodes (id, user_id, knowledge_item_id, label, topic, origin)
-           SELECT $7, user_id, id, title, topic, 'manual' FROM inserted_item
+           SELECT $7, user_id, id, title, topic, 'manual' FROM inserted_item WHERE $10::boolean
            RETURNING knowledge_item_id
-         ) SELECT knowledge_item_id AS id FROM inserted_node`,
-    [user.id, requestId || null, itemId, title, content, topic, nodeId, JSON.stringify(tags), summary]
+         ) SELECT id FROM inserted_item`,
+    [user.id, requestId || null, itemId, title, content, topic, nodeId, JSON.stringify(tags), summary, syncGraph]
   );
-  if (result.rows[0] && relatedNodeId) {
+  if (result.rows[0] && syncGraph && relatedNodeId) {
     const validRelation = ['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to'].includes(relationType)
       ? relationType as 'prerequisite' | 'related' | 'generalizes' | 'derived_from' | 'equivalent_to'
       : 'related';
@@ -202,6 +203,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
 
 export async function updateKnowledgeItem(formData: FormData): Promise<void> {
   const user = await requireCurrentActor();
+  const syncGraph = !user.isGuest;
   const id = String(formData.get('id') ?? '').trim();
   const title = sanitizeKnowledgeTitle(String(formData.get('title') ?? ''));
   const summaryField = formData.get('summary');
@@ -216,7 +218,7 @@ export async function updateKnowledgeItem(formData: FormData): Promise<void> {
   }
 
   if (!process.env.DATABASE_URL) {
-    updateMemoryKnowledgeItemForUser(user.id, id, { title, summary, content, topic, tags });
+    updateMemoryKnowledgeItemForUser(user.id, id, { title, summary, content, topic, tags }, { syncGraph });
 
     revalidatePath('/my-knowledge');
     return;
@@ -232,8 +234,8 @@ export async function updateKnowledgeItem(formData: FormData): Promise<void> {
        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL RETURNING id, title, topic
      )
      UPDATE user_graph_nodes n SET label = i.title, topic = i.topic, updated_at = NOW()
-     FROM updated_item i WHERE n.knowledge_item_id = i.id AND n.user_id = $2 AND n.deleted_at IS NULL`,
-    [id, user.id, title, content, topic, tags ? JSON.stringify(tags) : null, summary ?? null]
+     FROM updated_item i WHERE $8::boolean AND n.knowledge_item_id = i.id AND n.user_id = $2 AND n.deleted_at IS NULL`,
+    [id, user.id, title, content, topic, tags ? JSON.stringify(tags) : null, summary ?? null, syncGraph]
   );
 
   revalidatePath('/my-knowledge');
@@ -241,6 +243,7 @@ export async function updateKnowledgeItem(formData: FormData): Promise<void> {
 
 export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
   const user = await requireCurrentActor();
+  const syncGraph = !user.isGuest;
   const id = String(formData.get('id') ?? '').trim();
 
   if (!id) {
@@ -248,7 +251,7 @@ export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
   }
 
   if (!process.env.DATABASE_URL) {
-    softDeleteMemoryKnowledgeItemForUser(user.id, id, PERSONAL_CARD_RETENTION_DAYS);
+    softDeleteMemoryKnowledgeItemForUser(user.id, id, PERSONAL_CARD_RETENTION_DAYS, { syncGraph });
 
     revalidatePath('/my-knowledge');
     revalidatePath('/knowledge');
@@ -264,14 +267,14 @@ export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL RETURNING id, purge_at
      ), deleted_nodes AS (
        UPDATE user_graph_nodes n SET deleted_at = NOW(), purge_at = i.purge_at, updated_at = NOW()
-       FROM deleted_item i WHERE n.knowledge_item_id = i.id AND n.user_id = $2 AND n.deleted_at IS NULL
+       FROM deleted_item i WHERE $4::boolean AND n.knowledge_item_id = i.id AND n.user_id = $2 AND n.deleted_at IS NULL
        RETURNING n.id, n.purge_at
      )
      UPDATE user_graph_edges e SET deleted_at = NOW(), purge_at = d.purge_at
      FROM deleted_nodes d
      WHERE e.user_id = $2 AND e.deleted_at IS NULL
        AND (e.source_private_node_id = d.id OR e.target_private_node_id = d.id)`,
-    [id, user.id, PERSONAL_CARD_RETENTION_DAYS]
+    [id, user.id, PERSONAL_CARD_RETENTION_DAYS, syncGraph]
   );
 
   revalidatePath('/my-knowledge');
@@ -300,11 +303,12 @@ export async function getDeletedKnowledgeItems(): Promise<UserKnowledgeItem[]> {
 
 export async function restoreKnowledgeItem(formData: FormData): Promise<void> {
   const user = await requireCurrentActor();
+  const syncGraph = !user.isGuest;
   const id = String(formData.get('id') ?? '').trim();
   if (!id) return;
 
   if (!process.env.DATABASE_URL) {
-    restoreMemoryKnowledgeItemForUser(user.id, id);
+    restoreMemoryKnowledgeItemForUser(user.id, id, { syncGraph });
   } else {
     await ensureSchema();
     await pool.query(
@@ -314,7 +318,7 @@ export async function restoreKnowledgeItem(formData: FormData): Promise<void> {
          RETURNING id, title, topic
        ), restored_nodes AS (
          UPDATE user_graph_nodes n SET deleted_at = NULL, purge_at = NULL, label = i.title, topic = i.topic, updated_at = NOW()
-         FROM restored_item i WHERE n.knowledge_item_id = i.id AND n.user_id = $2 RETURNING n.id
+         FROM restored_item i WHERE $3::boolean AND n.knowledge_item_id = i.id AND n.user_id = $2 RETURNING n.id
        )
        UPDATE user_graph_edges e SET deleted_at = NULL, purge_at = NULL
        WHERE e.user_id = $2 AND e.deleted_at IS NOT NULL AND e.purge_at > NOW()
@@ -325,7 +329,7 @@ export async function restoreKnowledgeItem(formData: FormData): Promise<void> {
          AND (e.target_private_node_id IS NULL OR EXISTS (
            SELECT 1 FROM user_graph_nodes n WHERE n.id = e.target_private_node_id AND n.user_id = $2 AND n.deleted_at IS NULL
          ))`,
-      [id, user.id]
+      [id, user.id, syncGraph]
     );
   }
 

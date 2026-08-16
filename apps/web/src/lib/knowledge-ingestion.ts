@@ -1057,7 +1057,8 @@ export function hasMemoryCreateRequest(userId: string, requestId: string): boole
 
 export function createMemoryKnowledgeItemForUser(
   userId: string,
-  input: { id?: string; graphNodeId?: string; title: string; summary?: string; content: string; topic: string; tags?: string[]; origin?: 'manual' | 'conversation' }
+  input: { id?: string; graphNodeId?: string; title: string; summary?: string; content: string; topic: string; tags?: string[]; origin?: 'manual' | 'conversation' },
+  options: { syncGraph?: boolean } = {}
 ): MemoryKnowledgeItem {
   const now = new Date().toISOString();
   const item: MemoryKnowledgeItem = {
@@ -1074,32 +1075,42 @@ export function createMemoryKnowledgeItemForUser(
     purge_at: null,
   };
   memoryKnowledgeItems.set(userId, [item, ...(memoryKnowledgeItems.get(userId) ?? [])]);
-  ensureMemoryPrivateNode(userId, item, input.origin ?? 'manual', input.graphNodeId);
+  if (options.syncGraph !== false) {
+    ensureMemoryPrivateNode(userId, item, input.origin ?? 'manual', input.graphNodeId);
+  }
   return item;
 }
 
 export function updateMemoryKnowledgeItemForUser(
   userId: string,
   itemId: string,
-  input: { title: string; summary?: string; content: string; topic: string; tags?: string[] }
+  input: { title: string; summary?: string; content: string; topic: string; tags?: string[] },
+  options: { syncGraph?: boolean } = {}
 ): void {
   const now = new Date().toISOString();
   const items = (memoryKnowledgeItems.get(userId) ?? []).map((item) => item.id === itemId && !item.deleted_at
     ? { ...item, title: input.title, summary: input.summary ?? item.summary, content: input.content, topic: input.topic, tags: input.tags ? sanitizeKnowledgeTags(input.tags) : item.tags, updated_at: now }
     : item);
   memoryKnowledgeItems.set(userId, items);
+  if (options.syncGraph === false) return;
   const nodes = (memoryNodes.get(userId) ?? []).map((node) => node.knowledge_item_id === itemId
     ? { ...node, label: input.title, summary: input.summary ?? node.summary, explanation: input.content, topic: input.topic, tags: input.tags ? sanitizeKnowledgeTags(input.tags) : node.tags }
     : node);
   memoryNodes.set(userId, nodes);
 }
 
-export function softDeleteMemoryKnowledgeItemForUser(userId: string, itemId: string, retentionDays: number): void {
+export function softDeleteMemoryKnowledgeItemForUser(
+  userId: string,
+  itemId: string,
+  retentionDays: number,
+  options: { syncGraph?: boolean } = {}
+): void {
   const now = new Date().toISOString();
   const purgeAt = new Date(Date.now() + retentionDays * 86_400_000).toISOString();
   memoryKnowledgeItems.set(userId, (memoryKnowledgeItems.get(userId) ?? []).map((item) => item.id === itemId
     ? { ...item, deleted_at: now, purge_at: purgeAt, updated_at: now }
     : item));
+  if (options.syncGraph === false) return;
   const deletedNodes = (memoryNodes.get(userId) ?? []).filter((node) => node.knowledge_item_id === itemId);
   memoryTrashedNodes.set(userId, [...deletedNodes, ...(memoryTrashedNodes.get(userId) ?? []).filter((node) => node.knowledge_item_id !== itemId)]);
   memoryNodes.set(userId, (memoryNodes.get(userId) ?? []).filter((node) => node.knowledge_item_id !== itemId));
@@ -1112,7 +1123,11 @@ export function softDeleteMemoryKnowledgeItemForUser(userId: string, itemId: str
   memoryTrashedEdges.set(userId, [...deletedEdges, ...(memoryTrashedEdges.get(userId) ?? []).filter((edge) => !deletedEdges.some((deleted) => deleted.id === edge.id))]);
 }
 
-export function restoreMemoryKnowledgeItemForUser(userId: string, itemId: string): void {
+export function restoreMemoryKnowledgeItemForUser(
+  userId: string,
+  itemId: string,
+  options: { syncGraph?: boolean } = {}
+): void {
   const now = new Date().toISOString();
   let restored: MemoryKnowledgeItem | null = null;
   memoryKnowledgeItems.set(userId, (memoryKnowledgeItems.get(userId) ?? []).map((item) => {
@@ -1120,7 +1135,7 @@ export function restoreMemoryKnowledgeItemForUser(userId: string, itemId: string
     restored = { ...item, deleted_at: null, purge_at: null, updated_at: now };
     return restored;
   }));
-  if (restored) {
+  if (restored && options.syncGraph !== false) {
     const trashedNode = (memoryTrashedNodes.get(userId) ?? []).find((node) => node.knowledge_item_id === itemId);
     if (trashedNode) {
       memoryNodes.set(userId, [trashedNode, ...(memoryNodes.get(userId) ?? []).filter((node) => node.graph_node_id !== trashedNode.graph_node_id)]);

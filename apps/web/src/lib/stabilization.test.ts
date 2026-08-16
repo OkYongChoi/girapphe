@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import db from './db';
 import { submitAssessmentWithCooldownRetry } from './assessment-retry';
 import {
   InvalidJsonBodyError,
@@ -8,7 +9,11 @@ import {
   readBoundedJsonBody,
 } from './bounded-json-body';
 import { getPersonalizedNoteGraphAdditions } from './home-graph-notes';
-import { UnknownGraphNodeError, submitDbQuizResult } from './knowledge-graph-db';
+import {
+  QuizRateLimitError,
+  UnknownGraphNodeError,
+  submitDbQuizResult,
+} from './knowledge-graph-db';
 import {
   getMockCardStatus,
   getMockPracticeStats,
@@ -139,6 +144,47 @@ test('the memory quiz path rejects unknown graph node IDs', async () => {
     if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previousDatabaseUrl;
   }
+});
+
+test('unknown database quiz nodes consume cooldown before later graph queries', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const calls: Array<{ text: string; params?: unknown[] }> = [];
+  let claimCalls = 0;
+
+  context.after(() => {
+    db.query = originalQuery;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgres://stabilization-test.invalid/girapphe';
+  db.query = (async (text: string, params?: unknown[]) => {
+    calls.push({ text, params });
+    if (text.includes('INSERT INTO user_quiz_rate_limits')) {
+      claimCalls += 1;
+      return {
+        rows: claimCalls === 1 ? [{ user_id: 'stabilization-test-user' }] : [],
+      };
+    }
+    return { rows: [] };
+  }) as typeof db.query;
+
+  await assert.rejects(
+    submitDbQuizResult('stabilization-test-user', 'not_a_real_graph_node', 1),
+    UnknownGraphNodeError,
+  );
+  assert.equal(calls.length, 4);
+  assert.match(calls[0].text, /INSERT INTO user_quiz_rate_limits/);
+
+  const callsBeforeRateRejection = calls.length;
+  await assert.rejects(
+    submitDbQuizResult('stabilization-test-user', 'another_unknown_graph_node', 1),
+    QuizRateLimitError,
+  );
+  assert.equal(calls.length, callsBeforeRateRejection + 1);
+  assert.match(calls.at(-1)?.text ?? '', /INSERT INTO user_quiz_rate_limits/);
+  assert.equal(claimCalls, 2);
 });
 
 test('mobile private graph summaries are invalidated on account transitions', async () => {

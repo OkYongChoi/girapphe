@@ -371,8 +371,12 @@ CREATE TABLE IF NOT EXISTS billing_customers (
   stripe_customer_id TEXT UNIQUE,
   toss_customer_key TEXT UNIQUE,
   trial_consumed_at TIMESTAMP WITH TIME ZONE,
+  stripe_portal_window_started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  stripe_portal_request_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT billing_customers_stripe_portal_request_count_check
+    CHECK (stripe_portal_request_count >= 0)
 );
 
 CREATE TABLE IF NOT EXISTS toss_prepare_rate_limits (

@@ -50,6 +50,13 @@
       "when": 1787011200000,
       "tag": "0009_private_card_practice",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787097600000,
+      "tag": "0010_stripe_portal_rate_limit",
+      "breakpoints": true
     }
   ]
 }

@@ -139,6 +139,32 @@ export async function getStripeCustomerId(userId: string): Promise<string | null
   return result.rows[0]?.stripe_customer_id ?? null;
 }
 
+export async function claimStripePortalRateSlot(userId: string): Promise<boolean> {
+  const result = await pool.query<{ user_id: string }>(
+    `UPDATE billing_customers
+     SET stripe_portal_window_started_at = CASE
+           WHEN stripe_portal_request_count = 0
+             OR stripe_portal_window_started_at <= NOW() - INTERVAL '10 minutes'
+           THEN NOW() ELSE stripe_portal_window_started_at
+         END,
+         stripe_portal_request_count = CASE
+           WHEN stripe_portal_request_count = 0
+             OR stripe_portal_window_started_at <= NOW() - INTERVAL '10 minutes'
+           THEN 1 ELSE stripe_portal_request_count + 1
+         END,
+         updated_at = NOW()
+     WHERE user_id = $1
+       AND stripe_customer_id IS NOT NULL
+       AND (
+         stripe_portal_window_started_at <= NOW() - INTERVAL '10 minutes'
+         OR stripe_portal_request_count < 10
+       )
+     RETURNING user_id`,
+    [userId],
+  );
+  return result.rows.length === 1;
+}
+
 export async function isStripeTrialAvailable(userId: string): Promise<boolean> {
   if (!databaseAvailable()) return false;
   const result = await pool.query<{ available: boolean }>(
