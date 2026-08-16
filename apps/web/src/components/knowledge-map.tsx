@@ -27,6 +27,15 @@ function getCardDomains(card: KnowledgeCard) {
   return Array.from(new Set(domains.filter(Boolean)));
 }
 
+function getSearchTerms(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((term) => term.replace(/^#/, ''))
+    .filter(Boolean);
+}
+
 export default function KnowledgeMap({ initialCards, personalItems = [], isGuest = false }: Props) {
   const [baseCards, setBaseCards] = useState(initialCards);
   const [filter, setFilter] = useState('');
@@ -102,8 +111,10 @@ export default function KnowledgeMap({ initialCards, personalItems = [], isGuest
   };
 
   const filteredCards = cards.filter(card => {
-    const matchesFilter = card.title.toLowerCase().includes(filter.toLowerCase()) || 
-                          card.summary.toLowerCase().includes(filter.toLowerCase());
+    const searchableText = [card.id, card.title, card.summary, card.explanation, ...getCardDomains(card)]
+      .join(' ')
+      .toLowerCase();
+    const matchesFilter = getSearchTerms(filter).every((term) => searchableText.includes(term));
     const matchesDomain = selectedDomain === 'all' || getCardDomains(card).includes(selectedDomain);
     const matchesStatus =
       selectedStatus === 'all'
@@ -124,7 +135,6 @@ export default function KnowledgeMap({ initialCards, personalItems = [], isGuest
     }
     return acc;
   }, {} as Record<string, typeof initialCards>);
-
 
   return (
     <div className="w-full h-full">
@@ -208,7 +218,7 @@ export default function KnowledgeMap({ initialCards, personalItems = [], isGuest
               
               <input 
                 type="text" 
-                placeholder="Search concepts..." 
+                placeholder="Search concepts, terms, or #tags..."
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 className="p-2 border rounded flex-grow bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -298,7 +308,7 @@ function KnowledgeCardItem({ card }: { card: MapCard }) {
       </div>
       <h3 className="font-bold text-lg mb-1 leading-tight text-gray-900">{card.title}</h3>
       {card.isPersonal && card.createdAt ? <p className="mb-2 text-xs text-gray-500">Added {new Date(card.createdAt).toLocaleDateString()}</p> : null}
-      {card.domains && card.domains.length > 1 ? (
+      {card.domains && card.domains.length > 0 ? (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {card.domains.map((domain) => (
             <span key={domain} className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-gray-600">

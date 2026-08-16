@@ -143,7 +143,7 @@ npm run db:studio
 - `/knowledge` opens in **3D Graph View** by default.
 - Navbar highlights the active route for signed-in users.
 - Home page shows quick progress summary for signed-in users.
-- Saved/My Knowledge filters include a `Clear` action.
+- Saved/My Notes filters include a `Clear` action.
 
 ## Harness
 
@@ -239,6 +239,21 @@ Clerk handles:
 - Social OAuth providers (Google, GitHub, etc. — configure in Clerk dashboard)
 - Session management and secure cookie handling
 - Multi-factor authentication (optional, configure in Clerk dashboard)
+
+### Mobile authentication and API
+
+For iOS and Android, copy `apps/mobile/.env.example` to a local `.env` file and configure the
+following **public** EAS environment variables for each build profile. Do not put a Clerk secret
+key in the mobile app.
+
+```text
+EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
+EXPO_PUBLIC_APP_BASE_URL
+```
+
+Enable Clerk's Native API before producing a native build. `EXPO_PUBLIC_APP_BASE_URL` must point to the
+deployed HTTPS Worker that serves `/api/mobile`; it is where authenticated mobile notes, progress,
+knowledge-map state, and admin requests are processed.
 
 ## Environments & Deployment
 

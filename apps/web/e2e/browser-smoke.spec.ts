@@ -47,6 +47,12 @@ test.describe('browser smoke', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' });
   });
 
+  test('mobile API rejects unauthenticated callers', async ({ request }) => {
+    const response = await request.get('/api/mobile?resource=notes');
+    expect(response.status()).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: 'Sign in is required.' });
+  });
+
   test('personal knowledge purge rejects unauthenticated callers', async ({ request }) => {
     const response = await request.post('/api/internal/personal-knowledge-purge');
     expect(response.status()).toBe(401);
@@ -213,7 +219,7 @@ test.describe('browser smoke', () => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
     await page.goto('/my-knowledge');
-    await expect(page.getByRole('heading', { name: 'My Knowledge' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My Notes' })).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Added date range' })).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Group cards by date' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Trash' })).toBeVisible();

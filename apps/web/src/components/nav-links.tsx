@@ -8,7 +8,7 @@ const NAV_ITEMS = [
   { href: '/saved', label: 'Review Queue' },
   { href: '/knowledge', label: 'Knowledge Map' },
   { href: '/dashboard', label: 'Dashboard' },
-  { href: '/my-knowledge', label: 'My Knowledge' },
+  { href: '/my-knowledge', label: 'My Notes' },
   { href: '/knowledge-inbox', label: 'Knowledge Inbox' },
   { href: '/ranking', label: 'Ranking' },
 ];

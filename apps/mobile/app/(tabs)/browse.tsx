@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
 import {
   FlatList,
@@ -19,15 +19,20 @@ import {
   getNodeSummary,
   getRelatedNodes,
 } from '@/knowledge';
+import { mobileApi, type CardStatus, type PersonalNote } from '@/api';
+import { useMobileAuth } from '@/auth';
 
 const DIFFICULTY_OPTIONS: DifficultyOption[] = ['All', 1, 2, 3, 4, 5];
 
 export default function BrowseScreen() {
   const router = useRouter();
+  const { isSignedIn } = useMobileAuth();
   const [query, setQuery] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<DomainOption>('All');
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyOption>('All');
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [statusByTitle, setStatusByTitle] = useState<Map<string, CardStatus | null>>(new Map());
+  const [personalNotes, setPersonalNotes] = useState<PersonalNote[]>([]);
 
   const domains = useMemo(() => getDomainOptions(), []);
   const nodes = useMemo(
@@ -43,6 +48,13 @@ export default function BrowseScreen() {
 
   const activeNode = selectedNode ?? nodes[0] ?? null;
   const relatedNodes = useMemo(() => (activeNode ? getRelatedNodes(activeNode.id) : []), [activeNode]);
+  useEffect(() => {
+    if (!isSignedIn) { setStatusByTitle(new Map()); setPersonalNotes([]); return; }
+    void mobileApi.graph().then(({ cards, personalItems }) => {
+      setStatusByTitle(new Map(cards.map((card) => [card.title.toLowerCase(), card.status])));
+      setPersonalNotes(personalItems);
+    }).catch(() => { setStatusByTitle(new Map()); setPersonalNotes([]); });
+  }, [isSignedIn]);
 
   function openActiveTopic() {
     if (!activeNode) return;
@@ -60,6 +72,7 @@ export default function BrowseScreen() {
           <View>
             <Text style={styles.kicker}>Browse</Text>
             <Text style={styles.title}>Find a topic</Text>
+            {personalNotes.length > 0 ? <View style={styles.personalPanel}><Text style={styles.personalTitle}>● {personalNotes.length} private note{personalNotes.length === 1 ? '' : 's'} in your map</Text><Text style={styles.personalCopy}>Purple nodes are private and only visible to you.</Text></View> : null}
 
             <TextInput
               accessibilityLabel="Search knowledge topics"
@@ -188,7 +201,7 @@ export default function BrowseScreen() {
                 {item.label}
               </Text>
               <Text style={styles.nodeMeta} numberOfLines={1}>
-                {item.domain} / {item.type}
+                {item.domain} / {item.type}{statusByTitle.get(item.label.toLowerCase()) === 'known' ? ' / explainable' : statusByTitle.get(item.label.toLowerCase()) === 'saved' ? ' / unclear' : ''}
               </Text>
             </View>
             <Text style={styles.nodeLevel}>D{item.difficulty}</Text>
@@ -232,6 +245,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginBottom: 12,
   },
+  personalPanel: { borderColor: '#d8b4fe', borderWidth: 1, backgroundColor: '#faf5ff', borderRadius: 8, padding: 12, marginBottom: 12 },
+  personalTitle: { color: '#581c87', fontWeight: '800' },
+  personalCopy: { color: '#6b21a8', fontSize: 13, marginTop: 4 },
   filterRow: {
     gap: 8,
     paddingBottom: 10,

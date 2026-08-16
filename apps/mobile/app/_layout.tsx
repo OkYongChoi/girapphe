@@ -11,6 +11,7 @@ export default function RootLayout() {
           <Stack.Screen name="topic/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="sign-in" options={{ title: 'Sign in', presentation: 'modal' }} />
           <Stack.Screen name="subscription" options={{ title: 'Ad-free subscription' }} />
+          <Stack.Screen name="admin" options={{ title: 'Administration' }} />
         </Stack>
       </SubscriptionProvider>
     </MobileAuthProvider>

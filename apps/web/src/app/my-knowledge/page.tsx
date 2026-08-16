@@ -106,7 +106,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
       <section className="mx-auto w-full max-w-4xl p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{isTrash ? 'Knowledge Trash' : 'My Knowledge'}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{isTrash ? 'Knowledge Trash' : 'My Notes'}</h1>
             <p className="mt-1 text-sm text-gray-600">
               {isTrash
                 ? `Restore deleted cards within ${PERSONAL_CARD_RETENTION_DAYS} days before they are permanently removed.`
@@ -208,7 +208,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
         </form>
 
         <div className="mt-3 flex items-center gap-2 text-sm">
-          <Link href="/my-knowledge" className={`rounded-lg border px-3 py-1.5 ${!isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>My cards</Link>
+          <Link href="/my-knowledge" className={`rounded-lg border px-3 py-1.5 ${!isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>My notes</Link>
           <Link href="/my-knowledge?view=trash" className={`rounded-lg border px-3 py-1.5 ${isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>Trash</Link>
         </div>
 
