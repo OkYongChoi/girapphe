@@ -62,7 +62,7 @@ the house card because there is no approved AdSense-for-Content test slot for a 
 | Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_AD_FREE_MONTHLY`, `STRIPE_PRICE_AD_FREE_ANNUAL` |
 | RevenueCat | `REVENUECAT_WEBHOOK_AUTHORIZATION`, `REVENUECAT_WEBHOOK_SIGNING_SECRET`, `REVENUECAT_APP_IDS`, `REVENUECAT_SECRET_API_KEY`, `REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS`, `REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS` |
 | AdSense | `NEXT_PUBLIC_ADSENSE_CLIENT_ID`, `NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID`, `NEXT_PUBLIC_ADSENSE_CONSENT_READY` |
-| Toss Payments | `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`, `TOSS_BILLING_ENCRYPTION_KEY`, `TOSS_MONTHLY_AMOUNT_KRW`, `TOSS_ANNUAL_AMOUNT_KRW`, `TOSS_BILLING_CRON_TOKEN` |
+| Toss Payments | Default-off gate `TOSS_BILLING_ENABLED`; credentials `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`, `TOSS_BILLING_ENCRYPTION_KEY`, `TOSS_MONTHLY_AMOUNT_KRW`, `TOSS_ANNUAL_AMOUNT_KRW`, `TOSS_BILLING_CRON_TOKEN` |
 
 The mobile build values, including final public Terms and Privacy URLs, are configured separately in EAS Environments. Follow
 `apps/mobile/SETUP.md`; do not put server-side RevenueCat or payment secrets in an Expo build.
@@ -147,15 +147,17 @@ an automatic token-removal change.
 ## Scheduled Toss renewals
 
 The `Process Toss subscription renewals` workflow calls the production-only internal billing
-endpoint hourly at minute 17. It does nothing while the complete Toss group is absent. Once
-enabled, Girapphe owns the renewal calendar, durable per-cycle order IDs, reconciliation, and
-retry/pause behavior; Toss does not schedule these charges for the application.
+endpoint hourly at minute 17. It does nothing unless `TOSS_BILLING_ENABLED` is exactly `true`
+and the complete Toss credential group is present. Once enabled, Girapphe owns the renewal
+calendar, durable per-cycle order IDs, reconciliation, and retry/pause behavior; Toss does not
+schedule these charges for the application.
 
-Before enabling it, complete the Toss automatic-billing contract and test authorization,
-initial charge or trial, renewal, failed-payment retry, cancellation races, reconciliation, and
-billing-key cleanup with sandbox credentials. Rotate `TOSS_BILLING_CRON_TOKEN` independently
-from `TOSS_BILLING_ENCRYPTION_KEY`. See `docs/reference/monetization.md` for the complete
-activation checklist.
+Before setting the gate to `true`, complete the Toss automatic-billing contract and test
+authorization, initial charge or trial, process termination after provider success, renewal,
+failed-payment retry, cancellation races, reconciliation, and billing-key cleanup with sandbox
+credentials. Rotate `TOSS_BILLING_CRON_TOKEN` independently from
+`TOSS_BILLING_ENCRYPTION_KEY`. See `docs/reference/monetization.md` for the complete activation
+checklist.
 
 ## Local work and verification
 

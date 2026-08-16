@@ -32,6 +32,10 @@ export class TossBillingError extends Error {
   }
 }
 
+export function isTossBillingEnabled() {
+  return process.env.TOSS_BILLING_ENABLED === 'true';
+}
+
 function readPositiveInteger(name: string) {
   const raw = process.env[name]?.trim() ?? '';
   const value = Number(raw);
@@ -55,6 +59,13 @@ function decodeEncryptionKey(raw: string) {
 }
 
 export function getTossBillingConfig(): TossBillingConfig {
+  if (!isTossBillingEnabled()) {
+    throw new TossBillingError(
+      'Toss recurring billing is disabled by the operational gate.',
+      'TOSS_BILLING_DISABLED'
+    );
+  }
+
   const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY?.trim() ?? '';
   const secretKey = process.env.TOSS_SECRET_KEY?.trim() ?? '';
   const encryptionKey = process.env.TOSS_BILLING_ENCRYPTION_KEY?.trim() ?? '';

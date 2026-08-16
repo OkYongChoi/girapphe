@@ -220,7 +220,8 @@ Registration only when a target client requires it, and include `profile` in
 the default scopes. Girapphe publishes OAuth discovery under `/.well-known/`;
 see [MCP card-draft ingestion](docs/reference/mcp-card-ingestion.md).
 
-Stripe, RevenueCat, AdSense, and Toss are optional complete configuration groups. The exact
+Stripe, RevenueCat, AdSense, and Toss are optional complete configuration groups. Toss also
+requires the separate, default-off `TOSS_BILLING_ENABLED=true` operational gate. The exact
 server names, webhook/scheduler requirements, migrations, and activation tests are documented
 in [Ads and subscriptions](docs/reference/monetization.md). Mobile Clerk, RevenueCat, and AdMob
 public build values belong in EAS Environments; see [Mobile setup](apps/mobile/SETUP.md).

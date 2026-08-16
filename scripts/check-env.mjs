@@ -272,6 +272,16 @@ function validate({ envName, map, allowPlaceholders }) {
   const tossConfigured = validateCompleteGroup(
     map, 'Toss recurring billing', tossKeys, allowPlaceholders, errors, warnings, envName,
   );
+  const tossBillingEnabled = map.get('TOSS_BILLING_ENABLED') ?? '';
+  if (tossBillingEnabled && !['true', 'false'].includes(tossBillingEnabled)) {
+    errors.push('TOSS_BILLING_ENABLED must be exactly true or false.');
+  }
+  if (tossBillingEnabled === 'true' && !tossConfigured) {
+    errors.push('TOSS_BILLING_ENABLED=true requires the complete Toss recurring billing group.');
+  }
+  if (tossConfigured && tossBillingEnabled !== 'true') {
+    warnings.push('Toss credentials are configured but TOSS_BILLING_ENABLED is not true; Toss stays disabled.');
+  }
 
   if (!allowPlaceholders && stripeConfigured) {
     const stripeSecret = valueFor(map, 'STRIPE_SECRET_KEY');

@@ -5,7 +5,11 @@ import {
   claimTossBillingSession,
   finishTossBillingSession,
 } from '@/lib/billing/toss-subscriptions';
-import { isTossCheckoutState, TossBillingError } from '@/lib/billing/toss';
+import {
+  isTossBillingConfigured,
+  isTossCheckoutState,
+  TossBillingError,
+} from '@/lib/billing/toss';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +23,9 @@ function redirectToSubscription(request: Request, params: Record<string, string>
 }
 
 export async function GET(request: Request) {
+  if (!isTossBillingConfigured()) {
+    return redirectToSubscription(request, { error: 'not_configured' });
+  }
   const user = await getCurrentUser();
   if (!user) return redirectToSubscription(request, { error: 'authentication_required' });
   if (!process.env.DATABASE_URL) return redirectToSubscription(request, { error: 'not_configured' });

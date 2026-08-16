@@ -351,6 +351,7 @@ export async function claimTossBillingSession(input: {
   customerKey: string;
   checkoutState: string;
 }): Promise<TossBillingSession> {
+  getTossBillingConfig();
   const tokenHash = await sha256Fingerprint(input.checkoutState);
   const claimed = await db.query<{ plan: TossBillingPlan }>(
     `UPDATE toss_billing_sessions SET status = 'processing',
@@ -789,6 +790,7 @@ export async function activateTossBilling(input: {
   checkoutTokenHash: string;
 }): Promise<TossBillingActivation> {
   if (!isPlan(input.plan)) throw new Error('Unsupported billing plan.');
+  getTossBillingConfig();
   const customer = await getBillingCustomer(input.userId);
   if (customer.toss_customer_key !== input.customerKey) throw new Error('Billing identity mismatch.');
 
@@ -1071,6 +1073,7 @@ async function processTossBillingKeyCleanup(limit: number) {
 }
 
 export async function processDueTossBilling(limit = 5) {
+  getTossBillingConfig();
   const boundedLimit = Math.max(1, Math.min(limit, 10));
   const reconciled = await reconcilePaidTossCharges(boundedLimit);
   const due = await claimDueAgreements(boundedLimit);
@@ -1169,6 +1172,7 @@ export async function processDueTossBilling(limit = 5) {
 }
 
 export async function cancelTossBilling(userId: string) {
+  getTossBillingConfig();
   await db.query(
     `UPDATE toss_billing_sessions SET status = 'abandoned',
        processing_started_at = NULL, updated_at = NOW()

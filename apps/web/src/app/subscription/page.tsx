@@ -134,7 +134,7 @@ export default async function SubscriptionPage(props: {
           {subscription?.provider === 'revenuecat' && (
             <p className="mt-4 text-sm text-slate-600">Manage or restore this subscription from the App Store or Google Play account used for purchase.</p>
           )}
-          {subscription?.provider === 'toss' && !subscription.cancelAtPeriodEnd && (
+          {subscription?.provider === 'toss' && !subscription.cancelAtPeriodEnd && tossConfigured && (
             <form action="/api/billing/toss/cancel" method="post" className="mt-4">
               <button type="submit" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
                 Cancel Toss renewal
@@ -211,7 +211,7 @@ export default async function SubscriptionPage(props: {
                 </article>
               </div>
             ) : (
-              <p className="mt-4 text-sm text-amber-800">Toss automatic billing is hidden until the complete contract configuration and renewal scheduler are ready.</p>
+              <p className="mt-4 text-sm text-amber-800">Toss automatic billing remains hidden until its operational gate is explicitly enabled after the complete contract configuration and renewal scheduler are ready.</p>
             )}
           </div>
         </section>

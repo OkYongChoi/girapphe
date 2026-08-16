@@ -7,10 +7,14 @@ import {
   decryptTossBillingKey,
   deleteTossBillingKey,
   encryptTossBillingKey,
+  getTossBillingConfig,
+  isTossBillingConfigured,
   isTossCheckoutState,
+  TossBillingError,
 } from './toss';
 
 function setTestTossEnvironment() {
+  process.env.TOSS_BILLING_ENABLED = 'true';
   process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY = 'test_ck_example';
   process.env.TOSS_SECRET_KEY = 'test_sk_example';
   process.env.TOSS_BILLING_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
@@ -49,8 +53,56 @@ test('creates a one-time checkout state with a strict wire format', () => {
   assert.equal(isTossCheckoutState(first.toUpperCase()), false);
 });
 
+test('requires an explicit exact operational gate in addition to complete Toss credentials', () => {
+  const previous = {
+    enabled: process.env.TOSS_BILLING_ENABLED,
+    client: process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY,
+    secret: process.env.TOSS_SECRET_KEY,
+    encryption: process.env.TOSS_BILLING_ENCRYPTION_KEY,
+    monthly: process.env.TOSS_MONTHLY_AMOUNT_KRW,
+    annual: process.env.TOSS_ANNUAL_AMOUNT_KRW,
+    cron: process.env.TOSS_BILLING_CRON_TOKEN,
+  };
+  setTestTossEnvironment();
+
+  try {
+    delete process.env.TOSS_BILLING_ENABLED;
+    assert.equal(isTossBillingConfigured(), false);
+    assert.throws(
+      () => getTossBillingConfig(),
+      (error: unknown) => error instanceof TossBillingError
+        && error.code === 'TOSS_BILLING_DISABLED',
+    );
+
+    process.env.TOSS_BILLING_ENABLED = 'false';
+    assert.equal(isTossBillingConfigured(), false);
+    process.env.TOSS_BILLING_ENABLED = 'TRUE';
+    assert.equal(isTossBillingConfigured(), false);
+    process.env.TOSS_BILLING_ENABLED = ' true ';
+    assert.equal(isTossBillingConfigured(), false);
+
+    process.env.TOSS_BILLING_ENABLED = 'true';
+    assert.equal(isTossBillingConfigured(), true);
+  } finally {
+    const entries: Array<[string, string | undefined]> = [
+      ['TOSS_BILLING_ENABLED', previous.enabled],
+      ['NEXT_PUBLIC_TOSS_CLIENT_KEY', previous.client],
+      ['TOSS_SECRET_KEY', previous.secret],
+      ['TOSS_BILLING_ENCRYPTION_KEY', previous.encryption],
+      ['TOSS_MONTHLY_AMOUNT_KRW', previous.monthly],
+      ['TOSS_ANNUAL_AMOUNT_KRW', previous.annual],
+      ['TOSS_BILLING_CRON_TOKEN', previous.cron],
+    ];
+    for (const [name, value] of entries) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
 test('encrypts stored billing keys with authenticated AES-GCM', async () => {
   const previous = {
+    enabled: process.env.TOSS_BILLING_ENABLED,
     client: process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY,
     secret: process.env.TOSS_SECRET_KEY,
     encryption: process.env.TOSS_BILLING_ENCRYPTION_KEY,
@@ -74,6 +126,7 @@ test('encrypts stored billing keys with authenticated AES-GCM', async () => {
     await assert.rejects(decryptTossBillingKey(tampered), /could not be decrypted/);
   } finally {
     const entries: Array<[string, string | undefined]> = [
+      ['TOSS_BILLING_ENABLED', previous.enabled],
       ['NEXT_PUBLIC_TOSS_CLIENT_KEY', previous.client],
       ['TOSS_SECRET_KEY', previous.secret],
       ['TOSS_BILLING_ENCRYPTION_KEY', previous.encryption],
@@ -91,6 +144,7 @@ test('encrypts stored billing keys with authenticated AES-GCM', async () => {
 test('accepts Toss billing-key deletion with an empty successful response', async () => {
   const previousFetch = globalThis.fetch;
   const previous = {
+    enabled: process.env.TOSS_BILLING_ENABLED,
     client: process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY,
     secret: process.env.TOSS_SECRET_KEY,
     encryption: process.env.TOSS_BILLING_ENCRYPTION_KEY,
@@ -106,6 +160,7 @@ test('accepts Toss billing-key deletion with an empty successful response', asyn
   } finally {
     globalThis.fetch = previousFetch;
     const entries: Array<[string, string | undefined]> = [
+      ['TOSS_BILLING_ENABLED', previous.enabled],
       ['NEXT_PUBLIC_TOSS_CLIENT_KEY', previous.client],
       ['TOSS_SECRET_KEY', previous.secret],
       ['TOSS_BILLING_ENCRYPTION_KEY', previous.encryption],

@@ -22,6 +22,7 @@ jobs:
         id: billing_config
         env:
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          TOSS_BILLING_ENABLED: ${{ secrets.TOSS_BILLING_ENABLED }}
           TOSS_BILLING_CRON_TOKEN: ${{ secrets.TOSS_BILLING_CRON_TOKEN }}
           NEXT_PUBLIC_TOSS_CLIENT_KEY: ${{ secrets.NEXT_PUBLIC_TOSS_CLIENT_KEY }}
           TOSS_SECRET_KEY: ${{ secrets.TOSS_SECRET_KEY }}
@@ -31,6 +32,10 @@ jobs:
         run: |
           set -euo pipefail
           configured=true
+          if [ "${TOSS_BILLING_ENABLED:-}" != "true" ]; then
+            configured=false
+            echo "Toss subscription billing skipped: TOSS_BILLING_ENABLED is not exactly true." >> "$GITHUB_STEP_SUMMARY"
+          fi
           for key in APP_BASE_URL TOSS_BILLING_CRON_TOKEN NEXT_PUBLIC_TOSS_CLIENT_KEY TOSS_SECRET_KEY TOSS_BILLING_ENCRYPTION_KEY TOSS_MONTHLY_AMOUNT_KRW TOSS_ANNUAL_AMOUNT_KRW; do
             if [ -z "${!key:-}" ]; then
               configured=false
@@ -42,7 +47,7 @@ jobs:
           fi
           echo "configured=$configured" >> "$GITHUB_OUTPUT"
           if [ "$configured" != true ]; then
-            echo "Toss subscription billing skipped: production configuration is incomplete." >> "$GITHUB_STEP_SUMMARY"
+            echo "Toss subscription billing skipped: the explicit gate and complete production configuration are both required." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Process due Toss subscriptions

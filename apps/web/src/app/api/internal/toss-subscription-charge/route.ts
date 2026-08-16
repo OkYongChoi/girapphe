@@ -1,4 +1,5 @@
 import { processDueTossBilling } from '@/lib/billing/toss-subscriptions';
+import { isTossBillingConfigured } from '@/lib/billing/toss';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,12 @@ export async function POST(request: Request) {
   const received = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? '';
   if (!expected || !received || !(await safeSecretEqual(received, expected))) {
     return Response.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  if (!isTossBillingConfigured()) {
+    return Response.json(
+      { error: 'billing_unavailable' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
+    );
   }
   if (!process.env.DATABASE_URL) return Response.json({ error: 'billing_unavailable' }, { status: 503 });
 

@@ -8,6 +8,7 @@ import {
 import { TossBillingError } from './toss';
 
 const tossEnvironment: Record<string, string> = {
+  TOSS_BILLING_ENABLED: 'true',
   NEXT_PUBLIC_TOSS_CLIENT_KEY: 'test_ck_security',
   TOSS_SECRET_KEY: 'test_sk_security',
   TOSS_BILLING_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),

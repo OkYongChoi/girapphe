@@ -1,6 +1,10 @@
 import { getCurrentUser } from '@/lib/auth';
 import { prepareTossBilling } from '@/lib/billing/toss-subscriptions';
-import { TossBillingError, type TossBillingPlan } from '@/lib/billing/toss';
+import {
+  isTossBillingConfigured,
+  TossBillingError,
+  type TossBillingPlan,
+} from '@/lib/billing/toss';
 import { requestHasTrustedOrigin } from '@/lib/billing/stripe';
 import { hasAdFreeEntitlement, hasBlockingSubscription } from '@/lib/billing/database';
 import { readBoundedJson } from '@/lib/billing/bounded-json';
@@ -14,6 +18,12 @@ function isPlan(value: unknown): value is TossBillingPlan {
 export async function POST(request: Request) {
   if (!requestHasTrustedOrigin(request)) {
     return Response.json({ error: 'invalid_request_origin' }, { status: 403 });
+  }
+  if (!isTossBillingConfigured()) {
+    return Response.json(
+      { error: 'billing_unavailable' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
+    );
   }
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'authentication_required' }, { status: 401 });

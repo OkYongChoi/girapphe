@@ -31,7 +31,9 @@ it does not grant access by itself. Configure the webhook for `checkout.session.
 
 ### Toss Payments web billing
 
-Toss is optional and is shown only when the complete server configuration is present.
+Toss is optional and default-off. It is shown and its API routes operate only when
+`TOSS_BILLING_ENABLED` is exactly `true` in addition to the complete server configuration.
+Credential presence by itself never activates checkout, callbacks, cancellation, or renewals.
 The browser requests card billing authorization with a short-lived, single-use server
 nonce bound to the signed-in user, Toss customer, and selected plan. The callback consumes
 that state before exchanging the one-time authorization value, then immediately redirects
@@ -47,10 +49,18 @@ reused only for the exact persisted plan and cycle; superseded, unattempted rows
 Cancellation fences an in-flight lease and retains failed billing-key deletion as durable
 cleanup work for the hourly job.
 
+These records and provider idempotency reduce duplicate-charge risk, but they cannot create an
+exact transaction across Toss and PostgreSQL. A process can still stop after Toss accepts a
+payment and before the local paid marker commits. The next run must reconcile that stable order
+with Toss before retrying; an uncertain result must remain pending/paused for operator review,
+not be treated as proof of failure. Keep the operational gate off until this termination and
+recovery path has been exercised in sandbox mode.
+
 Toss automatic billing requires the applicable merchant contract and supported domestic
-cards. Girapphe, rather than Toss, owns the renewal schedule. Activate
-`.github/workflows/toss-subscription-billing.yml` only after the contract, test-mode cycle,
-refund/cancellation operations, and live credentials are ready.
+cards. Girapphe, rather than Toss, owns the renewal schedule. Set `TOSS_BILLING_ENABLED=true`
+only after the contract, test-mode cycle, process-termination recovery drill,
+refund/cancellation operations, scheduler, and live credentials are ready. The workflow itself
+also checks the gate and complete group before calling production.
 
 ### RevenueCat, App Store, and Google Play
 
@@ -99,7 +109,7 @@ GitHub Actions/Cloudflare settings, never in the repository or chat.
 | Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_AD_FREE_MONTHLY`, `STRIPE_PRICE_AD_FREE_ANNUAL` |
 | RevenueCat | `REVENUECAT_WEBHOOK_AUTHORIZATION`, `REVENUECAT_WEBHOOK_SIGNING_SECRET`, `REVENUECAT_APP_IDS`, `REVENUECAT_SECRET_API_KEY`, `REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS`, `REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS` |
 | AdSense | `NEXT_PUBLIC_ADSENSE_CLIENT_ID`, `NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID`, `NEXT_PUBLIC_ADSENSE_CONSENT_READY` |
-| Toss | `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`, `TOSS_BILLING_ENCRYPTION_KEY`, `TOSS_MONTHLY_AMOUNT_KRW`, `TOSS_ANNUAL_AMOUNT_KRW`, `TOSS_BILLING_CRON_TOKEN` |
+| Toss | Gate: `TOSS_BILLING_ENABLED`; credentials: `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`, `TOSS_BILLING_ENCRYPTION_KEY`, `TOSS_MONTHLY_AMOUNT_KRW`, `TOSS_ANNUAL_AMOUNT_KRW`, `TOSS_BILLING_CRON_TOKEN` |
 
 Preview uses corresponding GitHub secret names with `_PREVIEW` appended and provider
 test/sandbox resources, except AdSense: PR aliases always use the house card because AdSense
@@ -130,9 +140,12 @@ checker rejects partially configured groups and test/live mismatches.
    AdMob apps/NativeAd units, publish app-ads.txt, and configure/test the UMP message. Only then
    set the AdSense consent-ready flag and enable production ad values; non-personalized ads
    still require applicable consent.
-6. If enabling Toss, complete the automatic-billing contract, choose integer KRW prices,
-   generate a base64-encoded 32-byte encryption key and independent scheduler token, verify test-card
-   authorization/renewal/cancel/reconciliation, then switch the whole group to live values.
+6. If enabling Toss, leave `TOSS_BILLING_ENABLED` absent or `false` while completing the
+   automatic-billing contract, choosing integer KRW prices, generating a base64-encoded 32-byte
+   encryption key and independent scheduler token, and verifying test-card authorization,
+   renewal, cancellation, process termination after provider success, and reconciliation.
+   Switch the complete credential group to live values, verify the scheduler target, and only
+   then set the gate to exactly `true`.
 7. Add names through GitHub Secrets/EAS Environments, deploy a PR preview, and verify webhooks,
    the fifth-action ad, `ad_free` suppression, account switching, and provider dashboards.
 

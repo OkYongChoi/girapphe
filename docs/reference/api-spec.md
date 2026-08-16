@@ -131,7 +131,8 @@ bound writes; OAuth discovery metadata is public under `/.well-known/`.
   `monthly` or `annual` plan. Existing nonterminal subscriptions block a second checkout.
 - `POST /api/billing/portal`: same-origin, signed-in Stripe Customer Portal session.
 - `POST /api/billing/toss/prepare`: creates a signed-in, one-time Toss billing-authorization
-  state bound to the user, customer key, and selected plan.
+  state bound to the user, customer key, and selected plan. It returns unavailable unless
+  `TOSS_BILLING_ENABLED` is exactly `true` and the complete Toss configuration is present.
 - `GET /api/billing/toss/callback`: verifies and consumes that server state before exchanging
   Toss's one-time authorization value; the callback redirects to a clean subscription URL.
 - `POST /api/billing/toss/cancel`: same-origin cancellation of future Girapphe-scheduled Toss
@@ -141,7 +142,8 @@ bound writes; OAuth discovery metadata is public under `/.well-known/`.
 - `POST /api/webhooks/revenuecat`: configured authorization plus raw-body signature,
   app/environment checks, and authoritative RevenueCat subscriber reconciliation.
 - `POST /api/internal/toss-subscription-charge`: bearer-protected production scheduler target.
-  It reconciles durable paid rows before attempting bounded due renewals.
+  It is fail-closed behind the same explicit Toss gate and reconciles durable paid rows before
+  attempting bounded due renewals.
 
 Redirects, callback query strings, and mobile client state are not accepted as server-side proof
 of a web entitlement. See [Ads and subscriptions](./monetization.md) for provider contracts and
