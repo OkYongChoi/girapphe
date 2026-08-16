@@ -18,6 +18,18 @@ const TOKEN_ALIASES: Record<string, string[]> = {
 
 const STOP_WORDS = new Set(['a', 'an', 'and', 'for', 'in', 'of', 'on', 'the', 'to']);
 
+const HTML_TOOLTIP_ENTITIES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+export function escapeGraphTooltipText(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => HTML_TOOLTIP_ENTITIES[character] ?? character);
+}
+
 function getTokens(value: string): Set<string> {
   const rawTokens = value
     .toLowerCase()

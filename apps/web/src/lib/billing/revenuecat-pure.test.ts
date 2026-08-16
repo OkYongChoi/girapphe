@@ -7,6 +7,7 @@ import {
   planFromRevenueCatProductId,
   processRevenueCatEvent,
   processRevenueCatTransfer,
+  REVENUECAT_REQUEST_TIMEOUT_MS,
   verifyRevenueCatTransferDestination,
   type RevenueCatEvent,
 } from './revenuecat';
@@ -174,6 +175,35 @@ test('accepts a finite RevenueCat millisecond timestamp before store filtering',
     event_timestamp_ms: 1_700_000_000_000,
     store: 'STRIPE',
   })));
+});
+
+test('bounds the authoritative RevenueCat request before the webhook response deadline', async (context) => {
+  const previousApiKey = process.env.REVENUECAT_SECRET_API_KEY;
+  const originalFetch = globalThis.fetch;
+  const observedSignals: AbortSignal[] = [];
+  context.after(() => {
+    if (previousApiKey === undefined) delete process.env.REVENUECAT_SECRET_API_KEY;
+    else process.env.REVENUECAT_SECRET_API_KEY = previousApiKey;
+    globalThis.fetch = originalFetch;
+  });
+  process.env.REVENUECAT_SECRET_API_KEY = 'rc_test_secret';
+  globalThis.fetch = ((_input, init) => new Promise<Response>((_resolve, reject) => {
+    const signal = init?.signal;
+    assert.ok(signal);
+    observedSignals.push(signal);
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  })) as typeof fetch;
+
+  assert.equal(REVENUECAT_REQUEST_TIMEOUT_MS, 10_000);
+  await assert.rejects(
+    verifyRevenueCatTransferDestination(
+      'user_timeout_test',
+      new Date('2030-01-01T00:00:00.000Z'),
+      20,
+    ),
+    /RevenueCat Customer Info request timed out/,
+  );
+  assert.equal(observedSignals[0]?.aborted, true);
 });
 
 test('an environment-less sandbox transfer cannot mutate any subscription row', async (context) => {

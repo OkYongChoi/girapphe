@@ -19,6 +19,13 @@ type SubmitAssessmentWithCooldownRetryOptions<Node> = {
 const DEFAULT_RETRY_AFTER_MS = 2_000;
 const MAX_RETRY_AFTER_MS = 5_000;
 
+export function assessmentFeedbackAppliesToNode(
+  submittedNodeId: string,
+  selectedNodeId: string | null,
+): boolean {
+  return submittedNodeId === selectedNodeId;
+}
+
 export async function submitAssessmentWithCooldownRetry<Node>({
   nodeId,
   result,

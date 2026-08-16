@@ -2,13 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import db from './db';
-import { submitAssessmentWithCooldownRetry } from './assessment-retry';
+import {
+  assessmentFeedbackAppliesToNode,
+  submitAssessmentWithCooldownRetry,
+} from './assessment-retry';
 import {
   InvalidJsonBodyError,
   RequestBodyTooLargeError,
   readBoundedJsonBody,
 } from './bounded-json-body';
-import { getPersonalizedNoteGraphAdditions } from './home-graph-notes';
+import { escapeGraphTooltipText, getPersonalizedNoteGraphAdditions } from './home-graph-notes';
 import {
   QuizRateLimitError,
   UnknownGraphNodeError,
@@ -89,6 +92,12 @@ test('a rate-limited graph assessment retries the same state once', async () => 
   assert.deepEqual(delays, [2_000]);
 });
 
+test('quiz feedback stays attached to the node that was submitted', () => {
+  assert.equal(assessmentFeedbackAppliesToNode('node-a', 'node-a'), true);
+  assert.equal(assessmentFeedbackAppliesToNode('node-a', 'node-b'), false);
+  assert.equal(assessmentFeedbackAppliesToNode('node-a', null), false);
+});
+
 test('guest review stats and the mock review queue use the same statuses', () => {
   const guestCardCount = 12;
   const statuses = Array.from({ length: guestCardCount }, (_, index) => getMockCardStatus(index));
@@ -129,6 +138,14 @@ test('personal notes become a distinct group linked by topic matches', () => {
     true,
   );
   assert.equal(additions.links.some((link) => link.source === 'cell_biology'), false);
+});
+
+test('home graph tooltips escape stored note titles before the non-React tooltip sink', () => {
+  const escaped = escapeGraphTooltipText('<img src=x onerror="alert(1)">&\'');
+
+  assert.equal(escaped, '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;&#39;');
+  assert.equal(escaped.includes('<'), false);
+  assert.equal(escaped.includes('>'), false);
 });
 
 test('the memory quiz path rejects unknown graph node IDs', async () => {

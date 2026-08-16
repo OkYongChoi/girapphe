@@ -10,6 +10,8 @@ import {
 
 type JsonObject = Record<string, unknown>;
 
+export const REVENUECAT_REQUEST_TIMEOUT_MS = 10_000;
+
 export type RevenueCatEvent = {
   id: string;
   type: string;
@@ -133,21 +135,37 @@ type RevenueCatSnapshot = {
   productId: string | null;
 };
 
-async function fetchRevenueCatSnapshot(userId: string): Promise<RevenueCatSnapshot> {
+async function fetchRevenueCatSnapshot(
+  userId: string,
+  requestTimeoutMs = REVENUECAT_REQUEST_TIMEOUT_MS,
+): Promise<RevenueCatSnapshot> {
   const apiKey = process.env.REVENUECAT_SECRET_API_KEY?.trim();
   if (!apiKey) throw new Error('REVENUECAT_SECRET_API_KEY is not configured.');
-  const response = await fetch(
-    `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`,
-    {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      cache: 'no-store',
-    },
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(new Error('RevenueCat Customer Info request timed out.')),
+    requestTimeoutMs,
   );
-  const payload: unknown = await response.json().catch(() => null);
+  let response: Response;
+  let payload: unknown;
+
+  try {
+    response = await fetch(
+      `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        cache: 'no-store',
+        signal: controller.signal,
+      },
+    );
+    payload = await response.json().catch(() => null);
+  } finally {
+    clearTimeout(timeoutId);
+  }
   if (!response.ok || !isObject(payload) || !isObject(payload.subscriber)) {
     throw new Error(`RevenueCat Customer Info request failed with status ${response.status}.`);
   }
@@ -259,8 +277,9 @@ type VerifiedRevenueCatTransfer = Omit<SubscriptionWrite, 'provider'>;
 export async function verifyRevenueCatTransferDestination(
   userId: string,
   eventAt: Date,
+  requestTimeoutMs = REVENUECAT_REQUEST_TIMEOUT_MS,
 ): Promise<VerifiedRevenueCatTransfer | null> {
-  const snapshot = await fetchRevenueCatSnapshot(userId);
+  const snapshot = await fetchRevenueCatSnapshot(userId, requestTimeoutMs);
   if (
     !snapshot.active
     || !snapshot.productionStorePurchase

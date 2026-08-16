@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { ForceGraphData } from '@stem-brain/graph-engine';
 import {
+  escapeGraphTooltipText,
   getPersonalizedNoteGraphAdditions,
   type PersonalizedGraphNote,
 } from '@/lib/home-graph-notes';
@@ -504,7 +505,7 @@ export default function HomeGraphScene({
           width={dimensions.width}
           height={dimensions.height}
           backgroundColor="rgba(0,0,0,0)"
-          nodeLabel={(node: any) => node.name}
+          nodeLabel={(node: any) => escapeGraphTooltipText(String(node.name ?? ''))}
           nodeVal="val"
           nodeColor="color"
           nodeOpacity={0.9}
