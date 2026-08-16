@@ -13,10 +13,14 @@ let failed = false;
 for (const check of checks) {
   const url = `${baseUrl}${check.path}`;
   try {
-    const response = await fetch(url, { redirect: 'manual' });
+    // Public pages may canonicalize to a locale-prefixed path. Follow that
+    // redirect so the smoke test verifies the rendered destination and still
+    // fails on redirect loops or an unavailable localized page.
+    const response = await fetch(url, { redirect: 'follow' });
     const ok = response.status === check.expected;
     const marker = ok ? 'OK' : 'FAIL';
-    console.log(`[${marker}] ${check.path} -> ${response.status}`);
+    const destination = new URL(response.url).pathname;
+    console.log(`[${marker}] ${check.path} -> ${response.status} (${destination})`);
     if (!ok) failed = true;
   } catch (error) {
     failed = true;
