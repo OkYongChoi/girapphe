@@ -94,6 +94,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
   const groupBy = params.group === 'week' || params.group === 'month' ? params.group : 'none';
   const isTrash = params.view === 'trash';
   const actor = await getCurrentActor();
+  const clearFiltersHref = isTrash ? '/my-knowledge?view=trash' : '/my-knowledge';
 
   const [items, linkTargets, privateGraph] = await Promise.all([
     isTrash ? getDeletedKnowledgeItems() : getUserKnowledgeItems(),
@@ -231,7 +232,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
 
             {hasActiveFilter && (
               <Link
-                href="/my-knowledge"
+                href={clearFiltersHref}
                 className="rounded-lg border px-4 py-2 text-center text-sm text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 Clear
@@ -377,7 +378,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
               <p className="mt-1 text-sm text-gray-500">
                 Try a different search term or topic filter.
               </p>
-              <Link href="/my-knowledge" className="mt-3 inline-block text-sm text-blue-600 hover:underline">
+              <Link href={clearFiltersHref} className="mt-3 inline-block text-sm text-blue-600 hover:underline">
                 Clear filters
               </Link>
             </div>

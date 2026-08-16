@@ -8,6 +8,11 @@ import { GRAPH_EDGES } from '@stem-brain/graph-engine';
 import { GRAPH_NODES } from '@stem-brain/graph-engine';
 import { CARD_CONTENT } from '@stem-brain/graph-engine';
 import { getCardLevelMeta, type CardLevel, type EdgeType } from '@stem-brain/graph-engine';
+import {
+  getMockCardStatus,
+  getMockPracticeStats,
+  isCardEligibleForPracticeMode,
+} from '@/lib/practice-queue';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -438,12 +443,6 @@ function limitCardsForGuestKnowledgeMap<T extends { id: string; domain?: string 
   }
 
   return result;
-}
-
-function getGuestKnowledgeMapStatus(index: number): CardStatus | null {
-  if (index % 7 === 0 || index % 11 === 0) return 'known';
-  if (index % 5 === 0 || index % 13 === 0) return 'saved';
-  return null;
 }
 
 for (const edge of GRAPH_EDGES) {
@@ -882,12 +881,12 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
 
   if (user.isGuest || !process.env.DATABASE_URL) {
     const mockRows: CardWithStatusRow[] = limitCardsForGuest(MOCK_CARDS, user.isGuest)
-      .filter((card) => !excluded.has(card.id))
-      .map((card) => ({
+      .map((card, index) => ({
         ...card,
-        status: null,
+        status: getMockCardStatus(index),
         last_seen: null,
-      }));
+      }))
+      .filter((card) => !excluded.has(card.id));
 
     const selected = selectSmartSuggestedCard(mockRows, mode);
     return selected ?? null;
@@ -976,18 +975,16 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
       if (selected) return selected;
     }
 
-    const fallbackCards = user.isGuest ? limitCardsForGuest(MOCK_CARDS, true) : MOCK_CARDS;
-    const fallbackCard = fallbackCards[Math.floor(Math.random() * fallbackCards.length)];
-    return fallbackCard ? withCardDomains(withRelatedConcepts(fallbackCard)) : null;
+    return null;
   } catch (error) {
     console.error('Error in getNextCard:', error);
     const mockRows: CardWithStatusRow[] = limitCardsForGuest(MOCK_CARDS, user.isGuest)
-      .filter((card) => !excluded.has(card.id))
-      .map((card) => ({
+      .map((card, index) => ({
         ...card,
-        status: null,
+        status: getMockCardStatus(index),
         last_seen: null,
-      }));
+      }))
+      .filter((card) => !excluded.has(card.id));
     return selectSmartSuggestedCard(mockRows, mode);
   }
 }
@@ -1033,10 +1030,7 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
       lastSeenTs,
       randomTieBreaker: Math.random(),
     };
-  }).filter((candidate) => {
-    if (mode === 'new') return candidate.card.status !== 'known';
-    return candidate.card.status === 'saved';
-  });
+  }).filter((candidate) => isCardEligibleForPracticeMode(candidate.card.status ?? null, mode));
 
   candidates.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
@@ -1210,11 +1204,14 @@ export async function getSavedCards() {
   const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
-    return limitCardsForGuest(MOCK_CARDS, user.isGuest).map((c) => ({
-      ...withCardDomains(c),
-      status: 'saved',
-      last_seen: new Date(),
-    }));
+    return limitCardsForGuest(MOCK_CARDS, user.isGuest)
+      .map((card, index) => ({ card, status: getMockCardStatus(index) }))
+      .filter((entry) => entry.status === 'saved')
+      .map(({ card }) => ({
+        ...withCardDomains(card),
+        status: 'saved' as const,
+        last_seen: new Date(),
+      }));
   }
 
   try {
@@ -1287,7 +1284,7 @@ export async function getUserStats() {
   const user = await requireCurrentActor();
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    return { explainable: 12, unclear: 5 };
+    return getMockPracticeStats(limitCardsForGuest(MOCK_CARDS, user.isGuest).length);
   }
 
   try {
@@ -1315,7 +1312,7 @@ export async function getUserStats() {
     };
   } catch (error) {
     console.error('Error in getUserStats:', error);
-    return { explainable: 0, unclear: 0 };
+    return getMockPracticeStats(MOCK_CARDS.length);
   }
 }
 
@@ -1342,7 +1339,7 @@ export async function getAllCardsWithStatus(options?: {
 
     return limited.map((c, index) => ({
       ...withCardDomains(c),
-      status: user.isGuest ? getGuestKnowledgeMapStatus(index) : null,
+      status: user.isGuest ? getMockCardStatus(index) : null,
     }));
   }
 
@@ -1374,7 +1371,7 @@ export async function getAllCardsWithStatus(options?: {
       return limitCardsForGuestKnowledgeMap(res.rows as CardWithStatusRow[], user.isGuest)
         .map((row, index) => ({
           ...row,
-          status: user.isGuest ? getGuestKnowledgeMapStatus(index) : deriveLegacyStatus(row),
+          status: user.isGuest ? getMockCardStatus(index) : deriveLegacyStatus(row),
         }))
         .map((row) => withCardDomains(withRelatedConcepts(row)));
     }
@@ -1427,7 +1424,7 @@ export async function getAllCardsWithStatus(options?: {
     return merged
       .map((row, index) => ({
         ...row,
-        status: user.isGuest ? getGuestKnowledgeMapStatus(index) : deriveLegacyStatus(row),
+        status: user.isGuest ? getMockCardStatus(index) : deriveLegacyStatus(row),
       }))
       .map((row) => withCardDomains(withRelatedConcepts(row)));
   } catch (error) {
@@ -1444,7 +1441,7 @@ export async function getAllCardsWithStatus(options?: {
       : cards;
     return limited.map((c, index) => ({
       ...withCardDomains(c),
-      status: user.isGuest ? getGuestKnowledgeMapStatus(index) : (null as CardStatus | null),
+      status: user.isGuest ? getMockCardStatus(index) : (null as CardStatus | null),
     }));
   }
 }

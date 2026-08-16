@@ -303,7 +303,7 @@ export default function CardViewer({
     return (
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center max-w-sm mx-auto bg-white border border-gray-100 rounded-2xl shadow-sm mt-4">
         <p className="text-xl font-bold text-gray-900">
-          {mode === 'review' ? "You're all caught up on review queue items!" : "All caught up on new/unclear cards!"}
+          {mode === 'review' ? "You're all caught up on review queue items!" : "You're all caught up on new cards!"}
         </p>
         <p className="text-gray-500 mt-2 text-sm leading-relaxed">
           {isGuest && mode === 'new'

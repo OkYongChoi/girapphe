@@ -236,6 +236,7 @@ export default async function HomePage() {
               unclear={sceneStats.review}
               notes={sceneStats.notes}
               personalizedGraphData={userGraphData}
+              personalizedNotes={userKnowledgeItems.map(({ id, title, topic }) => ({ id, title, topic }))}
             />
           </div>
         </div>

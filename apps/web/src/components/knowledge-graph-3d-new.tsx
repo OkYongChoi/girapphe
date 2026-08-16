@@ -7,6 +7,7 @@ import Link from 'next/link';
 import type { GraphNodeWithKnowledge, GraphEdge, NodeType } from '@stem-brain/graph-engine';
 import { getDomainColor } from '@stem-brain/graph-engine';
 import { submitQuizResult } from '@/actions/graph-actions';
+import { submitAssessmentWithCooldownRetry } from '@/lib/assessment-retry';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
@@ -69,6 +70,10 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
   const [quizLoading, setQuizLoading] = useState(false);
+  const [quizFeedback, setQuizFeedback] = useState<{
+    kind: 'status' | 'error';
+    message: string;
+  } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [colorMode, setColorMode] = useState<'knowledge' | 'domain'>('knowledge');
   const [visibleDomains, setVisibleDomains] = useState<Set<string>>(new Set());
@@ -104,6 +109,7 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
   }, [domainList]);
 
   const focusNode = useCallback((node: any) => {
+    setQuizFeedback(null);
     setSelectedNode({
       id: node.id,
       label: node.label,
@@ -206,23 +212,50 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
   const handleQuizAnswer = useCallback(
     async (result: 0 | 0.5 | 1) => {
       if (!selectedNode || quizLoading) return;
+      const submittedNodeId = selectedNode.id;
       setQuizLoading(true);
+      setQuizFeedback(null);
 
       try {
-        const res = await submitQuizResult(selectedNode.id, result);
+        const res = await submitAssessmentWithCooldownRetry({
+          nodeId: submittedNodeId,
+          result,
+          submit: submitQuizResult,
+          onRateLimited: () => {
+            setQuizFeedback({
+              kind: 'status',
+              message: 'Waiting for the quiz cooldown, then saving this assessment…',
+            });
+          },
+        });
         if (res.success && res.node) {
           setSelectedNode((prev) =>
-            prev
+            prev?.id === submittedNodeId
               ? {
                   ...prev,
                   knowledge: res.node!.knowledge,
                   confidence: res.node!.confidence,
                 }
-              : null
+              : prev
           );
+          setQuizFeedback({ kind: 'status', message: 'Assessment saved.' });
+        } else {
+          setQuizFeedback({
+            kind: 'error',
+            message:
+              res.error === 'rate_limited'
+                ? 'The assessment could not be saved after waiting. Please try again.'
+                : res.error === 'unknown_node'
+                  ? 'This concept is no longer available. Refresh the graph and try again.'
+                  : 'The assessment could not be saved. Please try again.',
+          });
         }
       } catch (err) {
         console.error('Quiz submission error:', err);
+        setQuizFeedback({
+          kind: 'error',
+          message: 'The assessment could not be saved. Please try again.',
+        });
       } finally {
         setQuizLoading(false);
       }
@@ -684,6 +717,16 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
                   Unknown
                 </button>
               </div>
+              {quizFeedback && (
+                <p
+                  role={quizFeedback.kind === 'error' ? 'alert' : 'status'}
+                  className={`mt-3 text-xs ${
+                    quizFeedback.kind === 'error' ? 'text-red-300' : 'text-emerald-300'
+                  }`}
+                >
+                  {quizFeedback.message}
+                </p>
+              )}
             </div>
 
             {/* Prerequisites */}

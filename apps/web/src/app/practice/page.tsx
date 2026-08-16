@@ -57,7 +57,7 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
         </nav>
         <p id="practice-mode-description" className="mb-6 text-xs text-gray-500">
           {mode === 'new'
-            ? 'Learn New: unseen and unclear cards first'
+            ? 'Learn New: unseen cards only'
             : `Review: ${stats.unclear} concept${stats.unclear === 1 ? '' : 's'} you marked as still unclear`}
         </p>
 
