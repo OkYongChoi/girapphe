@@ -7,6 +7,10 @@ import Link from 'next/link';
 import type { GraphNodeWithKnowledge, GraphEdge, NodeType } from '@stem-brain/graph-engine';
 import { getDomainColor } from '@stem-brain/graph-engine';
 import { submitQuizResult } from '@/actions/graph-actions';
+import {
+  assessmentFeedbackAppliesToNode,
+  submitAssessmentWithCooldownRetry,
+} from '@/lib/assessment-retry';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
@@ -69,6 +73,10 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
   const [quizLoading, setQuizLoading] = useState(false);
+  const [quizFeedback, setQuizFeedback] = useState<{
+    kind: 'status' | 'error';
+    message: string;
+  } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [colorMode, setColorMode] = useState<'knowledge' | 'domain'>('knowledge');
   const [visibleDomains, setVisibleDomains] = useState<Set<string>>(new Set());
@@ -76,6 +84,7 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
     new Set(['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to'])
   );
   const fgRef = useRef<any>(null);
+  const selectedNodeIdRef = useRef<string | null>(null);
   const domainList = useMemo(
     () => [...new Set(graphData.nodes.map((n) => n.domain))].sort(),
     [graphData.nodes]
@@ -103,7 +112,14 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
     setVisibleDomains(new Set(domainList));
   }, [domainList]);
 
+  const clearSelectedNode = useCallback(() => {
+    selectedNodeIdRef.current = null;
+    setSelectedNode(null);
+  }, []);
+
   const focusNode = useCallback((node: any) => {
+    selectedNodeIdRef.current = node.id;
+    setQuizFeedback(null);
     setSelectedNode({
       id: node.id,
       label: node.label,
@@ -206,23 +222,56 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
   const handleQuizAnswer = useCallback(
     async (result: 0 | 0.5 | 1) => {
       if (!selectedNode || quizLoading) return;
+      const submittedNodeId = selectedNode.id;
       setQuizLoading(true);
+      setQuizFeedback(null);
 
       try {
-        const res = await submitQuizResult(selectedNode.id, result);
+        const res = await submitAssessmentWithCooldownRetry({
+          nodeId: submittedNodeId,
+          result,
+          submit: submitQuizResult,
+          onRateLimited: () => {
+            if (assessmentFeedbackAppliesToNode(submittedNodeId, selectedNodeIdRef.current)) {
+              setQuizFeedback({
+                kind: 'status',
+                message: 'Waiting for the quiz cooldown, then saving this assessment…',
+              });
+            }
+          },
+        });
         if (res.success && res.node) {
           setSelectedNode((prev) =>
-            prev
+            prev?.id === submittedNodeId
               ? {
                   ...prev,
                   knowledge: res.node!.knowledge,
                   confidence: res.node!.confidence,
                 }
-              : null
+              : prev
           );
+          if (assessmentFeedbackAppliesToNode(submittedNodeId, selectedNodeIdRef.current)) {
+            setQuizFeedback({ kind: 'status', message: 'Assessment saved.' });
+          }
+        } else if (assessmentFeedbackAppliesToNode(submittedNodeId, selectedNodeIdRef.current)) {
+          setQuizFeedback({
+            kind: 'error',
+            message:
+              res.error === 'rate_limited'
+                ? 'The assessment could not be saved after waiting. Please try again.'
+                : res.error === 'unknown_node'
+                  ? 'This concept is no longer available. Refresh the graph and try again.'
+                  : 'The assessment could not be saved. Please try again.',
+          });
         }
       } catch (err) {
         console.error('Quiz submission error:', err);
+        if (assessmentFeedbackAppliesToNode(submittedNodeId, selectedNodeIdRef.current)) {
+          setQuizFeedback({
+            kind: 'error',
+            message: 'The assessment could not be saved. Please try again.',
+          });
+        }
       } finally {
         setQuizLoading(false);
       }
@@ -250,9 +299,9 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
 
   useEffect(() => {
     if (selectedNode && !visibleDomains.has(selectedNode.domain)) {
-      setSelectedNode(null);
+      clearSelectedNode();
     }
-  }, [selectedNode, visibleDomains]);
+  }, [clearSelectedNode, selectedNode, visibleDomains]);
 
   // Get connected nodes for selected node
   const connectedNodes = useMemo(() => {
@@ -324,7 +373,7 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
         onNodeHover={(node: any) => {
           document.body.style.cursor = node ? 'pointer' : 'default';
         }}
-        onBackgroundClick={() => setSelectedNode(null)}
+        onBackgroundClick={clearSelectedNode}
         d3AlphaDecay={0.02}
         d3VelocityDecay={0.3}
         warmupTicks={80}
@@ -523,7 +572,7 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
           >
             {/* Close button */}
             <button
-              onClick={() => setSelectedNode(null)}
+              onClick={clearSelectedNode}
               className="absolute top-4 right-4 rounded-lg p-1.5 text-gray-500 hover:bg-gray-800 hover:text-white transition-colors"
             >
               <svg
@@ -684,6 +733,16 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
                   Unknown
                 </button>
               </div>
+              {quizFeedback && (
+                <p
+                  role={quizFeedback.kind === 'error' ? 'alert' : 'status'}
+                  className={`mt-3 text-xs ${
+                    quizFeedback.kind === 'error' ? 'text-red-300' : 'text-emerald-300'
+                  }`}
+                >
+                  {quizFeedback.message}
+                </p>
+              )}
             </div>
 
             {/* Prerequisites */}

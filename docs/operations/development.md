@@ -53,7 +53,8 @@ Deployment readiness should also run the Cloudflare/OpenNext build:
 pnpm harness:deploy
 ```
 
-The deployment harness runs the local harness first, then `pnpm build:cf`.
+The deployment harness runs the local harness, builds the Cloudflare/OpenNext
+Worker, and checks its compressed upload against the guarded release-size budget.
 
 Browser smoke checks use Playwright and start the web dev server automatically:
 

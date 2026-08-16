@@ -8,7 +8,8 @@ const NAV_ITEMS = [
   { href: '/saved', label: 'Review Queue' },
   { href: '/knowledge', label: 'Knowledge Map' },
   { href: '/dashboard', label: 'Dashboard' },
-  { href: '/my-knowledge', label: 'My Knowledge' },
+  { href: '/my-knowledge', label: 'My Notes' },
+  { href: '/knowledge-inbox', label: 'Knowledge Inbox' },
   { href: '/ranking', label: 'Ranking' },
 ];
 
@@ -17,14 +18,20 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export default function NavLinks({ variant = 'default' }: { variant?: 'default' | 'home' }) {
+export default function NavLinks({
+  variant = 'default',
+  isAuthenticated = false,
+}: {
+  variant?: 'default' | 'home';
+  isAuthenticated?: boolean;
+}) {
   const pathname = usePathname();
   const isHome = variant === 'home';
 
   return (
     <nav aria-label="Main navigation" className="min-w-0 overflow-hidden">
       <ul className={`no-scrollbar flex w-full min-w-0 items-center gap-1 overflow-x-auto rounded-lg p-1 text-sm font-medium ${isHome ? 'bg-white/[0.06] text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter((item) => item.href !== '/knowledge-inbox' || isAuthenticated).map((item) => {
           const active = isActive(pathname, item.href);
           return (
             <li key={item.href} className="shrink-0">

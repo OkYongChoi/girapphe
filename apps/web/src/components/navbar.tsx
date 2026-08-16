@@ -57,7 +57,7 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
             )}
           </div>
 
-          <NavLinks variant={variant} />
+          <NavLinks variant={variant} isAuthenticated={Boolean(user)} />
         </div>
       </nav>
     </>

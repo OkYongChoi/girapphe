@@ -1,5 +1,7 @@
 import {
   boolean,
+  check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -10,7 +12,9 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const knowledgeCards = pgTable("knowledge_cards", {
   id: text("id").primaryKey(),
@@ -120,13 +124,388 @@ export const userKnowledgeItems = pgTable("user_knowledge_items", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),
   title: text("title").notNull(),
+  summary: text("summary").notNull().default(""),
   content: text("content").notNull().default(""),
   topic: text("topic").notNull().default("general"),
+  tags: jsonb("tags").notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   purgeAt: timestamp("purge_at", { withTimezone: true }),
 }, (t) => [
+  uniqueIndex("idx_user_knowledge_items_id_user_id").on(t.id, t.userId),
   index("idx_user_knowledge_items_user").on(t.userId),
-  index("idx_user_knowledge_items_active_created").on(t.userId, t.createdAt),
+  index("idx_user_knowledge_items_active_created").on(t.userId, t.createdAt).where(sql`${t.deletedAt} IS NULL`),
+  index("idx_user_knowledge_items_purge_at").on(t.purgeAt).where(sql`${t.purgeAt} IS NOT NULL`),
+]);
+
+export const userPrivateCardStates = pgTable("user_private_card_states", {
+  userId: text("user_id").notNull(),
+  knowledgeItemId: text("knowledge_item_id").notNull(),
+  status: text("status").notNull(),
+  knowledgeState: text("knowledge_state").notNull(),
+  progressState: text("progress_state").notNull(),
+  dueAt: timestamp("due_at", { withTimezone: true }),
+  lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.knowledgeItemId] }),
+  foreignKey({
+    columns: [t.knowledgeItemId, t.userId],
+    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
+    name: "user_private_card_states_item_owner_fk",
+  }).onDelete("cascade"),
+  index("idx_user_private_card_states_user_status").on(t.userId, t.status),
+  index("idx_user_private_card_states_user_due").on(t.userId, t.dueAt),
+  check("user_private_card_states_status_check", sql`${t.status} IN ('known', 'saved')`),
+  check("user_private_card_states_knowledge_state_check", sql`${t.knowledgeState} IN ('unknown', 'known')`),
+  check("user_private_card_states_progress_state_check", sql`${t.progressState} IN ('learning', 'review')`),
+  check("user_private_card_states_consistency_check", sql`(${t.status} = 'known' AND ${t.knowledgeState} = 'known' AND ${t.progressState} = 'review') OR (${t.status} = 'saved' AND ${t.knowledgeState} = 'unknown' AND ${t.progressState} = 'learning')`),
+]);
+
+export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  sourceType: text("source_type").notNull().default("conversation"),
+  provider: text("provider").notNull(),
+  scope: text("scope").notNull().default("current_conversation"),
+  requestId: text("request_id").notNull(),
+  conversationRef: text("conversation_ref"),
+  mcpTokenId: text("mcp_token_id"),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  committedAt: timestamp("committed_at", { withTimezone: true }),
+  discardedAt: timestamp("discarded_at", { withTimezone: true }),
+}, (t) => [
+  unique("knowledge_ingestion_batches_user_provider_request_key").on(t.userId, t.provider, t.requestId),
+  index("idx_knowledge_ingestion_batches_user_created").on(t.userId, t.createdAt),
+  index("idx_knowledge_ingestion_batches_token_created").on(t.mcpTokenId, t.createdAt).where(sql`${t.mcpTokenId} IS NOT NULL`),
+  check("knowledge_ingestion_batches_source_type_check", sql`${t.sourceType} IN ('conversation')`),
+  check("knowledge_ingestion_batches_provider_check", sql`${t.provider} IN ('chatgpt', 'claude', 'gemini', 'other')`),
+  check("knowledge_ingestion_batches_scope_check", sql`${t.scope} IN ('current_conversation')`),
+  check("knowledge_ingestion_batches_status_check", sql`${t.status} IN ('pending', 'partial', 'approved', 'discarded')`),
+]);
+
+export const knowledgeCardDrafts = pgTable("knowledge_card_drafts", {
+  id: text("id").primaryKey(),
+  batchId: text("batch_id").notNull().references(() => knowledgeIngestionBatches.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  clientCardId: text("client_card_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull().default(""),
+  explanation: text("explanation").notNull().default(""),
+  topic: text("topic").notNull().default("general"),
+  tags: jsonb("tags").notNull().default([]),
+  proposedRelations: jsonb("proposed_relations").notNull().default([]),
+  status: text("status").notNull().default("pending"),
+  version: integer("version").notNull().default(1),
+  knowledgeItemId: text("knowledge_item_id").references(() => userKnowledgeItems.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+}, (t) => [
+  unique("knowledge_card_drafts_batch_client_card_key").on(t.batchId, t.clientCardId),
+  index("idx_knowledge_card_drafts_user_status").on(t.userId, t.status),
+  index("idx_knowledge_card_drafts_user_created").on(t.userId, t.createdAt),
+  index("idx_knowledge_card_drafts_batch").on(t.batchId),
+  check("knowledge_card_drafts_status_check", sql`${t.status} IN ('pending', 'approved', 'rejected')`),
+  check("knowledge_card_drafts_version_check", sql`${t.version} >= 1`),
+]);
+
+export const userGraphNodes = pgTable("user_graph_nodes", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  knowledgeItemId: text("knowledge_item_id").notNull().references(() => userKnowledgeItems.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  topic: text("topic").notNull().default("general"),
+  origin: text("origin").notNull().default("manual"),
+  sourceBatchId: text("source_batch_id").references(() => knowledgeIngestionBatches.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  purgeAt: timestamp("purge_at", { withTimezone: true }),
+}, (t) => [
+  unique("user_graph_nodes_user_knowledge_item_key").on(t.userId, t.knowledgeItemId),
+  index("idx_user_graph_nodes_user_active").on(t.userId, t.createdAt).where(sql`${t.deletedAt} IS NULL`),
+  index("idx_user_graph_nodes_purge_at").on(t.purgeAt).where(sql`${t.purgeAt} IS NOT NULL`),
+  check("user_graph_nodes_origin_check", sql`${t.origin} IN ('manual', 'conversation')`),
+]);
+
+export const userGraphEdges = pgTable("user_graph_edges", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  sourcePrivateNodeId: text("source_private_node_id").references(() => userGraphNodes.id, { onDelete: "cascade" }),
+  sourcePublicNodeId: text("source_public_node_id").references(() => graphNodes.id, { onDelete: "cascade" }),
+  targetPrivateNodeId: text("target_private_node_id").references(() => userGraphNodes.id, { onDelete: "cascade" }),
+  targetPublicNodeId: text("target_public_node_id").references(() => graphNodes.id, { onDelete: "cascade" }),
+  type: text("type").notNull().default("related"),
+  weight: real("weight").notNull().default(1),
+  origin: text("origin").notNull().default("manual"),
+  sourceBatchId: text("source_batch_id").references(() => knowledgeIngestionBatches.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  purgeAt: timestamp("purge_at", { withTimezone: true }),
+}, (t) => [
+  index("idx_user_graph_edges_user_active").on(t.userId, t.createdAt).where(sql`${t.deletedAt} IS NULL`),
+  index("idx_user_graph_edges_source_private").on(t.sourcePrivateNodeId),
+  index("idx_user_graph_edges_target_private").on(t.targetPrivateNodeId),
+  index("idx_user_graph_edges_purge_at").on(t.purgeAt).where(sql`${t.purgeAt} IS NOT NULL`),
+  uniqueIndex("idx_user_graph_edges_unique_active").on(
+    t.userId,
+    sql`COALESCE(${t.sourcePrivateNodeId}, 'public:' || ${t.sourcePublicNodeId})`,
+    sql`COALESCE(${t.targetPrivateNodeId}, 'public:' || ${t.targetPublicNodeId})`,
+    t.type,
+  ).where(sql`${t.deletedAt} IS NULL`),
+  uniqueIndex("idx_user_graph_edges_unique_symmetric_active").on(
+    t.userId,
+    sql`LEAST(COALESCE('private:' || ${t.sourcePrivateNodeId}, 'public:' || ${t.sourcePublicNodeId}), COALESCE('private:' || ${t.targetPrivateNodeId}, 'public:' || ${t.targetPublicNodeId}))`,
+    sql`GREATEST(COALESCE('private:' || ${t.sourcePrivateNodeId}, 'public:' || ${t.sourcePublicNodeId}), COALESCE('private:' || ${t.targetPrivateNodeId}, 'public:' || ${t.targetPublicNodeId}))`,
+    t.type,
+  ).where(sql`${t.deletedAt} IS NULL AND ${t.type} IN ('related', 'equivalent_to')`),
+  check("user_graph_edges_source_exactly_one_check", sql`num_nonnulls(${t.sourcePrivateNodeId}, ${t.sourcePublicNodeId}) = 1`),
+  check("user_graph_edges_target_exactly_one_check", sql`num_nonnulls(${t.targetPrivateNodeId}, ${t.targetPublicNodeId}) = 1`),
+  check("user_graph_edges_no_self_check", sql`(${t.sourcePrivateNodeId} IS NULL OR ${t.sourcePrivateNodeId} IS DISTINCT FROM ${t.targetPrivateNodeId}) AND (${t.sourcePublicNodeId} IS NULL OR ${t.sourcePublicNodeId} IS DISTINCT FROM ${t.targetPublicNodeId})`),
+  check("user_graph_edges_type_check", sql`${t.type} IN ('prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to')`),
+  check("user_graph_edges_origin_check", sql`${t.origin} IN ('manual', 'conversation')`),
+  check("user_graph_edges_weight_check", sql`${t.weight} > 0 AND ${t.weight} <= 1`),
+]);
+
+export const knowledgeCardSources = pgTable("knowledge_card_sources", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  knowledgeItemId: text("knowledge_item_id").notNull().references(() => userKnowledgeItems.id, { onDelete: "cascade" }),
+  batchId: text("batch_id").references(() => knowledgeIngestionBatches.id, { onDelete: "set null" }),
+  draftId: text("draft_id").references(() => knowledgeCardDrafts.id, { onDelete: "set null" }),
+  sourceType: text("source_type").notNull().default("conversation"),
+  provider: text("provider").notNull(),
+  conversationRef: text("conversation_ref"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (t) => [
+  unique("knowledge_card_sources_item_draft_key").on(t.knowledgeItemId, t.draftId),
+  index("idx_knowledge_card_sources_user_item").on(t.userId, t.knowledgeItemId),
+]);
+
+export const mcpAccessTokens = pgTable("mcp_access_tokens", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  lastFour: text("last_four").notNull(),
+  label: text("label").notNull().default("MCP client"),
+  scopes: jsonb("scopes").notNull().default(["knowledge:drafts:create"]),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (t) => [
+  index("idx_mcp_access_tokens_user").on(t.userId, t.createdAt),
+  index("idx_mcp_access_tokens_active_hash").on(t.tokenHash).where(sql`${t.revokedAt} IS NULL`),
+]);
+
+export const mcpRequestRateLimits = pgTable("mcp_request_rate_limits", {
+  scopeKey: text("scope_key").primaryKey(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull().defaultNow(),
+  requestCount: integer("request_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("idx_mcp_request_rate_limits_stale_credentials").on(t.updatedAt, t.scopeKey)
+    .where(sql`${t.scopeKey} LIKE 'credential:%'`),
+  check("mcp_request_rate_limits_count_check", sql`${t.requestCount} >= 0`),
+]);
+
+export const billingCustomers = pgTable("billing_customers", {
+  userId: text("user_id").primaryKey(),
+  stripeCustomerId: text("stripe_customer_id").unique(),
+  tossCustomerKey: text("toss_customer_key").unique(),
+  trialConsumedAt: timestamp("trial_consumed_at", { withTimezone: true }),
+  stripePortalWindowStartedAt: timestamp("stripe_portal_window_started_at", { withTimezone: true }).notNull().defaultNow(),
+  stripePortalRequestCount: integer("stripe_portal_request_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check("billing_customers_stripe_portal_request_count_check", sql`${t.stripePortalRequestCount} >= 0`),
+]);
+
+export const tossPrepareRateLimits = pgTable("toss_prepare_rate_limits", {
+  userId: text("user_id").primaryKey(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull().defaultNow(),
+  requestCount: integer("request_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("idx_toss_prepare_rate_limits_updated_at").on(t.updatedAt),
+  check("toss_prepare_rate_limits_count_check", sql`${t.requestCount} >= 0`),
+]);
+
+export const billingSubscriptions = pgTable("billing_subscriptions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(),
+  providerSubscriptionId: text("provider_subscription_id").notNull(),
+  store: text("store"),
+  plan: text("plan").notNull(),
+  status: text("status").notNull(),
+  entitlement: text("entitlement").notNull().default("ad_free"),
+  currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+  trialEnd: timestamp("trial_end", { withTimezone: true }),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  providerEventAt: timestamp("provider_event_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("billing_subscriptions_provider_reference_key").on(t.provider, t.providerSubscriptionId),
+  index("idx_billing_subscriptions_user_entitlement").on(t.userId, t.entitlement, t.status),
+  index("idx_billing_subscriptions_period_end").on(t.currentPeriodEnd),
+  check("billing_subscriptions_provider_check", sql`${t.provider} IN ('stripe', 'toss', 'revenuecat')`),
+  check("billing_subscriptions_store_check", sql`${t.store} IS NULL OR ${t.store} IN ('web', 'app_store', 'play_store', 'stripe', 'promotional')`),
+  check("billing_subscriptions_plan_check", sql`${t.plan} IN ('monthly', 'annual')`),
+  check("billing_subscriptions_status_check", sql`${t.status} IN ('incomplete', 'trialing', 'active', 'past_due', 'paused', 'canceled', 'expired')`),
+  check("billing_subscriptions_entitlement_check", sql`${t.entitlement} IN ('ad_free')`),
+]);
+
+export const billingWebhookEvents = pgTable("billing_webhook_events", {
+  provider: text("provider").notNull(),
+  eventId: text("event_id").notNull(),
+  eventType: text("event_type").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.provider, t.eventId] }),
+  index("idx_billing_webhook_events_pending").on(t.createdAt).where(sql`${t.processedAt} IS NULL`),
+  check("billing_webhook_events_provider_check", sql`${t.provider} IN ('stripe', 'revenuecat', 'toss')`),
+]);
+
+export const tossBillingKeyIntents = pgTable("toss_billing_key_intents", {
+  id: text("id").primaryKey(),
+  agreementId: text("agreement_id").notNull(),
+  userId: text("user_id").notNull(),
+  customerKey: text("customer_key").notNull(),
+  plan: text("plan").notNull(),
+  providerIdempotencyKey: text("provider_idempotency_key").unique(),
+  authKeyCiphertext: text("auth_key_ciphertext"),
+  billingKeyCiphertext: text("billing_key_ciphertext"),
+  billingKeyFingerprint: text("billing_key_fingerprint"),
+  status: text("status").notNull().default("issuing"),
+  issueAttemptCount: integer("issue_attempt_count").notNull().default(0),
+  cleanupAttemptCount: integer("cleanup_attempt_count").notNull().default(0),
+  processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+  processingToken: text("processing_token"),
+  lastErrorCode: text("last_error_code"),
+  cleanedAt: timestamp("cleaned_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("toss_billing_key_intents_id_agreement_user_key").on(t.id, t.agreementId, t.userId),
+  index("idx_toss_billing_key_intents_recovery").on(t.status, t.updatedAt)
+    .where(sql`${t.status} IN ('issuing', 'cleanup_pending')`),
+  index("idx_toss_billing_key_intents_agreement").on(t.agreementId, t.status),
+  check("toss_billing_key_intents_plan_check", sql`${t.plan} IN ('monthly', 'annual')`),
+  check("toss_billing_key_intents_status_check", sql`${t.status} IN ('issuing', 'cleanup_pending', 'live', 'cleaned', 'manual_review')`),
+  check("toss_billing_key_intents_issue_attempts_check", sql`${t.issueAttemptCount} >= 0`),
+  check("toss_billing_key_intents_cleanup_attempts_check", sql`${t.cleanupAttemptCount} >= 0`),
+  check("toss_billing_key_intents_material_check", sql`
+    (${t.status} = 'issuing'
+      AND ${t.providerIdempotencyKey} IS NOT NULL
+      AND ${t.authKeyCiphertext} IS NOT NULL
+      AND ${t.billingKeyCiphertext} IS NULL
+      AND ${t.billingKeyFingerprint} IS NULL)
+    OR (${t.status} IN ('cleanup_pending', 'live')
+      AND ${t.authKeyCiphertext} IS NULL
+      AND ${t.billingKeyCiphertext} IS NOT NULL
+      AND (${t.billingKeyFingerprint} IS NOT NULL
+        OR (${t.status} = 'live' AND ${t.providerIdempotencyKey} IS NULL)))
+    OR (${t.status} = 'cleaned'
+      AND ${t.authKeyCiphertext} IS NULL
+      AND ${t.billingKeyCiphertext} IS NULL)
+    OR (${t.status} = 'manual_review'
+      AND ${t.providerIdempotencyKey} IS NOT NULL
+      AND ${t.authKeyCiphertext} IS NULL
+      AND ${t.billingKeyCiphertext} IS NULL
+      AND ${t.billingKeyFingerprint} IS NULL)
+  `),
+]);
+
+export const tossBillingAgreements = pgTable("toss_billing_agreements", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  billingKeyCiphertext: text("billing_key_ciphertext").notNull(),
+  billingKeyIntentId: text("billing_key_intent_id"),
+  plan: text("plan").notNull(),
+  status: text("status").notNull(),
+  currentPeriodStart: timestamp("current_period_start", { withTimezone: true }).notNull(),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }).notNull(),
+  nextChargeAt: timestamp("next_charge_at", { withTimezone: true }),
+  retryCount: integer("retry_count").notNull().default(0),
+  processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+  processingToken: text("processing_token"),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  billingKeyCleanupRequired: boolean("billing_key_cleanup_required").notNull().default(false),
+  billingKeyCleanupAttempts: integer("billing_key_cleanup_attempts").notNull().default(0),
+  billingKeyCleanupLastError: text("billing_key_cleanup_last_error"),
+  billingKeyDeletedAt: timestamp("billing_key_deleted_at", { withTimezone: true }),
+  lastPaymentKey: text("last_payment_key"),
+  lastOrderId: text("last_order_id"),
+  canceledAt: timestamp("canceled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  foreignKey({
+    columns: [t.billingKeyIntentId, t.id, t.userId],
+    foreignColumns: [
+      tossBillingKeyIntents.id,
+      tossBillingKeyIntents.agreementId,
+      tossBillingKeyIntents.userId,
+    ],
+    name: "toss_billing_agreements_intent_owner_fk",
+  }).onDelete("restrict"),
+  index("idx_toss_billing_agreements_due").on(t.nextChargeAt).where(sql`${t.nextChargeAt} IS NOT NULL AND ${t.cancelAtPeriodEnd} = FALSE`),
+  index("idx_toss_billing_agreements_key_cleanup").on(t.updatedAt).where(sql`${t.billingKeyCleanupRequired} = TRUE`),
+  check("toss_billing_agreements_plan_check", sql`${t.plan} IN ('monthly', 'annual')`),
+  check("toss_billing_agreements_status_check", sql`${t.status} IN ('incomplete', 'trialing', 'active', 'past_due', 'paused', 'canceled')`),
+  check("toss_billing_agreements_retry_count_check", sql`${t.retryCount} >= 0`),
+  check("toss_billing_agreements_cleanup_attempts_check", sql`${t.billingKeyCleanupAttempts} >= 0`),
+]);
+
+export const tossBillingSessions = pgTable("toss_billing_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  userId: text("user_id").notNull(),
+  customerKey: text("customer_key").notNull(),
+  plan: text("plan").notNull(),
+  status: text("status").notNull().default("pending"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("idx_toss_billing_sessions_user_status").on(t.userId, t.status, t.expiresAt),
+  index("idx_toss_billing_sessions_cleanup").on(t.status, t.updatedAt),
+  uniqueIndex("idx_toss_billing_sessions_one_pending").on(t.userId).where(sql`${t.status} = 'pending'`),
+  check("toss_billing_sessions_plan_check", sql`${t.plan} IN ('monthly', 'annual')`),
+  check("toss_billing_sessions_status_check", sql`${t.status} IN ('pending', 'processing', 'consumed', 'failed', 'abandoned')`),
+]);
+
+export const tossBillingCharges = pgTable("toss_billing_charges", {
+  orderId: text("order_id").primaryKey(),
+  agreementId: text("agreement_id").notNull().references(() => tossBillingAgreements.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  cycleKey: text("cycle_key").notNull(),
+  plan: text("plan").notNull(),
+  amountKrw: integer("amount_krw").notNull(),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("pending"),
+  paymentKey: text("payment_key").unique(),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  lastErrorCode: text("last_error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("toss_billing_charges_agreement_cycle_key").on(t.agreementId, t.cycleKey),
+  uniqueIndex("idx_toss_billing_charges_one_unresolved").on(t.agreementId).where(sql`${t.status} IN ('pending', 'paid')`),
+  index("idx_toss_billing_charges_reconciliation").on(t.status, t.updatedAt),
+  check("toss_billing_charges_plan_check", sql`${t.plan} IN ('monthly', 'annual')`),
+  check("toss_billing_charges_amount_check", sql`${t.amountKrw} > 0`),
+  check("toss_billing_charges_status_check", sql`${t.status} IN ('pending', 'paid', 'applied', 'canceled', 'abandoned')`),
+  check("toss_billing_charges_attempt_count_check", sql`${t.attemptCount} >= 0`),
+  check("toss_billing_charges_period_check", sql`${t.periodEnd} > ${t.periodStart}`),
 ]);

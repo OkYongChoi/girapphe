@@ -5,8 +5,13 @@ import {
   UnknownGraphNodeError,
   submitDbQuizResult,
 } from '@/lib/knowledge-graph-db';
+import {
+  InvalidJsonBodyError,
+  MAX_QUIZ_REQUEST_BYTES,
+  RequestBodyTooLargeError,
+  readBoundedJsonBody,
+} from '@/lib/bounded-json-body';
 
-const MAX_QUIZ_REQUEST_BYTES = 4_096;
 const MAX_NODE_ID_LENGTH = 100;
 
 export async function POST(request: NextRequest) {
@@ -15,13 +20,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const contentLength = Number(request.headers.get('content-length') ?? '0');
-  if (Number.isFinite(contentLength) && contentLength > MAX_QUIZ_REQUEST_BYTES) {
-    return NextResponse.json({ error: 'Request body is too large' }, { status: 413 });
-  }
-
   try {
-    const body: unknown = await request.json();
+    const body = await readBoundedJsonBody(request, MAX_QUIZ_REQUEST_BYTES);
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return NextResponse.json({ error: 'JSON object required' }, { status: 400 });
     }
@@ -56,10 +56,19 @@ export async function POST(request: NextRequest) {
       propagated_count: response.propagated_count,
     });
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: 'Request body is too large' }, { status: 413 });
+    }
+    if (error instanceof InvalidJsonBodyError) {
+      return NextResponse.json({ error: 'Valid JSON is required' }, { status: 400 });
+    }
     if (error instanceof QuizRateLimitError) {
       return NextResponse.json(
         { error: 'Too many quiz submissions. Try again shortly.' },
-        { status: 429, headers: { 'Retry-After': '2' } }
+        {
+          status: 429,
+          headers: { 'Retry-After': String(Math.ceil(error.retryAfterMs / 1_000)) },
+        }
       );
     }
     if (error instanceof UnknownGraphNodeError) {

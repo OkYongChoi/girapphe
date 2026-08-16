@@ -5,6 +5,8 @@ import { revalidatePath } from 'next/cache';
 import { requireCurrentActor } from '@/lib/auth';
 import pool from '@/lib/db';
 import {
+  QuizRateLimitError,
+  UnknownGraphNodeError,
   getDbGraphDataForUser,
   getDbNodeKnowledge,
   getDbUserGraphStats,
@@ -12,6 +14,7 @@ import {
   getStaticGraphSummary,
   submitDbQuizResult,
 } from '@/lib/knowledge-graph-db';
+import type { AssessmentSubmission } from '@/lib/assessment-retry';
 
 async function getUserId() {
   const user = await requireCurrentActor();
@@ -25,11 +28,7 @@ export async function getGraphData(): Promise<ForceGraphData> {
 export async function submitQuizResult(
   nodeId: string,
   result: 0 | 0.5 | 1
-): Promise<{
-  success: boolean;
-  node: GraphNodeWithKnowledge | null;
-  propagated_count: number;
-}> {
+): Promise<AssessmentSubmission<GraphNodeWithKnowledge>> {
   const userId = await getUserId();
 
   try {
@@ -37,11 +36,29 @@ export async function submitQuizResult(
     revalidatePath('/knowledge');
     return response;
   } catch (error) {
+    if (error instanceof QuizRateLimitError) {
+      return {
+        success: false,
+        node: null,
+        propagated_count: 0,
+        error: 'rate_limited',
+        retry_after_ms: error.retryAfterMs,
+      };
+    }
+    if (error instanceof UnknownGraphNodeError) {
+      return {
+        success: false,
+        node: null,
+        propagated_count: 0,
+        error: 'unknown_node',
+      };
+    }
     console.error('Error in submitQuizResult:', error);
     return {
       success: false,
       node: null,
       propagated_count: 0,
+      error: 'save_failed',
     };
   }
 }

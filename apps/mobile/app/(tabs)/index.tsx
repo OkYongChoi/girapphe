@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
+import { type Href, useRouter } from 'expo-router';
 import {
   FlatList,
   Pressable,
@@ -26,9 +26,13 @@ import {
   getNodeSummary,
   getPrerequisiteCount,
 } from '@/knowledge';
+import { mobileApi, type PersonalNoteSummary } from '@/api';
+import { useMobileAuth } from '@/auth';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const auth = useMobileAuth();
+  const { isSignedIn, userId } = auth;
   const [selectedDomain, setSelectedDomain] = useState<DomainOption>('All');
   const [selectedNode, setSelectedNode] = useState<GraphNode>(() => {
     return GRAPH_NODES.find((node) => node.id === FEATURED_NODE_IDS[0]) ?? GRAPH_NODES[0];
@@ -40,6 +44,23 @@ export default function HomeScreen() {
   const visibleNodes = useMemo(() => filterNodes({ domain: selectedDomain, limit: 36 }), [selectedDomain]);
   const selectedContent = getNodeSummary(selectedNode.id);
   const prerequisiteCount = useMemo(() => getPrerequisiteCount(selectedNode.id), [selectedNode.id]);
+  const [personalNotes, setPersonalNotes] = useState<PersonalNoteSummary[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    setPersonalNotes([]);
+    if (!isSignedIn || !userId) return () => { active = false; };
+
+    void mobileApi.graph()
+      .then(({ personalItems }) => {
+        if (active) setPersonalNotes(personalItems);
+      })
+      .catch(() => {
+        if (active) setPersonalNotes([]);
+      });
+
+    return () => { active = false; };
+  }, [isSignedIn, userId]);
 
   function openSelectedTopic() {
     router.push({ pathname: '/topic/[id]', params: { id: selectedNode.id } });
@@ -58,9 +79,14 @@ export default function HomeScreen() {
                 <Text style={styles.kicker}>stem-brain</Text>
                 <Text style={styles.title}>Knowledge map</Text>
               </View>
-              <View style={styles.statPill}>
-                <Text style={styles.statValue}>{GRAPH_NODES.length}</Text>
-                <Text style={styles.statLabel}>nodes</Text>
+              <View style={styles.headerActions}>
+                <Pressable accessibilityRole="button" onPress={() => isSignedIn ? void auth.signOut() : router.push('/sign-in' as Href)} style={styles.accountButton}>
+                  <Text style={styles.accountButtonText}>{isSignedIn ? 'Sign out' : 'Sign in'}</Text>
+                </Pressable>
+                <View style={styles.statPill}>
+                  <Text style={styles.statValue}>{GRAPH_NODES.length}</Text>
+                  <Text style={styles.statLabel}>nodes</Text>
+                </View>
               </View>
             </View>
 
@@ -127,6 +153,19 @@ export default function HomeScreen() {
                 <Text style={styles.detailButtonText}>Open topic</Text>
               </Pressable>
             </View>
+
+            {isSignedIn && userId && personalNotes.length > 0 ? (
+              <View style={styles.personalPanel}>
+                <View style={styles.personalHeader}>
+                  <Text style={styles.personalTitle}>My Notes · private nodes</Text>
+                  <Pressable accessibilityRole="button" onPress={() => router.push('/(tabs)/notes' as Href)}>
+                    <Text style={styles.personalLink}>Open</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.personalCopy}>Your notes appear as private purple nodes in the web Knowledge Map and are available here.</Text>
+                {personalNotes.slice(0, 3).map((note) => <Text key={note.id} style={styles.personalNote} numberOfLines={1}>● {note.title}</Text>)}
+              </View>
+            ) : null}
 
             <Text style={styles.sectionTitle}>Browse</Text>
             <ScrollView
@@ -218,6 +257,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#111827',
     alignItems: 'center',
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  accountButton: { borderWidth: 1, borderColor: '#d8dee8', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: '#ffffff' },
+  accountButtonText: { color: '#111827', fontSize: 12, fontWeight: '800' },
   statValue: {
     color: '#ffffff',
     fontSize: 20,
@@ -351,6 +393,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
+  personalPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d8b4fe',
+    backgroundColor: '#faf5ff',
+    padding: 14,
+    marginBottom: 22,
+  },
+  personalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  personalTitle: { color: '#581c87', fontSize: 15, fontWeight: '800' },
+  personalLink: { color: '#7e22ce', fontSize: 14, fontWeight: '800' },
+  personalCopy: { color: '#6b21a8', fontSize: 13, lineHeight: 19, marginTop: 6 },
+  personalNote: { color: '#7e22ce', fontSize: 14, marginTop: 8 },
   filterRow: {
     gap: 8,
     paddingBottom: 12,

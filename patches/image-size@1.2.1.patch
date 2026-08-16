@@ -22,3 +22,16 @@ index f2bfafef3723cb423b110304815e56e3f97f81e0..042889cbe75ce78af0a38540a182be5e
              imageOffset += imageHeader[1];
              result.images.push(imageSize);
          }
+diff --git a/dist/types/utils.js b/dist/types/utils.js
+index 96cebb447004137a17dc17f57c134b75d871a7c2..31ddb45459c9a5d4ab967316171e4b8018ac8716 100644
+--- a/dist/types/utils.js
++++ b/dist/types/utils.js
+@@ -52,6 +52,8 @@ function readBox(input, offset) {
+     if (input.length - offset < 4)
+         return;
+     const boxSize = (0, exports.readUInt32BE)(input, offset);
++    if (boxSize < 8)
++        return;
+     if (input.length - offset < boxSize)
+         return;
+     return {

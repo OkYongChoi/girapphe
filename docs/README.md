@@ -9,6 +9,8 @@ This folder contains technical documentation for the Personal STEM Brain project
 - [Mobile App Architecture](./apps/mobile.md)
 - [Knowledge Graph Spec](./reference/knowledge-graph-spec.md)
 - [API Specification](./reference/api-spec.md)
+- [MCP Card-Draft Ingestion](./reference/mcp-card-ingestion.md)
+- [Ads and Subscriptions](./reference/monetization.md)
 - [Data Model](./reference/data-model.md)
 - [Development & Operations](./operations/development.md)
 - [Admin Operations](./operations/admin.md)

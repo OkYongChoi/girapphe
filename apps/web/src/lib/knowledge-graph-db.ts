@@ -106,10 +106,15 @@ export type KnowledgeContextExport = {
   prompt_block: string;
 };
 
+export const QUIZ_COOLDOWN_MS = 2_000;
+
 export class QuizRateLimitError extends Error {
+  readonly retryAfterMs: number;
+
   constructor() {
     super('Quiz submissions are temporarily rate limited.');
     this.name = 'QuizRateLimitError';
+    this.retryAfterMs = QUIZ_COOLDOWN_MS;
   }
 }
 
@@ -368,6 +373,10 @@ export async function submitDbQuizResult(
   propagated_count: number;
 }> {
   if (!process.env.DATABASE_URL) {
+    if (!GRAPH_NODES.some((node) => node.id === nodeId)) {
+      throw new UnknownGraphNodeError();
+    }
+
     const { propagatedUpdates } = processQuizResult(userId, nodeId, result);
     runGlobalDiffusion(userId, 0.3);
     const graphData = getGraphDataForUser(userId);
@@ -380,7 +389,6 @@ export async function submitDbQuizResult(
   }
 
   ensureGraphDatabase();
-
   await claimQuizSubmission(userId);
 
   const [nodes, edges, states] = await Promise.all([

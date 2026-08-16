@@ -4,6 +4,11 @@
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { ForceGraphData } from '@stem-brain/graph-engine';
+import {
+  escapeGraphTooltipText,
+  getPersonalizedNoteGraphAdditions,
+  type PersonalizedGraphNote,
+} from '@/lib/home-graph-notes';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
   ssr: false,
@@ -16,6 +21,7 @@ type HomeGraphSceneProps = {
   unclear: number;
   notes: number;
   personalizedGraphData?: ForceGraphData | null;
+  personalizedNotes?: PersonalizedGraphNote[];
 };
 
 type LearningCaseKey = 'explore' | 'review' | 'notes' | 'mastery';
@@ -186,7 +192,14 @@ function getPersonalizedNodeColor(knowledge: number, active: boolean) {
   return active ? '#cbd5e1' : NODE_GROUPS.core.color;
 }
 
-export default function HomeGraphScene({ demo = false, explainable, unclear, notes, personalizedGraphData }: HomeGraphSceneProps) {
+export default function HomeGraphScene({
+  demo = false,
+  explainable,
+  unclear,
+  notes,
+  personalizedGraphData,
+  personalizedNotes = [],
+}: HomeGraphSceneProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<any>(null);
@@ -285,7 +298,7 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
 
   const graphData = useMemo(() => {
     if (!demo && personalizedGraphData?.nodes?.length) {
-      const nodes = personalizedGraphData.nodes.map((node, index) => {
+      const conceptNodes = personalizedGraphData.nodes.map((node, index) => {
         const group = getPersonalizedNodeGroup(node.knowledge);
         const active = group === activeStatusGroup;
         return {
@@ -298,19 +311,44 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
           shapeSeed: index,
         };
       });
+      const noteAdditions = getPersonalizedNoteGraphAdditions(
+        personalizedNotes,
+        personalizedGraphData.nodes
+      );
+      const noteNodes = noteAdditions.nodes.map((node) => ({
+        ...node,
+        val: node.val + (activeStatusGroup === 'notes' ? 4 : 0),
+        color:
+          activeStatusGroup === 'notes'
+            ? NODE_GROUPS.notes.hotColor
+            : NODE_GROUPS.notes.color,
+      }));
+      const nodes = [...conceptNodes, ...noteNodes];
       const activeNodeIds = new Set(nodes.filter((node) => node.group === activeStatusGroup).map((node) => node.id));
-      const links = personalizedGraphData.links.map((link) => {
-        const source = getNodeId(link.source);
-        const target = getNodeId(link.target);
-        const active = activeNodeIds.has(source) || activeNodeIds.has(target);
-        return {
-          source,
-          target,
-          active,
-          color: active ? 'rgba(125, 211, 252, 0.72)' : 'rgba(226, 232, 240, 0.24)',
-          width: active ? 1.05 : 0.34 + link.weight * 0.32,
-        };
-      });
+      const links = [
+        ...personalizedGraphData.links.map((link) => {
+          const source = getNodeId(link.source);
+          const target = getNodeId(link.target);
+          const active = activeNodeIds.has(source) || activeNodeIds.has(target);
+          return {
+            source,
+            target,
+            active,
+            color: active ? activeCase.flowColor : 'rgba(226, 232, 240, 0.24)',
+            width: active ? 1.05 : 0.34 + link.weight * 0.32,
+          };
+        }),
+        ...noteAdditions.links.map((link) => {
+          const active = activeNodeIds.has(link.source) || activeNodeIds.has(link.target);
+          return {
+            source: link.source,
+            target: link.target,
+            active,
+            color: active ? activeCase.flowColor : 'rgba(245, 158, 11, 0.3)',
+            width: active ? 1.15 : 0.58,
+          };
+        }),
+      ];
 
       return { nodes, links };
     }
@@ -449,7 +487,7 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
     }
 
     return { nodes, links };
-  }, [activeCase, activeCaseKey, activeDemoGroup, activeStatusGroup, demo, explainable, notes, personalizedGraphData, unclear]);
+  }, [activeCase, activeCaseKey, activeDemoGroup, activeStatusGroup, demo, explainable, notes, personalizedGraphData, personalizedNotes, unclear]);
 
   return (
     <div
@@ -467,7 +505,7 @@ export default function HomeGraphScene({ demo = false, explainable, unclear, not
           width={dimensions.width}
           height={dimensions.height}
           backgroundColor="rgba(0,0,0,0)"
-          nodeLabel={(node: any) => node.name}
+          nodeLabel={(node: any) => escapeGraphTooltipText(String(node.name ?? ''))}
           nodeVal="val"
           nodeColor="color"
           nodeOpacity={0.9}

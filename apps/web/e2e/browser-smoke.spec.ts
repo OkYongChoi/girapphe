@@ -47,9 +47,55 @@ test.describe('browser smoke', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' });
   });
 
+  test('mobile API rejects unauthenticated callers', async ({ request }) => {
+    const response = await request.get('/api/mobile?resource=notes');
+    expect(response.status()).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: 'Sign in is required.' });
+  });
+
   test('personal knowledge purge rejects unauthenticated callers', async ({ request }) => {
     const response = await request.post('/api/internal/personal-knowledge-purge');
     expect(response.status()).toBe(401);
+  });
+
+  test('MCP draft ingestion rejects callers without a scoped token', async ({ request }) => {
+    const response = await request.post('/api/mcp', {
+      headers: {
+        Accept: 'application/json, text/event-stream',
+      },
+      data: {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'browser-smoke', version: '1.0.0' },
+        },
+      },
+    });
+
+    expect(response.status()).toBe(401);
+    expect(response.headers()['www-authenticate']).toContain('Bearer');
+  });
+
+  test('MCP OAuth discovery is public and fails closed when Clerk is unavailable', async ({ request }) => {
+    const resource = await request.get('/.well-known/oauth-protected-resource/mcp');
+    expect([200, 503]).toContain(resource.status());
+    expect(resource.headers()['access-control-allow-origin']).toBe('*');
+    const body = await resource.json() as Record<string, unknown>;
+    if (resource.status() === 200) {
+      expect(typeof body.resource).toBe('string');
+      expect(Array.isArray(body.authorization_servers)).toBe(true);
+    } else {
+      expect(body).toEqual({ error: 'oauth_unavailable' });
+    }
+
+    const preflight = await request.fetch('/.well-known/oauth-protected-resource/mcp', {
+      method: 'OPTIONS',
+    });
+    expect(preflight.status()).toBe(200);
+    expect(preflight.headers()['access-control-allow-origin']).toBe('*');
   });
 
   test('home page renders the app shell', async ({ page }) => {
@@ -60,6 +106,26 @@ test.describe('browser smoke', () => {
     await expect(page.getByRole('heading', { name: /Practice STEM concepts/i })).toBeVisible();
 
     await assertNoBrowserFailures();
+  });
+
+  test('free practice inserts one sponsored card after exactly five advances', async ({ page }) => {
+    await page.goto('/practice');
+    const skip = page.getByRole('button', { name: 'Skip this card' });
+    await expect(skip).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Sponsored practice card' })).toHaveCount(0);
+
+    for (let completed = 1; completed <= 4; completed += 1) {
+      await skip.click();
+      await expect(skip).toBeEnabled();
+      await expect(page.getByRole('region', { name: 'Sponsored practice card' })).toHaveCount(0);
+    }
+
+    await skip.click();
+    const sponsoredCard = page.getByRole('region', { name: 'Sponsored practice card' });
+    await expect(sponsoredCard).toBeVisible();
+    await expect(sponsoredCard).toContainText('After 5 cards');
+    await sponsoredCard.getByRole('button', { name: 'Continue reviewing' }).click();
+    await expect(skip).toBeVisible();
   });
 
   test('practice mode navigation identifies the active mode', async ({ page }) => {
@@ -153,7 +219,7 @@ test.describe('browser smoke', () => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
     await page.goto('/my-knowledge');
-    await expect(page.getByRole('heading', { name: 'My Knowledge' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My Notes' })).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Added date range' })).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Group cards by date' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Trash' })).toBeVisible();
