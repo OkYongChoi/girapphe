@@ -7,7 +7,7 @@ const imageSize = requireFromMobile('image-size');
 
 function assertRejectedPromptly(name, input) {
   const startedAt = performance.now();
-  assert.throws(() => imageSize(input), /Invalid|unsupported/);
+  assert.throws(() => imageSize(input), /Invalid|unsupported|No codestream/);
   assert.ok(
     performance.now() - startedAt < 100,
     `${name} must reject malformed input without blocking the event loop`,
@@ -22,10 +22,16 @@ malformedIcns.write('ic07', 8);
 malformedIcns.writeUInt32BE(0, 12);
 assertRejectedPromptly('ICNS', malformedIcns);
 
-const malformedJxl = Buffer.alloc(16);
+const malformedJxl = Buffer.alloc(32);
+malformedJxl.writeUInt32BE(12, 0);
 malformedJxl.write('JXL ', 4);
-// A zero-sized ISO-BMFF box previously caused findBox() not to advance.
-malformedJxl.writeUInt32BE(0, 0);
+malformedJxl.writeUInt32BE(12, 12);
+malformedJxl.write('ftyp', 16);
+malformedJxl.write('jxl ', 20);
+// A matching zero-sized jxlp box used to be returned to the caller, which then
+// searched again from the same offset forever.
+malformedJxl.writeUInt32BE(0, 24);
+malformedJxl.write('jxlp', 28);
 assertRejectedPromptly('JXL', malformedJxl);
 
 const png = Buffer.from([

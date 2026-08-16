@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getDomainColor } from '@stem-brain/graph-engine';
+import { NativeSponsoredCard } from '@/components/native-sponsored-card';
 import {
   getNodeExplanation,
   getNodeSummary,
@@ -9,6 +10,7 @@ import {
   getPrerequisiteCount,
   getRelatedNodes,
 } from '@/knowledge';
+import { useSubscription } from '@/subscriptions';
 
 type Rating = 'again' | 'partial' | 'known';
 
@@ -20,14 +22,22 @@ const RATING_META: Record<Rating, { label: string; value: number }> = {
 
 export default function PracticeScreen() {
   const router = useRouter();
+  const { isAdFree, isReady: subscriptionReady } = useSubscription();
   const practiceNodes = useMemo(() => getPracticeNodes(), []);
   const [cardIndex, setCardIndex] = useState(0);
+  const [cardAdvanceCount, setCardAdvanceCount] = useState(0);
+  const cardAdvanceCountRef = useRef(0);
+  const [showSponsoredCard, setShowSponsoredCard] = useState(false);
   const [isRevealed, setIsRevealed] = useState(false);
   const [ratings, setRatings] = useState<Record<string, Rating>>({});
   const currentNode = practiceNodes[cardIndex % Math.max(practiceNodes.length, 1)];
   const relatedNodes = useMemo(() => (currentNode ? getRelatedNodes(currentNode.id, 3) : []), [currentNode]);
   const knownCount = Object.values(ratings).filter((rating) => rating === 'known').length;
-  const progressRatio = practiceNodes.length > 0 ? (Object.keys(ratings).length / practiceNodes.length) * 100 : 0;
+  const progressRatio = practiceNodes.length > 0 ? (cardAdvanceCount / practiceNodes.length) * 100 : 0;
+
+  useEffect(() => {
+    if (isAdFree) setShowSponsoredCard(false);
+  }, [isAdFree]);
 
   if (practiceNodes.length === 0) {
     return (
@@ -42,13 +52,20 @@ export default function PracticeScreen() {
 
   function rateCurrent(rating: Rating) {
     setRatings((current) => ({ ...current, [currentNode.id]: rating }));
-    setIsRevealed(false);
-    setCardIndex((index) => (index + 1) % practiceNodes.length);
+    advanceCurrentCard();
   }
 
   function skipCurrent() {
+    advanceCurrentCard();
+  }
+
+  function advanceCurrentCard() {
+    const nextAdvanceCount = cardAdvanceCountRef.current + 1;
+    cardAdvanceCountRef.current = nextAdvanceCount;
     setIsRevealed(false);
     setCardIndex((index) => (index + 1) % practiceNodes.length);
+    setCardAdvanceCount(nextAdvanceCount);
+    if (subscriptionReady && !isAdFree && nextAdvanceCount % 5 === 0) setShowSponsoredCard(true);
   }
 
   function openCurrentTopic() {
@@ -61,9 +78,26 @@ export default function PracticeScreen() {
         <Text style={styles.kicker}>Practice</Text>
         <Text style={styles.title}>Daily review</Text>
 
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={isAdFree ? 'Ad-free plan active' : 'Open ad-free subscription plans'}
+          onPress={() => router.push('/subscription')}
+          style={({ pressed }) => [styles.subscriptionBanner, pressed && styles.pressed]}
+        >
+          <View style={styles.subscriptionTextBlock}>
+            <Text style={styles.subscriptionTitle}>{isAdFree ? 'Ad-free active' : 'Practice your way'}</Text>
+            <Text style={styles.subscriptionText}>
+              {isAdFree
+                ? 'Sponsored cards are completely removed.'
+                : 'A clearly labeled sponsored card appears after every 5 card advances.'}
+            </Text>
+          </View>
+          <Text style={styles.subscriptionAction}>{isAdFree ? 'Manage' : 'Go ad-free'}</Text>
+        </Pressable>
+
         <View style={styles.progressPanel}>
           <View>
-            <Text style={styles.progressValue}>{Object.keys(ratings).length}</Text>
+            <Text style={styles.progressValue}>{cardAdvanceCount}</Text>
             <Text style={styles.progressLabel}>reviewed</Text>
           </View>
           <View>
@@ -75,94 +109,105 @@ export default function PracticeScreen() {
           </View>
         </View>
 
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.domainLine}>
-              <View style={[styles.domainDot, { backgroundColor: getDomainColor(currentNode.domain) }]} />
-              <Text style={styles.domainText}>{currentNode.domain}</Text>
-            </View>
-            <Text style={styles.difficultyText}>D{currentNode.difficulty}</Text>
-          </View>
-
-          <Text style={styles.cardTitle}>{currentNode.label}</Text>
-          <Text style={styles.cardSummary}>{getNodeSummary(currentNode.id)}</Text>
-
-          {isRevealed ? (
-            <View style={styles.answerPanel}>
-              <Text style={styles.answerTitle}>Explanation</Text>
-              <Text style={styles.answerText}>{getNodeExplanation(currentNode.id)}</Text>
-            </View>
-          ) : (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Reveal answer"
-              onPress={() => setIsRevealed(true)}
-              style={({ pressed }) => [styles.revealButton, pressed && styles.pressed]}
-            >
-              <Text style={styles.revealButtonText}>Reveal answer</Text>
-            </Pressable>
-          )}
-
-          <View style={styles.metaRow}>
-            <Text style={styles.metaChip}>{currentNode.type}</Text>
-            <Text style={styles.metaChip}>level {currentNode.level}</Text>
-            <Text style={styles.metaChip}>{getPrerequisiteCount(currentNode.id)} prereqs</Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${currentNode.label} details`}
-            onPress={openCurrentTopic}
-            style={({ pressed }) => [styles.topicButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.topicButtonText}>Open topic</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.ratingRow}>
-          {Object.entries(RATING_META).map(([rating, meta]) => (
-            <Pressable
-              key={rating}
-              accessibilityRole="button"
-              accessibilityLabel={`Mark ${meta.label}`}
-              onPress={() => rateCurrent(rating as Rating)}
-              style={({ pressed }) => [
-                styles.ratingButton,
-                rating === 'known' && styles.ratingButtonPrimary,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={[styles.ratingText, rating === 'known' && styles.ratingTextPrimary]}>
-                {meta.label}
-              </Text>
-              <Text style={[styles.ratingValue, rating === 'known' && styles.ratingTextPrimary]}>
-                {meta.value}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Skip this card"
-          onPress={skipCurrent}
-          style={({ pressed }) => [styles.skipButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.skipText}>Skip</Text>
-        </Pressable>
-
-        {relatedNodes.length > 0 ? (
-          <View style={styles.relatedPanel}>
-            <Text style={styles.relatedTitle}>Connected topics</Text>
-            {relatedNodes.map((node) => (
-              <View key={node.id} style={styles.relatedRow}>
-                <View style={[styles.relatedDot, { backgroundColor: getDomainColor(node.domain) }]} />
-                <Text style={styles.relatedText} numberOfLines={1}>
-                  {node.label}
-                </Text>
+        {showSponsoredCard && subscriptionReady && !isAdFree ? (
+          <NativeSponsoredCard
+            onContinue={() => setShowSponsoredCard(false)}
+            onUpgrade={() => router.push('/subscription')}
+          />
+        ) : (
+          <>
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={styles.domainLine}>
+                  <View
+                    style={[styles.domainDot, { backgroundColor: getDomainColor(currentNode.domain) }]}
+                  />
+                  <Text style={styles.domainText}>{currentNode.domain}</Text>
+                </View>
+                <Text style={styles.difficultyText}>D{currentNode.difficulty}</Text>
               </View>
-            ))}
-          </View>
-        ) : null}
+
+              <Text style={styles.cardTitle}>{currentNode.label}</Text>
+              <Text style={styles.cardSummary}>{getNodeSummary(currentNode.id)}</Text>
+
+              {isRevealed ? (
+                <View style={styles.answerPanel}>
+                  <Text style={styles.answerTitle}>Explanation</Text>
+                  <Text style={styles.answerText}>{getNodeExplanation(currentNode.id)}</Text>
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Reveal answer"
+                  onPress={() => setIsRevealed(true)}
+                  style={({ pressed }) => [styles.revealButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.revealButtonText}>Reveal answer</Text>
+                </Pressable>
+              )}
+
+              <View style={styles.metaRow}>
+                <Text style={styles.metaChip}>{currentNode.type}</Text>
+                <Text style={styles.metaChip}>level {currentNode.level}</Text>
+                <Text style={styles.metaChip}>{getPrerequisiteCount(currentNode.id)} prereqs</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${currentNode.label} details`}
+                onPress={openCurrentTopic}
+                style={({ pressed }) => [styles.topicButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.topicButtonText}>Open topic</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.ratingRow}>
+              {Object.entries(RATING_META).map(([rating, meta]) => (
+                <Pressable
+                  key={rating}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mark ${meta.label}`}
+                  onPress={() => rateCurrent(rating as Rating)}
+                  style={({ pressed }) => [
+                    styles.ratingButton,
+                    rating === 'known' && styles.ratingButtonPrimary,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={[styles.ratingText, rating === 'known' && styles.ratingTextPrimary]}>
+                    {meta.label}
+                  </Text>
+                  <Text style={[styles.ratingValue, rating === 'known' && styles.ratingTextPrimary]}>
+                    {meta.value}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Skip this card"
+              onPress={skipCurrent}
+              style={({ pressed }) => [styles.skipButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.skipText}>Skip</Text>
+            </Pressable>
+
+            {relatedNodes.length > 0 ? (
+              <View style={styles.relatedPanel}>
+                <Text style={styles.relatedTitle}>Connected topics</Text>
+                {relatedNodes.map((node) => (
+                  <View key={node.id} style={styles.relatedRow}>
+                    <View style={[styles.relatedDot, { backgroundColor: getDomainColor(node.domain) }]} />
+                    <Text style={styles.relatedText} numberOfLines={1}>
+                      {node.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -189,6 +234,39 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '800',
     marginBottom: 16,
+  },
+  subscriptionBanner: {
+    minHeight: 82,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cbd3df',
+    backgroundColor: '#ffffff',
+    padding: 14,
+    marginBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  subscriptionTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  subscriptionTitle: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  subscriptionText: {
+    color: '#607080',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  subscriptionAction: {
+    color: '#1f5fd1',
+    fontSize: 13,
+    fontWeight: '900',
   },
   progressPanel: {
     borderRadius: 8,

@@ -3,7 +3,8 @@
 ## Base
 
 - Runtime: Next.js Route Handlers
-- Content type: `application/json`
+- Content type: endpoint-specific (`application/json` by default; form posts, redirects, and
+  raw signed webhook bodies are documented where used)
 
 ## GET `/api/graph`
 
@@ -108,3 +109,40 @@ Returns service availability and storage mode health.
 
 - `200` with status `ok` when healthy.
 - `503` with status `degraded` when DB-configured mode is unreachable.
+
+## `/api/mcp`
+
+Provider-neutral Streamable HTTP MCP endpoint. It accepts a Girapphe-scoped PAT
+or Clerk OAuth bearer token and exposes only `create_card_drafts`; tool calls create pending private
+review batches and cannot approve or publish cards. See
+[MCP card-draft ingestion](./mcp-card-ingestion.md) for the strict input schema,
+review boundary, and client compatibility notes.
+
+The path is exempt from Clerk cookie authentication because remote MCP clients
+do not carry a browser session. The route still verifies its own PAT or OAuth
+bearer token before reading a request body. Per-credential and per-user quotas
+bound writes; OAuth discovery metadata is public under `/.well-known/`.
+
+## Billing and entitlement endpoints
+
+- `GET /api/billing/entitlement`: authenticated, no-store provider-neutral `ad_free` lookup
+  used by mobile to honor Stripe, Toss, or reconciled RevenueCat state for the same Clerk user.
+- `POST /api/billing/checkout`: same-origin, signed-in Stripe Checkout creation for a
+  `monthly` or `annual` plan. Existing nonterminal subscriptions block a second checkout.
+- `POST /api/billing/portal`: same-origin, signed-in Stripe Customer Portal session.
+- `POST /api/billing/toss/prepare`: creates a signed-in, one-time Toss billing-authorization
+  state bound to the user, customer key, and selected plan.
+- `GET /api/billing/toss/callback`: verifies and consumes that server state before exchanging
+  Toss's one-time authorization value; the callback redirects to a clean subscription URL.
+- `POST /api/billing/toss/cancel`: same-origin cancellation of future Girapphe-scheduled Toss
+  renewals. Already-paid access remains through its recorded period end.
+- `POST /api/webhooks/stripe`: raw-body Stripe signature verification followed by an
+  authoritative subscription fetch and idempotent entitlement reconciliation.
+- `POST /api/webhooks/revenuecat`: configured authorization plus raw-body signature,
+  app/environment checks, and authoritative RevenueCat subscriber reconciliation.
+- `POST /api/internal/toss-subscription-charge`: bearer-protected production scheduler target.
+  It reconciles durable paid rows before attempting bounded due renewals.
+
+Redirects, callback query strings, and mobile client state are not accepted as server-side proof
+of a web entitlement. See [Ads and subscriptions](./monetization.md) for provider contracts and
+operational activation requirements.

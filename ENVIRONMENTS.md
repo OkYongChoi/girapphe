@@ -36,6 +36,20 @@ Production-only secrets:
 - `ADMIN_CLERK_USER_ID`
 - `PERSONAL_KNOWLEDGE_PURGE_TOKEN` (random shared secret for the daily expired personal-card cleanup job)
 
+Optional monetization groups must be configured as a complete group or left entirely absent.
+Preview uses the same names with `_PREVIEW` appended except for production-only AdSense; PR
+aliases always exercise the labeled house-card fallback. Production uses the names below.
+
+| Group | Production secret names |
+|---|---|
+| Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_AD_FREE_MONTHLY`, `STRIPE_PRICE_AD_FREE_ANNUAL` |
+| RevenueCat | `REVENUECAT_WEBHOOK_AUTHORIZATION`, `REVENUECAT_WEBHOOK_SIGNING_SECRET`, `REVENUECAT_APP_IDS`, `REVENUECAT_SECRET_API_KEY`, `REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS`, `REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS` |
+| AdSense | `NEXT_PUBLIC_ADSENSE_CLIENT_ID`, `NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID`, `NEXT_PUBLIC_ADSENSE_CONSENT_READY` |
+| Toss Payments | `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`, `TOSS_BILLING_ENCRYPTION_KEY`, `TOSS_MONTHLY_AMOUNT_KRW`, `TOSS_ANNUAL_AMOUNT_KRW`, `TOSS_BILLING_CRON_TOKEN` |
+
+Mobile Clerk, RevenueCat, AdMob identifiers/public SDK keys, and public legal URLs are owned by EAS
+Environments rather than the Worker. See `apps/mobile/SETUP.md` for the exact names.
+
 Repository variable:
 
 - `APP_BASE_URL=https://www.girapphe.com`
@@ -53,7 +67,8 @@ pnpm harness
 
 `DATABASE_URL` is optional only for local development. It is required for preview and
 production. Preview schema migrations are not automatic: create the isolated Neon database
-from the current production schema before enabling preview deploys.
+from the current production schema and apply every committed migration, including the private
+ingestion and billing migrations, before enabling preview deploys.
 
 ## Deployment rules
 
@@ -65,4 +80,8 @@ from the current production schema before enabling preview deploys.
   `PERSONAL_KNOWLEDGE_PURGE_TOKEN` to authenticate its request to production. GitHub Actions is
   the current scheduler; consider Cloudflare Cron only when several scheduled tasks warrant a
   custom Worker and unified Cloudflare operations.
+- The hourly Toss renewal workflow is also separate from deployment. It skips safely while
+  its complete production group is absent and authenticates the internal endpoint with
+  `TOSS_BILLING_CRON_TOKEN`. Enable the group only after the automatic-billing contract and
+  sandbox renewal/cancellation tests are complete.
 - Preview cleanup runs every six hours. It deletes versions only after their PR is closed: 24 hours after a merge, or 7 days after an unmerged close. A reopened/open PR is retained. Run the workflow manually with its dry-run input before an ad-hoc cleanup.

@@ -2,11 +2,14 @@
 
 ## Overview
 
-The platform maintains three main data groups:
+The platform maintains six main data groups:
 
 1. Graph structure (`graph_nodes`, `graph_edges`)
 2. User knowledge state (`user_knowledge_states`)
 3. Legacy card model (`knowledge_cards`, `user_card_states`)
+4. Private user graph (`user_knowledge_items`, `user_graph_nodes`, `user_graph_edges`)
+5. Conversation draft ingestion (`knowledge_ingestion_batches`, `knowledge_card_drafts`, `knowledge_card_sources`, `mcp_access_tokens`, `mcp_request_rate_limits`)
+6. Billing and entitlements (`billing_customers`, `billing_subscriptions`, `billing_webhook_events`, `toss_billing_agreements`, `toss_billing_sessions`, `toss_billing_charges`)
 
 Card model now separates:
 
@@ -53,6 +56,50 @@ Canonical fields:
 - `last_updated`
 - `first_known_at` (set when state first reaches `1`)
 
+## Private Knowledge Graph
+
+Every saved personal card has a user-owned graph node. Private edges may join:
+
+- one private node to another node owned by the same user; or
+- a private node to an existing public `graph_nodes` record.
+
+Exactly one private/public endpoint column is populated on each side of an
+edge. App-layer owner checks prevent cross-user private links. Symmetric
+`related` and `equivalent_to` endpoints are normalized before insertion, and
+new `prerequisite` edges are rejected when they would close a cycle.
+
+Personal cards, nodes, and incident edges share the 14-day trash lifecycle.
+Adding a card does not update `user_knowledge_states` or imply mastery.
+
+## Conversation Draft Ingestion
+
+`knowledge_ingestion_batches` is idempotent by user, provider, and request ID.
+Its scope is constrained to `current_conversation`. `knowledge_card_drafts`
+stores editable pending concepts, explicit tags, version numbers, and proposed
+typed relationships. Approval creates the personal card, private node, source
+record, and valid edges in one database transaction.
+
+`mcp_access_tokens` stores only token hashes, a final-four display hint, the
+single `knowledge:drafts:create` scope, expiry, last-use time, and revocation
+time. Raw tokens are returned once at creation. Ingestion batches retain the
+originating `mcp_token_id` so atomic per-token and per-user write quotas can be
+enforced without storing bearer secrets. `mcp_request_rate_limits` keeps one
+bounded rolling-window counter per token and user; it never stores raw tokens.
+
+## Billing and Entitlements
+
+`billing_customers` maps a Clerk user to provider customer identifiers and owns the shared,
+one-time trial marker. `billing_subscriptions` is the provider-neutral source for the
+`ad_free` entitlement, current period, cancellation state, and provider event ordering.
+`billing_webhook_events` makes signed Stripe and RevenueCat processing idempotent.
+
+Toss uses three additional server-owned records. `toss_billing_sessions` stores a
+short-lived, one-time checkout nonce bound to user, customer, and plan;
+`toss_billing_agreements` stores only an AES-GCM encrypted billing key plus renewal state; and
+`toss_billing_charges` persists the exact plan, cycle, amount, and stable order ID before any
+provider charge. A paid charge remains reconcilable without contacting Toss again if a later
+database write fails.
+
 ## Tri-State Semantics
 
 - `0`: unknown
@@ -70,6 +117,26 @@ Main graph tables:
 - `graph_nodes`
 - `graph_edges`
 - `user_knowledge_states`
+
+Private knowledge and ingestion tables:
+
+- `user_knowledge_items`
+- `user_graph_nodes`
+- `user_graph_edges`
+- `knowledge_ingestion_batches`
+- `knowledge_card_drafts`
+- `knowledge_card_sources`
+- `mcp_access_tokens`
+- `mcp_request_rate_limits`
+
+Billing tables:
+
+- `billing_customers`
+- `billing_subscriptions`
+- `billing_webhook_events`
+- `toss_billing_sessions`
+- `toss_billing_agreements`
+- `toss_billing_charges`
 
 Card tables:
 

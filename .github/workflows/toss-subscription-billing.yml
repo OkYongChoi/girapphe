@@ -1,0 +1,59 @@
+name: Process Toss subscription renewals
+
+on:
+  schedule:
+    # Run away from the top of the hour to reduce scheduler contention.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toss-subscription-billing-prod
+  cancel-in-progress: false
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check Toss billing configuration
+        id: billing_config
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          TOSS_BILLING_CRON_TOKEN: ${{ secrets.TOSS_BILLING_CRON_TOKEN }}
+          NEXT_PUBLIC_TOSS_CLIENT_KEY: ${{ secrets.NEXT_PUBLIC_TOSS_CLIENT_KEY }}
+          TOSS_SECRET_KEY: ${{ secrets.TOSS_SECRET_KEY }}
+          TOSS_BILLING_ENCRYPTION_KEY: ${{ secrets.TOSS_BILLING_ENCRYPTION_KEY }}
+          TOSS_MONTHLY_AMOUNT_KRW: ${{ secrets.TOSS_MONTHLY_AMOUNT_KRW }}
+          TOSS_ANNUAL_AMOUNT_KRW: ${{ secrets.TOSS_ANNUAL_AMOUNT_KRW }}
+        run: |
+          set -euo pipefail
+          configured=true
+          for key in APP_BASE_URL TOSS_BILLING_CRON_TOKEN NEXT_PUBLIC_TOSS_CLIENT_KEY TOSS_SECRET_KEY TOSS_BILLING_ENCRYPTION_KEY TOSS_MONTHLY_AMOUNT_KRW TOSS_ANNUAL_AMOUNT_KRW; do
+            if [ -z "${!key:-}" ]; then
+              configured=false
+            fi
+          done
+          if [ "${APP_BASE_URL:-}" != "https://www.girapphe.com" ]; then
+            configured=false
+            echo "Toss subscription billing skipped: APP_BASE_URL is not the exact production HTTPS origin." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "configured=$configured" >> "$GITHUB_OUTPUT"
+          if [ "$configured" != true ]; then
+            echo "Toss subscription billing skipped: production configuration is incomplete." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Process due Toss subscriptions
+        if: steps.billing_config.outputs.configured == 'true'
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+          TOSS_BILLING_CRON_TOKEN: ${{ secrets.TOSS_BILLING_CRON_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --request POST \
+            --header "Authorization: Bearer ${TOSS_BILLING_CRON_TOKEN}" \
+            "${APP_BASE_URL%/}/api/internal/toss-subscription-charge" \
+            > /dev/null
+          echo "Toss subscription renewal batch completed." >> "$GITHUB_STEP_SUMMARY"

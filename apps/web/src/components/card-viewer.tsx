@@ -12,6 +12,8 @@ import {
 import Card from './card';
 import Link from 'next/link';
 import { getCardStatusLabel } from '@/lib/card-status';
+import PracticeAdCard from './practice-ad-card';
+import { getPracticeAdSequence } from '@/lib/practice-ad-schedule';
 
 interface CardViewerProps {
   initialCard: KnowledgeCard | null;
@@ -19,6 +21,9 @@ interface CardViewerProps {
   mode: 'new' | 'review';
   isGuest?: boolean;
   guestLimit?: number;
+  isAdFree?: boolean;
+  adsenseClientId?: string | null;
+  adsenseSlotId?: string | null;
 }
 
 type HistoryEntry = {
@@ -32,6 +37,9 @@ export default function CardViewer({
   mode,
   isGuest = false,
   guestLimit = 0,
+  isAdFree = false,
+  adsenseClientId = null,
+  adsenseSlotId = null,
 }: CardViewerProps) {
   const [card, setCard] = useState<KnowledgeCard | null>(initialCard);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -55,6 +63,12 @@ export default function CardViewer({
   const [reviewedThisRound, setReviewedThisRound] = useState(0);
   const [reviewRoundCompleted, setReviewRoundCompleted] = useState(false);
   const [backNavigatedCardId, setBackNavigatedCardId] = useState<string | null>(null);
+  // Ads are based on successful forward actions only. Prev/Undo never decrement this
+  // monotonic session counter, so a card cannot trigger the same fifth-action ad twice.
+  const completedCardActions = useRef(0);
+  const [adVisible, setAdVisible] = useState(false);
+  const [cardAfterAd, setCardAfterAd] = useState<KnowledgeCard | null>(null);
+  const [adSequence, setAdSequence] = useState(0);
 
   // Reset session state on mount only.
   // key={mode} on CardViewer (in practice/page.tsx) causes a full unmount+remount on mode
@@ -78,6 +92,10 @@ export default function CardViewer({
     setReviewedThisRound(0);
     setReviewRoundCompleted(false);
     setBackNavigatedCardId(null);
+    completedCardActions.current = 0;
+    setAdVisible(false);
+    setCardAfterAd(null);
+    setAdSequence(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -89,6 +107,19 @@ export default function CardViewer({
   }, [history]);
   const reviewPool = initialReviewPool.current;
   const previousChoice = card ? lastChoiceByCardId[card.id] : undefined;
+
+  const completeCardAction = useCallback((nextCard: KnowledgeCard | null) => {
+    const completed = completedCardActions.current + 1;
+    completedCardActions.current = completed;
+    const nextAdSequence = getPracticeAdSequence(completed, isAdFree);
+    if (nextAdSequence !== null) {
+      setCardAfterAd(nextCard);
+      setAdSequence(nextAdSequence);
+      setAdVisible(true);
+      return;
+    }
+    setCard(nextCard);
+  }, [isAdFree]);
 
   const handleAction = useCallback(async (status: CardStatus) => {
     if (!card || loading) return;
@@ -135,7 +166,7 @@ export default function CardViewer({
         setReviewedThisRound(reviewedCountNow);
         setReviewRoundCompleted(completedRound);
       }
-      setCard(next);
+      completeCardAction(next);
       setStats(newStats);
       setUndoVisible(true); // stays until undo is clicked or next action
     } catch (e) {
@@ -147,7 +178,7 @@ export default function CardViewer({
     } finally {
       setLoading(false);
     }
-  }, [card, loading, mode, reviewPool]);
+  }, [card, loading, mode, reviewPool, completeCardAction]);
 
   const handlePrevious = useCallback(() => {
     if (history.length === 0) return;
@@ -199,7 +230,7 @@ export default function CardViewer({
         next = await getNextCard(mode);
       }
 
-      setCard(next);
+      completeCardAction(next);
     } catch (e) {
       console.error('handleSkip failed:', e);
       setError('Could not load the next card.');
@@ -208,7 +239,13 @@ export default function CardViewer({
     } finally {
       setLoading(false);
     }
-  }, [card, loading, mode, reviewPool]);
+  }, [card, loading, mode, reviewPool, completeCardAction]);
+
+  const handleContinueFromAd = useCallback(() => {
+    setAdVisible(false);
+    setCard(cardAfterAd);
+    setCardAfterAd(null);
+  }, [cardAfterAd]);
 
   // Reset flip state whenever the displayed card changes.
   // Exception: when going back via Undo, keep the card revealed.
@@ -225,7 +262,7 @@ export default function CardViewer({
     const onKeyDown = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (loading || !card) return;
+      if (adVisible || loading || !card) return;
       // Space / Enter reveals the answer; rating keys only work after reveal
       if ((event.key === ' ' || event.key === 'Enter') && !revealed) {
         event.preventDefault();
@@ -246,7 +283,20 @@ export default function CardViewer({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [loading, card, revealed, undoVisible, handleAction, handleSkip, handlePrevious, handleUndo]);
+  }, [adVisible, loading, card, revealed, undoVisible, handleAction, handleSkip, handlePrevious, handleUndo]);
+
+  if (adVisible) {
+    return (
+      <div className="flex w-full max-w-md flex-col items-center mx-auto">
+        <PracticeAdCard
+          clientId={adsenseClientId}
+          slotId={adsenseSlotId}
+          sequence={adSequence}
+          onContinue={handleContinueFromAd}
+        />
+      </div>
+    );
+  }
 
   // ── All done ─────────────────────────────────────────────────
   if (!card) {

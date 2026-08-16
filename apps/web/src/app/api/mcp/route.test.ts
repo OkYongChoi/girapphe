@@ -1,0 +1,79 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  createMcpAccessTokenForUser,
+  getKnowledgeDraftBatchesForUser,
+} from '@/lib/knowledge-ingestion';
+import { OPTIONS, POST } from './route';
+
+function mcpRequest(token: string, id: number, method: string, params: Record<string, unknown>) {
+  return new Request('https://girapphe.example/api/mcp', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json, text/event-stream',
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+  });
+}
+
+async function readMcpResponse(response: Response) {
+  const body = await response.text();
+  if (response.headers.get('content-type')?.includes('application/json')) {
+    return JSON.parse(body) as Record<string, unknown>;
+  }
+  const data = body
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice('data:'.length).trimStart())
+    .join('\n');
+  return JSON.parse(data) as Record<string, unknown>;
+}
+
+test('returns a bearer challenge and an unauthenticated CORS preflight', async () => {
+  const unauthorized = await POST(new Request('https://girapphe.example/api/mcp', {
+    method: 'POST',
+  }));
+  assert.equal(unauthorized.status, 401);
+  assert.match(unauthorized.headers.get('www-authenticate') ?? '', /^Bearer /);
+  assert.equal(unauthorized.headers.get('access-control-allow-origin'), '*');
+
+  const preflight = await OPTIONS();
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get('access-control-allow-headers') ?? '', /authorization/i);
+});
+
+test('accepts a cookie-less scoped token and creates only a pending review batch', async () => {
+  const userId = `user_route_${crypto.randomUUID()}`;
+  const { token } = await createMcpAccessTokenForUser(userId, 'Route integration');
+
+  const initialize = await POST(mcpRequest(token, 1, 'initialize', {
+    protocolVersion: '2025-06-18',
+    capabilities: {},
+    clientInfo: { name: 'route-test', version: '1.0.0' },
+  }));
+  assert.equal(initialize.status, 200);
+  assert.equal(initialize.headers.get('cache-control'), 'no-store');
+  assert.match(initialize.headers.get('vary') ?? '', /authorization/i);
+
+  const called = await POST(mcpRequest(token, 2, 'tools/call', {
+    name: 'create_card_drafts',
+    arguments: {
+      provider: 'gemini',
+      request_id: 'route-integration-request',
+      provenance: { type: 'current_conversation', conversation_ref: 'route-conversation' },
+      cards: [{ client_card_id: 'route-card', title: 'Pending route concept' }],
+    },
+  }));
+  assert.equal(called.status, 200);
+  const payload = await readMcpResponse(called);
+  const structured = (payload.result as { structuredContent?: Record<string, unknown> }).structuredContent;
+  assert.equal(structured?.status, 'pending');
+  assert.equal(structured?.draft_count, 1);
+
+  const batches = await getKnowledgeDraftBatchesForUser(userId);
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].status, 'pending');
+  assert.equal(batches[0].approved_count, 0);
+});

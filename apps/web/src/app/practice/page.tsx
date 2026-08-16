@@ -4,6 +4,7 @@ import Navbar from '@/components/navbar';
 import Link from 'next/link';
 import { getCurrentActor } from '@/lib/auth';
 import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
+import { hasAdFreeEntitlement } from '@/lib/billing/database';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,8 +12,13 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
   const actor = await getCurrentActor();
   const searchParams = await props.searchParams;
   const mode = searchParams?.mode === 'review' ? 'review' : 'new';
+  const adsenseConsentReady = process.env.NEXT_PUBLIC_ADSENSE_CONSENT_READY === 'true';
 
-  const [initialCard, stats] = await Promise.all([getNextCard(mode), getUserStats()]);
+  const [initialCard, stats, isAdFree] = await Promise.all([
+    getNextCard(mode),
+    getUserStats(),
+    hasAdFreeEntitlement(actor.isGuest ? null : actor.id),
+  ]);
 
   return (
     <main id="main-content" className="min-h-screen bg-gray-50 flex flex-col">
@@ -63,6 +69,9 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
           mode={mode}
           isGuest={actor.isGuest}
           guestLimit={GUEST_PRACTICE_CARD_LIMIT}
+          isAdFree={isAdFree}
+          adsenseClientId={adsenseConsentReady ? process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID ?? null : null}
+          adsenseSlotId={adsenseConsentReady ? process.env.NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID ?? null : null}
         />
       </div>
     </main>

@@ -1,24 +1,9 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { clerkMiddleware } from '@clerk/nextjs/server';
 import { NextResponse, type NextRequest, type NextFetchEvent } from 'next/server';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
 import { GUEST_ID_COOKIE } from '@/lib/guest';
 
-const isPublicRoute = createRouteMatcher([
-  '/',
-  '/dashboard(.*)',
-  '/knowledge(.*)',
-  '/login(.*)',
-  '/my-knowledge(.*)',
-  '/practice(.*)',
-  '/ranking(.*)',
-  '/saved(.*)',
-  '/signup(.*)',
-  '/register(.*)',
-  '/api/graph(.*)',
-  '/api/health(.*)',
-  '/api/internal/personal-knowledge-purge(.*)',
-  '/api/quiz_result(.*)',
-]);
+const withClerkContext = clerkMiddleware();
 
 function ensureGuestCookie(request: NextRequest, response: NextResponse) {
   const existing = request.cookies.get(GUEST_ID_COOKIE)?.value;
@@ -49,15 +34,11 @@ export default async function middleware(request: NextRequest, event: NextFetchE
     return ensureGuestCookie(request, NextResponse.next());
   }
 
-  const handler = clerkMiddleware(async (auth, req) => {
-    if (!isPublicRoute(req)) {
-      await auth.protect({
-        unauthenticatedUrl: new URL('/login', req.url).toString(),
-      });
-    }
-  });
-
-  const response = (await handler(request, event)) as NextResponse;
+  // Clerk v7 recommends authorization at the resource that reads or mutates
+  // protected data. Admin layouts, the Knowledge Inbox actions/pages, and API
+  // handlers enforce their own user/admin/token boundary; middleware only
+  // attaches Clerk auth context and the guest identity cookie.
+  const response = (await withClerkContext(request, event)) as NextResponse;
   return ensureGuestCookie(request, response);
 }
 

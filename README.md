@@ -6,6 +6,8 @@ This project implements an AI/CS knowledge graph MVP with:
 - Tri-state per-node knowledge state (`0`, `0.5`, `1`)
 - Quiz-driven knowledge updates and diffusion
 - 3D force-graph friendly API payloads
+- reviewed ChatGPT/Claude MCP conversation-card drafts
+- five-card sponsored practice intervals with cross-platform `ad_free` subscriptions
 
 ## Core Architecture
 
@@ -25,6 +27,8 @@ This project implements an AI/CS knowledge graph MVP with:
 - Mobile app architecture: `docs/apps/mobile.md`
 - API spec: `docs/reference/api-spec.md`
 - Data model: `docs/reference/data-model.md`
+- Ads and subscriptions: `docs/reference/monetization.md`
+- Mobile purchase and AdMob setup: `apps/mobile/SETUP.md`
 - Knowledge graph spec: `docs/reference/knowledge-graph-spec.md`
 - Development/operations: `docs/operations/development.md`
 - Admin operations: `docs/operations/admin.md`
@@ -42,6 +46,7 @@ This project implements an AI/CS knowledge graph MVP with:
   - `apps/web/src/app/api/quiz_result/route.ts`
   - `apps/web/src/app/api/knowledge-profile/route.ts`
   - `apps/web/src/app/api/knowledge-context/route.ts`
+  - `apps/web/src/app/api/mcp/route.ts`
 - PostgreSQL schema: `apps/web/schema.sql`
 
 ## API
@@ -59,6 +64,14 @@ Returns a compact AI-ready context payload containing a short `summary` and a pr
 Returns health and storage mode:
 - `status: "ok"` in fallback mode or DB-connected mode
 - `status: "degraded"` with HTTP `503` if DB is configured but unreachable
+
+### `POST /api/mcp`
+
+Streamable HTTP MCP endpoint exposing the scoped `create_card_drafts` tool.
+It accepts structured concepts from the current ChatGPT, Claude, Gemini, or
+other conversation and creates a private review batch; it never auto-approves
+cards or writes to the public graph. See
+[`docs/reference/mcp-card-ingestion.md`](docs/reference/mcp-card-ingestion.md).
 
 ### `POST /api/quiz_result`
 Body:
@@ -94,6 +107,8 @@ Core routes:
 - `/saved`
 - `/knowledge`
 - `/my-knowledge`
+- `/knowledge-inbox`
+- `/subscription`
 - `/dashboard`
 - `/ranking`
 - `/admin` (admin-only, PostgreSQL required)
@@ -198,6 +213,17 @@ NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/practice
 ```
 
 Get your keys from the [Clerk dashboard](https://dashboard.clerk.com).
+
+For native MCP connectors, also configure Clerk **OAuth applications**: prefer
+CIMD with an explicit client allowlist where supported, enable Dynamic Client
+Registration only when a target client requires it, and include `profile` in
+the default scopes. Girapphe publishes OAuth discovery under `/.well-known/`;
+see [MCP card-draft ingestion](docs/reference/mcp-card-ingestion.md).
+
+Stripe, RevenueCat, AdSense, and Toss are optional complete configuration groups. The exact
+server names, webhook/scheduler requirements, migrations, and activation tests are documented
+in [Ads and subscriptions](docs/reference/monetization.md). Mobile Clerk, RevenueCat, and AdMob
+public build values belong in EAS Environments; see [Mobile setup](apps/mobile/SETUP.md).
 
 Admin routes additionally require:
 
