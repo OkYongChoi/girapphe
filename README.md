@@ -168,7 +168,8 @@ Before deployment, also run:
 pnpm harness:deploy
 ```
 
-This runs the local harness first, then the Cloudflare/OpenNext build.
+This runs the local harness, builds the Cloudflare/OpenNext Worker, and verifies
+that its compressed upload stays within the guarded release-size budget.
 
 Browser smoke checks use Playwright and start the web dev server automatically:
 

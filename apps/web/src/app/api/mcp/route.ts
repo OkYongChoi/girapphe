@@ -96,7 +96,7 @@ async function authenticateMcpPrincipal(bearerToken: string): Promise<McpDraftPr
 
   if (!hasValidClerkConfig()) return null;
   const [{ verifyClerkToken }, { auth }] = await Promise.all([
-    import('@clerk/mcp-tools/next'),
+    import('@clerk/mcp-tools/server'),
     import('@clerk/nextjs/server'),
   ]);
   const clerkAuth = await auth({ acceptsToken: 'oauth_token' });

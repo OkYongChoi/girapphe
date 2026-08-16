@@ -50,8 +50,7 @@ jobs:
         run: pnpm --filter @stem-brain/mobile build
 
       - name: Build Cloudflare Bundle
-        working-directory: apps/web
-        run: pnpm build:cf
+        run: pnpm build:cf && pnpm check:worker-size
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci_build_placeholder_1234567890
 

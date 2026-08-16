@@ -1,13 +1,13 @@
-import {
-  authServerMetadataHandlerClerk,
-  metadataCorsOptionsRequestHandler,
-} from '@clerk/mcp-tools/next';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
 
 export const dynamic = 'force-dynamic';
 
-const handler = authServerMetadataHandlerClerk();
-const corsHandler = metadataCorsOptionsRequestHandler();
+const metadataCorsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': '*',
+  'Access-Control-Max-Age': '86400',
+};
 
 export async function GET() {
   if (!hasValidClerkConfig()) {
@@ -22,7 +22,21 @@ export async function GET() {
       }
     );
   }
-  return handler();
+
+  const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  if (!publishableKey) throw new Error('Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY');
+
+  const { fetchClerkAuthorizationServerMetadata } = await import('@clerk/mcp-tools/server');
+  const metadata = await fetchClerkAuthorizationServerMetadata({ publishableKey });
+  return Response.json(metadata, {
+    headers: {
+      'Cache-Control': 'max-age=3600',
+      'Content-Type': 'application/json',
+      ...metadataCorsHeaders,
+    },
+  });
 }
 
-export const OPTIONS = corsHandler;
+export function OPTIONS() {
+  return new Response(null, { status: 200, headers: metadataCorsHeaders });
+}
