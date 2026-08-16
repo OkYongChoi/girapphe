@@ -31,6 +31,7 @@ export default async function KnowledgePage() {
           privateGraph={actor.isGuest ? null : privateGraph}
           graphLinkTargets={graphLinkTargets}
           isGuest={actor.isGuest}
+          locale={locale}
         />
       </div>
     </main>

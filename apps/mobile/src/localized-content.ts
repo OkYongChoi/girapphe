@@ -19,7 +19,7 @@ export function useLocalizedContent(ids: string[], detailId?: string | null) {
   useEffect(() => {
     let active = true;
     const uniqueIds = (idKey ? idKey.split(',') : []).filter((id) => id !== normalizedDetailId);
-    if (locale === 'en' || (uniqueIds.length === 0 && !normalizedDetailId) || !process.env.EXPO_PUBLIC_API_URL) {
+    if (locale === 'en' || (uniqueIds.length === 0 && !normalizedDetailId) || !process.env.EXPO_PUBLIC_APP_BASE_URL) {
       setItems(new Map());
       return () => { active = false; };
     }
