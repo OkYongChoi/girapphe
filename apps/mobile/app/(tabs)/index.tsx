@@ -32,7 +32,7 @@ import { useMobileAuth } from '@/auth';
 export default function HomeScreen() {
   const router = useRouter();
   const auth = useMobileAuth();
-  const { isSignedIn } = auth;
+  const { isSignedIn, userId } = auth;
   const [selectedDomain, setSelectedDomain] = useState<DomainOption>('All');
   const [selectedNode, setSelectedNode] = useState<GraphNode>(() => {
     return GRAPH_NODES.find((node) => node.id === FEATURED_NODE_IDS[0]) ?? GRAPH_NODES[0];
@@ -47,9 +47,20 @@ export default function HomeScreen() {
   const [personalNotes, setPersonalNotes] = useState<PersonalNoteSummary[]>([]);
 
   useEffect(() => {
-    if (!isSignedIn) { setPersonalNotes([]); return; }
-    void mobileApi.graph().then(({ personalItems }) => setPersonalNotes(personalItems)).catch(() => setPersonalNotes([]));
-  }, [isSignedIn]);
+    let active = true;
+    setPersonalNotes([]);
+    if (!isSignedIn || !userId) return () => { active = false; };
+
+    void mobileApi.graph()
+      .then(({ personalItems }) => {
+        if (active) setPersonalNotes(personalItems);
+      })
+      .catch(() => {
+        if (active) setPersonalNotes([]);
+      });
+
+    return () => { active = false; };
+  }, [isSignedIn, userId]);
 
   function openSelectedTopic() {
     router.push({ pathname: '/topic/[id]', params: { id: selectedNode.id } });
@@ -143,7 +154,7 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            {personalNotes.length > 0 ? (
+            {isSignedIn && userId && personalNotes.length > 0 ? (
               <View style={styles.personalPanel}>
                 <View style={styles.personalHeader}>
                   <Text style={styles.personalTitle}>My Notes · private nodes</Text>

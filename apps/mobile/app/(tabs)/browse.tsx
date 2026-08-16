@@ -26,7 +26,7 @@ const DIFFICULTY_OPTIONS: DifficultyOption[] = ['All', 1, 2, 3, 4, 5];
 
 export default function BrowseScreen() {
   const router = useRouter();
-  const { isSignedIn } = useMobileAuth();
+  const { isSignedIn, userId } = useMobileAuth();
   const [query, setQuery] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<DomainOption>('All');
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyOption>('All');
@@ -49,12 +49,23 @@ export default function BrowseScreen() {
   const activeNode = selectedNode ?? nodes[0] ?? null;
   const relatedNodes = useMemo(() => (activeNode ? getRelatedNodes(activeNode.id) : []), [activeNode]);
   useEffect(() => {
-    if (!isSignedIn) { setStatusByTitle(new Map()); setPersonalNotes([]); return; }
+    let active = true;
+    setStatusByTitle(new Map());
+    setPersonalNotes([]);
+    if (!isSignedIn || !userId) return () => { active = false; };
+
     void mobileApi.graph().then(({ cards, personalItems }) => {
+      if (!active) return;
       setStatusByTitle(new Map(cards.map((card) => [card.title.toLowerCase(), card.status])));
       setPersonalNotes(personalItems);
-    }).catch(() => { setStatusByTitle(new Map()); setPersonalNotes([]); });
-  }, [isSignedIn]);
+    }).catch(() => {
+      if (!active) return;
+      setStatusByTitle(new Map());
+      setPersonalNotes([]);
+    });
+
+    return () => { active = false; };
+  }, [isSignedIn, userId]);
 
   function openActiveTopic() {
     if (!activeNode) return;
@@ -72,7 +83,7 @@ export default function BrowseScreen() {
           <View>
             <Text style={styles.kicker}>Browse</Text>
             <Text style={styles.title}>Find a topic</Text>
-            {personalNotes.length > 0 ? <View style={styles.personalPanel}><Text style={styles.personalTitle}>● {personalNotes.length} private note{personalNotes.length === 1 ? '' : 's'} in your map</Text><Text style={styles.personalCopy}>Purple nodes are private and only visible to you.</Text></View> : null}
+            {isSignedIn && userId && personalNotes.length > 0 ? <View style={styles.personalPanel}><Text style={styles.personalTitle}>● {personalNotes.length} private note{personalNotes.length === 1 ? '' : 's'} in your map</Text><Text style={styles.personalCopy}>Purple nodes are private and only visible to you.</Text></View> : null}
 
             <TextInput
               accessibilityLabel="Search knowledge topics"
