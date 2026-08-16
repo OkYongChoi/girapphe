@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getDomainColor } from '@stem-brain/graph-engine';
 import { NativeSponsoredCard } from '@/components/native-sponsored-card';
+import { mobileApi, type MobileCard } from '@/api';
+import { useMobileAuth } from '@/auth';
 import {
   getNodeExplanation,
   getNodeSummary,
@@ -21,6 +23,14 @@ const RATING_META: Record<Rating, { label: string; value: number }> = {
 };
 
 export default function PracticeScreen() {
+  const auth = useMobileAuth();
+  if (!auth.isLoaded) {
+    return <SafeAreaView style={styles.safeArea}><View style={styles.emptyState}><Text style={styles.emptyText}>Loading account…</Text></View></SafeAreaView>;
+  }
+  return auth.isSignedIn ? <SyncedPracticeScreen /> : <LocalPracticeScreen />;
+}
+
+function LocalPracticeScreen() {
   const router = useRouter();
   const { isAdFree, isReady: subscriptionReady } = useSubscription();
   const practiceNodes = useMemo(() => getPracticeNodes(), []);
@@ -213,6 +223,151 @@ export default function PracticeScreen() {
   );
 }
 
+function SyncedPracticeScreen() {
+  const router = useRouter();
+  const { isAdFree, isReady: subscriptionReady } = useSubscription();
+  const [mode, setMode] = useState<'new' | 'review'>('new');
+  const [card, setCard] = useState<MobileCard | null>(null);
+  const [stats, setStats] = useState({ explainable: 0, unclear: 0 });
+  const [seen, setSeen] = useState<string[]>([]);
+  const [isRevealed, setIsRevealed] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [cardAdvanceCount, setCardAdvanceCount] = useState(0);
+  const [showSponsoredCard, setShowSponsoredCard] = useState(false);
+
+  const load = useCallback(async (nextMode: 'new' | 'review', exclude: string[]) => {
+    setLoading(true);
+    setError(null);
+    setIsRevealed(false);
+    try {
+      const result = await mobileApi.practice(nextMode, exclude);
+      setCard(result.card);
+      setStats(result.stats);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not load a practice card.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    setMode('new');
+    setSeen([]);
+    void load('new', []);
+  }, [load]));
+
+  useEffect(() => {
+    if (isAdFree) setShowSponsoredCard(false);
+  }, [isAdFree]);
+
+  function recordAdvance() {
+    setCardAdvanceCount((current) => {
+      const next = current + 1;
+      if (subscriptionReady && !isAdFree && next % 5 === 0) setShowSponsoredCard(true);
+      return next;
+    });
+  }
+
+  async function rate(status: 'known' | 'saved') {
+    if (!card) return;
+    try {
+      await mobileApi.mutate({ action: 'rate-card', cardId: card.id, status });
+      const nextSeen = [...seen, card.id].slice(-100);
+      setSeen(nextSeen);
+      recordAdvance();
+      await load(mode, nextSeen);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not save this rating.');
+    }
+  }
+
+  function skip() {
+    if (!card) return;
+    const nextSeen = [...seen, card.id].slice(-100);
+    setSeen(nextSeen);
+    recordAdvance();
+    void load(mode, nextSeen);
+  }
+
+  function changeMode(nextMode: 'new' | 'review') {
+    setMode(nextMode);
+    setSeen([]);
+    setShowSponsoredCard(false);
+    void load(nextMode, []);
+  }
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.kicker}>Practice</Text>
+        <Text style={styles.title}>Daily review</Text>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={isAdFree ? 'Ad-free plan active' : 'Open ad-free subscription plans'}
+          onPress={() => router.push('/subscription')}
+          style={({ pressed }) => [styles.subscriptionBanner, pressed && styles.pressed]}
+        >
+          <View style={styles.subscriptionTextBlock}>
+            <Text style={styles.subscriptionTitle}>{isAdFree ? 'Ad-free active' : 'Practice your way'}</Text>
+            <Text style={styles.subscriptionText}>
+              {isAdFree ? 'Sponsored cards are completely removed.' : 'A sponsored card appears after every 5 card advances.'}
+            </Text>
+          </View>
+          <Text style={styles.subscriptionAction}>{isAdFree ? 'Manage' : 'Go ad-free'}</Text>
+        </Pressable>
+
+        <View style={styles.progressPanel}>
+          <View><Text style={styles.progressValue}>{stats.explainable}</Text><Text style={styles.progressLabel}>explainable</Text></View>
+          <View><Text style={styles.progressValue}>{stats.unclear}</Text><Text style={styles.progressLabel}>unclear</Text></View>
+          <View><Text style={styles.progressValue}>{cardAdvanceCount}</Text><Text style={styles.progressLabel}>reviewed</Text></View>
+        </View>
+
+        <View style={styles.modeRow}>
+          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'new' }} onPress={() => changeMode('new')} style={[styles.modeButton, mode === 'new' && styles.modeButtonActive]}><Text style={styles.modeText}>Learn new</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'review' }} onPress={() => changeMode('review')} style={[styles.modeButton, mode === 'review' && styles.modeButtonActive]}><Text style={styles.modeText}>Review ({stats.unclear})</Text></Pressable>
+        </View>
+
+        {error ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{error}</Text> : null}
+        {loading ? <Text style={styles.emptyText}>Loading…</Text> : null}
+
+        {showSponsoredCard && subscriptionReady && !isAdFree ? (
+          <NativeSponsoredCard onContinue={() => setShowSponsoredCard(false)} onUpgrade={() => router.push('/subscription')} />
+        ) : !loading && card ? (
+          <>
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.domainText}>{card.domain}</Text>
+                <Text style={styles.difficultyText}>{card.level}</Text>
+              </View>
+              <Text style={styles.cardTitle}>{card.title}</Text>
+              <Text style={styles.cardSummary}>{card.summary}</Text>
+              {isRevealed ? (
+                <View style={styles.answerPanel}><Text style={styles.answerTitle}>Explanation</Text><Text style={styles.answerText}>{card.explanation}</Text></View>
+              ) : (
+                <Pressable accessibilityRole="button" accessibilityLabel="Reveal answer" onPress={() => setIsRevealed(true)} style={styles.revealButton}><Text style={styles.revealButtonText}>Reveal answer</Text></Pressable>
+              )}
+            </View>
+            {isRevealed ? (
+              <View style={styles.ratingRow}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Mark still unclear" onPress={() => void rate('saved')} style={styles.ratingButton}><Text style={styles.ratingText}>Still unclear</Text></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Mark can explain" onPress={() => void rate('known')} style={[styles.ratingButton, styles.ratingButtonPrimary]}><Text style={[styles.ratingText, styles.ratingTextPrimary]}>Can explain</Text></Pressable>
+              </View>
+            ) : null}
+            <Pressable accessibilityRole="button" accessibilityLabel="Skip this card" onPress={skip} style={styles.skipButton}><Text style={styles.skipText}>Skip</Text></Pressable>
+          </>
+        ) : !loading ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>{mode === 'review' ? 'No cards due for review' : 'No new cards available'}</Text>
+            <Text style={styles.emptyText}>Try the other mode or return after adding and approving more notes.</Text>
+          </View>
+        ) : null}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -301,6 +456,34 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 8,
     backgroundColor: '#111827',
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  modeButton: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d8dee8',
+    backgroundColor: '#ffffff',
+  },
+  modeButtonActive: {
+    borderColor: '#2563eb',
+    backgroundColor: '#dbeafe',
+  },
+  modeText: {
+    color: '#111827',
+    fontWeight: '800',
+  },
+  errorText: {
+    color: '#b42318',
+    fontWeight: '700',
+    marginBottom: 12,
   },
   card: {
     borderRadius: 8,

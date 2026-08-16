@@ -84,6 +84,14 @@ export default function AccountScreen() {
           </>
         )}
 
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Learning tools</Text>
+          <Text style={styles.sectionBody}>Open the synced progress, review, and community views without crowding the tab bar.</Text>
+          <SecondaryButton label="Progress" onPress={() => router.push('/(tabs)/progress')} />
+          <SecondaryButton label="Review queue" onPress={() => router.push('/(tabs)/review')} />
+          <SecondaryButton label="Ranking" onPress={() => router.push('/(tabs)/ranking')} />
+        </View>
+
         <SecondaryButton label="Ad privacy choices" onPress={() => void openAdPrivacyChoices()} />
         {privacyNotice ? <Text style={styles.privacyNotice}>{privacyNotice}</Text> : null}
       </ScrollView>
@@ -140,6 +148,9 @@ const styles = StyleSheet.create({
   statusPill: { overflow: 'hidden', borderRadius: 999, backgroundColor: '#eef1f5', color: '#607080', fontSize: 11, fontWeight: '900', paddingHorizontal: 10, paddingVertical: 6 },
   statusPillActive: { backgroundColor: '#d9fbe5', color: '#176b38' },
   entitlementBody: { color: '#607080', fontSize: 14, lineHeight: 21, marginTop: 12 },
+  sectionCard: { borderRadius: 12, borderWidth: 1, borderColor: '#d8dee8', backgroundColor: '#ffffff', padding: 16, marginTop: 14 },
+  sectionTitle: { color: '#111827', fontSize: 17, fontWeight: '900' },
+  sectionBody: { color: '#607080', fontSize: 13, lineHeight: 19, marginTop: 6, marginBottom: 2 },
   primaryButton: { minHeight: 52, borderRadius: 8, backgroundColor: '#111827', alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   primaryButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '900' },
   secondaryButton: { minHeight: 50, borderRadius: 8, borderWidth: 1, borderColor: '#cbd3df', backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center', marginTop: 10 },

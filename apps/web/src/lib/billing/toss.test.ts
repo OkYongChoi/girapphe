@@ -5,9 +5,19 @@ import {
   createTossCheckoutState,
   createTossOrderId,
   decryptTossBillingKey,
+  deleteTossBillingKey,
   encryptTossBillingKey,
   isTossCheckoutState,
 } from './toss';
+
+function setTestTossEnvironment() {
+  process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY = 'test_ck_example';
+  process.env.TOSS_SECRET_KEY = 'test_sk_example';
+  process.env.TOSS_BILLING_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
+  process.env.TOSS_MONTHLY_AMOUNT_KRW = '1400';
+  process.env.TOSS_ANNUAL_AMOUNT_KRW = '14000';
+  process.env.TOSS_BILLING_CRON_TOKEN = 'test-token-that-is-longer-than-thirty-two-characters';
+}
 
 test('keeps month-end billing periods on a valid UTC calendar day', () => {
   assert.equal(
@@ -48,12 +58,7 @@ test('encrypts stored billing keys with authenticated AES-GCM', async () => {
     annual: process.env.TOSS_ANNUAL_AMOUNT_KRW,
     cron: process.env.TOSS_BILLING_CRON_TOKEN,
   };
-  process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY = 'test_ck_example';
-  process.env.TOSS_SECRET_KEY = 'test_sk_example';
-  process.env.TOSS_BILLING_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
-  process.env.TOSS_MONTHLY_AMOUNT_KRW = '1400';
-  process.env.TOSS_ANNUAL_AMOUNT_KRW = '14000';
-  process.env.TOSS_BILLING_CRON_TOKEN = 'test-token-that-is-longer-than-thirty-two-characters';
+  setTestTossEnvironment();
 
   try {
     const encrypted = await encryptTossBillingKey('billing-key-that-must-not-be-stored-in-plain-text');
@@ -68,6 +73,38 @@ test('encrypts stored billing keys with authenticated AES-GCM', async () => {
     const tampered = `${version}.${iv}.${tamperedBytes.toString('base64url')}`;
     await assert.rejects(decryptTossBillingKey(tampered), /could not be decrypted/);
   } finally {
+    const entries: Array<[string, string | undefined]> = [
+      ['NEXT_PUBLIC_TOSS_CLIENT_KEY', previous.client],
+      ['TOSS_SECRET_KEY', previous.secret],
+      ['TOSS_BILLING_ENCRYPTION_KEY', previous.encryption],
+      ['TOSS_MONTHLY_AMOUNT_KRW', previous.monthly],
+      ['TOSS_ANNUAL_AMOUNT_KRW', previous.annual],
+      ['TOSS_BILLING_CRON_TOKEN', previous.cron],
+    ];
+    for (const [name, value] of entries) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test('accepts Toss billing-key deletion with an empty successful response', async () => {
+  const previousFetch = globalThis.fetch;
+  const previous = {
+    client: process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY,
+    secret: process.env.TOSS_SECRET_KEY,
+    encryption: process.env.TOSS_BILLING_ENCRYPTION_KEY,
+    monthly: process.env.TOSS_MONTHLY_AMOUNT_KRW,
+    annual: process.env.TOSS_ANNUAL_AMOUNT_KRW,
+    cron: process.env.TOSS_BILLING_CRON_TOKEN,
+  };
+  setTestTossEnvironment();
+  globalThis.fetch = async () => new Response(null, { status: 200 });
+
+  try {
+    await assert.doesNotReject(deleteTossBillingKey('billing-key-to-delete'));
+  } finally {
+    globalThis.fetch = previousFetch;
     const entries: Array<[string, string | undefined]> = [
       ['NEXT_PUBLIC_TOSS_CLIENT_KEY', previous.client],
       ['TOSS_SECRET_KEY', previous.secret],

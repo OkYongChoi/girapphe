@@ -153,7 +153,12 @@ export async function decryptTossBillingKey(value: string) {
 
 async function tossApiRequest<T>(
   path: string,
-  init: { method: 'GET' | 'POST' | 'DELETE'; body?: Record<string, unknown>; idempotencyKey?: string }
+  init: {
+    method: 'GET' | 'POST' | 'DELETE';
+    body?: Record<string, unknown>;
+    idempotencyKey?: string;
+    allowEmptySuccess?: boolean;
+  }
 ) {
   const { secretKey } = getTossBillingConfig();
   const headers = new Headers({
@@ -170,11 +175,11 @@ async function tossApiRequest<T>(
     signal: AbortSignal.timeout(65_000),
   });
   const payload = await response.json().catch(() => null) as (T & { code?: string; message?: string }) | null;
-  if (!response.ok || !payload) {
+  if (!response.ok || (!payload && !init.allowEmptySuccess)) {
     const code = payload?.code?.slice(0, 80) || `HTTP_${response.status}`;
     throw new TossBillingError('Toss Payments rejected the billing request.', code);
   }
-  return payload;
+  return payload as T;
 }
 
 export async function issueTossBillingKey(
@@ -255,6 +260,7 @@ export async function findTossPaymentByOrderId(orderId: string) {
 export async function deleteTossBillingKey(billingKey: string) {
   await tossApiRequest<Record<string, unknown>>(`/v1/billing/${encodeURIComponent(billingKey)}`, {
     method: 'DELETE',
+    allowEmptySuccess: true,
   });
 }
 

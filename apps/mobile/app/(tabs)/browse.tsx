@@ -19,7 +19,7 @@ import {
   getNodeSummary,
   getRelatedNodes,
 } from '@/knowledge';
-import { mobileApi, type CardStatus, type PersonalNote } from '@/api';
+import { mobileApi, type CardStatus, type PersonalNoteSummary } from '@/api';
 import { useMobileAuth } from '@/auth';
 
 const DIFFICULTY_OPTIONS: DifficultyOption[] = ['All', 1, 2, 3, 4, 5];
@@ -32,7 +32,7 @@ export default function BrowseScreen() {
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyOption>('All');
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [statusByTitle, setStatusByTitle] = useState<Map<string, CardStatus | null>>(new Map());
-  const [personalNotes, setPersonalNotes] = useState<PersonalNote[]>([]);
+  const [personalNotes, setPersonalNotes] = useState<PersonalNoteSummary[]>([]);
 
   const domains = useMemo(() => getDomainOptions(), []);
   const nodes = useMemo(

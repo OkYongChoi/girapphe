@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readBoundedJson } from './bounded-json';
+import { readBoundedBytes, readBoundedJson } from './bounded-json';
 
 function streamingRequest(chunks: string[], headers?: HeadersInit) {
   const encoder = new TextEncoder();
@@ -56,4 +56,16 @@ test('bounded JSON parser rejects chunked bytes beyond the limit despite a false
 test('bounded JSON parser rejects malformed JSON within the limit', async () => {
   const result = await readBoundedJson(streamingRequest(['{"plan":']), 4096);
   assert.deepEqual(result, { ok: false, reason: 'invalid_json' });
+});
+
+test('bounded byte reader preserves exact webhook bytes and rejects understated bodies', async () => {
+  const accepted = await readBoundedBytes(streamingRequest(['raw-', 'signature-bytes']), 19);
+  assert.equal(accepted.ok, true);
+  if (accepted.ok) assert.equal(Buffer.from(accepted.value).toString('utf8'), 'raw-signature-bytes');
+
+  const rejected = await readBoundedBytes(
+    streamingRequest(['12345678', '9'], { 'Content-Length': '1' }),
+    8,
+  );
+  assert.deepEqual(rejected, { ok: false, reason: 'too_large' });
 });

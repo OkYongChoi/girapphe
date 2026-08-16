@@ -29,6 +29,8 @@ export type PersonalNote = {
   purge_at: string | null;
 };
 
+export type PersonalNoteSummary = Pick<PersonalNote, 'id' | 'title' | 'topic'>;
+
 function getBaseUrl() {
   if (!apiBaseUrl) throw new Error('EXPO_PUBLIC_APP_BASE_URL is not configured.');
   return apiBaseUrl;
@@ -54,11 +56,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const mobileApi = {
   notes: (view: 'active' | 'trash' = 'active') => request<{ items: PersonalNote[] }>(`/api/mobile?resource=notes&view=${view}`),
-  graph: () => request<{ cards: MobileCard[]; personalItems: PersonalNote[] }>('/api/mobile?resource=graph'),
+  graph: () => request<{ cards: Array<Pick<MobileCard, 'id' | 'title' | 'status'>>; personalItems: PersonalNoteSummary[] }>('/api/mobile?resource=graph'),
   practice: (mode: 'new' | 'review', exclude: string[] = []) => request<{ card: MobileCard | null; stats: { explainable: number; unclear: number } }>(`/api/mobile?resource=practice&mode=${mode}${exclude.map((id) => `&exclude=${encodeURIComponent(id)}`).join('')}`),
   saved: () => request<{ cards: MobileCard[] }>('/api/mobile?resource=saved'),
   dashboard: () => request<{ stats: { explainable: number; unclear: number }; domains: Array<{ domain: string; reviewed: number; explainable: number; unclear: number }> }>('/api/mobile?resource=dashboard'),
-  ranking: () => request<{ rows: Array<{ userId: string; explainable: number; avgScore: number }> }>('/api/mobile?resource=ranking'),
+  ranking: () => request<{ rows: Array<{ rank: number; label: string; explainable: number; avgScore: number }> }>('/api/mobile?resource=ranking'),
   adminNodes: () => request<{ nodes: Array<{ id: string; label: string; domain: string; level: number; difficulty: number; type: string }> }>('/api/mobile?resource=admin-nodes'),
   adminEdges: () => request<{ edges: Array<{ id: number; source: string; target: string; type: string; weight: number }>; nodes: Array<{ id: string; label: string }> }>('/api/mobile?resource=admin-edges'),
   adminUsers: () => request<{ users: Array<{ user_id: string; mastered: number; reinforcing: number; total: number; last_updated: string | null }> }>('/api/mobile?resource=admin-users'),

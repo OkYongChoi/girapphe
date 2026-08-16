@@ -29,6 +29,7 @@ import {
   getAdminUsers,
 } from '@/actions/admin-actions';
 import { getCurrentUser } from '@/lib/auth';
+import { readBoundedJson } from '@/lib/billing/bounded-json';
 
 const MAX_JSON_BYTES = 16_384;
 
@@ -55,21 +56,30 @@ function stringField(value: unknown, maxLength: number) {
   return typeof value === 'string' && value.length <= maxLength ? value : null;
 }
 
-async function readBody(request: NextRequest): Promise<Record<string, unknown> | null> {
-  const contentLength = Number(request.headers.get('content-length') ?? '0');
-  if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BYTES) return null;
-  try {
-    const value: unknown = await request.json();
-    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-  } catch {
-    return null;
+async function readBody(request: NextRequest) {
+  const result = await readBoundedJson(request, MAX_JSON_BYTES);
+  if (!result.ok) return result;
+  const value = result.value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false as const, reason: 'invalid_json' as const };
   }
+  return { ok: true as const, value: value as Record<string, unknown> };
 }
 
 function toFormData(values: Record<string, string>) {
   const formData = new FormData();
   for (const [key, value] of Object.entries(values)) formData.set(key, value);
   return formData;
+}
+
+function mutationResponse(result: { success?: boolean; error?: string }) {
+  if (result.success === false) {
+    return NextResponse.json(
+      { error: result.error === 'guest_card_not_available' ? 'This card is not available.' : 'The change could not be saved.' },
+      { status: result.error === 'guest_card_not_available' ? 400 : 500 },
+    );
+  }
+  return NextResponse.json(result);
 }
 
 export async function GET(request: NextRequest) {
@@ -93,7 +103,10 @@ export async function GET(request: NextRequest) {
     }
     case 'graph': {
       const [cards, personalItems] = await Promise.all([getAllCardsWithStatus(), getUserKnowledgeItems()]);
-      return NextResponse.json({ cards, personalItems });
+      return NextResponse.json({
+        cards: cards.map((card) => ({ id: card.id, title: card.title, status: card.status })),
+        personalItems: personalItems.map((item) => ({ id: item.id, title: item.title, topic: item.topic })),
+      });
     }
     case 'practice': {
       const mode = request.nextUrl.searchParams.get('mode') === 'review' ? 'review' : 'new';
@@ -107,8 +120,17 @@ export async function GET(request: NextRequest) {
       const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress()]);
       return NextResponse.json({ stats, domains });
     }
-    case 'ranking':
-      return NextResponse.json({ rows: await getCardLeaderboard() });
+    case 'ranking': {
+      const rows = await getCardLeaderboard();
+      return NextResponse.json({
+        rows: rows.map((row, index) => ({
+          rank: index + 1,
+          label: `Learner ${index + 1}`,
+          explainable: row.explainable,
+          avgScore: row.avgScore,
+        })),
+      });
+    }
     default:
       return invalid('Unknown mobile resource.');
   }
@@ -116,8 +138,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   if (!await requireMobileUser()) return unauthorized();
-  const body = await readBody(request);
-  if (!body) return invalid('A small JSON object is required.');
+  const parsedBody = await readBody(request);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      { error: parsedBody.reason === 'too_large' ? 'The request body is too large.' : 'A small JSON object is required.' },
+      { status: parsedBody.reason === 'too_large' ? 413 : 400 },
+    );
+  }
+  const body = parsedBody.value;
 
   const action = stringField(body.action, 64);
   if (!action) return invalid('An action is required.');
@@ -149,16 +177,16 @@ export async function POST(request: NextRequest) {
     const cardId = stringField(body.cardId, 160);
     const status = body.status;
     if (!cardId || (status !== 'known' && status !== 'saved')) return invalid('A valid card and status are required.');
-    return NextResponse.json(await saveCardState(cardId, status as CardStatus));
+    return mutationResponse(await saveCardState(cardId, status as CardStatus));
   }
 
   if (action === 'remove-saved') {
     const cardId = stringField(body.cardId, 160);
     if (!cardId) return invalid('A card is required.');
-    return NextResponse.json(await removeSavedCard(cardId));
+    return mutationResponse(await removeSavedCard(cardId));
   }
 
-  if (action === 'reset-progress') return NextResponse.json(await resetUserCardProgress());
+  if (action === 'reset-progress') return mutationResponse(await resetUserCardProgress());
 
   const id = stringField(body.id, 160);
   if (action === 'create-note') {

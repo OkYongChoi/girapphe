@@ -10,6 +10,7 @@ import {
   parseRevenueCatEvent,
   processRevenueCatEvent,
 } from '@/lib/billing/revenuecat';
+import { readBoundedBytes } from '@/lib/billing/bounded-json';
 
 const MAX_WEBHOOK_BYTES = 1_048_576;
 
@@ -35,15 +36,12 @@ export async function POST(request: Request) {
   if (!constantTimeTextEqual(authorization, expectedAuthorization)) {
     return NextResponse.json({ error: 'Invalid webhook authorization.' }, { status: 401 });
   }
-  const contentLength = Number(request.headers.get('content-length') ?? '0');
-  if (Number.isFinite(contentLength) && contentLength > MAX_WEBHOOK_BYTES) {
-    return NextResponse.json({ error: 'Request body is too large.' }, { status: 413 });
-  }
-
-  const rawBodyBytes = Buffer.from(await request.arrayBuffer());
-  if (rawBodyBytes.byteLength > MAX_WEBHOOK_BYTES) {
-    return NextResponse.json({ error: 'Request body is too large.' }, { status: 413 });
-  }
+  const body = await readBoundedBytes(request, MAX_WEBHOOK_BYTES);
+  if (!body.ok) return NextResponse.json(
+    { error: body.reason === 'too_large' ? 'Request body is too large.' : 'Invalid request body.' },
+    { status: body.reason === 'too_large' ? 413 : 400 },
+  );
+  const rawBodyBytes = Buffer.from(body.value);
   const signature = request.headers.get('x-revenuecat-webhook-signature');
   if (!signature || !verifyTimestampedHmac(rawBodyBytes, signature, signingSecret)) {
     return NextResponse.json({ error: 'Invalid webhook signature.' }, { status: 400 });

@@ -26,7 +26,7 @@ import {
   getNodeSummary,
   getPrerequisiteCount,
 } from '@/knowledge';
-import { mobileApi, type PersonalNote } from '@/api';
+import { mobileApi, type PersonalNoteSummary } from '@/api';
 import { useMobileAuth } from '@/auth';
 
 export default function HomeScreen() {
@@ -44,7 +44,7 @@ export default function HomeScreen() {
   const visibleNodes = useMemo(() => filterNodes({ domain: selectedDomain, limit: 36 }), [selectedDomain]);
   const selectedContent = getNodeSummary(selectedNode.id);
   const prerequisiteCount = useMemo(() => getPrerequisiteCount(selectedNode.id), [selectedNode.id]);
-  const [personalNotes, setPersonalNotes] = useState<PersonalNote[]>([]);
+  const [personalNotes, setPersonalNotes] = useState<PersonalNoteSummary[]>([]);
 
   useEffect(() => {
     if (!isSignedIn) { setPersonalNotes([]); return; }

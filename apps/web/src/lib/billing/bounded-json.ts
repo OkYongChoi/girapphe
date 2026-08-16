@@ -2,10 +2,14 @@ export type BoundedJsonResult =
   | { ok: true; value: unknown }
   | { ok: false; reason: 'too_large' | 'invalid_json' };
 
-export async function readBoundedJson(
+export type BoundedBytesResult =
+  | { ok: true; value: Uint8Array }
+  | { ok: false; reason: 'too_large' | 'invalid_body' };
+
+export async function readBoundedBytes(
   request: Request,
   maxBytes: number,
-): Promise<BoundedJsonResult> {
+): Promise<BoundedBytesResult> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
     throw new RangeError('maxBytes must be a positive safe integer.');
   }
@@ -18,7 +22,7 @@ export async function readBoundedJson(
     }
   }
 
-  if (!request.body) return { ok: false, reason: 'invalid_json' };
+  if (!request.body) return { ok: false, reason: 'invalid_body' };
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
@@ -34,7 +38,7 @@ export async function readBoundedJson(
       chunks.push(value);
     }
   } catch {
-    return { ok: false, reason: 'invalid_json' };
+    return { ok: false, reason: 'invalid_body' };
   } finally {
     reader.releaseLock();
   }
@@ -46,8 +50,19 @@ export async function readBoundedJson(
     offset += chunk.byteLength;
   }
 
+  return { ok: true, value: bytes };
+}
+
+export async function readBoundedJson(
+  request: Request,
+  maxBytes: number,
+): Promise<BoundedJsonResult> {
+  const result = await readBoundedBytes(request, maxBytes);
+  if (!result.ok) {
+    return { ok: false, reason: result.reason === 'too_large' ? 'too_large' : 'invalid_json' };
+  }
   try {
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(result.value);
     return { ok: true, value: JSON.parse(text) as unknown };
   } catch {
     return { ok: false, reason: 'invalid_json' };
