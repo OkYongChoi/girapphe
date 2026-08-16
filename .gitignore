@@ -55,6 +55,7 @@ yarn-error.log*
 # vercel / cloudflare
 .vercel
 .open-next
+apps/web/public/localization/card-content.json
 .claude
 .omc
 

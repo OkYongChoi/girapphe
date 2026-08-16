@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { CARD_CONTENT, GRAPH_NODES } from '@stem-brain/graph-engine';
+import { GRAPH_NODES } from '@stem-brain/graph-engine';
+import { CARD_CONTENT } from '@stem-brain/graph-engine/card-content';
 import { localizeDomain, localizeLevel, localizeType } from '@stem-brain/shared';
 import { selectContentCursorBatch } from './content-localization-cursor';
 import {

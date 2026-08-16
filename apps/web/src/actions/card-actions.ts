@@ -6,8 +6,8 @@ import { requireCurrentActor } from '@/lib/auth';
 import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 import { GRAPH_EDGES } from '@stem-brain/graph-engine';
 import { GRAPH_NODES } from '@stem-brain/graph-engine';
-import { CARD_CONTENT } from '@stem-brain/graph-engine';
 import { getCardLevelMeta, type CardLevel, type EdgeType } from '@stem-brain/graph-engine';
+import { getStaticCardContent, type StaticCardContent } from '@/lib/static-card-content';
 import {
   getMockCardStatus,
   getMockPracticeStats,
@@ -279,11 +279,12 @@ function hasSubstantiveContent(content: { summary: string; explanation: string }
   return summary.length >= 20 && explanation.length >= 80;
 }
 
-const CORE_GRAPH_CARDS: KnowledgeCard[] = GRAPH_NODES
+function buildCoreGraphCards(cardContent: StaticCardContent): KnowledgeCard[] {
+  return GRAPH_NODES
   .filter((node) => node.level > 0 && !META_NODE_IDS.has(node.id))
   .slice(0, KNOWLEDGE_CARD_LIMIT)
   .map<KnowledgeCard | null>((node) => {
-    const content = CARD_CONTENT[node.id];
+    const content = cardContent[node.id];
     if (!hasSubstantiveContent(content)) return null;
     const related = (EDGE_MAP[node.id] ?? [])
       .map((id) => NODE_LABEL_BY_ID.get(id))
@@ -307,8 +308,7 @@ const CORE_GRAPH_CARDS: KnowledgeCard[] = GRAPH_NODES
     };
   })
   .filter((card): card is KnowledgeCard => Boolean(card));
-
-const CORE_CARDS: KnowledgeCard[] = CORE_GRAPH_CARDS;
+}
 
 const DRILL_ELIGIBLE_NODES = [...GRAPH_NODES]
   .filter((node) => node.level > 0)
@@ -317,8 +317,12 @@ const DRILL_ELIGIBLE_NODES = [...GRAPH_NODES]
     return a.label.localeCompare(b.label);
   });
 
-function generateDrillCard(node: (typeof GRAPH_NODES)[number], variantIndex: number): KnowledgeCard {
-  const content = CARD_CONTENT[node.id];
+function generateDrillCard(
+  node: (typeof GRAPH_NODES)[number],
+  variantIndex: number,
+  cardContent: StaticCardContent,
+): KnowledgeCard {
+  const content = cardContent[node.id];
   const related = (EDGE_MAP[node.id] ?? [])
     .map((id) => NODE_LABEL_BY_ID.get(id))
     .filter((label): label is string => Boolean(label))
@@ -384,7 +388,11 @@ function generateDrillCard(node: (typeof GRAPH_NODES)[number], variantIndex: num
   };
 }
 
-function generateDrillCards(count: number, startIndex: number): KnowledgeCard[] {
+function generateDrillCards(
+  count: number,
+  startIndex: number,
+  cardContent: StaticCardContent,
+): KnowledgeCard[] {
   if (count <= 0) return [];
   if (DRILL_ELIGIBLE_NODES.length === 0) return [];
 
@@ -393,16 +401,30 @@ function generateDrillCards(count: number, startIndex: number): KnowledgeCard[] 
     const globalIndex = startIndex + i;
     const node = DRILL_ELIGIBLE_NODES[globalIndex % DRILL_ELIGIBLE_NODES.length];
     const variantIndex = Math.floor(globalIndex / DRILL_ELIGIBLE_NODES.length);
-    cards.push(generateDrillCard(node, variantIndex));
+    cards.push(generateDrillCard(node, variantIndex, cardContent));
   }
   return cards;
 }
 
-const MOCK_CARDS: KnowledgeCard[] = [...CORE_CARDS].slice(0, TARGET_CARD_COUNT);
-const GUEST_CARD_IDS = new Set(MOCK_CARDS.slice(0, GUEST_PRACTICE_CARD_LIMIT).map((card) => card.id));
+let mockCardsPromise: Promise<KnowledgeCard[]> | null = null;
+
+async function getMockCards(): Promise<KnowledgeCard[]> {
+  if (!mockCardsPromise) {
+    mockCardsPromise = getStaticCardContent().then((content) =>
+      buildCoreGraphCards(content).slice(0, TARGET_CARD_COUNT),
+    );
+  }
+  return mockCardsPromise;
+}
+
+const GUEST_CARD_IDS = new Set(
+  GRAPH_NODES
+    .filter((node) => node.level > 0 && !META_NODE_IDS.has(node.id))
+    .slice(0, GUEST_PRACTICE_CARD_LIMIT)
+    .map((node) => `graph_${node.id}`),
+);
 
 const NODE_BY_ID = new Map(GRAPH_NODES.map((node) => [node.id, node]));
-const CARDS_BY_ID = new Map(MOCK_CARDS.map((card) => [card.id, card]));
 const PREREQ_INCOMING = new Map<string, string[]>();
 const PREREQ_OUTGOING = new Map<string, string[]>();
 
@@ -429,7 +451,11 @@ function withCardDomains<T extends { id: string; domain?: string | null; domains
 
 function withRelatedConcepts<T extends { id: string; related_concepts?: string[] | null }>(card: T) {
   if (card.related_concepts && card.related_concepts.length > 0) return card;
-  const related = CARDS_BY_ID.get(card.id)?.related_concepts;
+  const nodeId = normalizeGraphNodeId(card.id);
+  const related = (EDGE_MAP[nodeId] ?? [])
+    .map((id) => NODE_LABEL_BY_ID.get(id))
+    .filter((label): label is string => Boolean(label))
+    .slice(0, 4);
   if (!related || related.length === 0) return card;
   return { ...card, related_concepts: related };
 }
@@ -678,7 +704,8 @@ async function _initCardSchema() {
     'SELECT COUNT(*)::text AS count FROM knowledge_cards;'
   );
   const cardCount = parseInt(cardCountRes.rows[0]?.count ?? '0', 10);
-  const expectedCardCount = MOCK_CARDS.length;
+  const mockCards = await getMockCards();
+  const expectedCardCount = mockCards.length;
   if (storedVersion === CARD_CONTENT_VERSION && cardCount >= expectedCardCount) {
     cardSchemaReady = true;
     cardSchemaPromise = null;
@@ -687,7 +714,7 @@ async function _initCardSchema() {
 
   const params: unknown[] = [];
   const tuples: string[] = [];
-  for (const card of MOCK_CARDS) {
+  for (const card of mockCards) {
     const base = params.length;
     tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`);
     params.push(
@@ -743,7 +770,7 @@ async function ensureMoreGeneratedCards(minAdd: number) {
   const existing = parseInt(existingRes.rows[0]?.count ?? '0', 10);
 
   const toAdd = Math.max(minAdd, DRILL_GENERATION_BATCH);
-  const newCards = generateDrillCards(toAdd, existing);
+  const newCards = generateDrillCards(toAdd, existing, await getStaticCardContent());
   if (newCards.length === 0) return;
 
   const params: unknown[] = [];
@@ -862,7 +889,9 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
 
   const normalizedNodeId = normalizeGraphNodeId(nodeId);
   const node = NODE_BY_ID.get(normalizedNodeId);
-  let card = CARDS_BY_ID.get(nodeId) ?? CARDS_BY_ID.get(`graph_${normalizedNodeId}`);
+  const mockCards = await getMockCards();
+  const cardsById = new Map(mockCards.map((candidate) => [candidate.id, candidate]));
+  let card = cardsById.get(nodeId) ?? cardsById.get(`graph_${normalizedNodeId}`);
   if (!card && process.env.DATABASE_URL) {
     try {
       await ensureCardSchema();
@@ -876,10 +905,10 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
   const title = node?.label ?? card?.title ?? nodeId.replace(/^graph_/, '').replace(/_/g, ' ');
   const domain = card?.domain ?? getPrimaryCardDomain(getCardDomainsForNode(node));
   const cue = getRecallCue(card, title);
-  const sameDomainLabels = MOCK_CARDS
+  const sameDomainLabels = mockCards
     .filter((candidate) => candidate.id !== (card?.id ?? nodeId) && candidate.domain === domain)
     .map((candidate) => candidate.title);
-  const crossDomainLabels = MOCK_CARDS
+  const crossDomainLabels = mockCards
     .filter((candidate) => candidate.id !== (card?.id ?? nodeId) && candidate.domain !== domain)
     .map((candidate) => candidate.title);
 
@@ -908,7 +937,7 @@ async function getNextCardSource(mode: 'new' | 'review' = 'new', excludeIds?: st
   const excluded = new Set(excludeIds ?? []);
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    const mockRows: CardWithStatusRow[] = limitCardsForGuest(MOCK_CARDS, user.isGuest)
+    const mockRows: CardWithStatusRow[] = limitCardsForGuest(await getMockCards(), user.isGuest)
       .map((card, index) => ({
         ...card,
         status: getMockCardStatus(index),
@@ -1018,7 +1047,7 @@ async function getNextCardSource(mode: 'new' | 'review' = 'new', excludeIds?: st
     return null;
   } catch (error) {
     console.error('Error in getNextCard:', error);
-    const mockRows: CardWithStatusRow[] = limitCardsForGuest(MOCK_CARDS, user.isGuest)
+    const mockRows: CardWithStatusRow[] = limitCardsForGuest(await getMockCards(), user.isGuest)
       .map((card, index) => ({
         ...card,
         status: getMockCardStatus(index),
@@ -1275,7 +1304,7 @@ async function getSavedCardsSource() {
   const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
-    return limitCardsForGuest(MOCK_CARDS, user.isGuest)
+    return limitCardsForGuest(await getMockCards(), user.isGuest)
       .map((card, index) => ({ card, status: getMockCardStatus(index) }))
       .filter((entry) => entry.status === 'saved')
       .map(({ card }) => ({
@@ -1387,7 +1416,7 @@ export async function getUserStats() {
   const user = await requireCurrentActor();
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    return getMockPracticeStats(limitCardsForGuest(MOCK_CARDS, user.isGuest).length);
+    return getMockPracticeStats(limitCardsForGuest(await getMockCards(), user.isGuest).length);
   }
 
   try {
@@ -1418,7 +1447,7 @@ export async function getUserStats() {
     };
   } catch (error) {
     console.error('Error in getUserStats:', error);
-    return getMockPracticeStats(MOCK_CARDS.length);
+    return getMockPracticeStats((await getMockCards()).length);
   }
 }
 
@@ -1436,7 +1465,7 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
   const generatedLimit = Math.max(0, Math.min(options?.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    const sourceCards = limitCardsForGuestKnowledgeMap(MOCK_CARDS, user.isGuest);
+    const sourceCards = limitCardsForGuestKnowledgeMap(await getMockCards(), user.isGuest);
     const cards = includeGenerated
       ? sourceCards
       : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));
@@ -1540,7 +1569,7 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
       .map((row) => withCardDomains(withRelatedConcepts(row)));
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
-    const sourceCards = limitCardsForGuestKnowledgeMap(MOCK_CARDS, user.isGuest);
+    const sourceCards = limitCardsForGuestKnowledgeMap(await getMockCards(), user.isGuest);
     const cards = includeGenerated
       ? sourceCards
       : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));

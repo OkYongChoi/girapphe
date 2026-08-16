@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { CARD_CONTENT, GRAPH_EDGES, GRAPH_NODES } from '@stem-brain/graph-engine';
+import { GRAPH_EDGES, GRAPH_NODES } from '@stem-brain/graph-engine';
 
 export const STATIC_NODE_BY_ID = new Map(GRAPH_NODES.map((node) => [node.id, node]));
 export const STATIC_NODE_IDS_BY_LABEL = new Map<string, string[]>();
@@ -21,5 +21,3 @@ for (const edge of GRAPH_EDGES) {
   targetRelated.push(edge.source);
   RELATED_NODE_IDS.set(edge.target, targetRelated);
 }
-
-export { CARD_CONTENT };

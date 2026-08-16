@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { localizeDomain, localizeLevel, localizeType } from '@stem-brain/shared';
 import pool from '@/lib/db';
+import { getStaticCardContent, type StaticCardContent } from '@/lib/static-card-content';
 import { selectContentCursorBatch } from '@/lib/content-localization-cursor';
 import {
   type ContentLocale,
@@ -913,10 +914,14 @@ export async function getApprovedPublicNodeId(value: string): Promise<string | n
   return STATIC_NODE_BY_ID.has(cardNodeId) ? cardNodeId : null;
 }
 
-function publicCardSource(nodeId: string, staticContent: StaticContent): LocalizableKnowledgeCard | null {
-  const { CARD_CONTENT, RELATED_NODE_IDS, STATIC_NODE_BY_ID } = staticContent;
+function publicCardSource(
+  nodeId: string,
+  staticContent: StaticContent,
+  cardContent: StaticCardContent,
+): LocalizableKnowledgeCard | null {
+  const { RELATED_NODE_IDS, STATIC_NODE_BY_ID } = staticContent;
   const node = STATIC_NODE_BY_ID.get(nodeId);
-  const content = CARD_CONTENT[nodeId];
+  const content = cardContent[nodeId];
   if (!node || !content?.summary || !content?.explanation) return null;
   const relatedLabels = (RELATED_NODE_IDS.get(nodeId) ?? [])
     .map((relatedId) => STATIC_NODE_BY_ID.get(relatedId)?.label)
@@ -936,11 +941,12 @@ export async function getLocalizedPublicContent(
   requestedLocale: ContentLocale
 ): Promise<PublicLocalizedContentItem[]> {
   const staticContent = await getStaticContent();
+  const cardContent = await getStaticCardContent();
   const { RELATED_NODE_IDS, STATIC_NODE_BY_ID } = staticContent;
   const approvedIds = await Promise.all(ids.map(getApprovedPublicNodeId));
   const nodeIds = Array.from(new Set(approvedIds.filter((id): id is string => Boolean(id))));
   const nodes = nodeIds.map((id) => STATIC_NODE_BY_ID.get(id)).filter((node): node is NonNullable<typeof node> => Boolean(node));
-  const cards = nodeIds.map((id) => publicCardSource(id, staticContent)).filter((card): card is LocalizableKnowledgeCard => Boolean(card));
+  const cards = nodeIds.map((id) => publicCardSource(id, staticContent, cardContent)).filter((card): card is LocalizableKnowledgeCard => Boolean(card));
   // Public reads are deliberately cache-only. Only the authenticated admin
   // backfill route may invoke Workers AI, preventing untrusted requests from
   // turning cache misses into translation spend.
@@ -1060,8 +1066,9 @@ export async function backfillLocalizedContentBatch(options: {
     };
   }
 
+  const cardContent = await getStaticCardContent();
   const approvedCards = [...STATIC_NODE_BY_ID.keys()]
-    .map((id) => publicCardSource(id, staticContent))
+    .map((id) => publicCardSource(id, staticContent, cardContent))
     .filter((card): card is LocalizableKnowledgeCard => Boolean(card));
   const batch = selectContentCursorBatch(approvedCards, after, options.limit);
   const cards = batch.items;

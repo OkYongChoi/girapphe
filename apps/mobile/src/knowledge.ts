@@ -1,9 +1,9 @@
 import {
-  CARD_CONTENT,
   GRAPH_EDGES,
   GRAPH_NODES,
   type GraphNode,
 } from '@stem-brain/graph-engine';
+import { CARD_CONTENT } from '@stem-brain/graph-engine/card-content';
 
 export const ROOT_DOMAINS = [
   'Mathematics',
