@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check": "pnpm lint && pnpm typecheck && pnpm test:server",
-    "test:server": "NODE_OPTIONS=--conditions=react-server tsx --test src/app/api/mcp/*.test.ts src/lib/mcp/*.test.ts src/lib/knowledge-ingestion.test.ts src/lib/billing/*.test.ts src/components/draft-review-selection.test.ts",
+    "test:server": "NODE_OPTIONS=--conditions=react-server tsx --test src/app/api/mcp/*.test.ts src/lib/mcp/*.test.ts src/lib/knowledge-ingestion.test.ts src/lib/private-practice-cards.test.ts src/lib/billing/*.test.ts src/components/draft-review-selection.test.ts",
     "test:knowledge-ingestion": "pnpm test:server",
     "env:setup:dev": "bash ../../scripts/setup-dev-env.sh",
     "check:env:dev": "node ../../scripts/check-env.mjs --env dev --file .env.local",

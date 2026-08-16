@@ -173,6 +173,9 @@ CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_purge_at
 ON user_knowledge_items(purge_at)
 WHERE purge_at IS NOT NULL;
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_knowledge_items_id_user_id
+ON user_knowledge_items(id, user_id);
+
 -- Private knowledge ingestion. Conversation providers can only submit review
 -- drafts; approved cards remain in the owning user's graph overlay.
 CREATE TABLE IF NOT EXISTS knowledge_ingestion_batches (
@@ -260,6 +263,36 @@ CREATE TABLE IF NOT EXISTS knowledge_card_sources (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE (knowledge_item_id, draft_id)
 );
+
+-- Approved conversation cards keep their practice state separate from the
+-- shared knowledge_cards catalogue. The composite foreign key prevents a state
+-- row from ever linking one user's identity to another user's private item.
+CREATE TABLE IF NOT EXISTS user_private_card_states (
+  user_id TEXT NOT NULL,
+  knowledge_item_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('known', 'saved')),
+  knowledge_state TEXT NOT NULL CHECK (knowledge_state IN ('unknown', 'known')),
+  progress_state TEXT NOT NULL CHECK (progress_state IN ('learning', 'review')),
+  due_at TIMESTAMP WITH TIME ZONE,
+  last_seen TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, knowledge_item_id),
+  CONSTRAINT user_private_card_states_item_owner_fk
+    FOREIGN KEY (knowledge_item_id, user_id)
+    REFERENCES user_knowledge_items(id, user_id)
+    ON DELETE CASCADE,
+  CONSTRAINT user_private_card_states_consistency_check
+    CHECK (
+      (status = 'known' AND knowledge_state = 'known' AND progress_state = 'review')
+      OR
+      (status = 'saved' AND knowledge_state = 'unknown' AND progress_state = 'learning')
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_private_card_states_user_status
+ON user_private_card_states(user_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_user_private_card_states_user_due
+ON user_private_card_states(user_id, due_at);
 
 CREATE TABLE IF NOT EXISTS mcp_access_tokens (
   id TEXT PRIMARY KEY,

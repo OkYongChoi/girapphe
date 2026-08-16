@@ -1,6 +1,7 @@
 import {
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -132,9 +133,33 @@ export const userKnowledgeItems = pgTable("user_knowledge_items", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   purgeAt: timestamp("purge_at", { withTimezone: true }),
 }, (t) => [
+  uniqueIndex("idx_user_knowledge_items_id_user_id").on(t.id, t.userId),
   index("idx_user_knowledge_items_user").on(t.userId),
   index("idx_user_knowledge_items_active_created").on(t.userId, t.createdAt).where(sql`${t.deletedAt} IS NULL`),
   index("idx_user_knowledge_items_purge_at").on(t.purgeAt).where(sql`${t.purgeAt} IS NOT NULL`),
+]);
+
+export const userPrivateCardStates = pgTable("user_private_card_states", {
+  userId: text("user_id").notNull(),
+  knowledgeItemId: text("knowledge_item_id").notNull(),
+  status: text("status").notNull(),
+  knowledgeState: text("knowledge_state").notNull(),
+  progressState: text("progress_state").notNull(),
+  dueAt: timestamp("due_at", { withTimezone: true }),
+  lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.knowledgeItemId] }),
+  foreignKey({
+    columns: [t.knowledgeItemId, t.userId],
+    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
+    name: "user_private_card_states_item_owner_fk",
+  }).onDelete("cascade"),
+  index("idx_user_private_card_states_user_status").on(t.userId, t.status),
+  index("idx_user_private_card_states_user_due").on(t.userId, t.dueAt),
+  check("user_private_card_states_status_check", sql`${t.status} IN ('known', 'saved')`),
+  check("user_private_card_states_knowledge_state_check", sql`${t.knowledgeState} IN ('unknown', 'known')`),
+  check("user_private_card_states_progress_state_check", sql`${t.progressState} IN ('learning', 'review')`),
+  check("user_private_card_states_consistency_check", sql`(${t.status} = 'known' AND ${t.knowledgeState} = 'known' AND ${t.progressState} = 'review') OR (${t.status} = 'saved' AND ${t.knowledgeState} = 'unknown' AND ${t.progressState} = 'learning')`),
 ]);
 
 export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", {

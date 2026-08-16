@@ -13,6 +13,17 @@ import {
   getMockPracticeStats,
   isCardEligibleForPracticeMode,
 } from '@/lib/practice-queue';
+import {
+  getEligiblePrivatePracticeCards,
+  getPrivatePracticeDomainProgress,
+  getPrivatePracticeStats,
+  getSavedPrivatePracticeCards,
+  isPersonalCardId,
+  parsePersonalCardId,
+  removePrivatePracticeCardState,
+  resetPrivatePracticeProgress,
+  savePrivatePracticeCardState,
+} from '@/lib/private-practice-cards';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -938,13 +949,21 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
       `;
     }
 
-    const res = await pool.query(query, [user.id]);
-    const rowsWithRelated = limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest)
+    const [res, privateCards] = await Promise.all([
+      pool.query(query, [user.id]),
+      getEligiblePrivatePracticeCards(user.id, mode),
+    ]);
+    const publicRowsWithRelated = limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest)
       .map((row) => ({
         ...row,
         status: deriveLegacyStatus(row),
       }))
       .map((row) => withCardDomains(withRelatedConcepts(row)));
+    const privateRowsWithRelated = privateCards.map((row) => withCardDomains(row));
+    const rowsWithRelated: CardWithStatusRow[] = [
+      ...publicRowsWithRelated,
+      ...privateRowsWithRelated,
+    ];
 
     if (rowsWithRelated.length > 0) {
       const rows = excluded.size > 0
@@ -960,12 +979,16 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
     await ensureMoreGeneratedCards(1);
 
     const retryRes = await pool.query(query, [user.id]);
-    const retryRowsWithRelated = limitCardsForGuest(retryRes.rows as CardWithStatusRow[], user.isGuest)
+    const retryPublicRowsWithRelated = limitCardsForGuest(retryRes.rows as CardWithStatusRow[], user.isGuest)
       .map((row) => ({
         ...row,
         status: deriveLegacyStatus(row),
       }))
       .map((row) => withCardDomains(withRelatedConcepts(row)));
+    const retryRowsWithRelated: CardWithStatusRow[] = [
+      ...retryPublicRowsWithRelated,
+      ...privateRowsWithRelated,
+    ];
 
     if (retryRowsWithRelated.length > 0) {
       const rows = excluded.size > 0
@@ -1069,6 +1092,22 @@ export async function saveCardState(cardId: string, status: CardStatus) {
 
   try {
     await ensureCardSchema();
+
+    if (isPersonalCardId(cardId)) {
+      const knowledgeItemId = parsePersonalCardId(cardId);
+      if (!knowledgeItemId) {
+        return { success: false, error: 'invalid_personal_card' };
+      }
+      const saved = await savePrivatePracticeCardState(user.id, knowledgeItemId, status);
+      if (!saved) {
+        return { success: false, error: 'personal_card_not_available' };
+      }
+
+      // Private cards deliberately do not write shared graph/card evidence.
+      revalidatePath('/saved');
+      revalidatePath('/dashboard');
+      return { success: true };
+    }
 
     const mappedKnowledgeState: CardKnowledgeState = status === 'known' ? 'known' : 'unknown';
     const mappedProgressState: CardProgressState = status === 'known' ? 'review' : 'learning';
@@ -1227,13 +1266,22 @@ export async function getSavedCards() {
         AND kc.title NOT ILIKE 'Sponsored Content %'
       ORDER BY ucs.last_seen DESC;
     `;
-    const res = await pool.query(query, [user.id]);
-    return limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest)
+    const [res, privateCards] = await Promise.all([
+      pool.query(query, [user.id]),
+      getSavedPrivatePracticeCards(user.id),
+    ]);
+    const publicCards = limitCardsForGuest(res.rows as CardWithStatusRow[], user.isGuest)
       .map((row) => ({
         ...row,
         status: deriveLegacyStatus(row) ?? 'saved',
       }))
       .map((row) => withCardDomains(row));
+    return [...publicCards, ...privateCards.map((row) => withCardDomains(row))]
+      .sort((a, b) => {
+        const bSeen = b.last_seen ? new Date(b.last_seen).getTime() : 0;
+        const aSeen = a.last_seen ? new Date(a.last_seen).getTime() : 0;
+        return bSeen - aSeen;
+      });
   } catch (error) {
     console.error('Error in getSavedCards:', error);
     return [];
@@ -1249,6 +1297,23 @@ export async function removeSavedCard(cardId: string) {
 
   try {
     await ensureCardSchema();
+
+    if (isPersonalCardId(cardId)) {
+      const knowledgeItemId = parsePersonalCardId(cardId);
+      if (!knowledgeItemId) {
+        return { success: false, error: 'invalid_personal_card' };
+      }
+      const removed = await removePrivatePracticeCardState(user.id, knowledgeItemId);
+      if (!removed) {
+        return { success: false, error: 'personal_card_not_available' };
+      }
+
+      revalidatePath('/saved');
+      revalidatePath('/practice');
+      revalidatePath('/dashboard');
+      revalidatePath('/');
+      return { success: true };
+    }
 
     await pool.query(
       `
@@ -1303,12 +1368,15 @@ export async function getUserStats() {
       FROM user_card_states
       WHERE user_id = $1;
     `;
-    const res = await pool.query<{ known_count: string; saved_count: string }>(query, [user.id]);
+    const [res, privateStats] = await Promise.all([
+      pool.query<{ known_count: string; saved_count: string }>(query, [user.id]),
+      getPrivatePracticeStats(user.id),
+    ]);
 
     const row = res.rows[0];
     return {
-      explainable: parseInt(row?.known_count ?? '0', 10),
-      unclear: parseInt(row?.saved_count ?? '0', 10),
+      explainable: parseInt(row?.known_count ?? '0', 10) + privateStats.known_count,
+      unclear: parseInt(row?.saved_count ?? '0', 10) + privateStats.saved_count,
     };
   } catch (error) {
     console.error('Error in getUserStats:', error);
@@ -1455,6 +1523,7 @@ export async function resetUserCardProgress() {
 
   try {
     await pool.query('DELETE FROM user_card_states WHERE user_id = $1;', [user.id]);
+    await resetPrivatePracticeProgress(user.id);
     await pool.query('DELETE FROM user_knowledge_states WHERE user_id = $1;', [user.id]);
 
     revalidatePath('/');
@@ -1492,6 +1561,7 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
   try {
     await ensureCardSchema();
 
+    // Private conversation cards are intentionally excluded from global ranking.
     const query = `
       SELECT
         user_id,
@@ -1551,19 +1621,38 @@ export async function getUserCardDomainProgress(): Promise<UserCardDomainProgres
       GROUP BY COALESCE(kc.domain, 'other')
       ORDER BY reviewed DESC, domain ASC;
     `;
-    const res = await pool.query<{
-      domain: string;
-      reviewed: string;
-      known: string;
-      saved: string;
-    }>(query, [user.id]);
+    const [res, privateDomains] = await Promise.all([
+      pool.query<{
+        domain: string;
+        reviewed: string;
+        known: string;
+        saved: string;
+      }>(query, [user.id]),
+      getPrivatePracticeDomainProgress(user.id),
+    ]);
 
-    return res.rows.map((row) => ({
-      domain: row.domain,
-      reviewed: parseInt(row.reviewed, 10),
-      explainable: parseInt(row.known, 10),
-      unclear: parseInt(row.saved, 10),
-    }));
+    const merged = new Map<string, UserCardDomainProgress>();
+    for (const row of res.rows) {
+      merged.set(row.domain, {
+        domain: row.domain,
+        reviewed: parseInt(row.reviewed, 10),
+        explainable: parseInt(row.known, 10),
+        unclear: parseInt(row.saved, 10),
+      });
+    }
+    for (const row of privateDomains) {
+      const current = merged.get(row.domain);
+      merged.set(row.domain, {
+        domain: row.domain,
+        reviewed: (current?.reviewed ?? 0) + row.reviewed,
+        explainable: (current?.explainable ?? 0) + row.known,
+        unclear: (current?.unclear ?? 0) + row.saved,
+      });
+    }
+    return [...merged.values()].sort((a, b) => {
+      if (b.reviewed !== a.reviewed) return b.reviewed - a.reviewed;
+      return a.domain.localeCompare(b.domain);
+    });
   } catch (error) {
     console.error('Error in getUserCardDomainProgress:', error);
     return [];
