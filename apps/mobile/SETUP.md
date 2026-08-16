@@ -95,7 +95,9 @@ as RevenueCat's App User ID; it never uses an email address or a hard-coded shar
 Mobile removes ads when either RevenueCat `CustomerInfo.entitlements.active.ad_free` or the
 authenticated provider-neutral server endpoint reports `ad_free`. This makes web Stripe/Toss
 and store purchases converge on the same Clerk account. A purchase sheet closing, redirect,
-or client assertion alone never grants ad-free status.
+or client assertion alone never grants ad-free status. Immediately before opening a store
+purchase sheet, the app rechecks the server entitlement and aborts the purchase if that check
+fails or if another provider has already granted ad-free access.
 
 ## AdMob and policy
 

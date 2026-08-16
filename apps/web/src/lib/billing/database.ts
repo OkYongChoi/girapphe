@@ -44,26 +44,40 @@ function databaseAvailable() {
   return Boolean(process.env.DATABASE_URL);
 }
 
+async function queryAdFreeEntitlement(userId: string): Promise<boolean> {
+  const result = await pool.query<{ entitled: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM billing_subscriptions
+       WHERE user_id = $1
+         AND entitlement = $2
+         AND status IN ('trialing', 'active')
+         AND COALESCE(current_period_end, trial_end) > NOW()
+     ) AS entitled`,
+    [userId, AD_FREE_ENTITLEMENT],
+  );
+  return result.rows[0]?.entitled === true;
+}
+
 export async function hasAdFreeEntitlement(userId: string | null): Promise<boolean> {
   if (!userId || !databaseAvailable()) return false;
 
   try {
-    const result = await pool.query<{ entitled: boolean }>(
-      `SELECT EXISTS (
-         SELECT 1
-         FROM billing_subscriptions
-         WHERE user_id = $1
-           AND entitlement = $2
-           AND status IN ('trialing', 'active')
-           AND COALESCE(current_period_end, trial_end) > NOW()
-       ) AS entitled`,
-      [userId, AD_FREE_ENTITLEMENT],
-    );
-    return result.rows[0]?.entitled === true;
+    return await queryAdFreeEntitlement(userId);
   } catch (error) {
     console.error('Unable to read ad-free entitlement:', error);
     return false;
   }
+}
+
+/**
+ * Reads the entitlement without converting infrastructure failures into a
+ * negative result. Purchase gates must use this strict variant so an
+ * unavailable database can never be mistaken for permission to buy again.
+ */
+export async function requireAdFreeEntitlementStatus(userId: string): Promise<boolean> {
+  if (!databaseAvailable()) throw new Error('Billing database is unavailable.');
+  return queryAdFreeEntitlement(userId);
 }
 
 export async function hasBlockingSubscription(userId: string): Promise<boolean> {

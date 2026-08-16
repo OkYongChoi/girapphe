@@ -10,6 +10,7 @@
     "build": "pnpm run build:ios && pnpm run build:android",
     "build:ios": "expo export --platform ios --output-dir dist/ios --no-bytecode",
     "build:android": "expo export --platform android --output-dir dist/android --no-bytecode",
+    "test": "tsx --test src/subscription-purchase-guard.test.ts",
     "eas:login": "pnpm --workspace-root exec eas login",
     "eas:init": "pnpm --workspace-root exec eas init",
     "eas:android:development": "pnpm --workspace-root exec eas build --platform android --profile development",
@@ -20,7 +21,7 @@
     "eas:ios:production": "pnpm --workspace-root exec eas build --platform ios --profile production",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm lint && pnpm typecheck"
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "dependencies": {
     "@clerk/expo": "^4.3.0",
@@ -44,7 +45,9 @@
   },
   "devDependencies": {
     "@babel/core": "^7.27.1",
+    "@types/node": "^20",
     "@types/react": "^19.2.14",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }

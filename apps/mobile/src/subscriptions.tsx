@@ -14,6 +14,7 @@ import Purchases, {
   type PurchasesPackage,
 } from 'react-native-purchases';
 import { useMobileAuth } from '@/auth';
+import { purchaseAfterServerEntitlementCheck } from '@/subscription-purchase-guard';
 
 export const AD_FREE_ENTITLEMENT_ID = 'ad_free';
 
@@ -97,7 +98,7 @@ function isEntitled(customerInfo: CustomerInfo): boolean {
 
 async function readServerEntitlement(getToken: () => Promise<string | null>): Promise<boolean> {
   const token = await getToken();
-  if (!token) return false;
+  if (!token) throw new Error('Unable to verify the account subscription.');
 
   const response = await fetch(`${appBaseUrl}/api/billing/entitlement`, {
     headers: {
@@ -107,8 +108,11 @@ async function readServerEntitlement(getToken: () => Promise<string | null>): Pr
   });
   if (!response.ok) throw new Error('Unable to verify the account subscription.');
 
-  const body = await response.json() as { isAdFree?: unknown };
-  return body.isAdFree === true;
+  const body = await response.json() as { isAdFree?: unknown } | null;
+  if (!body || typeof body.isAdFree !== 'boolean') {
+    throw new Error('Unable to verify the account subscription.');
+  }
+  return body.isAdFree;
 }
 
 function getPurchasesErrorMessage(cause: unknown): string {
@@ -337,9 +341,15 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setIsBusy(true);
       setError(null);
       try {
-        const result = await Purchases.purchasePackage(selectedPackage);
-        applyCustomerInfo(result.customerInfo);
-        return isEntitled(result.customerInfo);
+        const result = await purchaseAfterServerEntitlementCheck(
+          () => readServerEntitlement(auth.getToken),
+          () => Purchases.purchasePackage(selectedPackage),
+        );
+        setServerAdFree(result.alreadyEntitled);
+        if (result.alreadyEntitled) return true;
+
+        applyCustomerInfo(result.purchaseResult.customerInfo);
+        return isEntitled(result.purchaseResult.customerInfo);
       } catch (cause) {
         if (!wasCancelled(cause)) setError(getPurchasesErrorMessage(cause));
         return false;
@@ -347,7 +357,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         setIsBusy(false);
       }
     },
-    [applyCustomerInfo, isBusy, packages, sdkReady],
+    [applyCustomerInfo, auth.getToken, isBusy, packages, sdkReady],
   );
 
   const restore = useCallback(async () => {

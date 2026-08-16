@@ -1,7 +1,40 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import db from '@/lib/db';
-import { moveVerifiedRevenueCatSubscription } from './database';
+import {
+  moveVerifiedRevenueCatSubscription,
+  requireAdFreeEntitlementStatus,
+} from './database';
+
+test('strict entitlement reads reject an unavailable billing database', async (context) => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  context.after(() => {
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  });
+  delete process.env.DATABASE_URL;
+
+  await assert.rejects(
+    requireAdFreeEntitlementStatus('user_123'),
+    /Billing database is unavailable/,
+  );
+});
+
+test('strict entitlement reads propagate query failures instead of returning false', async (context) => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  context.after(() => {
+    db.query = originalQuery;
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  });
+  process.env.DATABASE_URL = 'postgresql://configured-for-test';
+  db.query = (async () => {
+    throw new Error('query failed');
+  }) as typeof db.query;
+
+  await assert.rejects(requireAdFreeEntitlementStatus('user_123'), /query failed/);
+});
 
 test('verified RevenueCat transfer uses one exact-row atomic upsert', async (context) => {
   const originalQuery = db.query;
