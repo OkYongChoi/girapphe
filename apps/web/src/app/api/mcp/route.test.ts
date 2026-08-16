@@ -44,6 +44,45 @@ test('returns a bearer challenge and an unauthenticated CORS preflight', async (
   assert.match(preflight.headers.get('access-control-allow-headers') ?? '', /authorization/i);
 });
 
+test('returns 413 without waiting for an open oversized request stream to close', async () => {
+  const userId = `user_oversized_route_${crypto.randomUUID()}`;
+  const { token } = await createMcpAccessTokenForUser(userId, 'Oversized route');
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(800 * 1024));
+    },
+  });
+  const request = new Request('https://girapphe.example/api/mcp', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body,
+    duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  const responsePromise = POST(request);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const response = await Promise.race([
+      responsePromise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error('Oversized MCP request did not return a bounded response.')),
+          1_000,
+        );
+      }),
+    ]);
+    assert.equal(response.status, 413);
+    assert.deepEqual(await response.json(), { error: 'payload_too_large' });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    await request.body?.cancel().catch(() => undefined);
+    await responsePromise.catch(() => undefined);
+  }
+});
+
 test('accepts a cookie-less scoped token and creates only a pending review batch', async () => {
   const userId = `user_route_${crypto.randomUUID()}`;
   const { token } = await createMcpAccessTokenForUser(userId, 'Route integration');

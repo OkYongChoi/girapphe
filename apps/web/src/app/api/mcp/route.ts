@@ -135,12 +135,10 @@ async function requestBodyExceedsLimit(request: Request) {
 
       bytesRead += value?.byteLength ?? 0;
       if (bytesRead > MAX_MCP_REQUEST_BYTES) {
-        try {
-          await reader.cancel();
-        } catch {
-          // The size decision is already final even if cancellation races the
-          // request stream closing underneath us.
-        }
+        // A cloned Request body is a tee. Awaiting cancellation of this branch
+        // can wait forever while the original branch remains unread, preventing
+        // the already-final 413 response from being returned.
+        void reader.cancel().catch(() => undefined);
         return true;
       }
     }
