@@ -5,11 +5,15 @@ import { requireCurrentUser } from '@/lib/auth';
 import {
   approveKnowledgeDraftsForUser,
   createMcpAccessTokenForUser,
+  createPrivateKnowledgeEdgeForUser,
+  deletePrivateKnowledgeEdgeForUser,
   discardKnowledgeDraftBatchForUser,
   getKnowledgeDraftBatchForUser,
   getKnowledgeDraftBatchesForUser,
   getKnowledgeLinkTargetsForUser,
   getMcpAccessTokensForUser,
+  getPrivateKnowledgeGraphForUser,
+  isKnowledgeRelationType,
   revokeMcpAccessTokenForUser,
   sanitizeProposedRelations,
   updateKnowledgeDraftForUser,
@@ -17,6 +21,7 @@ import {
   type KnowledgeDraftBatch,
   type KnowledgeLinkTarget,
   type McpAccessToken,
+  type PrivateKnowledgeGraph,
 } from '@/lib/knowledge-ingestion';
 
 export type {
@@ -24,6 +29,9 @@ export type {
   KnowledgeDraftBatch,
   KnowledgeLinkTarget,
   McpAccessToken,
+  PrivateKnowledgeGraph,
+  PrivateKnowledgeNode,
+  PrivateKnowledgeEdge,
   ProposedKnowledgeRelation,
 } from '@/lib/knowledge-ingestion';
 
@@ -106,9 +114,34 @@ export async function discardKnowledgeDraftBatch(formData: FormData): Promise<vo
   revalidateKnowledgeSurfaces(batchId);
 }
 
+export async function getPrivateKnowledgeGraph(): Promise<PrivateKnowledgeGraph> {
+  const user = await requireCurrentUser();
+  return getPrivateKnowledgeGraphForUser(user.id);
+}
+
 export async function getKnowledgeLinkTargets(query = ''): Promise<KnowledgeLinkTarget[]> {
   const user = await requireCurrentUser();
   return getKnowledgeLinkTargetsForUser(user.id, query);
+}
+
+export async function createPrivateKnowledgeEdge(formData: FormData): Promise<{ created: boolean; reason?: 'invalid' | 'cycle_or_duplicate' }> {
+  const user = await requireCurrentUser();
+  const sourceId = String(formData.get('source_node_id') ?? '').trim();
+  const targetId = String(formData.get('target_node_id') ?? '').trim();
+  const relationType = String(formData.get('relation_type') ?? 'related');
+  const direction = String(formData.get('relation_direction') ?? formData.get('direction') ?? '') === 'incoming' ? 'incoming' : 'outgoing';
+  if (!sourceId || !targetId || !isKnowledgeRelationType(relationType)) return { created: false, reason: 'invalid' };
+  const result = await createPrivateKnowledgeEdgeForUser(user.id, sourceId, targetId, relationType, direction);
+  revalidateKnowledgeSurfaces();
+  return result;
+}
+
+export async function deletePrivateKnowledgeEdge(formData: FormData): Promise<void> {
+  const user = await requireCurrentUser();
+  const edgeId = String(formData.get('edge_id') ?? '').trim();
+  if (!edgeId) return;
+  await deletePrivateKnowledgeEdgeForUser(user.id, edgeId);
+  revalidateKnowledgeSurfaces();
 }
 
 export async function getMcpAccessTokens(): Promise<McpAccessToken[]> {

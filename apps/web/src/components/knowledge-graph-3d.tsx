@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
+import type { EdgeType } from '@stem-brain/graph-engine';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { getDomainColor } from '@stem-brain/graph-engine';
@@ -22,8 +23,18 @@ type GraphCard = KnowledgeCard & {
   createdAt?: string;
 };
 
+export type KnowledgeGraphEdgeView = {
+  id?: string | number;
+  source: string;
+  target: string;
+  type: EdgeType;
+  weight?: number;
+  scope: 'public' | 'private';
+};
+
 type Props = {
   cards: GraphCard[];
+  edges?: KnowledgeGraphEdgeView[];
   onClose?: () => void;
 };
 
@@ -38,7 +49,6 @@ type SelectedNode = {
   level?: string;
   status?: CardStatus | null;
   wiki_url?: string;
-  related_concepts?: string[];
   isPersonal?: boolean;
   personalItemId?: string;
   createdAt?: string;
@@ -55,6 +65,17 @@ const STATUS_COLORS: Record<string, string> = {
 const DOMAIN_HUB_PROGRESS_COLOR = '#cbd5e1';
 const MUTED_LINK_COLOR = 'rgba(148, 163, 184, 0.28)';
 const PERSONAL_CARD_COLOR = '#c084fc';
+const EDGE_COLORS: Record<EdgeType, string> = {
+  prerequisite: '#38bdf8',
+  related: '#94a3b8',
+  generalizes: '#f59e0b',
+  derived_from: '#a78bfa',
+  equivalent_to: '#34d399',
+};
+
+function isDirectedEdge(type: EdgeType) {
+  return type === 'prerequisite' || type === 'generalizes' || type === 'derived_from';
+}
 
 function getCardDomains(card: GraphCard) {
   return card.domains && card.domains.length > 0 ? card.domains : [card.domain];
@@ -66,7 +87,7 @@ function getStatusLabel(status: CardStatus | null) {
   return 'Not started';
 }
 
-export default function KnowledgeGraph3D({ cards, onClose }: Props) {
+export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) {
   const router = useRouter();
   const [isClient, setIsClient] = useState(false);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -128,8 +149,8 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
   const graphData = useMemo(() => {
     const nodes: any[] = [];
     const links: any[] = [];
-    const linkSet = new Set<string>();
     const domainCounts = new Map<string, number>();
+    const visibleCardIds = new Set(filteredCards.map((card) => card.id));
 
     filteredCards.forEach((card) => {
       const domains = card.domains && card.domains.length > 0 ? card.domains : [card.domain];
@@ -171,7 +192,6 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         level: card.level,
         status: card.status,
         wiki_url: card.wiki_url,
-        related_concepts: card.related_concepts,
         isPersonal: card.isPersonal,
         personalItemId: card.personalItemId,
         createdAt: card.createdAt,
@@ -187,30 +207,53 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         });
       });
 
-      // Link card -> related concepts
-      if (card.related_concepts) {
-        card.related_concepts.forEach((concept) => {
-          const targetCard = filteredCards.find(
-            (c) => c.title.toLowerCase() === concept.toLowerCase()
-          );
-          if (targetCard) {
-            const pairKey = [card.id, targetCard.id].sort().join('::');
-            if (linkSet.has(pairKey)) return;
-            linkSet.add(pairKey);
-            links.push({
-              source: card.id,
-              target: targetCard.id,
-              color: colorMode === 'progress' ? 'rgba(226,232,240,0.34)' : 'rgba(255,255,255,0.2)',
-              width: 0.55,
-              particles: 0,
-            });
-          }
-        });
-      }
+    });
+
+    // Persisted concept relationships use stable node IDs. Title matching is
+    // intentionally avoided so renaming a card cannot silently break an edge.
+    edges.forEach((edge) => {
+      if (!visibleCardIds.has(edge.source) || !visibleCardIds.has(edge.target)) return;
+
+      const directed = isDirectedEdge(edge.type);
+      links.push({
+        id: edge.id ?? `${edge.scope}:${edge.type}:${edge.source}:${edge.target}`,
+        source: edge.source,
+        target: edge.target,
+        type: edge.type,
+        scope: edge.scope,
+        color: EDGE_COLORS[edge.type],
+        width: edge.scope === 'private' ? 1.25 : Math.max(0.55, edge.weight ?? 0.7),
+        particles: directed ? (edge.scope === 'private' ? 2 : 1) : 0,
+        arrowLength: directed ? 3.5 : 0,
+      });
     });
 
     return { nodes, links };
-  }, [colorMode, filteredCards]);
+  }, [colorMode, edges, filteredCards]);
+
+  const selectedRelationships = useMemo(() => {
+    if (!selectedNode || selectedNode.group === 'domain') return [];
+
+    const cardById = new Map(filteredCards.map((card) => [card.id, card]));
+    return edges.flatMap((edge) => {
+      if (edge.source !== selectedNode.id && edge.target !== selectedNode.id) return [];
+      if (!cardById.has(edge.source) || !cardById.has(edge.target)) return [];
+
+      const outgoing = edge.source === selectedNode.id;
+      const otherId = outgoing ? edge.target : edge.source;
+      const other = cardById.get(otherId);
+      if (!other) return [];
+
+      return [{
+        id: `${edge.scope}:${edge.type}:${edge.source}:${edge.target}`,
+        otherId,
+        otherTitle: other.title,
+        type: edge.type,
+        scope: edge.scope,
+        direction: isDirectedEdge(edge.type) ? (outgoing ? '→' : '←') : '↔',
+      }];
+    });
+  }, [edges, filteredCards, selectedNode]);
 
   const selectedDomainCards = useMemo(() => {
     if (selectedNode?.group !== 'domain' || !selectedNode.domain) return [];
@@ -302,11 +345,14 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
         nodeOpacity={0.9}
         nodeResolution={16}
         linkColor="color"
+        linkLabel={(link: any) => link.type ? `${link.type}${link.scope === 'private' ? ' · private' : ''}` : 'Domain membership'}
         linkOpacity={0.58}
         linkWidth={(link: any) => link.width ?? 0.5}
         linkDirectionalParticles={(link: any) => link.particles ?? 0}
         linkDirectionalParticleWidth={0.7}
         linkDirectionalParticleSpeed={0.003}
+        linkDirectionalArrowLength={(link: any) => link.arrowLength ?? 0}
+        linkDirectionalArrowRelPos={0.9}
         enableNodeDrag={true}
         enableNavigationControls={true}
         onNodeClick={handleNodeClick}
@@ -469,6 +515,18 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
                   <span className="text-xs text-gray-300">{item.label}</span>
                 </div>
               ))}
+            </div>
+            <div className="mt-4 border-t border-gray-800 pt-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">Relationship lines</p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                {(Object.entries(EDGE_COLORS) as Array<[EdgeType, string]>).map(([type, color]) => (
+                  <span key={type} className="flex min-w-0 items-center gap-2 text-[10px] text-gray-400">
+                    <span className="h-px w-4 shrink-0" style={{ backgroundColor: color }} />
+                    <span className="truncate">{type.replace('_', ' ')}</span>
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-gray-500">Moving particles and arrowheads show direction.</p>
             </div>
           </>
         ) : (
@@ -641,43 +699,40 @@ export default function KnowledgeGraph3D({ cards, onClose }: Props) {
               </form>
             ) : null}
 
-            {/* Related concepts */}
-            {selectedNode.related_concepts && selectedNode.related_concepts.length > 0 && (
+            {selectedRelationships.length > 0 && (
               <div className="mb-6">
                 <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-2 font-semibold">
-                  Related Concepts
+                  Saved relationships
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedNode.related_concepts.map((concept: string) => {
-                    const linked = filteredCards.some(
-                      (c) => c.title.toLowerCase() === concept.toLowerCase()
-                    );
-                    return (
-                      <span
-                        key={concept}
-                        className={`rounded-full px-2.5 py-1 text-xs ${
-                          linked
-                            ? 'bg-white/10 text-white cursor-pointer hover:bg-white/20 transition-colors'
-                            : 'bg-gray-800/50 text-gray-500'
-                        }`}
-                        onClick={() => {
-                          if (linked) {
-                            const targetCard = filteredCards.find(
-                              (c) => c.title.toLowerCase() === concept.toLowerCase()
-                            );
-                            if (targetCard) {
-                              const node = graphData.nodes.find(
-                                (n: any) => n.id === targetCard.id
-                              );
-                              if (node) handleNodeClick(node);
-                            }
-                          }
-                        }}
-                      >
-                        {concept}
+                <div className="space-y-2">
+                  {selectedRelationships.map((relationship) => (
+                    <button
+                      key={relationship.id}
+                      type="button"
+                      onClick={() => {
+                        const node = graphData.nodes.find((item: any) => item.id === relationship.otherId);
+                        if (node) handleNodeClick(node);
+                      }}
+                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-gray-800 bg-white/[0.04] px-3 py-2 text-left transition-colors hover:border-white/20 hover:bg-white/[0.08]"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-white">{relationship.otherTitle}</span>
+                        <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-gray-500">
+                          {relationship.type.replace('_', ' ')} · {relationship.scope}
+                        </span>
                       </span>
-                    );
-                  })}
+                      <span
+                        className="shrink-0 text-base text-gray-400"
+                        aria-label={isDirectedEdge(relationship.type)
+                          ? relationship.direction === '→'
+                            ? `Outgoing relationship to ${relationship.otherTitle}`
+                            : `Incoming relationship from ${relationship.otherTitle}`
+                          : `Two-way relationship with ${relationship.otherTitle}`}
+                      >
+                        {relationship.direction}
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </div>
             )}

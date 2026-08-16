@@ -7,7 +7,7 @@ import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 import { GRAPH_EDGES } from '@stem-brain/graph-engine';
 import { GRAPH_NODES } from '@stem-brain/graph-engine';
 import { CARD_CONTENT } from '@stem-brain/graph-engine';
-import { getCardLevelMeta, type CardLevel } from '@stem-brain/graph-engine';
+import { getCardLevelMeta, type CardLevel, type EdgeType } from '@stem-brain/graph-engine';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -26,6 +26,15 @@ export type KnowledgeCard = {
   level: CardLevel;
   related_concepts?: string[];
   prerequisites?: PrerequisiteInfo[];
+};
+
+export type KnowledgeMapEdge = {
+  id: string;
+  source: string;
+  target: string;
+  type: EdgeType;
+  weight: number;
+  visibility: 'public';
 };
 
 export type CardStatus = 'known' | 'saved';
@@ -100,6 +109,38 @@ const EDGE_MAP = GRAPH_EDGES.reduce<Record<string, string[]>>((acc, edge) => {
 }, {});
 
 const NODE_LABEL_BY_ID = new Map<string, string>(GRAPH_NODES.map((node) => [node.id, node.label]));
+const GRAPH_NODE_IDS = new Set(GRAPH_NODES.map((node) => node.id));
+
+/**
+ * Return canonical, typed public graph links for the Knowledge Map.
+ *
+ * Card-to-card links used to be reconstructed from up to four related labels in
+ * the browser. Keeping the graph IDs and relation type intact avoids ambiguous
+ * title matching and lets private overlays use the same edge contract.
+ */
+export async function getKnowledgeMapEdges(): Promise<KnowledgeMapEdge[]> {
+  const seen = new Set<string>();
+  const edges: KnowledgeMapEdge[] = [];
+
+  for (const edge of GRAPH_EDGES) {
+    if (!GRAPH_NODE_IDS.has(edge.source) || !GRAPH_NODE_IDS.has(edge.target)) continue;
+
+    const key = `${edge.source}\u0000${edge.target}\u0000${edge.type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    edges.push({
+      id: `public:${edge.source}:${edge.type}:${edge.target}`,
+      source: `graph_${edge.source}`,
+      target: `graph_${edge.target}`,
+      type: edge.type,
+      weight: edge.weight,
+      visibility: 'public',
+    });
+  }
+
+  return edges;
+}
 
 function normalizeDomainKey(domain: string): string {
   return domain

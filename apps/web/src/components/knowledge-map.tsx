@@ -1,26 +1,58 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { getAllCardsWithStatus, type KnowledgeCard, type CardStatus } from '@/actions/card-actions';
+import { getAllCardsWithStatus, type KnowledgeCard, type CardStatus, type KnowledgeMapEdge } from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
+import type { KnowledgeGraphEdgeView } from './knowledge-graph-3d';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { getCardStatusShortLabel } from '@/lib/card-status';
 import { deleteKnowledgeItem, type UserKnowledgeItem } from '@/actions/user-knowledge-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
+import type { KnowledgeLinkTarget } from '@/actions/knowledge-ingestion-actions';
 
 type MapCard = KnowledgeCard & {
   status: CardStatus | null;
   isPersonal?: boolean;
   personalItemId?: string;
   createdAt?: string;
+  tags?: string[];
 };
 
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
   personalItems?: UserKnowledgeItem[];
+  publicEdges?: KnowledgeMapEdge[];
+  privateGraph?: {
+    nodes?: unknown[];
+    edges?: unknown[];
+  } | null;
+  graphLinkTargets?: KnowledgeLinkTarget[];
   isGuest?: boolean;
 };
+
+const EDGE_TYPES = new Set(['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to']);
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {};
+}
+
+function readString(record: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return '';
+}
+
+function readStringArray(record: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && !!item.trim());
+    if (typeof value === 'string' && value.trim()) return value.split(',').map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
 
 function getCardDomains(card: KnowledgeCard) {
   const domains = card.domains && card.domains.length > 0 ? card.domains : [card.domain];
@@ -36,7 +68,21 @@ function getSearchTerms(value: string) {
     .filter(Boolean);
 }
 
-export default function KnowledgeMap({ initialCards, personalItems = [], isGuest = false }: Props) {
+function fallbackEndpointLabel(id: string) {
+  const raw = id.replace(/^graph_/, '').replace(/^personal:/, '');
+  if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(raw)) return `Linked concept ${raw.slice(0, 8)}`;
+  const readable = raw.replace(/[_-]+/g, ' ').trim();
+  return readable ? readable.charAt(0).toUpperCase() + readable.slice(1) : 'Linked concept';
+}
+
+export default function KnowledgeMap({
+  initialCards,
+  personalItems = [],
+  publicEdges = [],
+  privateGraph = null,
+  graphLinkTargets = [],
+  isGuest = false,
+}: Props) {
   const [baseCards, setBaseCards] = useState(initialCards);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
@@ -66,25 +112,127 @@ export default function KnowledgeMap({ initialCards, personalItems = [], isGuest
     };
   }, [isGuest]);
 
-  const personalCards = useMemo<MapCard[]>(() => personalItems.map((item) => ({
+  const personalItemById = useMemo(
+    () => new Map(personalItems.map((item) => [item.id, item])),
+    [personalItems]
+  );
+  const graphPrivateCards = useMemo<MapCard[]>(() => (privateGraph?.nodes ?? []).flatMap((node) => {
+    const record = asRecord(node);
+    const id = readString(record, 'node_id', 'id');
+    if (!id) return [];
+    const personalItemId = readString(record, 'knowledge_item_id', 'item_id', 'personal_item_id');
+    const personalItem = personalItemById.get(personalItemId);
+    const topic = readString(record, 'topic', 'domain') || 'personal';
+    const tags = readStringArray(record, 'tags');
+
+    return [{
+      id,
+      personalItemId: personalItemId || undefined,
+      isPersonal: true,
+      title: personalItem?.title || readString(record, 'title', 'label') || 'Private concept',
+      summary: personalItem?.summary || personalItem?.content || readString(record, 'summary', 'content') || 'Private personal card',
+      explanation: personalItem?.content || readString(record, 'explanation', 'content'),
+      wiki_url: '',
+      domain: topic,
+      domains: [topic],
+      tags: personalItem?.tags ?? tags,
+      level: 'understand' as const,
+      status: null,
+      createdAt: readString(record, 'created_at'),
+    }];
+  }), [personalItemById, privateGraph?.nodes]);
+
+  const graphPersonalItemIds = useMemo(
+    () => new Set(graphPrivateCards.map((card) => card.personalItemId).filter(Boolean)),
+    [graphPrivateCards]
+  );
+
+  const legacyPersonalCards = useMemo<MapCard[]>(() => personalItems
+    .filter((item) => !graphPersonalItemIds.has(item.id))
+    .map((item) => ({
     id: `personal:${item.id}`,
     personalItemId: item.id,
     isPersonal: true,
     title: item.title,
-    summary: item.content || 'Private personal card',
+    summary: item.summary || item.content || 'Private personal card',
     explanation: item.content,
     wiki_url: '',
     domain: 'personal',
-    domains: ['personal'],
+    domains: [item.topic || 'personal'],
+    tags: item.tags,
     level: 'understand',
     status: null,
     createdAt: item.created_at,
-  })), [personalItems]);
+  })), [graphPersonalItemIds, personalItems]);
+  const personalCards = useMemo<MapCard[]>(
+    () => [...graphPrivateCards, ...legacyPersonalCards],
+    [graphPrivateCards, legacyPersonalCards]
+  );
   const publicCards = useMemo(
     () => includeGenerated ? (generatedCards ?? baseCards) : baseCards,
     [baseCards, generatedCards, includeGenerated]
   );
   const cards = useMemo<MapCard[]>(() => [...publicCards, ...personalCards], [publicCards, personalCards]);
+  const graphEdges = useMemo<KnowledgeGraphEdgeView[]>(() => {
+    const canonicalEdges: KnowledgeGraphEdgeView[] = publicEdges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      type: edge.type,
+      weight: edge.weight,
+      scope: 'public',
+    }));
+    const privateEdges: KnowledgeGraphEdgeView[] = (privateGraph?.edges ?? []).flatMap((edge) => {
+      const record = asRecord(edge);
+      const source = readString(record, 'source', 'source_node_id');
+      const target = readString(record, 'target', 'target_node_id');
+      const type = readString(record, 'type', 'relation_type');
+      if (!source || !target || !EDGE_TYPES.has(type)) return [];
+      const rawWeight = record.weight;
+
+      return [{
+        id: readString(record, 'id') || `personal-edge:${type}:${source}:${target}`,
+        source,
+        target,
+        type: type as KnowledgeGraphEdgeView['type'],
+        weight: typeof rawWeight === 'number' ? rawWeight : 1,
+        scope: 'private' as const,
+      }];
+    });
+    return [...canonicalEdges, ...privateEdges];
+  }, [privateGraph?.edges, publicEdges]);
+  const graphCards = useMemo<MapCard[]>(() => {
+    const visibleIds = new Set(cards.map((card) => card.id));
+    const targetById = new Map(graphLinkTargets.map((target) => [target.id, target]));
+    // Public card limits remain intentional (especially for guests). Only
+    // private overlays may add lightweight endpoints that are required to keep
+    // an owner-authored relationship visible.
+    const endpointIds = new Set(graphEdges
+      .filter((edge) => edge.scope === 'private')
+      .flatMap((edge) => [edge.source, edge.target]));
+    const endpointCards: MapCard[] = [];
+
+    for (const id of endpointIds) {
+      if (visibleIds.has(id)) continue;
+      const target = targetById.get(id);
+      const topic = target?.topic || 'connected';
+      endpointCards.push({
+        id,
+        isPersonal: target?.scope === 'private' || id.startsWith('personal:'),
+        title: target?.label || fallbackEndpointLabel(id),
+        summary: 'Included because this concept is the endpoint of a saved graph relationship.',
+        explanation: '',
+        wiki_url: '',
+        domain: topic,
+        domains: [topic],
+        tags: [],
+        level: 'understand',
+        status: null,
+      });
+    }
+
+    return [...cards, ...endpointCards];
+  }, [cards, graphEdges, graphLinkTargets]);
 
   // Cards can live in multiple taxonomy domains.
   const domains = useMemo(
@@ -111,7 +259,7 @@ export default function KnowledgeMap({ initialCards, personalItems = [], isGuest
   };
 
   const filteredCards = cards.filter(card => {
-    const searchableText = [card.id, card.title, card.summary, card.explanation, ...getCardDomains(card)]
+    const searchableText = [card.id, card.title, card.summary, card.explanation, ...getCardDomains(card), ...(card.tags ?? [])]
       .join(' ')
       .toLowerCase();
     const matchesFilter = getSearchTerms(filter).every((term) => searchableText.includes(term));
@@ -139,7 +287,7 @@ export default function KnowledgeMap({ initialCards, personalItems = [], isGuest
   return (
     <div className="w-full h-full">
       {viewMode === 'graph' ? (
-        <KnowledgeGraph3D cards={cards} onClose={() => setViewMode('grid')} />
+        <KnowledgeGraph3D cards={graphCards} edges={graphEdges} onClose={() => setViewMode('grid')} />
       ) : (
         <div className="w-full max-w-6xl mx-auto p-6">
           <div className="mb-8 flex flex-col md:flex-row gap-4 justify-between items-center">
@@ -314,6 +462,13 @@ function KnowledgeCardItem({ card }: { card: MapCard }) {
             <span key={domain} className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-gray-600">
               {formatDomainLabel(domain)}
             </span>
+          ))}
+        </div>
+      ) : null}
+      {card.isPersonal && card.tags && card.tags.length > 0 ? (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {card.tags.map((tag) => (
+            <span key={tag} className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700">#{tag}</span>
           ))}
         </div>
       ) : null}
