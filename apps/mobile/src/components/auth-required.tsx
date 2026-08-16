@@ -2,20 +2,22 @@ import type { PropsWithChildren } from 'react';
 import { type Href, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useMobileAuth } from '@/auth';
+import { useI18n } from '@/i18n';
 
 export function AuthRequired({ children }: PropsWithChildren) {
   const { isLoaded, isSignedIn } = useMobileAuth();
   const router = useRouter();
+  const { direction, t } = useI18n();
 
-  if (!isLoaded) return <View style={styles.center}><Text style={styles.text}>Loading account…</Text></View>;
+  if (!isLoaded) return <View style={[styles.center, { direction }]}><Text style={styles.text}>{t('auth.loading')}</Text></View>;
   if (isSignedIn) return <>{children}</>;
 
   return (
-    <View style={styles.center}>
-      <Text style={styles.title}>Sign in to continue</Text>
-      <Text style={styles.text}>Your notes and learning progress stay in sync across web, iOS, and Android.</Text>
-      <Pressable accessibilityRole="button" onPress={() => router.push('/sign-in' as Href)} style={styles.button}>
-        <Text style={styles.buttonText}>Sign in or create account</Text>
+    <View style={[styles.center, { direction }]}>
+      <Text style={styles.title}>{t('auth.title')}</Text>
+      <Text style={styles.text}>{t('auth.copy')}</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('auth.action')} onPress={() => router.push('/sign-in' as Href)} style={styles.button}>
+        <Text style={styles.buttonText}>{t('auth.action')}</Text>
       </Pressable>
     </View>
   );

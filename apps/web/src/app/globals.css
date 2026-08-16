@@ -173,31 +173,12 @@ html {
   position: relative;
   z-index: 1;
   width: min(100%, 35rem);
-  min-height: 36rem;
+  min-height: 31rem;
 }
 
 .home-hero-copy {
   position: relative;
   z-index: 2;
-}
-
-.home-hero-orb-art {
-  position: absolute;
-  inset: -4rem -5rem -2rem -1rem;
-  z-index: 0;
-  filter: drop-shadow(0 26px 40px rgba(2, 6, 23, 0.56));
-  mix-blend-mode: screen;
-  opacity: 0.94;
-  mask-image: radial-gradient(ellipse 29% 47% at 62% 53%, black 30%, rgba(0,0,0,0.9) 51%, transparent 82%);
-  animation: homeHeroOrbFloat 9s ease-in-out infinite;
-}
-
-.home-hero-progress-surface {
-  position: absolute;
-  z-index: 2;
-  right: 0;
-  bottom: -1rem;
-  width: min(100%, 26rem);
 }
 
 .home-graph-section {
@@ -408,10 +389,7 @@ html {
 }
 
 .home-knowledge-surface {
-  transform: perspective(1200px) rotateY(-7deg) rotateX(2deg);
-  transform-style: preserve-3d;
   isolation: isolate;
-  animation: homeKnowledgeSurfacePulse 5.6s ease-in-out infinite;
 }
 
 .home-knowledge-surface::after {
@@ -448,8 +426,29 @@ html {
 }
 
 .home-stage-caption {
-  border-right: 1px solid rgba(125,211,252,0.3);
-  padding-right: 1rem;
+  border-inline-end: 1px solid rgba(125,211,252,0.3);
+  padding-inline-end: 1rem;
+}
+
+[dir="rtl"] .home-scroll-progress {
+  transform-origin: right center;
+}
+
+.home-learning-step {
+  position: relative;
+  overflow: hidden;
+}
+
+.home-learning-step::after {
+  content: "";
+  position: absolute;
+  inset: auto 1rem 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(103, 232, 249, 0.52), transparent);
+}
+
+.home-next-concept {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 48px rgba(2, 6, 23, 0.2);
 }
 
 .home-depth-frame {
@@ -756,26 +755,9 @@ html {
 }
 
 @media (max-width: 1023px) {
-  .home-knowledge-surface {
-    transform: none;
-  }
-
   .home-hero-visual {
     width: 100%;
     min-height: auto;
-    padding-top: 20rem;
-  }
-
-  .home-hero-orb-art {
-    inset: -2rem -2rem auto;
-    height: 23rem;
-  }
-
-  .home-hero-progress-surface {
-    position: relative;
-    right: auto;
-    bottom: auto;
-    width: 100%;
   }
 }
 
@@ -1125,7 +1107,6 @@ html {
   .home-graph-frame,
   .home-hero-copy,
   .home-hero-visual,
-  .home-hero-orb-art,
   .home-discipline-track,
   .home-hero-constellation,
   .home-hero-node,

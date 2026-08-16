@@ -65,7 +65,7 @@ test('rejects malformed RevenueCat webhook envelopes', () => {
 test('requires an exact RevenueCat app id from the configured platform allowlist', (context) => {
   const previousAppEnv = process.env.APP_ENV;
   context.after(() => {
-    if (previousAppEnv === undefined) delete process.env.APP_ENV;
+    if (previousAppEnv === undefined) Reflect.deleteProperty(process.env, 'APP_ENV');
     else process.env.APP_ENV = previousAppEnv;
   });
   process.env.APP_ENV = 'preview';
@@ -86,7 +86,7 @@ test('requires an exact RevenueCat app id from the configured platform allowlist
 test('accepts only production RevenueCat purchase events in production', (context) => {
   const previousAppEnv = process.env.APP_ENV;
   context.after(() => {
-    if (previousAppEnv === undefined) delete process.env.APP_ENV;
+    if (previousAppEnv === undefined) Reflect.deleteProperty(process.env, 'APP_ENV');
     else process.env.APP_ENV = previousAppEnv;
   });
   process.env.APP_ENV = 'prod';
@@ -112,7 +112,7 @@ test('accepts only production RevenueCat purchase events in production', (contex
 test('allows a production transfer without an environment but rejects sandbox transfers', (context) => {
   const previousAppEnv = process.env.APP_ENV;
   context.after(() => {
-    if (previousAppEnv === undefined) delete process.env.APP_ENV;
+    if (previousAppEnv === undefined) Reflect.deleteProperty(process.env, 'APP_ENV');
     else process.env.APP_ENV = previousAppEnv;
   });
   process.env.APP_ENV = 'prod';
@@ -214,7 +214,7 @@ test('an environment-less sandbox transfer cannot mutate any subscription row', 
   };
   const originalFetch = globalThis.fetch;
   context.after(() => {
-    if (previous.appEnv === undefined) delete process.env.APP_ENV;
+    if (previous.appEnv === undefined) Reflect.deleteProperty(process.env, 'APP_ENV');
     else process.env.APP_ENV = previous.appEnv;
     if (previous.apiKey === undefined) delete process.env.REVENUECAT_SECRET_API_KEY;
     else process.env.REVENUECAT_SECRET_API_KEY = previous.apiKey;

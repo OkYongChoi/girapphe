@@ -1,6 +1,7 @@
 'use client';
 
 import { useTransition } from 'react';
+import { useI18n } from '@/i18n/client';
 
 interface ResetButtonProps {
   resetAction: () => Promise<void>;
@@ -8,9 +9,10 @@ interface ResetButtonProps {
 
 export default function ResetButton({ resetAction }: ResetButtonProps) {
   const [isPending, startTransition] = useTransition();
+  const { t } = useI18n();
 
   const handleClick = () => {
-    if (!window.confirm('Reset all progress? This will clear your explainable / unclear history and cannot be undone.')) {
+    if (!window.confirm(t('saved.resetConfirm'))) {
       return;
     }
     startTransition(() => {
@@ -25,7 +27,7 @@ export default function ResetButton({ resetAction }: ResetButtonProps) {
       disabled={isPending}
       className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
     >
-      {isPending ? 'Resetting…' : 'Reset'}
+      {isPending ? t('common.loading') : t('common.reset')}
     </button>
   );
 }

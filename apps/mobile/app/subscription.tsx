@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useMobileAuth } from '@/auth';
+import { useI18n } from '@/i18n';
 import { appBaseUrl, useSubscription, type SubscriptionPlan } from '@/subscriptions';
 
 const configuredTermsUrl = process.env.EXPO_PUBLIC_TERMS_URL?.trim();
@@ -16,37 +17,36 @@ export default function SubscriptionScreen() {
   const router = useRouter();
   const auth = useMobileAuth();
   const subscription = useSubscription();
+  const { direction, formatNumber, t } = useI18n();
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { direction }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.kicker}>Ad-free</Text>
-        <Text style={styles.title}>Remove every sponsored practice card</Text>
-        <Text style={styles.intro}>
-          Card creation and review stay free. The subscription benefit is ad removal across supported mobile stores.
-        </Text>
+        <Text style={styles.kicker}>{t('subscription.kicker')}</Text>
+        <Text style={styles.title}>{t('subscription.title')}</Text>
+        <Text style={styles.intro}>{t('subscription.intro')}</Text>
 
         <View style={styles.benefitCard}>
-          <Text style={styles.benefitTitle}>ad_free entitlement</Text>
-          <Text style={styles.benefitText}>No NativeAd requests, no house promotion cards, and no ad interruption after 5 advances.</Text>
+          <Text style={styles.benefitTitle}>{t('subscription.benefitTitle')}</Text>
+          <Text style={styles.benefitText}>{t('subscription.benefitText', { count: formatNumber(5) })}</Text>
         </View>
 
         {!auth.configured ? (
-          <SetupNotice body="Clerk is not configured for this build. Add the publishable key before offering account-linked purchases." />
+          <SetupNotice body={t('subscription.clerkMissing')} />
         ) : !auth.isSignedIn ? (
           <>
-            <SetupNotice body="Sign in first so RevenueCat uses your Clerk user ID instead of an anonymous device identity." />
-            <PrimaryButton label="Sign in" onPress={() => router.push('/sign-in')} />
+            <SetupNotice body={t('subscription.signInFirst')} />
+            <PrimaryButton label={t('auth.signIn')} onPress={() => router.push('/sign-in')} />
           </>
         ) : !subscription.isReady ? (
-          <SetupNotice body="Checking your web and store subscription status…" />
+          <SetupNotice body={t('subscription.checking')} />
         ) : subscription.isAdFree ? (
           <View style={styles.activeCard}>
-            <Text style={styles.activeTitle}>Ad-free is active</Text>
-            <Text style={styles.activeText}>This Clerk account currently has the ad_free entitlement across supported platforms.</Text>
+            <Text style={styles.activeTitle}>{t('subscription.activeTitle')}</Text>
+            <Text style={styles.activeText}>{t('subscription.activeText')}</Text>
           </View>
         ) : !subscription.isConfigured ? (
-          <SetupNotice body="The RevenueCat public SDK key for this platform is missing. Practice continues with the safe sponsored fallback." />
+          <SetupNotice body={t('subscription.storeKeyMissing')} />
         ) : subscription.plans.length > 0 ? (
           <View style={styles.planList}>
             {subscription.plans.map((plan) => (
@@ -59,7 +59,7 @@ export default function SubscriptionScreen() {
             ))}
           </View>
         ) : (
-          <SetupNotice body="No monthly or annual package is attached to the current RevenueCat offering yet." />
+          <SetupNotice body={t('subscription.noPlans')} />
         )}
 
         {subscription.error ? (
@@ -71,37 +71,35 @@ export default function SubscriptionScreen() {
         {auth.isSignedIn && subscription.isConfigured ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Restore purchases"
+            accessibilityLabel={t('subscription.restore')}
             accessibilityState={{ disabled: subscription.isBusy }}
             disabled={subscription.isBusy}
             onPress={() => void subscription.restore()}
             style={({ pressed }) => [styles.restoreButton, pressed && styles.pressed, subscription.isBusy && styles.disabled]}
           >
-            <Text style={styles.restoreButtonText}>{subscription.isBusy ? 'Contacting store…' : 'Restore purchases'}</Text>
+            <Text style={styles.restoreButtonText}>{subscription.isBusy ? t('subscription.contactingStore') : t('subscription.restore')}</Text>
           </Pressable>
         ) : null}
 
         {auth.isSignedIn && subscription.isAdFree ? (
           <Pressable
             accessibilityRole="link"
-            accessibilityLabel="Manage active subscription"
+            accessibilityLabel={t('subscription.manageActive')}
             onPress={() => void Linking.openURL(subscription.managementUrl || `${appBaseUrl}/subscription`)}
             style={({ pressed }) => [styles.restoreButton, pressed && styles.pressed]}
           >
-            <Text style={styles.restoreButtonText}>Manage active subscription</Text>
+            <Text style={styles.restoreButtonText}>{t('subscription.manageActive')}</Text>
           </Pressable>
         ) : null}
 
-        <Text style={styles.termsText}>
-          Prices, introductory offers, renewal terms, and eligibility are shown by the App Store or Google Play purchase sheet. Manage or cancel through the store used to subscribe.
-        </Text>
+        <Text style={styles.termsText}>{t('subscription.termsText')}</Text>
         {termsUrl && privacyUrl ? (
           <View style={styles.legalLinks}>
             <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(termsUrl)}>
-              <Text style={styles.legalLinkText}>Terms of Use</Text>
+              <Text style={styles.legalLinkText}>{t('subscription.terms')}</Text>
             </Pressable>
             <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(privacyUrl)}>
-              <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              <Text style={styles.legalLinkText}>{t('subscription.privacy')}</Text>
             </Pressable>
           </View>
         ) : null}
@@ -111,33 +109,35 @@ export default function SubscriptionScreen() {
 }
 
 function PlanCard({ plan, disabled, onPurchase }: { plan: SubscriptionPlan; disabled: boolean; onPurchase: () => void }) {
+  const { t } = useI18n();
   return (
     <View style={styles.planCard}>
       <View style={styles.planHeader}>
         <View>
           <Text style={styles.planTitle}>{plan.title}</Text>
-          <Text style={styles.planProduct}>{plan.productIdentifier}</Text>
+          <Text style={[styles.planProduct, styles.ltrText]}>{plan.productIdentifier}</Text>
         </View>
         <Text style={styles.planPrice}>{plan.price}</Text>
       </View>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Subscribe to the ${plan.title.toLowerCase()} ad-free plan for ${plan.price}`}
+        accessibilityLabel={t('subscription.subscribeA11y', { plan: plan.title, price: plan.price })}
         accessibilityState={{ disabled }}
         disabled={disabled}
         onPress={onPurchase}
         style={({ pressed }) => [styles.planButton, pressed && styles.pressed, disabled && styles.disabled]}
       >
-        <Text style={styles.planButtonText}>Choose {plan.title.toLowerCase()}</Text>
+        <Text style={styles.planButtonText}>{t('subscription.choosePlan', { plan: plan.title })}</Text>
       </Pressable>
     </View>
   );
 }
 
 function SetupNotice({ body }: { body: string }) {
+  const { t } = useI18n();
   return (
     <View style={styles.noticeCard}>
-      <Text style={styles.noticeTitle}>Setup needed</Text>
+      <Text style={styles.noticeTitle}>{t('subscription.setupNeeded')}</Text>
       <Text style={styles.noticeText}>{body}</Text>
     </View>
   );
@@ -171,6 +171,7 @@ const styles = StyleSheet.create({
   planHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   planTitle: { color: '#111827', fontSize: 20, fontWeight: '900' },
   planProduct: { color: '#607080', fontSize: 11, fontWeight: '700', marginTop: 4 },
+  ltrText: { textAlign: 'left', writingDirection: 'ltr' },
   planPrice: { color: '#111827', fontSize: 19, fontWeight: '900' },
   planButton: { minHeight: 48, borderRadius: 8, backgroundColor: '#111827', alignItems: 'center', justifyContent: 'center', marginTop: 16 },
   planButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '900' },

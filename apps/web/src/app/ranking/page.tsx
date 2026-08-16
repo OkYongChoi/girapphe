@@ -1,7 +1,8 @@
-import Link from 'next/link';
 import Navbar from '@/components/navbar';
 import { getCurrentUser } from '@/lib/auth';
 import { getCardLeaderboard } from '@/actions/card-actions';
+import { LocalizedLink } from '@/i18n/navigation';
+import { getServerI18n } from '@/i18n/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +13,7 @@ function truncateUserId(userId: string): string {
 }
 
 export default async function RankingPage() {
+  const { t, formatNumber } = await getServerI18n();
   const user = await getCurrentUser();
 
   const rows = await getCardLeaderboard();
@@ -23,27 +25,27 @@ export default async function RankingPage() {
       <section className="mx-auto w-full max-w-4xl p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Ranking</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{t('ranking.title')}</h1>
             <p className="mt-1 text-sm text-gray-600">
-              Leaderboard based on card progress (explainable ratio + explainable count).
+              {t('ranking.subtitle')}
             </p>
           </div>
           <div className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-600">
-            {rows.length} {rows.length === 1 ? 'user' : 'users'} ranked
+            {t('ranking.userCount', { count: rows.length })}
           </div>
         </div>
 
         <div className="mt-6 overflow-hidden rounded-xl border bg-white">
-          <table className="min-w-full text-sm" aria-label="Knowledge leaderboard">
+          <table className="min-w-full text-sm" aria-label={t('ranking.tableAria')}>
             <caption className="sr-only">
-              Knowledge leaderboard — ranked by explainable cards and explainable ratio
+              {t('ranking.caption')}
             </caption>
-            <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+            <thead className="bg-gray-50 text-start text-xs uppercase tracking-wide text-gray-500">
               <tr>
-                <th scope="col" className="px-4 py-3 font-semibold">Rank</th>
-                <th scope="col" className="px-4 py-3 font-semibold">User</th>
-                <th scope="col" className="px-4 py-3 font-semibold">Explainable</th>
-                <th scope="col" className="hidden sm:table-cell px-4 py-3 font-semibold">Avg Score</th>
+                <th scope="col" className="px-4 py-3 font-semibold">{t('ranking.rank')}</th>
+                <th scope="col" className="px-4 py-3 font-semibold">{t('ranking.user')}</th>
+                <th scope="col" className="px-4 py-3 font-semibold">{t('common.explainable')}</th>
+                <th scope="col" className="hidden sm:table-cell px-4 py-3 font-semibold">{t('ranking.avgScore')}</th>
               </tr>
             </thead>
             <tbody>
@@ -51,14 +53,14 @@ export default async function RankingPage() {
                 <tr>
                   <td colSpan={4} className="px-4 py-10 text-center">
                     <p className="text-2xl">🏆</p>
-                    <p className="mt-2 font-semibold text-gray-700">No rankings yet</p>
-                    <p className="mt-1 text-sm text-gray-500">Be the first on the leaderboard!</p>
-                    <Link
+                    <p className="mt-2 font-semibold text-gray-700">{t('ranking.empty')}</p>
+                    <p className="mt-1 text-sm text-gray-500">{t('ranking.emptyBody')}</p>
+                    <LocalizedLink
                       href="/practice"
                       className="mt-3 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                     >
-                      Start practicing
-                    </Link>
+                      {t('dashboard.start')}
+                    </LocalizedLink>
                   </td>
                 </tr>
               ) : (
@@ -72,13 +74,13 @@ export default async function RankingPage() {
                     >
                       <td className="px-4 py-3 font-semibold text-gray-700">
                         <span aria-hidden="true">{MEDALS[index] ?? ''} </span>
-                        #{index + 1}
+                        #{formatNumber(index + 1)}
                       </td>
                       <td className="px-4 py-3">
                         {isCurrentUser ? (
                           <span className="font-semibold text-blue-700">
-                            You
-                            <span className="sr-only"> (your rank)</span>
+                            {t('ranking.you')}
+                            <span className="sr-only"> {t('ranking.yourRank')}</span>
                           </span>
                         ) : (
                           <span className="font-mono text-xs text-gray-700">
@@ -86,8 +88,8 @@ export default async function RankingPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-900">{row.explainable}</td>
-                      <td className="hidden sm:table-cell px-4 py-3 text-gray-900">{(row.avgScore * 100).toFixed(1)}%</td>
+                      <td className="px-4 py-3 text-gray-900">{formatNumber(row.explainable)}</td>
+                      <td className="hidden sm:table-cell px-4 py-3 text-gray-900">{formatNumber(row.avgScore, { style: 'percent', maximumFractionDigits: 1 })}</td>
                     </tr>
                   );
                 })

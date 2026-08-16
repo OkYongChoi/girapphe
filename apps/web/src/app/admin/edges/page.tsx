@@ -5,6 +5,8 @@ import {
   getAdminNodes,
 } from '@/actions/admin-actions';
 import { ADMIN_EDGE_TYPES } from '@/lib/admin-config';
+import { getServerI18n } from '@/i18n/server';
+import { localizeType } from '@stem-brain/shared';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +14,7 @@ const inputCls =
   'w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-gray-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60';
 
 export default async function AdminEdgesPage() {
+  const { locale, t, formatNumber } = await getServerI18n();
   const databaseConfigured = Boolean(process.env.DATABASE_URL);
   const [edges, nodes] = databaseConfigured
     ? await Promise.all([getAdminEdges(), getAdminNodes()])
@@ -21,14 +24,13 @@ export default async function AdminEdgesPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="mb-1 text-xl font-semibold">Graph Edges</h1>
-        <p className="text-sm text-gray-400">{edges.length} edges total</p>
+        <h1 className="mb-1 text-xl font-semibold">{t('admin.graphEdges')}</h1>
+        <p className="text-sm text-gray-400">{t('admin.edgesTotal', { count: edges.length })}</p>
       </div>
 
       {!databaseConfigured && (
         <div className="rounded-xl border border-amber-700/40 bg-amber-950/40 p-4 text-sm text-amber-200">
-          Set `DATABASE_URL` before using admin edge management. This screen works only against the
-          PostgreSQL-backed graph tables.
+          {t('admin.edgesDbNotice')}
         </div>
       )}
 
@@ -44,9 +46,9 @@ export default async function AdminEdgesPage() {
         }}
         className="grid grid-cols-2 gap-3 rounded-xl border border-gray-800 p-4 md:grid-cols-4"
       >
-        <h2 className="col-span-full text-sm font-medium text-gray-300">Add Edge</h2>
+        <h2 className="col-span-full text-sm font-medium text-gray-300">{t('admin.addEdge')}</h2>
         <select name="source" required disabled={!databaseConfigured} className={inputCls}>
-          <option value="">source node…</option>
+          <option value="">{t('admin.sourcePlaceholder')}</option>
           {nodes.map((node) => (
             <option key={node.id} value={node.id}>
               {node.label}
@@ -54,7 +56,7 @@ export default async function AdminEdgesPage() {
           ))}
         </select>
         <select name="target" required disabled={!databaseConfigured} className={inputCls}>
-          <option value="">target node…</option>
+          <option value="">{t('admin.targetPlaceholder')}</option>
           {nodes.map((node) => (
             <option key={node.id} value={node.id}>
               {node.label}
@@ -64,7 +66,7 @@ export default async function AdminEdgesPage() {
         <select name="type" required disabled={!databaseConfigured} className={inputCls}>
           {ADMIN_EDGE_TYPES.map((type) => (
             <option key={type} value={type}>
-              {type}
+              {localizeType(locale, type)}
             </option>
           ))}
         </select>
@@ -72,7 +74,7 @@ export default async function AdminEdgesPage() {
           name="weight"
           type="number"
           step="0.1"
-          placeholder="weight"
+          placeholder={t('admin.weightPlaceholder')}
           defaultValue="1"
           min="0"
           max="1"
@@ -85,30 +87,30 @@ export default async function AdminEdgesPage() {
           disabled={!databaseConfigured}
           className="col-span-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-indigo-950 disabled:text-indigo-300"
         >
-          Add Edge
+          {t('admin.addEdge')}
         </button>
       </form>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-800 text-left text-xs uppercase tracking-wide text-gray-500">
-              <th className="pb-2 pr-4">ID</th>
-              <th className="pb-2 pr-4">Source</th>
-              <th className="pb-2 pr-4">Target</th>
-              <th className="pb-2 pr-4">Type</th>
-              <th className="pb-2 pr-4">Weight</th>
-              <th className="pb-2">Action</th>
+            <tr className="border-b border-gray-800 text-start text-xs uppercase tracking-wide text-gray-500">
+              <th className="pb-2 pe-4">{t('admin.id')}</th>
+              <th className="pb-2 pe-4">{t('admin.source')}</th>
+              <th className="pb-2 pe-4">{t('admin.target')}</th>
+              <th className="pb-2 pe-4">{t('admin.type')}</th>
+              <th className="pb-2 pe-4">{t('admin.weight')}</th>
+              <th className="pb-2">{t('admin.action')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-900">
             {edges.map((edge) => (
               <tr key={edge.id} className="hover:bg-gray-900/50">
-                <td className="py-2 pr-4 font-mono text-xs text-gray-400">{edge.id}</td>
-                <td className="py-2 pr-4">{nodeMap.get(edge.source) ?? edge.source}</td>
-                <td className="py-2 pr-4">{nodeMap.get(edge.target) ?? edge.target}</td>
-                <td className="py-2 pr-4 text-gray-400">{edge.type}</td>
-                <td className="py-2 pr-4 text-gray-400">{edge.weight}</td>
+                <td className="py-2 pe-4 font-mono text-xs text-gray-400">{edge.id}</td>
+                <td className="py-2 pe-4">{nodeMap.get(edge.source) ?? edge.source}</td>
+                <td className="py-2 pe-4">{nodeMap.get(edge.target) ?? edge.target}</td>
+                <td className="py-2 pe-4 text-gray-400">{localizeType(locale, edge.type)}</td>
+                <td className="py-2 pe-4 text-gray-400">{formatNumber(edge.weight)}</td>
                 <td className="py-2">
                   <form
                     action={async () => {
@@ -121,7 +123,7 @@ export default async function AdminEdgesPage() {
                       disabled={!databaseConfigured}
                       className="text-xs text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:text-red-900"
                     >
-                      Delete
+                      {t('common.delete')}
                     </button>
                   </form>
                 </td>
@@ -130,7 +132,7 @@ export default async function AdminEdgesPage() {
             {edges.length === 0 && (
               <tr>
                 <td colSpan={6} className="py-6 text-center text-sm text-gray-500">
-                  {databaseConfigured ? 'No graph edges found.' : 'Database connection required.'}
+                  {databaseConfigured ? t('admin.noEdges') : t('admin.databaseRequired')}
                 </td>
               </tr>
             )}

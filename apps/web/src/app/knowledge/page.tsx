@@ -4,15 +4,16 @@ import Navbar from '@/components/navbar';
 import { getCurrentActor } from '@/lib/auth';
 import { getUserKnowledgeItems } from '@/actions/user-knowledge-actions';
 import { getKnowledgeLinkTargets, getPrivateKnowledgeGraph } from '@/actions/knowledge-ingestion-actions';
+import { getServerLocale } from '@/i18n/server';
 
 export const dynamic = 'force-dynamic';
 
 export default async function KnowledgePage() {
   // Server component doesn't get searchParams by default; keep this page stable and let the
   // client component control query params by navigating to the same route.
-  const actor = await getCurrentActor();
+  const [actor, locale] = await Promise.all([getCurrentActor(), getServerLocale()]);
   const [cards, personalItems, publicEdges, privateGraph, graphLinkTargets] = await Promise.all([
-    getAllCardsWithStatus(),
+    getAllCardsWithStatus({ locale }),
     actor.isGuest ? Promise.resolve([]) : getUserKnowledgeItems(),
     getKnowledgeMapEdges(),
     actor.isGuest ? Promise.resolve(null) : getPrivateKnowledgeGraph(),

@@ -2,7 +2,10 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const MAX_COMPRESSED_KIB = 3020;
+// Multilingual UI catalogs and cache-only localized content add a bounded amount
+// of runtime code. Keep a strict 4 MiB project budget so growth remains visible
+// while retaining substantial headroom below the configured Workers plan limit.
+const MAX_COMPRESSED_KIB = 4096;
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webDirectory = path.join(repositoryRoot, 'apps', 'web');
 

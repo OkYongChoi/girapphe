@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import Constants from 'expo-constants';
 import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeAd } from 'react-native-google-mobile-ads';
+import { useI18n } from '@/i18n';
 
 type GoogleMobileAdsModule = typeof import('react-native-google-mobile-ads');
 
@@ -27,6 +28,7 @@ function getProductionNativeUnitId(): string | null {
 }
 
 export function NativeSponsoredCard({ onContinue, onUpgrade }: NativeSponsoredCardProps) {
+  const { direction, t } = useI18n();
   const [adsModule, setAdsModule] = useState<GoogleMobileAdsModule | null>(null);
   const [nativeAd, setNativeAd] = useState<NativeAd | null>(null);
 
@@ -78,10 +80,10 @@ export function NativeSponsoredCard({ onContinue, onUpgrade }: NativeSponsoredCa
   const { NativeAdView, NativeAsset, NativeAssetType, NativeMediaView } = adsModule;
 
   return (
-    <View>
+    <View style={{ direction }}>
       <NativeAdView nativeAd={nativeAd} style={styles.nativeAdCard}>
         <View style={styles.adChoicesClearance} />
-        <Text style={styles.sponsoredLabel}>Sponsored</Text>
+        <Text style={styles.sponsoredLabel}>{t('ads.sponsored')}</Text>
 
         <View style={styles.adHeader}>
           {nativeAd.icon ? (
@@ -128,21 +130,20 @@ export function NativeSponsoredCard({ onContinue, onUpgrade }: NativeSponsoredCa
 }
 
 function HouseSponsoredCard({ onContinue, onUpgrade }: NativeSponsoredCardProps) {
+  const { direction, t } = useI18n();
   return (
-    <View>
+    <View style={{ direction }}>
       <View style={styles.houseCard}>
-        <Text style={styles.houseLabel}>Sponsored · Girapphe</Text>
-        <Text style={styles.houseTitle}>Keep your review flow distraction-free</Text>
-        <Text style={styles.houseBody}>
-          Go ad-free on every practice session with a monthly or annual subscription.
-        </Text>
+        <Text style={styles.houseLabel}>{t('ads.houseLabel')}</Text>
+        <Text style={styles.houseTitle}>{t('ads.houseTitle')}</Text>
+        <Text style={styles.houseBody}>{t('ads.houseBody')}</Text>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="See ad-free plans"
+          accessibilityLabel={t('account.seePlans')}
           onPress={onUpgrade}
           style={({ pressed }) => [styles.upgradeButton, pressed && styles.pressed]}
         >
-          <Text style={styles.upgradeButtonText}>See ad-free plans</Text>
+          <Text style={styles.upgradeButtonText}>{t('account.seePlans')}</Text>
         </Pressable>
       </View>
       <ContinueButton onPress={onContinue} />
@@ -151,14 +152,15 @@ function HouseSponsoredCard({ onContinue, onUpgrade }: NativeSponsoredCardProps)
 }
 
 function ContinueButton({ onPress }: { onPress: () => void }) {
+  const { t } = useI18n();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Continue practice"
+      accessibilityLabel={t('ads.continuePractice')}
       onPress={onPress}
       style={({ pressed }) => [styles.continueButton, pressed && styles.pressed]}
     >
-      <Text style={styles.continueButtonText}>Continue practice</Text>
+      <Text style={styles.continueButtonText}>{t('ads.continuePractice')}</Text>
     </Pressable>
   );
 }

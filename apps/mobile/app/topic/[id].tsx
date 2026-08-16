@@ -9,24 +9,31 @@ import {
   getPrerequisiteNodes,
   getRelatedNodes,
 } from '@/knowledge';
+import { useI18n } from '@/i18n';
+import { useLocalizedContent } from '@/localized-content';
+import { localizeDomain, localizeType } from '@stem-brain/shared';
+import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 
 export default function TopicDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const node = getNodeById(id);
+  const { direction, formatNumber, locale, t } = useI18n();
+  const localized = useLocalizedContent(id ? [id] : []);
+  const content = id ? localized.get(id) : undefined;
 
   if (!node) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <Stack.Screen options={{ title: 'Topic' }} />
+      <SafeAreaView style={[styles.safeArea, { direction }]}>
+        <Stack.Screen options={{ title: t('topic.title') }} />
         <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>Topic not found</Text>
+          <Text style={styles.emptyTitle}>{t('topic.notFound')}</Text>
           <Pressable
             accessibilityRole="button"
             onPress={() => router.back()}
             style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
           >
-            <Text style={styles.secondaryButtonText}>Go back</Text>
+            <Text style={styles.secondaryButtonText}>{t('topic.goBack')}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -42,40 +49,41 @@ export default function TopicDetailScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: node.label }} />
+    <SafeAreaView style={[styles.safeArea, { direction }]}>
+      <Stack.Screen options={{ title: content?.label ?? content?.title ?? node.label }} />
       <ScrollView contentContainerStyle={styles.content}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Go back"
+          accessibilityLabel={t('topic.goBack')}
           onPress={() => router.back()}
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
         >
-          <Text style={styles.backButtonText}>Back</Text>
+          <Text style={styles.backButtonText}>{t('common.back')}</Text>
         </Pressable>
 
         <View style={styles.heroPanel}>
           <View style={styles.domainLine}>
             <View style={[styles.domainDot, { backgroundColor: getDomainColor(node.domain) }]} />
-            <Text style={styles.domainText}>{node.domain}</Text>
+            <Text style={styles.domainText}>{content?.domain_label ?? localizeDomain(locale, node.domain)}</Text>
           </View>
-          <Text style={styles.title}>{node.label}</Text>
-          <Text style={styles.summary}>{getNodeSummary(node.id)}</Text>
+          <Text style={styles.title}>{content?.label ?? content?.title ?? node.label}</Text>
+          <Text style={styles.summary}>{content?.summary ?? getNodeSummary(node.id)}</Text>
+          <TranslationFallbackNotice dark translation={content} />
           <View style={styles.metaRow}>
-            <Text style={styles.metaChip}>{node.type}</Text>
-            <Text style={styles.metaChip}>level {node.level}</Text>
-            <Text style={styles.metaChip}>difficulty {node.difficulty}</Text>
+            <Text style={styles.metaChip}>{content?.type_label ?? localizeType(locale, node.type)}</Text>
+            <Text style={styles.metaChip}>{t('topic.level', { value: formatNumber(node.level) })}</Text>
+            <Text style={styles.metaChip}>{t('topic.difficulty', { value: formatNumber(node.difficulty) })}</Text>
           </View>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Explanation</Text>
-          <Text style={styles.bodyText}>{getNodeExplanation(node.id)}</Text>
+          <Text style={styles.sectionTitle}>{t('topic.explanation')}</Text>
+          <Text style={styles.bodyText}>{content?.explanation ?? getNodeExplanation(node.id)}</Text>
         </View>
 
-        <RelationshipSection title="Prerequisites" nodes={prerequisites} onPress={openTopic} />
-        <RelationshipSection title="Builds toward" nodes={dependents} onPress={openTopic} />
-        <RelationshipSection title="Related" nodes={related} onPress={openTopic} />
+        <RelationshipSection title={t('topic.prerequisites')} nodes={prerequisites} onPress={openTopic} translatedNodes={content?.related_nodes} />
+        <RelationshipSection title={t('topic.buildsToward')} nodes={dependents} onPress={openTopic} translatedNodes={content?.related_nodes} />
+        <RelationshipSection title={t('topic.related')} nodes={related} onPress={openTopic} translatedNodes={content?.related_nodes} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -85,11 +93,14 @@ function RelationshipSection({
   title,
   nodes,
   onPress,
+  translatedNodes,
 }: {
   title: string;
   nodes: GraphNode[];
   onPress: (node: GraphNode) => void;
+  translatedNodes?: Array<{ id: string; label: string }>;
 }) {
+  const { formatNumber, locale, t } = useI18n();
   if (nodes.length === 0) {
     return null;
   }
@@ -101,20 +112,20 @@ function RelationshipSection({
         <Pressable
           key={node.id}
           accessibilityRole="button"
-          accessibilityLabel={`Open ${node.label}`}
+          accessibilityLabel={t('topic.openA11y', { topic: translatedNodes?.find((item) => item.id === node.id)?.label ?? node.label })}
           onPress={() => onPress(node)}
           style={({ pressed }) => [styles.topicRow, pressed && styles.pressed]}
         >
           <View style={[styles.topicAccent, { backgroundColor: getDomainColor(node.domain) }]} />
           <View style={styles.topicTextBlock}>
             <Text style={styles.topicTitle} numberOfLines={1}>
-              {node.label}
+              {translatedNodes?.find((item) => item.id === node.id)?.label ?? node.label}
             </Text>
             <Text style={styles.topicMeta} numberOfLines={1}>
-              {node.domain} / D{node.difficulty}
+              {localizeDomain(locale, node.domain)} / {t('topic.difficulty', { value: formatNumber(node.difficulty) })}
             </Text>
           </View>
-          <Text style={styles.topicArrow}>Open</Text>
+          <Text style={styles.topicArrow}>{t('topic.open')}</Text>
         </Pressable>
       ))}
     </View>

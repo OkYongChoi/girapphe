@@ -215,7 +215,7 @@ test('mobile private graph summaries are invalidated on account transitions', as
     assert.match(source, /if \(!isSignedIn \|\| !userId\)/);
     assert.match(source, /if \(!active\)|if \(active\)/);
     assert.match(source, /return \(\) => \{ active = false; \};/);
-    assert.match(source, /\[isSignedIn, userId\]/);
+    assert.match(source, /\[isSignedIn, (?:locale, )?userId\]/);
     assert.match(source, /isSignedIn && userId && personalNotes\.length > 0/);
   }
 });

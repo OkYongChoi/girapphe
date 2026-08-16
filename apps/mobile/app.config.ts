@@ -33,6 +33,32 @@ function requireProductionPattern(name: string, pattern: RegExp, description: st
   return value;
 }
 
+type ExpoPlugin = NonNullable<ExpoConfig['plugins']>[number];
+
+function pluginName(plugin: ExpoPlugin): string {
+  const name = Array.isArray(plugin) ? plugin[0] : plugin;
+  if (!name) throw new Error('Expo plugins must have a package name.');
+  return name;
+}
+
+function mergePlugins(basePlugins: ExpoConfig['plugins'], additions: ExpoPlugin[]): ExpoPlugin[] {
+  const merged: ExpoPlugin[] = [];
+  const indexByName = new Map<string, number>();
+
+  for (const plugin of [...(basePlugins ?? []), ...additions]) {
+    const name = pluginName(plugin);
+    const existingIndex = indexByName.get(name);
+    if (existingIndex === undefined) {
+      indexByName.set(name, merged.length);
+      merged.push(plugin);
+    } else {
+      merged[existingIndex] = plugin;
+    }
+  }
+
+  return merged;
+}
+
 export default ({ config }: ConfigContext): ExpoConfig => {
   const baseConfig = config as ExpoConfig;
   const isProduction = process.env.EAS_BUILD_PROFILE === 'production';
@@ -114,7 +140,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     requireProductionUrl('EXPO_PUBLIC_TERMS_URL');
     requireProductionUrl('EXPO_PUBLIC_PRIVACY_URL');
   }
-  const adMobPlugin: NonNullable<ExpoConfig['plugins']>[number] | null = iosAppId || androidAppId
+  const adMobPlugin: ExpoPlugin | null = iosAppId || androidAppId
     ? [
         'react-native-google-mobile-ads',
         {
@@ -133,10 +159,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ...baseConfig.extra,
       easBuildProfile: process.env.EAS_BUILD_PROFILE ?? 'development',
     },
-    plugins: [
+    plugins: mergePlugins(baseConfig.plugins, [
       'expo-router',
       'expo-secure-store',
       ...(adMobPlugin ? [adMobPlugin] : []),
-    ],
+    ]),
   };
 };

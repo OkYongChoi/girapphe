@@ -3,8 +3,10 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getDomainColor } from '@stem-brain/graph-engine';
 import { NativeSponsoredCard } from '@/components/native-sponsored-card';
+import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 import { mobileApi, type MobileCard } from '@/api';
 import { useMobileAuth } from '@/auth';
+import { useI18n } from '@/i18n';
 import {
   getNodeExplanation,
   getNodeSummary,
@@ -12,26 +14,26 @@ import {
   getPrerequisiteCount,
   getRelatedNodes,
 } from '@/knowledge';
+import { useLocalizedContent } from '@/localized-content';
 import { useSubscription } from '@/subscriptions';
+import { localizeDomain, localizeLevel, localizeType } from '@stem-brain/shared';
 
 type Rating = 'again' | 'partial' | 'known';
 
-const RATING_META: Record<Rating, { label: string; value: number }> = {
-  again: { label: 'Again', value: 0 },
-  partial: { label: 'Partial', value: 0.5 },
-  known: { label: 'Known', value: 1 },
-};
+const RATING_VALUES: Record<Rating, number> = { again: 0, partial: 0.5, known: 1 };
 
 export default function PracticeScreen() {
   const auth = useMobileAuth();
+  const { direction, t } = useI18n();
   if (!auth.isLoaded) {
-    return <SafeAreaView style={styles.safeArea}><View style={styles.emptyState}><Text style={styles.emptyText}>Loading account…</Text></View></SafeAreaView>;
+    return <SafeAreaView style={[styles.safeArea, { direction }]}><View style={styles.emptyState}><Text style={styles.emptyText}>{t('auth.loading')}</Text></View></SafeAreaView>;
   }
   return auth.isSignedIn ? <SyncedPracticeScreen /> : <LocalPracticeScreen />;
 }
 
 function LocalPracticeScreen() {
   const router = useRouter();
+  const { direction, formatNumber, locale, t } = useI18n();
   const { isAdFree, isReady: subscriptionReady } = useSubscription();
   const practiceNodes = useMemo(() => getPracticeNodes(), []);
   const [cardIndex, setCardIndex] = useState(0);
@@ -42,8 +44,24 @@ function LocalPracticeScreen() {
   const [ratings, setRatings] = useState<Record<string, Rating>>({});
   const currentNode = practiceNodes[cardIndex % Math.max(practiceNodes.length, 1)];
   const relatedNodes = useMemo(() => (currentNode ? getRelatedNodes(currentNode.id, 3) : []), [currentNode]);
+  const localized = useLocalizedContent(practiceNodes.map((node) => node.id), currentNode?.id);
+  const content = currentNode ? localized.get(currentNode.id) : undefined;
   const knownCount = Object.values(ratings).filter((rating) => rating === 'known').length;
   const progressRatio = practiceNodes.length > 0 ? (cardAdvanceCount / practiceNodes.length) * 100 : 0;
+
+  function labelFor(node: (typeof practiceNodes)[number]) {
+    return localized.get(node.id)?.label ?? localized.get(node.id)?.title ?? node.label;
+  }
+
+  function relatedLabel(node: (typeof relatedNodes)[number]) {
+    return content?.related_nodes?.find((item) => item.id === node.id)?.label ?? labelFor(node);
+  }
+
+  function ratingLabel(rating: Rating) {
+    if (rating === 'again') return t('practice.ratingAgain');
+    if (rating === 'partial') return t('practice.ratingPartial');
+    return t('practice.ratingKnown');
+  }
 
   useEffect(() => {
     if (isAdFree) setShowSponsoredCard(false);
@@ -51,10 +69,10 @@ function LocalPracticeScreen() {
 
   if (practiceNodes.length === 0) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={[styles.safeArea, { direction }]}>
         <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>No practice cards</Text>
-          <Text style={styles.emptyText}>Add card content to the graph package to start reviewing.</Text>
+          <Text style={styles.emptyTitle}>{t('practice.noCards')}</Text>
+          <Text style={styles.emptyText}>{t('practice.localEmptyCopy')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -83,36 +101,21 @@ function LocalPracticeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { direction }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.kicker}>Practice</Text>
-        <Text style={styles.title}>Daily review</Text>
+        <Text style={styles.kicker}>{t('practice.title')}</Text>
+        <Text style={styles.title}>{t('practice.dailyReview')}</Text>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={isAdFree ? 'Ad-free plan active' : 'Open ad-free subscription plans'}
-          onPress={() => router.push('/subscription')}
-          style={({ pressed }) => [styles.subscriptionBanner, pressed && styles.pressed]}
-        >
-          <View style={styles.subscriptionTextBlock}>
-            <Text style={styles.subscriptionTitle}>{isAdFree ? 'Ad-free active' : 'Practice your way'}</Text>
-            <Text style={styles.subscriptionText}>
-              {isAdFree
-                ? 'Sponsored cards are completely removed.'
-                : 'A clearly labeled sponsored card appears after every 5 card advances.'}
-            </Text>
-          </View>
-          <Text style={styles.subscriptionAction}>{isAdFree ? 'Manage' : 'Go ad-free'}</Text>
-        </Pressable>
+        <PracticeSubscriptionBanner isAdFree={isAdFree} onPress={() => router.push('/subscription')} />
 
         <View style={styles.progressPanel}>
           <View>
-            <Text style={styles.progressValue}>{cardAdvanceCount}</Text>
-            <Text style={styles.progressLabel}>reviewed</Text>
+            <Text style={styles.progressValue}>{formatNumber(cardAdvanceCount)}</Text>
+            <Text style={styles.progressLabel}>{t('practice.reviewed')}</Text>
           </View>
           <View>
-            <Text style={styles.progressValue}>{knownCount}</Text>
-            <Text style={styles.progressLabel}>known</Text>
+            <Text style={styles.progressValue}>{formatNumber(knownCount)}</Text>
+            <Text style={styles.progressLabel}>{t('practice.known')}</Text>
           </View>
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${Math.min(progressRatio, 100)}%` }]} />
@@ -132,52 +135,53 @@ function LocalPracticeScreen() {
                   <View
                     style={[styles.domainDot, { backgroundColor: getDomainColor(currentNode.domain) }]}
                   />
-                  <Text style={styles.domainText}>{currentNode.domain}</Text>
+                  <Text style={styles.domainText}>{content?.domain_label ?? localizeDomain(locale, currentNode.domain)}</Text>
                 </View>
-                <Text style={styles.difficultyText}>D{currentNode.difficulty}</Text>
+                <Text style={styles.difficultyText}>{t('home.difficulty', { value: formatNumber(currentNode.difficulty) })}</Text>
               </View>
 
-              <Text style={styles.cardTitle}>{currentNode.label}</Text>
-              <Text style={styles.cardSummary}>{getNodeSummary(currentNode.id)}</Text>
+              <Text style={styles.cardTitle}>{labelFor(currentNode)}</Text>
+              <Text style={styles.cardSummary}>{content?.summary ?? getNodeSummary(currentNode.id)}</Text>
+              <TranslationFallbackNotice dark translation={content} />
 
               {isRevealed ? (
                 <View style={styles.answerPanel}>
-                  <Text style={styles.answerTitle}>Explanation</Text>
-                  <Text style={styles.answerText}>{getNodeExplanation(currentNode.id)}</Text>
+                  <Text style={styles.answerTitle}>{t('practice.explanation')}</Text>
+                  <Text style={styles.answerText}>{content?.explanation ?? getNodeExplanation(currentNode.id)}</Text>
                 </View>
               ) : (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Reveal answer"
+                  accessibilityLabel={t('practice.reveal')}
                   onPress={() => setIsRevealed(true)}
                   style={({ pressed }) => [styles.revealButton, pressed && styles.pressed]}
                 >
-                  <Text style={styles.revealButtonText}>Reveal answer</Text>
+                  <Text style={styles.revealButtonText}>{t('practice.reveal')}</Text>
                 </Pressable>
               )}
 
               <View style={styles.metaRow}>
-                <Text style={styles.metaChip}>{currentNode.type}</Text>
-                <Text style={styles.metaChip}>level {currentNode.level}</Text>
-                <Text style={styles.metaChip}>{getPrerequisiteCount(currentNode.id)} prereqs</Text>
+                <Text style={styles.metaChip}>{content?.type_label ?? localizeType(locale, currentNode.type)}</Text>
+                <Text style={styles.metaChip}>{t('home.level', { value: formatNumber(currentNode.level) })}</Text>
+                <Text style={styles.metaChip}>{t('home.prerequisites', { count: formatNumber(getPrerequisiteCount(currentNode.id)) })}</Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Open ${currentNode.label} details`}
+                accessibilityLabel={t('home.openTopicA11y', { topic: labelFor(currentNode) })}
                 onPress={openCurrentTopic}
                 style={({ pressed }) => [styles.topicButton, pressed && styles.pressed]}
               >
-                <Text style={styles.topicButtonText}>Open topic</Text>
+                <Text style={styles.topicButtonText}>{t('home.openTopic')}</Text>
               </Pressable>
             </View>
 
             <View style={styles.ratingRow}>
-              {Object.entries(RATING_META).map(([rating, meta]) => (
+              {(Object.keys(RATING_VALUES) as Rating[]).map((rating) => (
                 <Pressable
                   key={rating}
                   accessibilityRole="button"
-                  accessibilityLabel={`Mark ${meta.label}`}
-                  onPress={() => rateCurrent(rating as Rating)}
+                  accessibilityLabel={t('practice.markRating', { rating: ratingLabel(rating) })}
+                  onPress={() => rateCurrent(rating)}
                   style={({ pressed }) => [
                     styles.ratingButton,
                     rating === 'known' && styles.ratingButtonPrimary,
@@ -185,10 +189,10 @@ function LocalPracticeScreen() {
                   ]}
                 >
                   <Text style={[styles.ratingText, rating === 'known' && styles.ratingTextPrimary]}>
-                    {meta.label}
+                    {ratingLabel(rating)}
                   </Text>
                   <Text style={[styles.ratingValue, rating === 'known' && styles.ratingTextPrimary]}>
-                    {meta.value}
+                    {formatNumber(RATING_VALUES[rating])}
                   </Text>
                 </Pressable>
               ))}
@@ -196,21 +200,21 @@ function LocalPracticeScreen() {
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Skip this card"
+              accessibilityLabel={t('practice.skip')}
               onPress={skipCurrent}
               style={({ pressed }) => [styles.skipButton, pressed && styles.pressed]}
             >
-              <Text style={styles.skipText}>Skip</Text>
+              <Text style={styles.skipText}>{t('practice.skip')}</Text>
             </Pressable>
 
             {relatedNodes.length > 0 ? (
               <View style={styles.relatedPanel}>
-                <Text style={styles.relatedTitle}>Connected topics</Text>
+                <Text style={styles.relatedTitle}>{t('practice.connectedTopics')}</Text>
                 {relatedNodes.map((node) => (
                   <View key={node.id} style={styles.relatedRow}>
                     <View style={[styles.relatedDot, { backgroundColor: getDomainColor(node.domain) }]} />
                     <Text style={styles.relatedText} numberOfLines={1}>
-                      {node.label}
+                      {relatedLabel(node)}
                     </Text>
                   </View>
                 ))}
@@ -225,6 +229,7 @@ function LocalPracticeScreen() {
 
 function SyncedPracticeScreen() {
   const router = useRouter();
+  const { direction, formatNumber, locale, t } = useI18n();
   const { isAdFree, isReady: subscriptionReady } = useSubscription();
   const [mode, setMode] = useState<'new' | 'review'>('new');
   const [card, setCard] = useState<MobileCard | null>(null);
@@ -245,11 +250,11 @@ function SyncedPracticeScreen() {
       setCard(result.card);
       setStats(result.stats);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not load a practice card.');
+      setError(cause instanceof Error ? cause.message : t('practice.loadError'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useFocusEffect(useCallback(() => {
     setMode('new');
@@ -278,7 +283,7 @@ function SyncedPracticeScreen() {
       recordAdvance();
       await load(mode, nextSeen);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not save this rating.');
+      setError(cause instanceof Error ? cause.message : t('practice.saveError'));
     }
   }
 
@@ -298,39 +303,26 @@ function SyncedPracticeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { direction }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.kicker}>Practice</Text>
-        <Text style={styles.title}>Daily review</Text>
+        <Text style={styles.kicker}>{t('practice.title')}</Text>
+        <Text style={styles.title}>{t('practice.dailyReview')}</Text>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={isAdFree ? 'Ad-free plan active' : 'Open ad-free subscription plans'}
-          onPress={() => router.push('/subscription')}
-          style={({ pressed }) => [styles.subscriptionBanner, pressed && styles.pressed]}
-        >
-          <View style={styles.subscriptionTextBlock}>
-            <Text style={styles.subscriptionTitle}>{isAdFree ? 'Ad-free active' : 'Practice your way'}</Text>
-            <Text style={styles.subscriptionText}>
-              {isAdFree ? 'Sponsored cards are completely removed.' : 'A sponsored card appears after every 5 card advances.'}
-            </Text>
-          </View>
-          <Text style={styles.subscriptionAction}>{isAdFree ? 'Manage' : 'Go ad-free'}</Text>
-        </Pressable>
+        <PracticeSubscriptionBanner isAdFree={isAdFree} onPress={() => router.push('/subscription')} />
 
         <View style={styles.progressPanel}>
-          <View><Text style={styles.progressValue}>{stats.explainable}</Text><Text style={styles.progressLabel}>explainable</Text></View>
-          <View><Text style={styles.progressValue}>{stats.unclear}</Text><Text style={styles.progressLabel}>unclear</Text></View>
-          <View><Text style={styles.progressValue}>{cardAdvanceCount}</Text><Text style={styles.progressLabel}>reviewed</Text></View>
+          <View><Text style={styles.progressValue}>{formatNumber(stats.explainable)}</Text><Text style={styles.progressLabel}>{t('progress.explainable')}</Text></View>
+          <View><Text style={styles.progressValue}>{formatNumber(stats.unclear)}</Text><Text style={styles.progressLabel}>{t('progress.unclear')}</Text></View>
+          <View><Text style={styles.progressValue}>{formatNumber(cardAdvanceCount)}</Text><Text style={styles.progressLabel}>{t('practice.reviewed')}</Text></View>
         </View>
 
         <View style={styles.modeRow}>
-          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'new' }} onPress={() => changeMode('new')} style={[styles.modeButton, mode === 'new' && styles.modeButtonActive]}><Text style={styles.modeText}>Learn new</Text></Pressable>
-          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'review' }} onPress={() => changeMode('review')} style={[styles.modeButton, mode === 'review' && styles.modeButtonActive]}><Text style={styles.modeText}>Review ({stats.unclear})</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'new' }} onPress={() => changeMode('new')} style={[styles.modeButton, mode === 'new' && styles.modeButtonActive]}><Text style={styles.modeText}>{t('practice.learnNew')}</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'review' }} onPress={() => changeMode('review')} style={[styles.modeButton, mode === 'review' && styles.modeButtonActive]}><Text style={styles.modeText}>{t('practice.review', { count: formatNumber(stats.unclear) })}</Text></Pressable>
         </View>
 
         {error ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{error}</Text> : null}
-        {loading ? <Text style={styles.emptyText}>Loading…</Text> : null}
+        {loading ? <Text style={styles.emptyText}>{t('common.loading')}</Text> : null}
 
         {showSponsoredCard && subscriptionReady && !isAdFree ? (
           <NativeSponsoredCard onContinue={() => setShowSponsoredCard(false)} onUpgrade={() => router.push('/subscription')} />
@@ -338,33 +330,54 @@ function SyncedPracticeScreen() {
           <>
             <View style={styles.card}>
               <View style={styles.cardHeader}>
-                <Text style={styles.domainText}>{card.domain}</Text>
-                <Text style={styles.difficultyText}>{card.level}</Text>
+                <Text style={styles.domainText}>{card.domain_label ?? localizeDomain(locale, card.domain)}</Text>
+                <Text style={styles.difficultyText}>{localizeLevel(locale, card.level)}</Text>
               </View>
               <Text style={styles.cardTitle}>{card.title}</Text>
               <Text style={styles.cardSummary}>{card.summary}</Text>
+              <TranslationFallbackNotice dark translation={card} />
               {isRevealed ? (
-                <View style={styles.answerPanel}><Text style={styles.answerTitle}>Explanation</Text><Text style={styles.answerText}>{card.explanation}</Text></View>
+                <View style={styles.answerPanel}><Text style={styles.answerTitle}>{t('practice.explanation')}</Text><Text style={styles.answerText}>{card.explanation}</Text></View>
               ) : (
-                <Pressable accessibilityRole="button" accessibilityLabel="Reveal answer" onPress={() => setIsRevealed(true)} style={styles.revealButton}><Text style={styles.revealButtonText}>Reveal answer</Text></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('practice.reveal')} onPress={() => setIsRevealed(true)} style={styles.revealButton}><Text style={styles.revealButtonText}>{t('practice.reveal')}</Text></Pressable>
               )}
             </View>
             {isRevealed ? (
               <View style={styles.ratingRow}>
-                <Pressable accessibilityRole="button" accessibilityLabel="Mark still unclear" onPress={() => void rate('saved')} style={styles.ratingButton}><Text style={styles.ratingText}>Still unclear</Text></Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel="Mark can explain" onPress={() => void rate('known')} style={[styles.ratingButton, styles.ratingButtonPrimary]}><Text style={[styles.ratingText, styles.ratingTextPrimary]}>Can explain</Text></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('practice.stillUnclear')} onPress={() => void rate('saved')} style={styles.ratingButton}><Text style={styles.ratingText}>{t('practice.stillUnclear')}</Text></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('practice.canExplain')} onPress={() => void rate('known')} style={[styles.ratingButton, styles.ratingButtonPrimary]}><Text style={[styles.ratingText, styles.ratingTextPrimary]}>{t('practice.canExplain')}</Text></Pressable>
               </View>
             ) : null}
-            <Pressable accessibilityRole="button" accessibilityLabel="Skip this card" onPress={skip} style={styles.skipButton}><Text style={styles.skipText}>Skip</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('practice.skip')} onPress={skip} style={styles.skipButton}><Text style={styles.skipText}>{t('practice.skip')}</Text></Pressable>
           </>
         ) : !loading ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>{mode === 'review' ? 'No cards due for review' : 'No new cards available'}</Text>
-            <Text style={styles.emptyText}>Try the other mode or return after adding and approving more notes.</Text>
+            <Text style={styles.emptyTitle}>{mode === 'review' ? t('practice.noReview') : t('practice.noNewCards')}</Text>
+            <Text style={styles.emptyText}>{t('practice.syncedEmptyCopy')}</Text>
           </View>
         ) : null}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function PracticeSubscriptionBanner({ isAdFree, onPress }: { isAdFree: boolean; onPress: () => void }) {
+  const { formatNumber, t } = useI18n();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={isAdFree ? t('practice.adFreeActiveA11y') : t('practice.openAdFreeA11y')}
+      onPress={onPress}
+      style={({ pressed }) => [styles.subscriptionBanner, pressed && styles.pressed]}
+    >
+      <View style={styles.subscriptionTextBlock}>
+        <Text style={styles.subscriptionTitle}>{isAdFree ? t('practice.adFreeActive') : t('practice.practiceYourWay')}</Text>
+        <Text style={styles.subscriptionText}>
+          {isAdFree ? t('practice.sponsoredRemoved') : t('practice.sponsoredCadence', { count: formatNumber(5) })}
+        </Text>
+      </View>
+      <Text style={styles.subscriptionAction}>{isAdFree ? t('practice.manage') : t('practice.goAdFree')}</Text>
+    </Pressable>
   );
 }
 

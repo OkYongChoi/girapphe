@@ -135,6 +135,65 @@ Cloudflare/OpenNext commands:
 pnpm build:cf
 ```
 
+### Public content localization
+
+Japanese (`ja`), Simplified Chinese (`zh-CN`), Spanish (`es`), Arabic (`ar`), and
+Hindi (`hi`) public cards and graph taxonomy use cached translation rows. Before
+enabling a deployment:
+
+1. Apply `apps/web/drizzle/migrations/0012_multilingual_content.sql` to that
+   environment's database (`pnpm --filter @stem-brain/web db:migrate`).
+2. Confirm the Cloudflare Workers AI binding is named `AI`. It is declared for
+   the base, `preview`, and `prod` environments in `apps/web/wrangler.jsonc`;
+   it is a binding, not an environment-variable secret. After changing Worker
+   bindings, regenerate the checked-in types from `apps/web` with
+   `pnpm exec wrangler types worker-configuration.d.ts --env-interface CloudflareEnv`.
+3. Deploy, sign in as the Clerk user identified by `ADMIN_CLERK_USER_ID`, and
+   call `POST /api/internal/content-localization-backfill` from the same origin.
+
+Request handlers do not run schema DDL. If migration `0012` is missing, they
+return English/shared-taxonomy fallback content and the backfill remains
+unavailable until the migration is applied.
+
+Run the node backfill first and then the card backfill for each of the five
+target locales so card-related labels reuse the node cache. Node batches are
+capped at 8 and card batches at 3. Send the returned `next_cursor` as `after`
+until `complete` is `true`; interrupted runs are safe to resume.
+
+The translation tables intentionally do not reference the operational
+`knowledge_cards` or `graph_nodes` tables: those practice/graph datasets may be
+smaller than the checked-in public catalog. Backfill iterates only the static
+`GRAPH_NODES`/`CARD_CONTENT` allowlist, and `source_hash` invalidates cached rows
+when that canonical source changes.
+
+```json
+{"kind":"nodes","locale":"ja","after":"","limit":8,"retry_failed":false}
+```
+
+```json
+{"kind":"cards","locale":"ja","after":"","limit":3,"retry_failed":false}
+```
+
+All public and practice graph/card reads are cache-only. Only the same-origin,
+Clerk-admin-protected backfill endpoint may invoke Workers AI, so an untrusted
+cache miss cannot create translation spend. It never accepts arbitrary source
+text. Responses retain stable English `domain`/`type` keys and
+add localized `domain_label`/`type_label`, aliases, `source_locale`,
+`resolved_locale`, and `translation_status`. Missing or rejected translations
+fall back to English and include a failure status/code when available. Domain,
+type, and level labels use the checked-in shared locale taxonomy as a
+deterministic fallback even when the translation database or Workers AI is
+unavailable; their stable source keys do not change.
+
+English source cards and graph rows are never overwritten. Translation is
+limited to the checked-in public graph/card allowlist: private user notes and
+personal knowledge content are not sent to Workers AI. Formulae, code, URLs,
+and line structure are protected and a validation mismatch is stored as a
+failure instead of caching modified technical content. Rows marked `reviewed`
+or `human` are also never replaced or cleared by an automated translation run;
+if their English source hash changes, English fallback is served until a
+reviewer updates the translation and source hash.
+
 Production deployment is GitHub Actions only. See `DEPLOY.md` for the runbook and required
 repository settings.
 

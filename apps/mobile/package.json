@@ -21,10 +21,12 @@
     "eas:ios:production": "pnpm --workspace-root exec eas build --platform ios --profile production",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm lint && pnpm typecheck && pnpm test"
+    "test:i18n": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/check-i18n.mjs",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:i18n"
   },
   "dependencies": {
     "@clerk/expo": "^4.3.0",
+    "@clerk/localizations": "4.15.3",
     "@expo/metro-runtime": "^57.0.9",
     "@stem-brain/graph-engine": "workspace:*",
     "@stem-brain/shared": "workspace:*",
@@ -32,6 +34,7 @@
     "expo-constants": "~57.0.10",
     "expo-dev-client": "~57.0.12",
     "expo-linking": "^57.0.5",
+    "expo-localization": "~57.0.1",
     "expo-router": "~57.0.12",
     "expo-secure-store": "~57.0.1",
     "expo-status-bar": "~57.0.1",

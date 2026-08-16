@@ -1,8 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import Script from 'next/script';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { LocalizedLink } from '@/i18n/navigation';
+import { useI18n } from '@/i18n/client';
 
 declare global {
   interface Window {
@@ -21,6 +22,7 @@ export default function PracticeAdCard({
   sequence: number;
   onContinue: () => void;
 }) {
+  const { t } = useI18n();
   const [adFailed, setAdFailed] = useState(false);
   const requested = useRef(false);
   const cardRef = useRef<HTMLElement>(null);
@@ -72,12 +74,12 @@ export default function PracticeAdCard({
     <section
       ref={cardRef}
       tabIndex={-1}
-      aria-label="Sponsored practice card"
+      aria-label={t('ads.cardAria')}
       className="flex min-h-[34rem] w-full max-w-md flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-xl focus:outline-none"
     >
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Sponsored</p>
-        <p className="text-xs text-slate-400">After {sequence * 5} cards</p>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">{t('ads.sponsored')}</p>
+        <p className="text-xs text-slate-400">{t('ads.afterCards', { count: sequence * 5 })}</p>
       </div>
 
       {configured ? (
@@ -104,17 +106,17 @@ export default function PracticeAdCard({
         <div className="my-5 flex flex-1 flex-col justify-between rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 text-white">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Girapphe Ad-free</p>
-            <h2 className="mt-4 text-3xl font-black leading-tight">Stay in your review flow.</h2>
+            <h2 className="mt-4 text-3xl font-black leading-tight">{t('ads.title')}</h2>
             <p className="mt-4 text-sm leading-6 text-slate-300">
-              Remove sponsored cards for $1 per month or $10 per year. Learning and card creation stay free.
+              {t('ads.body')}
             </p>
           </div>
-          <Link
+          <LocalizedLink
             href="/subscription"
             className="mt-8 inline-flex min-h-11 items-center justify-center rounded-xl bg-cyan-300 px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-200 focus:outline-none focus:ring-2 focus:ring-cyan-100 focus:ring-offset-2 focus:ring-offset-slate-950"
           >
-            See ad-free plans
-          </Link>
+            {t('ads.plans')}
+          </LocalizedLink>
         </div>
       )}
 
@@ -123,7 +125,7 @@ export default function PracticeAdCard({
         onClick={onContinue}
         className="min-h-12 w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
       >
-        Continue reviewing
+        {t('ads.continue')}
       </button>
     </section>
   );

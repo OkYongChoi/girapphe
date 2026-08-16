@@ -24,6 +24,14 @@ import {
   resetPrivatePracticeProgress,
   savePrivatePracticeCardState,
 } from '@/lib/private-practice-cards';
+import { localizeDomain } from '@stem-brain/shared';
+import {
+  localizeGraphNodes,
+  localizeKnowledgeCards,
+  parseContentLocale,
+  type ContentLocale,
+  type TranslationResolutionStatus,
+} from '@/lib/content-localization';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -39,9 +47,18 @@ export type KnowledgeCard = {
   wiki_url: string;
   domain: string;
   domains?: string[];
+  type?: string;
+  domain_label?: string;
+  type_label?: string;
+  level_label?: string;
+  aliases?: string[];
   level: CardLevel;
   related_concepts?: string[];
   prerequisites?: PrerequisiteInfo[];
+  source_locale?: 'en';
+  resolved_locale?: ContentLocale;
+  translation_status?: TranslationResolutionStatus;
+  translation_error_code?: string;
 };
 
 export type KnowledgeMapEdge = {
@@ -886,7 +903,7 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
   };
 }
 
-export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: string[]) {
+async function getNextCardSource(mode: 'new' | 'review' = 'new', excludeIds?: string[]) {
   const user = await requireCurrentActor();
   const excluded = new Set(excludeIds ?? []);
 
@@ -1010,6 +1027,21 @@ export async function getNextCard(mode: 'new' | 'review' = 'new', excludeIds?: s
       .filter((card) => !excluded.has(card.id));
     return selectSmartSuggestedCard(mockRows, mode);
   }
+}
+
+export async function getNextCard(
+  mode: 'new' | 'review' = 'new',
+  excludeIds?: string[],
+  locale?: string
+) {
+  const card = await getNextCardSource(mode, excludeIds);
+  if (!card || !locale) return card;
+  const [localized] = await localizeKnowledgeCards([card], locale, {
+    generateMissing: false,
+    maxGenerations: 0,
+    maxRelatedGenerations: 0,
+  });
+  return localized ?? card;
 }
 
 function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'review'): KnowledgeCard | null {
@@ -1239,7 +1271,7 @@ export async function saveCardState(cardId: string, status: CardStatus) {
   }
 }
 
-export async function getSavedCards() {
+async function getSavedCardsSource() {
   const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
@@ -1286,6 +1318,12 @@ export async function getSavedCards() {
     console.error('Error in getSavedCards:', error);
     return [];
   }
+}
+
+export async function getSavedCards(locale?: string) {
+  const cards = await getSavedCardsSource() as CardWithStatusRow[];
+  if (!locale) return cards;
+  return localizeKnowledgeCards(cards, locale, { generateMissing: false });
 }
 
 export async function removeSavedCard(cardId: string) {
@@ -1384,10 +1422,15 @@ export async function getUserStats() {
   }
 }
 
-export async function getAllCardsWithStatus(options?: {
+type GetAllCardsWithStatusOptions = {
   includeGenerated?: boolean;
   generatedLimit?: number;
-}) {
+  locale?: string;
+  generateTranslations?: boolean;
+  maxTranslationGenerations?: number;
+};
+
+async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOptions) {
   const user = await requireCurrentActor();
   const includeGenerated = options?.includeGenerated ?? false;
   const generatedLimit = Math.max(0, Math.min(options?.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
@@ -1514,6 +1557,16 @@ export async function getAllCardsWithStatus(options?: {
   }
 }
 
+export async function getAllCardsWithStatus(options?: GetAllCardsWithStatusOptions) {
+  const cards = await getAllCardsWithStatusSource(options);
+  if (!options?.locale) return cards;
+  return localizeKnowledgeCards(cards, options.locale, {
+    generateMissing: options.generateTranslations ?? false,
+    maxGenerations: options.maxTranslationGenerations ?? 0,
+    maxRelatedGenerations: Math.min(8, Math.max(0, options.maxTranslationGenerations ?? 0) * 4),
+  });
+}
+
 export async function resetUserCardProgress() {
   const user = await requireCurrentActor();
 
@@ -1548,6 +1601,7 @@ export type CardLeaderboardEntry = {
 
 export type UserCardDomainProgress = {
   domain: string;
+  domain_label?: string;
   reviewed: number;
   explainable: number;
   unclear: number;
@@ -1593,7 +1647,7 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
   }
 }
 
-export async function getUserCardDomainProgress(): Promise<UserCardDomainProgress[]> {
+async function getUserCardDomainProgressSource(): Promise<UserCardDomainProgress[]> {
   const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
@@ -1657,4 +1711,49 @@ export async function getUserCardDomainProgress(): Promise<UserCardDomainProgres
     console.error('Error in getUserCardDomainProgress:', error);
     return [];
   }
+}
+
+const LEGACY_DOMAIN_NODE_IDS: Record<string, string> = {
+  signal: 'signal_processing',
+  control: 'control_systems',
+  info: 'information_theory',
+  ml: 'machine_learning',
+};
+
+function representativeNodeForDomain(domain: string) {
+  const domainKey = normalizeDomainKey(domain);
+  return NODE_BY_ID.get(LEGACY_DOMAIN_NODE_IDS[domainKey] ?? domainKey)
+    ?? GRAPH_NODES.find((node) => normalizeDomainKey(node.domain) === domainKey);
+}
+
+export async function getUserCardDomainProgress(locale?: string): Promise<UserCardDomainProgress[]> {
+  const rows = await getUserCardDomainProgressSource();
+  if (!locale || rows.length === 0) return rows;
+
+  const parsedLocale = parseContentLocale(locale);
+  if (!parsedLocale) {
+    return rows.map((row) => ({ ...row, domain_label: localizeDomain('en', row.domain) }));
+  }
+
+  const representativeByDomain = new Map(
+    rows.map((row) => [row.domain, representativeNodeForDomain(row.domain)] as const)
+  );
+  const representatives = Array.from(new Map(
+    [...representativeByDomain.values()]
+      .filter((node): node is NonNullable<typeof node> => Boolean(node))
+      .map((node) => [node.id, node])
+  ).values());
+  const localized = await localizeGraphNodes(representatives, parsedLocale, {
+    generateMissing: false,
+  });
+  const labelByNodeId = new Map(localized.map((node) => [node.id, node.domain_label]));
+
+  return rows.map((row) => {
+    const node = representativeByDomain.get(row.domain);
+    return {
+      ...row,
+      domain_label: (node ? labelByNodeId.get(node.id) : undefined)
+        ?? localizeDomain(parsedLocale, row.domain),
+    };
+  });
 }

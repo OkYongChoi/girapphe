@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useI18n } from '@/i18n/client';
 
 type TossBillingPlan = 'monthly' | 'annual';
 
@@ -61,6 +62,7 @@ export default function TossBillingButton({
   trialAvailable: boolean;
   disabled?: boolean;
 }) {
+  const { t, formatNumber } = useI18n();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -99,23 +101,23 @@ export default function TossBillingButton({
               windowTarget: 'self',
             });
           } catch {
-            setError('Toss 정기결제를 시작할 수 없습니다. 로그인·설정 상태를 확인해 주세요.');
+            setError(t('toss.startError'));
             setLoading(false);
           }
         }}
         className="w-full rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-900 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading
-          ? 'Toss 결제창 여는 중…'
+          ? t('toss.opening')
           : disabled
-            ? '현재 구독을 먼저 관리해 주세요'
+            ? t('toss.manageFirst')
             : trialAvailable
-              ? `국내카드로 14일 무료 체험 · 이후 ₩${amountKrw.toLocaleString('ko-KR')}`
-              : `국내카드로 ₩${amountKrw.toLocaleString('ko-KR')} 결제`}
+              ? t('toss.trialButton', { amount: formatNumber(amountKrw) })
+              : t('toss.payButton', { amount: formatNumber(amountKrw) })}
       </button>
       {error ? <p role="alert" className="mt-2 text-xs text-red-700">{error}</p> : null}
       <p className="mt-2 text-xs leading-relaxed text-slate-500">
-        Toss 자동결제 계약이 활성화된 국내 발급 카드만 지원합니다. 결제 주기와 원화 금액은 확인 화면에 표시됩니다.
+        {t('toss.supportedCards')}
       </p>
     </div>
   );

@@ -21,51 +21,70 @@ import {
 } from '@/knowledge';
 import { mobileApi, type CardStatus, type PersonalNoteSummary } from '@/api';
 import { useMobileAuth } from '@/auth';
+import { useI18n } from '@/i18n';
+import { normalizeCardNodeId, useLocalizedContent } from '@/localized-content';
+import { localizeDomain, localizeType } from '@stem-brain/shared';
+import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 
 const DIFFICULTY_OPTIONS: DifficultyOption[] = ['All', 1, 2, 3, 4, 5];
 
 export default function BrowseScreen() {
   const router = useRouter();
   const { isSignedIn, userId } = useMobileAuth();
+  const { direction, formatNumber, locale, plural, t } = useI18n();
   const [query, setQuery] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<DomainOption>('All');
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyOption>('All');
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [statusByTitle, setStatusByTitle] = useState<Map<string, CardStatus | null>>(new Map());
+  const [statusByNodeId, setStatusByNodeId] = useState<Map<string, CardStatus | null>>(new Map());
   const [personalNotes, setPersonalNotes] = useState<PersonalNoteSummary[]>([]);
 
   const domains = useMemo(() => getDomainOptions(), []);
-  const nodes = useMemo(
+  const candidateNodes = useMemo(
     () =>
       filterNodes({
-        query,
         domain: selectedDomain,
         difficulty: selectedDifficulty,
         limit: 80,
       }),
-    [query, selectedDifficulty, selectedDomain],
+    [selectedDifficulty, selectedDomain],
   );
+  const localized = useLocalizedContent(candidateNodes.map((node) => node.id), selectedNode?.id ?? candidateNodes[0]?.id);
+  const nodes = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase(locale);
+    if (!normalizedQuery) return candidateNodes;
+    return candidateNodes.filter((node) => {
+      const content = localized.get(node.id);
+      return [content?.label, content?.title, content?.domain_label, content?.type_label, ...(content?.aliases ?? []), node.label, node.domain, node.type, localizeDomain(locale, node.domain), localizeType(locale, node.type)]
+        .filter(Boolean)
+        .some((value) => value!.toLocaleLowerCase(locale).includes(normalizedQuery));
+    });
+  }, [candidateNodes, locale, localized, query]);
 
   const activeNode = selectedNode ?? nodes[0] ?? null;
   const relatedNodes = useMemo(() => (activeNode ? getRelatedNodes(activeNode.id) : []), [activeNode]);
+  function labelFor(node: GraphNode) { return localized.get(node.id)?.label ?? localized.get(node.id)?.title ?? node.label; }
+  function domainFor(node: GraphNode) { return localized.get(node.id)?.domain_label ?? localizeDomain(locale, node.domain); }
+  function typeFor(node: GraphNode) { return localized.get(node.id)?.type_label ?? localizeType(locale, node.type); }
+  function summaryFor(node: GraphNode) { return localized.get(node.id)?.summary ?? getNodeSummary(node.id); }
   useEffect(() => {
     let active = true;
-    setStatusByTitle(new Map());
+    setStatusByNodeId(new Map());
     setPersonalNotes([]);
     if (!isSignedIn || !userId) return () => { active = false; };
 
     void mobileApi.graph().then(({ cards, personalItems }) => {
       if (!active) return;
-      setStatusByTitle(new Map(cards.map((card) => [card.title.toLowerCase(), card.status])));
+      setStatusByNodeId(new Map(cards.map((card) => [normalizeCardNodeId(card.id), card.status])));
       setPersonalNotes(personalItems);
     }).catch(() => {
       if (!active) return;
-      setStatusByTitle(new Map());
+      setStatusByNodeId(new Map());
       setPersonalNotes([]);
     });
 
     return () => { active = false; };
-  }, [isSignedIn, userId]);
+  }, [isSignedIn, locale, userId]);
 
   function openActiveTopic() {
     if (!activeNode) return;
@@ -73,7 +92,7 @@ export default function BrowseScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { direction }]}>
       <FlatList
         data={nodes}
         keyExtractor={(item) => item.id}
@@ -81,17 +100,17 @@ export default function BrowseScreen() {
         contentContainerStyle={styles.content}
         ListHeaderComponent={
           <View>
-            <Text style={styles.kicker}>Browse</Text>
-            <Text style={styles.title}>Find a topic</Text>
-            {isSignedIn && userId && personalNotes.length > 0 ? <View style={styles.personalPanel}><Text style={styles.personalTitle}>● {personalNotes.length} private note{personalNotes.length === 1 ? '' : 's'} in your map</Text><Text style={styles.personalCopy}>Purple nodes are private and only visible to you.</Text></View> : null}
+            <Text style={styles.kicker}>{t('browse.title')}</Text>
+            <Text style={styles.title}>{t('browse.findTopic')}</Text>
+                {isSignedIn && userId && personalNotes.length > 0 ? <View style={styles.personalPanel}><Text style={styles.personalTitle}>● {plural('browse.privateNotes', personalNotes.length)}</Text><Text style={styles.personalCopy}>{t('browse.privateCopy')}</Text></View> : null}
 
             <TextInput
-              accessibilityLabel="Search knowledge topics"
+              accessibilityLabel={t('browse.searchA11y')}
               autoCapitalize="none"
               autoCorrect={false}
               clearButtonMode="while-editing"
               onChangeText={setQuery}
-              placeholder="Search concepts, domains, or types"
+              placeholder={t('browse.searchPlaceholder')}
               placeholderTextColor="#8a96a3"
               returnKeyType="search"
               style={styles.searchInput}
@@ -116,7 +135,7 @@ export default function BrowseScreen() {
                   ]}
                 >
                   <Text style={[styles.filterText, selectedDomain === domain && styles.filterTextSelected]}>
-                    {domain}
+                    {domain === 'All' ? t('common.all') : localizeDomain(locale, domain)}
                   </Text>
                 </Pressable>
               ))}
@@ -142,7 +161,9 @@ export default function BrowseScreen() {
                   <Text
                     style={[styles.filterText, selectedDifficulty === difficulty && styles.filterTextSelected]}
                   >
-                    {difficulty === 'All' ? 'Any level' : `D${difficulty}`}
+                    {difficulty === 'All'
+                      ? t('browse.anyLevel')
+                      : t('home.difficulty', { value: formatNumber(difficulty) })}
                   </Text>
                 </Pressable>
               ))}
@@ -152,10 +173,11 @@ export default function BrowseScreen() {
               <View style={styles.previewPanel}>
                 <View style={styles.previewHeader}>
                   <View style={[styles.domainDot, { backgroundColor: getDomainColor(activeNode.domain) }]} />
-                  <Text style={styles.previewDomain}>{activeNode.domain}</Text>
+                  <Text style={styles.previewDomain}>{domainFor(activeNode)}</Text>
                 </View>
-                <Text style={styles.previewTitle}>{activeNode.label}</Text>
-                <Text style={styles.previewText}>{getNodeSummary(activeNode.id)}</Text>
+                <Text style={styles.previewTitle}>{labelFor(activeNode)}</Text>
+                <Text style={styles.previewText}>{summaryFor(activeNode)}</Text>
+                <TranslationFallbackNotice dark translation={localized.get(activeNode.id)} />
                 {relatedNodes.length > 0 ? (
                   <View style={styles.relatedRow}>
                     {relatedNodes.map((node) => (
@@ -166,7 +188,7 @@ export default function BrowseScreen() {
                         style={({ pressed }) => [styles.relatedChip, pressed && styles.pressed]}
                       >
                         <Text style={styles.relatedText} numberOfLines={1}>
-                          {node.label}
+                          {labelFor(node)}
                         </Text>
                       </Pressable>
                     ))}
@@ -174,31 +196,31 @@ export default function BrowseScreen() {
                 ) : null}
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Open ${activeNode.label} details`}
+                  accessibilityLabel={t('home.openTopicA11y', { topic: labelFor(activeNode) })}
                   onPress={openActiveTopic}
                   style={({ pressed }) => [styles.openButton, pressed && styles.pressed]}
                 >
-                  <Text style={styles.openButtonText}>Open topic</Text>
+                  <Text style={styles.openButtonText}>{t('home.openTopic')}</Text>
                 </Pressable>
               </View>
             ) : null}
 
             <View style={styles.resultHeader}>
-              <Text style={styles.resultTitle}>Results</Text>
-              <Text style={styles.resultCount}>{nodes.length}</Text>
+              <Text style={styles.resultTitle}>{t('browse.results')}</Text>
+              <Text style={styles.resultCount}>{formatNumber(nodes.length)}</Text>
             </View>
           </View>
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No matching topics</Text>
-            <Text style={styles.emptyText}>Try a broader search or remove one filter.</Text>
+            <Text style={styles.emptyTitle}>{t('browse.noMatches')}</Text>
+            <Text style={styles.emptyText}>{t('browse.noMatchesCopy')}</Text>
           </View>
         }
         renderItem={({ item }) => (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Preview ${item.label}`}
+            accessibilityLabel={t('browse.previewTopic', { topic: labelFor(item) })}
             onPress={() => setSelectedNode(item)}
             style={({ pressed }) => [
               styles.nodeRow,
@@ -209,13 +231,15 @@ export default function BrowseScreen() {
             <View style={[styles.nodeAccent, { backgroundColor: getDomainColor(item.domain) }]} />
             <View style={styles.nodeTextBlock}>
               <Text style={styles.nodeTitle} numberOfLines={1}>
-                {item.label}
+                {labelFor(item)}
               </Text>
               <Text style={styles.nodeMeta} numberOfLines={1}>
-                {item.domain} / {item.type}{statusByTitle.get(item.label.toLowerCase()) === 'known' ? ' / explainable' : statusByTitle.get(item.label.toLowerCase()) === 'saved' ? ' / unclear' : ''}
+                {domainFor(item)} / {typeFor(item)}{statusByNodeId.get(item.id) === 'known' ? ` / ${t('browse.explainable')}` : statusByNodeId.get(item.id) === 'saved' ? ` / ${t('browse.unclear')}` : ''}
               </Text>
             </View>
-            <Text style={styles.nodeLevel}>D{item.difficulty}</Text>
+            <Text style={styles.nodeLevel}>
+              {t('home.difficulty', { value: formatNumber(item.difficulty) })}
+            </Text>
           </Pressable>
         )}
       />

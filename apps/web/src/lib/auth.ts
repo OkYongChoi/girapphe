@@ -3,6 +3,8 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
 import { GUEST_ID_COOKIE } from '@/lib/guest';
+import { getServerLocale } from '@/i18n/server';
+import { localizePathname } from '@stem-brain/shared';
 
 export type AuthUser = {
   id: string;
@@ -50,13 +52,13 @@ export async function requireCurrentActor(): Promise<CurrentActor> {
 
 export async function requireCurrentUser(): Promise<AuthUser> {
   const user = await getCurrentUser();
-  if (!user) redirect('/login');
+  if (!user) redirect(localizePathname('/login', await getServerLocale()));
   return user;
 }
 
 export async function requireAdminUser(): Promise<AuthUser> {
   const user = await requireCurrentUser();
   const adminId = process.env.ADMIN_CLERK_USER_ID;
-  if (!adminId || user.id !== adminId) redirect('/');
+  if (!adminId || user.id !== adminId) redirect(localizePathname('/', await getServerLocale()));
   return user;
 }

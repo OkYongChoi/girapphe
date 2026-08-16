@@ -10,10 +10,10 @@ import {
   type PrerequisiteInfo,
 } from '@/actions/card-actions';
 import Card from './card';
-import Link from 'next/link';
-import { getCardStatusLabel } from '@/lib/card-status';
 import PracticeAdCard from './practice-ad-card';
 import { getPracticeAdSequence } from '@/lib/practice-ad-schedule';
+import { LocalizedLink } from '@/i18n/navigation';
+import { useI18n } from '@/i18n/client';
 
 interface CardViewerProps {
   initialCard: KnowledgeCard | null;
@@ -69,6 +69,7 @@ export default function CardViewer({
   const [adVisible, setAdVisible] = useState(false);
   const [cardAfterAd, setCardAfterAd] = useState<KnowledgeCard | null>(null);
   const [adSequence, setAdSequence] = useState(0);
+  const { locale, t, formatNumber } = useI18n();
 
   // Reset session state on mount only.
   // key={mode} on CardViewer (in practice/page.tsx) causes a full unmount+remount on mode
@@ -134,7 +135,7 @@ export default function CardViewer({
     try {
       const saveResult = await saveCardState(card.id, status);
       if (!saveResult.success) {
-        setError('Could not save. Please try again.');
+        setError(t('practice.saveError'));
         setHistory(prev => prev.slice(0, -1));
         if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
         return;
@@ -145,7 +146,7 @@ export default function CardViewer({
       let completedRound = false;
       let reviewedCountNow = ratedIds.current.size;
       const getNext = async () => {
-        let next = await getNextCard(mode, [...ratedIds.current]);
+        let next = await getNextCard(mode, [...ratedIds.current], locale);
         if (!next) {
           // All available cards have been rated this round → reset and cycle again
           if (mode === 'review' && reviewPool > 0) {
@@ -153,7 +154,7 @@ export default function CardViewer({
             reviewedCountNow = reviewPool;
           }
           ratedIds.current.clear();
-          next = await getNextCard(mode);
+          next = await getNextCard(mode, undefined, locale);
         }
         return next;
       };
@@ -171,14 +172,14 @@ export default function CardViewer({
       setUndoVisible(true); // stays until undo is clicked or next action
     } catch (e) {
       console.error('handleAction failed:', e);
-      setError('Something went wrong.');
+      setError(t('practice.genericError'));
       setHistory(prev => prev.slice(0, -1));
       ratedIds.current.delete(card.id); // restore on failure
       if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
     } finally {
       setLoading(false);
     }
-  }, [card, loading, mode, reviewPool, completeCardAction]);
+  }, [card, completeCardAction, loading, locale, mode, reviewPool, t]);
 
   const handlePrevious = useCallback(() => {
     if (history.length === 0) return;
@@ -213,7 +214,7 @@ export default function CardViewer({
       let next: KnowledgeCard | null = null;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          next = await getNextCard(mode, [...skippedIds.current]);
+          next = await getNextCard(mode, [...skippedIds.current], locale);
           break;
         } catch {
           if (attempt === 1) throw new Error('retry_exhausted');
@@ -227,19 +228,19 @@ export default function CardViewer({
           setReviewRoundCompleted(true);
         }
         skippedIds.current.clear();
-        next = await getNextCard(mode);
+        next = await getNextCard(mode, undefined, locale);
       }
 
       completeCardAction(next);
     } catch (e) {
       console.error('handleSkip failed:', e);
-      setError('Could not load the next card.');
+      setError(t('practice.loadError'));
       setHistory(prev => prev.slice(0, -1));
       skippedIds.current.delete(card.id);
     } finally {
       setLoading(false);
     }
-  }, [card, loading, mode, reviewPool, completeCardAction]);
+  }, [card, completeCardAction, loading, locale, mode, reviewPool, t]);
 
   const handleContinueFromAd = useCallback(() => {
     setAdVisible(false);
@@ -303,52 +304,52 @@ export default function CardViewer({
     return (
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center max-w-sm mx-auto bg-white border border-gray-100 rounded-2xl shadow-sm mt-4">
         <p className="text-xl font-bold text-gray-900">
-          {mode === 'review' ? "You're all caught up on review queue items!" : "You're all caught up on new cards!"}
+          {mode === 'review' ? t('practice.reviewDone') : t('practice.newDone')}
         </p>
         <p className="text-gray-500 mt-2 text-sm leading-relaxed">
           {isGuest && mode === 'new'
-            ? `Guests can practice ${guestLimit} sample cards.`
-            : `You reviewed ${reviewedCount} card${reviewedCount !== 1 ? 's' : ''} this session.`}
+            ? t('practice.guestLimit', { count: guestLimit })
+            : t('practice.sessionReviewed', { count: reviewedCount })}
         </p>
 
-        <dl aria-label="Learning progress" className="mt-6 grid w-full grid-cols-2 gap-2 text-center">
+        <dl aria-label={t('practice.learningProgress')} className="mt-6 grid w-full grid-cols-2 gap-2 text-center">
           <div className="flex flex-col rounded-xl border border-emerald-100 bg-emerald-50 py-3">
-            <dt className="order-2 text-xs text-emerald-600">Explainable</dt>
-            <dd className="order-1 block text-2xl font-bold text-emerald-700">{stats.explainable}</dd>
+            <dt className="order-2 text-xs text-emerald-600">{t('common.explainable')}</dt>
+            <dd className="order-1 block text-2xl font-bold text-emerald-700">{formatNumber(stats.explainable)}</dd>
           </div>
           <div className="flex flex-col rounded-xl border border-blue-100 bg-blue-50 py-3">
-            <dt className="order-2 text-xs text-blue-500">Unclear</dt>
-            <dd className="order-1 block text-2xl font-bold text-blue-600">{stats.unclear}</dd>
+            <dt className="order-2 text-xs text-blue-500">{t('common.unclear')}</dt>
+            <dd className="order-1 block text-2xl font-bold text-blue-600">{formatNumber(stats.unclear)}</dd>
           </div>
         </dl>
 
         <div className="mt-6 flex flex-col gap-2 w-full">
           {isGuest && (
-            <Link
+            <LocalizedLink
               href="/signup"
               className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
             >
-              Create account for full practice
-            </Link>
+              {t('practice.fullAccount')}
+            </LocalizedLink>
           )}
-          <Link
+          <LocalizedLink
             href={mode === 'review' ? '/practice?mode=new' : '/practice?mode=review'}
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
-            {mode === 'review' ? 'Learn new concepts' : 'Review learning queue'}
-          </Link>
-          <Link
+            {mode === 'review' ? t('practice.learnConcepts') : t('practice.reviewQueue')}
+          </LocalizedLink>
+          <LocalizedLink
             href="/saved"
             className="w-full rounded-xl border px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            View review queue
-          </Link>
-          <Link
+            {t('practice.viewQueue')}
+          </LocalizedLink>
+          <LocalizedLink
             href="/knowledge"
             className="w-full rounded-xl border px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            Explore knowledge graph
-          </Link>
+            {t('practice.exploreGraph')}
+          </LocalizedLink>
         </div>
       </div>
     );
@@ -359,11 +360,11 @@ export default function CardViewer({
     <div className="flex flex-col w-full max-w-md mx-auto">
       {isGuest && mode === 'new' && (
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Guest sample: {guestLimit} practice cards.{' '}
-          <Link href="/signup" className="font-semibold underline underline-offset-2">
-            Create an account
-          </Link>{' '}
-          for the full set.
+          {t('practice.guestSample', { count: guestLimit })}{' '}
+          <LocalizedLink href="/signup" className="font-semibold underline underline-offset-2">
+            {t('practice.createAccount')}
+          </LocalizedLink>{' '}
+          {t('practice.forFullSet')}
         </div>
       )}
 
@@ -373,11 +374,11 @@ export default function CardViewer({
           /* ── Learn New: global stats, no bar ── */
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <div className="flex items-center gap-3 text-xs font-medium">
-              <span className="text-emerald-600">{stats.explainable} explainable</span>
-              <span className="text-amber-600">{stats.unclear} needs review</span>
+              <span className="text-emerald-600">{formatNumber(stats.explainable)} {t('common.explainable').toLocaleLowerCase()}</span>
+              <span className="text-amber-600">{t('practice.needsReview', { count: stats.unclear })}</span>
             </div>
             <span className="text-xs text-gray-500" aria-live="polite">
-              {reviewedCount > 0 ? `${reviewedCount} rated this session` : 'Recall first, reveal second'}
+              {reviewedCount > 0 ? t('practice.ratedSession', { count: reviewedCount }) : t('practice.recallFirst')}
             </span>
           </div>
         ) : (
@@ -385,16 +386,16 @@ export default function CardViewer({
           <>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-medium text-blue-600">
-                Reviewing learning queue
+                {t('practice.reviewingQueue')}
               </span>
               <span className="text-xs text-gray-500" aria-live="polite">
-                {Math.min(reviewedThisRound, reviewPool)} / {reviewPool} reviewed
+                {t('practice.reviewProgress', { done: Math.min(reviewedThisRound, reviewPool), total: reviewPool })}
               </span>
             </div>
             <div
               className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100"
               role="progressbar"
-              aria-label={`${Math.min(reviewedThisRound, reviewPool)} of ${reviewPool} reviewed`}
+              aria-label={t('practice.reviewProgress', { done: Math.min(reviewedThisRound, reviewPool), total: reviewPool })}
               aria-valuenow={Math.min(reviewedThisRound, reviewPool)}
               aria-valuemin={0}
               aria-valuemax={reviewPool}
@@ -407,7 +408,7 @@ export default function CardViewer({
             {reviewRoundCompleted && (
               <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2" role="status" aria-live="polite">
                 <p className="text-xs font-semibold text-emerald-700">
-                  Round complete! You went through all {reviewPool} card{reviewPool !== 1 ? 's' : ''} — starting next round.
+                  {t('practice.roundComplete', { count: reviewPool })}
                 </p>
               </div>
             )}
@@ -420,23 +421,23 @@ export default function CardViewer({
         <button
           onClick={handlePrevious}
           disabled={history.length === 0 || loading}
-          aria-label="Go to previous card"
+          aria-label={t('practice.previousAria')}
           className="text-sm text-gray-500 hover:text-gray-900 disabled:opacity-30 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:pointer-events-none focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          ← Prev
+          {t('practice.previous')}
         </button>
         <button
           onClick={handleSkip}
           disabled={loading}
-          aria-label="Skip this card"
+          aria-label={t('practice.skipAria')}
           className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          {loading ? '…' : 'Skip →'}
+          {loading ? '…' : t('practice.skip')}
         </button>
       </div>
       {mode === 'new' && backNavigatedCardId === card.id && previousChoice && (
         <p className="mb-3 text-xs text-gray-500" aria-live="polite">
-          Previous choice on this card: <span className="font-semibold text-gray-700">{getCardStatusLabel(previousChoice)}</span>
+          {t('practice.previousChoice', { choice: previousChoice === 'known' ? t('common.canExplain') : t('common.unclear') })}
         </p>
       )}
 
@@ -447,13 +448,13 @@ export default function CardViewer({
       {card.prerequisites && card.prerequisites.length > 0 && (
         <div className="mt-2 px-3 py-2.5 bg-white border border-gray-100 rounded-xl shadow-sm">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
-            Prerequisites
+            {t('practice.prerequisites')}
           </p>
           <div className="flex flex-wrap gap-1.5">
             {card.prerequisites.map((prereq: PrerequisiteInfo) => (
               <span
                 key={prereq.id}
-                title={prereq.status === 'known' ? 'Can explain' : prereq.status === 'saved' ? 'Still unclear' : 'Not yet learned'}
+                title={prereq.status === 'known' ? t('common.canExplain') : prereq.status === 'saved' ? t('common.stillUnclear') : t('common.notYetLearned')}
                 className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium border ${
                   prereq.status === 'known'
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -475,29 +476,29 @@ export default function CardViewer({
       {/* Error / loading feedback */}
       <div aria-live="polite" aria-atomic="true" className="mt-2 min-h-[1rem] text-center">
         {error && <p className="text-xs text-red-600">{error}</p>}
-        {loading && !error && <p className="text-xs text-gray-400 animate-pulse">Loading…</p>}
+        {loading && !error && <p className="text-xs text-gray-400 animate-pulse">{t('common.loading')}</p>}
       </div>
 
       {/* Answer visibility toggle */}
       <button
         onClick={() => setRevealed((prev) => !prev)}
         disabled={loading}
-        aria-label={revealed ? 'Hide answer' : 'Show answer'}
+        aria-label={revealed ? t('practice.hideAnswerAria') : t('practice.showAnswerAria')}
         aria-expanded={revealed}
         className="mt-3 w-full py-4 bg-gray-900 hover:bg-gray-700 active:scale-95 text-white font-semibold rounded-2xl transition-all text-sm tracking-wide disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-700"
       >
-        {revealed ? 'Hide Answer ↑' : 'Show Answer ↓'}
+        {revealed ? t('practice.hideAnswer') : t('practice.showAnswer')}
       </button>
 
       {/* ── AFTER reveal: Unclear | Can Explain + Undo ── */}
       {revealed && (
         <>
-          <div className="mt-3 flex w-full gap-3" role="group" aria-label="Rate this card">
+          <div className="mt-3 flex w-full gap-3" role="group" aria-label={t('practice.rateAria')}>
             {/* Unclear */}
             <button
               onClick={() => void handleAction('saved')}
               disabled={loading}
-              aria-label={mode === 'review' ? 'Still unclear on this concept (shortcut: 2)' : 'This concept is still unclear (shortcut: 2)'}
+              aria-label={mode === 'review' ? t('practice.unclearAriaReview') : t('practice.unclearAriaNew')}
               className={`flex-1 flex flex-col items-center justify-center gap-1 py-5 text-amber-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border active:scale-95 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 ${
                 previousChoice === 'saved'
                   ? 'bg-amber-100 border-amber-400 ring-2 ring-amber-300'
@@ -505,15 +506,15 @@ export default function CardViewer({
               }`}
             >
               <span className="text-xl">◐</span>
-              <span className="text-sm font-bold">Unclear</span>
-              <span className="text-[10px] font-normal opacity-60">{mode === 'review' ? 'still needs review' : 'not stable yet'}</span>
+              <span className="text-sm font-bold">{t('common.unclear')}</span>
+              <span className="text-[10px] font-normal opacity-60">{mode === 'review' ? t('practice.needsReviewHint') : t('practice.notStableHint')}</span>
             </button>
 
             {/* Can Explain */}
             <button
               onClick={() => void handleAction('known')}
               disabled={loading}
-              aria-label="Mark as can explain (shortcut: 1)"
+              aria-label={t('practice.canExplainAria')}
               className={`flex-1 flex flex-col items-center justify-center gap-1 py-5 text-emerald-700 font-semibold rounded-2xl transition-colors disabled:opacity-50 border active:scale-95 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 ${
                 previousChoice === 'known'
                   ? 'bg-emerald-100 border-emerald-400 ring-2 ring-emerald-300'
@@ -521,8 +522,8 @@ export default function CardViewer({
               }`}
             >
               <span className="text-xl">✓</span>
-              <span className="text-sm font-bold">Can Explain</span>
-              <span className="text-[10px] font-normal opacity-60">{mode === 'review' ? 'feels solid now' : 'self-reported strong'}</span>
+              <span className="text-sm font-bold">{t('common.canExplain')}</span>
+              <span className="text-[10px] font-normal opacity-60">{mode === 'review' ? t('practice.solidHint') : t('practice.strongHint')}</span>
             </button>
           </div>
 
@@ -533,7 +534,7 @@ export default function CardViewer({
                 onClick={handleUndo}
                 className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-5 py-2 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                ↩ Undo last rating
+                {t('practice.undo')}
               </button>
             )}
           </div>
@@ -543,12 +544,12 @@ export default function CardViewer({
       {/* Action hint */}
       <p className="mt-1 text-xs text-gray-400 text-center">
         <span className="sm:hidden">
-          {!revealed ? 'Try explaining first, then reveal' : 'Rate only after checking your explanation'}
+          {!revealed ? t('practice.mobileRecallHint') : t('practice.mobileRateHint')}
         </span>
         <span className="hidden sm:inline">
           {!revealed
-            ? <><kbd className="font-mono">Space</kbd> or <kbd className="font-mono">Enter</kbd> reveal after recall · <kbd className="font-mono">→</kbd> skip</>
-            : <><kbd className="font-mono">1</kbd> can explain · <kbd className="font-mono">2</kbd> needs review · {undoVisible && <><kbd className="font-mono">Z</kbd> undo · </>}<kbd className="font-mono">←</kbd> back · <kbd className="font-mono">→</kbd> skip</>
+            ? t('practice.keyboardReveal')
+            : t(undoVisible ? 'practice.keyboardRateUndo' : 'practice.keyboardRate')
           }
         </span>
       </p>

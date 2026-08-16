@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { GRAPH_EDGES, GRAPH_NODES } from '@stem-brain/graph-engine';
 import pool from '@/lib/db';
@@ -960,7 +960,7 @@ export const verifyMcpAccessToken = authenticateMcpAccessToken;
 
 export async function createMcpAccessTokenForUser(userId: string, labelInput: string): Promise<{ token: string; record: McpAccessToken }> {
   if (!userId || userId.startsWith('guest_')) throw new Error('A signed-in user is required.');
-  const rawToken = `girapphe_mcp_${randomBytes(32).toString('base64url')}`;
+  const rawToken = `girapphe_mcp_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url')}`;
   const now = new Date();
   const record: McpAccessToken = {
     id: randomUUID(),

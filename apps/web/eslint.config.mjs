@@ -25,6 +25,7 @@ const eslintConfig = defineConfig([
     ".claude/**",
     ".omc/**",
     "next-env.d.ts",
+    "worker-configuration.d.ts",
   ]),
 ]);
 

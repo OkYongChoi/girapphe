@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { parseAcceptLanguage } from '@stem-brain/shared';
 import {
   getAllCardsWithStatus,
   getCardLeaderboard,
@@ -30,6 +31,8 @@ import {
 } from '@/actions/admin-actions';
 import { getCurrentUser } from '@/lib/auth';
 import { readBoundedJson } from '@/lib/billing/bounded-json';
+import { handlePublicContentRequest } from '@/lib/public-content-api';
+import { parseContentLocale } from '@/lib/content-localization';
 
 const MAX_JSON_BYTES = 16_384;
 
@@ -45,11 +48,11 @@ async function isMobileAdmin() {
 }
 
 function unauthorized() {
-  return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
+  return NextResponse.json({ error: 'Sign in is required.', code: 'AUTH_REQUIRED' }, { status: 401 });
 }
 
-function invalid(message: string) {
-  return NextResponse.json({ error: message }, { status: 400 });
+function invalid(message: string, code = 'INVALID_REQUEST') {
+  return NextResponse.json({ error: message, code }, { status: 400 });
 }
 
 function stringField(value: unknown, maxLength: number) {
@@ -83,9 +86,17 @@ function mutationResponse(result: { success?: boolean; error?: string }) {
 }
 
 export async function GET(request: NextRequest) {
-  if (!await requireMobileUser()) return unauthorized();
-
   const resource = request.nextUrl.searchParams.get('resource');
+  if (resource === 'content') return handlePublicContentRequest(request);
+  if (!await requireMobileUser()) return unauthorized();
+  const explicitLocale = request.nextUrl.searchParams.get('locale');
+  const localeInput = explicitLocale
+    ?? request.headers.get('x-girapphe-locale')
+    ?? parseAcceptLanguage(request.headers.get('accept-language'));
+  const parsedLocale = parseContentLocale(localeInput);
+  if (!parsedLocale) return invalid('The requested locale is not supported.', 'UNSUPPORTED_LOCALE');
+  const locale = parsedLocale;
+
   switch (resource) {
     case 'admin-nodes':
       if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
@@ -102,7 +113,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ items });
     }
     case 'graph': {
-      const [cards, personalItems] = await Promise.all([getAllCardsWithStatus(), getUserKnowledgeItems()]);
+      const [cards, personalItems] = await Promise.all([
+        getAllCardsWithStatus({ locale }),
+        getUserKnowledgeItems(),
+      ]);
       return NextResponse.json({
         cards: cards.map((card) => ({ id: card.id, title: card.title, status: card.status })),
         personalItems: personalItems.map((item) => ({ id: item.id, title: item.title, topic: item.topic })),
@@ -111,13 +125,13 @@ export async function GET(request: NextRequest) {
     case 'practice': {
       const mode = request.nextUrl.searchParams.get('mode') === 'review' ? 'review' : 'new';
       const exclude = request.nextUrl.searchParams.getAll('exclude').filter((id) => id.length <= 160).slice(0, 100);
-      const [card, stats] = await Promise.all([getNextCard(mode, exclude), getUserStats()]);
+      const [card, stats] = await Promise.all([getNextCard(mode, exclude, locale), getUserStats()]);
       return NextResponse.json({ card, stats });
     }
     case 'saved':
-      return NextResponse.json({ cards: await getSavedCards() });
+      return NextResponse.json({ cards: await getSavedCards(locale) });
     case 'dashboard': {
-      const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress()]);
+      const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress(locale)]);
       return NextResponse.json({ stats, domains });
     }
     case 'ranking': {
@@ -132,7 +146,7 @@ export async function GET(request: NextRequest) {
       });
     }
     default:
-      return invalid('Unknown mobile resource.');
+      return invalid('Unknown mobile resource.', 'UNKNOWN_MOBILE_RESOURCE');
   }
 }
 
@@ -217,5 +231,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true });
   }
 
-  return invalid('Unknown mobile action.');
+  return invalid('Unknown mobile action.', 'UNKNOWN_MOBILE_ACTION');
 }

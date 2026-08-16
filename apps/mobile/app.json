@@ -34,8 +34,21 @@
     "plugins": [
       "expo-router",
       "@clerk/expo",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": ["en", "ja", "zh-Hans", "es", "ar", "hi"],
+            "android": ["en", "ja", "zh-CN", "es", "ar", "hi"]
+          }
+        }
+      ]
     ],
+    "extra": {
+      "supportsRTL": true,
+      "forcesRTL": false
+    },
     "experiments": {
       "typedRoutes": true
     }
