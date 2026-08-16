@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 export const CREATE_CARD_DRAFTS_TOOL_NAME = 'create_card_drafts';
 export const MCP_DRAFT_CREATE_SCOPE = 'knowledge:drafts:create';
+export const MAX_MCP_REQUEST_BYTES = 768 * 1024;
+export const MAX_CREATE_CARD_DRAFTS_INPUT_BYTES = MAX_MCP_REQUEST_BYTES - 8 * 1024;
 
 const OPAQUE_IDENTIFIER_PATTERN = /^[A-Za-z0-9._:-]+$/;
 
@@ -119,6 +121,15 @@ export const createCardDraftsInputSchema = z
           });
         }
       }
+    }
+
+    const serializedBytes = new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    if (serializedBytes > MAX_CREATE_CARD_DRAFTS_INPUT_BYTES) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['cards'],
+        message: `The draft request must be at most ${MAX_CREATE_CARD_DRAFTS_INPUT_BYTES} UTF-8 bytes.`,
+      });
     }
   });
 

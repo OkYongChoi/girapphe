@@ -15,6 +15,7 @@ import {
 } from '@/lib/billing/database';
 
 export const STRIPE_API_VERSION = '2026-02-25.clover';
+export const STRIPE_PROVIDER_TIMEOUT_MS = 10_000;
 
 type JsonObject = Record<string, unknown>;
 
@@ -111,6 +112,29 @@ async function readStripeResponse<T extends JsonObject>(response: Response): Pro
   return payload as T;
 }
 
+async function stripeFetch<T extends JsonObject>(
+  url: string,
+  init: RequestInit,
+  requestTimeoutMs = STRIPE_PROVIDER_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(new Error('Stripe request timed out.')),
+    requestTimeoutMs,
+  );
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    return await readStripeResponse<T>(response);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('Stripe request timed out.', { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function stripeRequest<T extends JsonObject>(
   path: string,
   body: URLSearchParams,
@@ -122,26 +146,32 @@ async function stripeRequest<T extends JsonObject>(
     'Stripe-Version': STRIPE_API_VERSION,
   };
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
-  const response = await fetch(`https://api.stripe.com/v1/${path}`, {
+  return stripeFetch<T>(`https://api.stripe.com/v1/${path}`, {
     method: 'POST',
     headers,
     body,
     cache: 'no-store',
   });
-  return readStripeResponse<T>(response);
 }
 
-async function stripeGet<T extends JsonObject>(path: string, query = new URLSearchParams()): Promise<T> {
+async function stripeGet<T extends JsonObject>(
+  path: string,
+  query = new URLSearchParams(),
+  requestTimeoutMs = STRIPE_PROVIDER_TIMEOUT_MS,
+): Promise<T> {
   const suffix = query.size > 0 ? `?${query.toString()}` : '';
-  const response = await fetch(`https://api.stripe.com/v1/${path}${suffix}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${requiredSecret('STRIPE_SECRET_KEY')}`,
-      'Stripe-Version': STRIPE_API_VERSION,
+  return stripeFetch<T>(
+    `https://api.stripe.com/v1/${path}${suffix}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${requiredSecret('STRIPE_SECRET_KEY')}`,
+        'Stripe-Version': STRIPE_API_VERSION,
+      },
+      cache: 'no-store',
     },
-    cache: 'no-store',
-  });
-  return readStripeResponse<T>(response);
+    requestTimeoutMs,
+  );
 }
 
 async function ensureStripeCustomer(userId: string, email: string) {
@@ -430,7 +460,10 @@ async function processSubscription(object: JsonObject, providerEventAt: Date) {
   }
 }
 
-export async function processStripeEvent(event: StripeEvent) {
+export async function processStripeEvent(
+  event: StripeEvent,
+  requestTimeoutMs = STRIPE_PROVIDER_TIMEOUT_MS,
+) {
   if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.expired') {
     await processCheckoutSession(event.type, event.data.object);
     return;
@@ -438,7 +471,11 @@ export async function processStripeEvent(event: StripeEvent) {
   if (event.type.startsWith('customer.subscription.')) {
     const subscriptionId = stringValue(event.data.object.id);
     if (!subscriptionId) throw new Error('Stripe subscription id is missing.');
-    const latestSubscription = await stripeGet<JsonObject>(`subscriptions/${encodeURIComponent(subscriptionId)}`);
+    const latestSubscription = await stripeGet<JsonObject>(
+      `subscriptions/${encodeURIComponent(subscriptionId)}`,
+      new URLSearchParams(),
+      requestTimeoutMs,
+    );
     await processSubscription(latestSubscription, event.createdAt);
   }
 }

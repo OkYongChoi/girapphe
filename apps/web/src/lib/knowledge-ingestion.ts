@@ -694,17 +694,36 @@ export async function getKnowledgeDraftBatchForUser(
   userId: string,
   batchId: string
 ): Promise<{ batch: KnowledgeDraftBatch; drafts: KnowledgeCardDraft[] } | null> {
-  const batches = await getKnowledgeDraftBatchesForUser(userId, true);
-  const batch = batches.find((candidate) => candidate.id === batchId);
-  if (!batch) return null;
-  if (!process.env.DATABASE_URL) return { batch, drafts: memoryDrafts.get(batchId) ?? [] };
-  const result = await pool.query<Record<string, unknown>>(
+  if (!process.env.DATABASE_URL) {
+    const batch = memoryBatches.get(batchId);
+    if (!batch || batch.user_id !== userId) return null;
+    return { batch: mapBatchRow(batch), drafts: memoryDrafts.get(batchId) ?? [] };
+  }
+
+  await ensureKnowledgeIngestionSchema();
+  const batchResult = await pool.query<Record<string, unknown>>(
+    `SELECT b.id, b.source_type, b.provider, b.scope, b.conversation_ref, b.status,
+      COUNT(d.id)::int AS draft_count,
+      COUNT(d.id) FILTER (WHERE d.status = 'pending')::int AS pending_count,
+      COUNT(d.id) FILTER (WHERE d.status = 'approved')::int AS approved_count,
+      b.created_at::text, b.updated_at::text, b.committed_at::text
+     FROM knowledge_ingestion_batches b
+     LEFT JOIN knowledge_card_drafts d ON d.batch_id = b.id AND d.user_id = b.user_id
+     WHERE b.id = $1 AND b.user_id = $2
+     GROUP BY b.id
+     LIMIT 1`,
+    [batchId, userId]
+  );
+  const batchRow = batchResult.rows[0];
+  if (!batchRow) return null;
+
+  const draftResult = await pool.query<Record<string, unknown>>(
     `SELECT id, batch_id, client_card_id, title, summary, explanation, topic, tags,
       proposed_relations, status, version, knowledge_item_id, created_at::text, updated_at::text
      FROM knowledge_card_drafts WHERE batch_id = $1 AND user_id = $2 ORDER BY created_at, id`,
     [batchId, userId]
   );
-  return { batch, drafts: result.rows.map(mapDraftRow) };
+  return { batch: mapBatchRow(batchRow), drafts: draftResult.rows.map(mapDraftRow) };
 }
 
 function hashToken(rawToken: string): string {

@@ -4,6 +4,10 @@ import {
   createMcpAccessTokenForUser,
   getKnowledgeDraftBatchesForUser,
 } from '@/lib/knowledge-ingestion';
+import {
+  createCardDraftsInputSchema,
+  MAX_MCP_REQUEST_BYTES,
+} from '@/lib/mcp/create-card-drafts-schema';
 import { OPTIONS, POST } from './route';
 
 function mcpRequest(token: string, id: number, method: string, params: Record<string, unknown>) {
@@ -81,6 +85,35 @@ test('returns 413 without waiting for an open oversized request stream to close'
     await request.body?.cancel().catch(() => undefined);
     await responsePromise.catch(() => undefined);
   }
+});
+
+test('accepts a large multibyte tool input that remains inside the shared transport boundary', async () => {
+  const userId = `user_large_utf8_route_${crypto.randomUUID()}`;
+  const { token } = await createMcpAccessTokenForUser(userId, 'Large UTF-8 route');
+  const input = {
+    provider: 'chatgpt' as const,
+    request_id: 'large-utf8-route-request',
+    provenance: { type: 'current_conversation' as const, conversation_ref: 'large-current-conversation' },
+    cards: Array.from({ length: 40 }, (_, index) => ({
+      client_card_id: `large-card-${index}`,
+      title: `큰 개념 ${index}`,
+      explanation: '가'.repeat(6000),
+    })),
+  };
+  assert.equal(createCardDraftsInputSchema.safeParse(input).success, true);
+
+  const request = mcpRequest(token, 3, 'tools/call', {
+    name: 'create_card_drafts',
+    arguments: input,
+  });
+  assert.ok((await request.clone().arrayBuffer()).byteLength < MAX_MCP_REQUEST_BYTES);
+
+  const response = await POST(request);
+  assert.equal(response.status, 200);
+  const payload = await readMcpResponse(response);
+  const structured = (payload.result as { structuredContent?: Record<string, unknown> }).structuredContent;
+  assert.equal(structured?.status, 'pending');
+  assert.equal(structured?.draft_count, 40);
 });
 
 test('accepts a cookie-less scoped token and creates only a pending review batch', async () => {

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createCardDraftsInputSchema, toKnowledgeDraftBatchInput } from './create-card-drafts-schema';
+import {
+  createCardDraftsInputSchema,
+  MAX_CREATE_CARD_DRAFTS_INPUT_BYTES,
+  MAX_MCP_REQUEST_BYTES,
+  toKnowledgeDraftBatchInput,
+} from './create-card-drafts-schema';
 
 const validInput = {
   provider: 'chatgpt',
@@ -112,4 +117,25 @@ test('requires relation weights to be greater than zero', () => {
   };
 
   assert.equal(createCardDraftsInputSchema.safeParse(zeroWeight).success, false);
+});
+
+test('rejects aggregate UTF-8 input that cannot fit the bounded MCP transport', () => {
+  const oversized = {
+    ...validInput,
+    request_id: 'oversized-multibyte-request',
+    cards: Array.from({ length: 50 }, (_, index) => ({
+      client_card_id: `card-${index}`,
+      title: `개념 ${index}`,
+      explanation: '가'.repeat(6000),
+    })),
+  };
+  const serializedBytes = new TextEncoder().encode(JSON.stringify(oversized)).byteLength;
+
+  assert.ok(serializedBytes > MAX_CREATE_CARD_DRAFTS_INPUT_BYTES);
+  assert.ok(MAX_CREATE_CARD_DRAFTS_INPUT_BYTES < MAX_MCP_REQUEST_BYTES);
+  const result = createCardDraftsInputSchema.safeParse(oversized);
+  assert.equal(result.success, false);
+  if (!result.success) {
+    assert.ok(result.error.issues.some((issue) => /UTF-8 bytes/.test(issue.message)));
+  }
 });

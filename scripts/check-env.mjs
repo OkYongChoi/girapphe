@@ -279,6 +279,12 @@ function validate({ envName, map, allowPlaceholders }) {
   if (tossBillingEnabled === 'true' && !tossConfigured) {
     errors.push('TOSS_BILLING_ENABLED=true requires the complete Toss recurring billing group.');
   }
+  if (tossBillingEnabled === 'true') {
+    errors.push('TOSS_BILLING_ENABLED=true is not release-approved; the runtime safety fuse is closed.');
+  }
+  if (tossBillingEnabled === 'true' && (stripeConfigured || revenueCatConfigured)) {
+    errors.push('TOSS_BILLING_ENABLED=true is exclusive; Stripe and RevenueCat server groups must be absent.');
+  }
   if (tossConfigured && tossBillingEnabled !== 'true') {
     warnings.push('Toss credentials are configured but TOSS_BILLING_ENABLED is not true; Toss stays disabled.');
   }

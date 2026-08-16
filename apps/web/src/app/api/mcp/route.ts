@@ -5,7 +5,10 @@ import {
   rateLimitMcpOAuthPrincipal,
 } from '@/lib/knowledge-ingestion';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
-import { MCP_DRAFT_CREATE_SCOPE } from '@/lib/mcp/create-card-drafts-schema';
+import {
+  MAX_MCP_REQUEST_BYTES,
+  MCP_DRAFT_CREATE_SCOPE,
+} from '@/lib/mcp/create-card-drafts-schema';
 import {
   createDraftMcpHandler,
   toMcpAuthInfo,
@@ -15,7 +18,6 @@ import {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const MAX_MCP_REQUEST_BYTES = 768 * 1024;
 const mcpHandler = createDraftMcpHandler(createKnowledgeDraftBatchForUser);
 
 function appendVary(headers: Headers, value: string) {

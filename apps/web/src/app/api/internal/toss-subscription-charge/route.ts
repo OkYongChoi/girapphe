@@ -31,6 +31,12 @@ export async function POST(request: Request) {
 
   try {
     const result = await processDueTossBilling();
+    if (result.keyIntentsQuarantined > 0 || result.keyIntentsFailed > 0) {
+      return Response.json(
+        { error: 'billing_key_review_required', ...result },
+        { status: 503, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
     return Response.json({ ok: true, ...result }, { headers: { 'Cache-Control': 'no-store' } });
   } catch {
     return Response.json({ error: 'billing_run_failed' }, { status: 503 });

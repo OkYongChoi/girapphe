@@ -58,6 +58,33 @@ type TossChargeRow = {
   updated_at?: string;
 };
 
+type TossActivationClaimRow = {
+  claimed: boolean;
+  cross_provider_blocked: boolean;
+};
+
+type TossBillingKeyIntentRow = {
+  id: string;
+  agreement_id: string;
+  user_id: string;
+  customer_key: string;
+  plan: TossBillingPlan;
+  provider_idempotency_key: string | null;
+  auth_key_ciphertext: string | null;
+  billing_key_ciphertext: string | null;
+  billing_key_fingerprint: string | null;
+  status: 'issuing' | 'cleanup_pending' | 'live' | 'cleaned' | 'manual_review';
+  processing_token?: string | null;
+};
+
+type TossAgreementCredentialRow = {
+  billing_key_ciphertext: string;
+  billing_key_intent_id: string | null;
+  billing_key_fingerprint: string | null;
+  customer_key: string;
+  plan: TossBillingPlan;
+};
+
 export type TossBillingActivation = {
   status: 'trialing' | 'active';
   currentPeriodEnd: string;
@@ -123,30 +150,665 @@ async function readExistingActivation(agreementId: string, userId: string, now: 
   return activation;
 }
 
+async function hasCrossProviderBlockingSubscription(userId: string) {
+  const result = await db.query<{ blocked: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM billing_subscriptions
+       WHERE user_id = $1
+         AND provider <> 'toss'
+         AND entitlement = 'ad_free'
+         AND status IN ('incomplete', 'past_due', 'paused', 'trialing', 'active')
+         AND (
+           status NOT IN ('trialing', 'active')
+           OR COALESCE(current_period_end, trial_end) > NOW()
+         )
+     ) AS blocked`,
+    [userId]
+  );
+  return result.rows[0]?.blocked === true;
+}
+
+function tossLifecycleErrorCode(error: unknown, fallback: string) {
+  return error instanceof TossBillingError ? error.code.slice(0, 80) : fallback;
+}
+
+async function ensureAgreementBillingKeyIntent(agreementId: string, userId: string) {
+  const current = await db.query<TossAgreementCredentialRow>(
+    `SELECT a.billing_key_ciphertext, a.billing_key_intent_id,
+       i.billing_key_fingerprint, c.toss_customer_key AS customer_key, a.plan
+     FROM toss_billing_agreements a
+     JOIN billing_customers c ON c.user_id = a.user_id
+     LEFT JOIN toss_billing_key_intents i ON i.id = a.billing_key_intent_id
+     WHERE a.id = $1 AND a.user_id = $2`,
+    [agreementId, userId]
+  );
+  const credential = current.rows[0];
+  if (!credential) return;
+
+  const billingKey = await decryptTossBillingKey(credential.billing_key_ciphertext);
+  const fingerprint = await sha256Fingerprint(billingKey);
+  if (credential.billing_key_intent_id) {
+    await db.query(
+      `UPDATE toss_billing_key_intents SET
+         billing_key_fingerprint = COALESCE(billing_key_fingerprint, $3),
+         updated_at = NOW()
+       WHERE id = $1 AND agreement_id = $2
+         AND billing_key_ciphertext = $4`,
+      [
+        credential.billing_key_intent_id,
+        agreementId,
+        fingerprint,
+        credential.billing_key_ciphertext,
+      ]
+    );
+    return;
+  }
+
+  // This covers agreements created by the previous application version during
+  // the migration/deploy window. The key is copied, never moved or exposed.
+  const legacyFingerprint = await sha256Fingerprint(
+    `${agreementId}:${credential.billing_key_ciphertext}`
+  );
+  const legacyIntentId = `toss_legacy_${legacyFingerprint.slice(0, 48)}`;
+  await db.query(
+    `INSERT INTO toss_billing_key_intents (
+       id, agreement_id, user_id, customer_key, plan,
+       billing_key_ciphertext, billing_key_fingerprint, status,
+       created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'live', NOW(), NOW())
+     ON CONFLICT (id) DO UPDATE SET
+       billing_key_fingerprint = COALESCE(
+         toss_billing_key_intents.billing_key_fingerprint,
+         EXCLUDED.billing_key_fingerprint
+       ),
+       updated_at = NOW()
+     WHERE toss_billing_key_intents.agreement_id = EXCLUDED.agreement_id
+       AND toss_billing_key_intents.user_id = EXCLUDED.user_id
+       AND toss_billing_key_intents.billing_key_ciphertext = EXCLUDED.billing_key_ciphertext`,
+    [
+      legacyIntentId,
+      agreementId,
+      userId,
+      credential.customer_key,
+      credential.plan,
+      credential.billing_key_ciphertext,
+      fingerprint,
+    ]
+  );
+  await db.query(
+    `UPDATE toss_billing_agreements SET billing_key_intent_id = $3, updated_at = NOW()
+     WHERE id = $1 AND user_id = $2 AND billing_key_intent_id IS NULL
+       AND billing_key_ciphertext = $4`,
+    [agreementId, userId, legacyIntentId, credential.billing_key_ciphertext]
+  );
+}
+
+async function createTossBillingKeyIntent(input: {
+  id: string;
+  agreementId: string;
+  userId: string;
+  customerKey: string;
+  plan: TossBillingPlan;
+  checkoutTokenHash: string;
+  providerIdempotencyKey: string;
+  encryptedAuthKey: string;
+}) {
+  const created = await db.query<TossBillingKeyIntentRow>(
+     `WITH checkout_session AS (
+       SELECT token_hash FROM toss_billing_sessions
+       WHERE token_hash = $6 AND user_id = $3 AND customer_key = $4
+         AND plan = $5 AND status = 'processing'
+       FOR UPDATE
+     )
+     INSERT INTO toss_billing_key_intents (
+       id, agreement_id, user_id, customer_key, plan,
+       provider_idempotency_key, auth_key_ciphertext, status,
+       created_at, updated_at
+     )
+     SELECT $1, $2, $3, $4, $5, $7, $8, 'issuing', NOW(), NOW()
+     FROM checkout_session
+     ON CONFLICT (id) DO UPDATE SET updated_at = NOW()
+     WHERE toss_billing_key_intents.agreement_id = EXCLUDED.agreement_id
+       AND toss_billing_key_intents.user_id = EXCLUDED.user_id
+       AND toss_billing_key_intents.customer_key = EXCLUDED.customer_key
+       AND toss_billing_key_intents.plan = EXCLUDED.plan
+       AND toss_billing_key_intents.provider_idempotency_key = EXCLUDED.provider_idempotency_key
+       AND toss_billing_key_intents.status <> 'cleaned'
+     RETURNING id, agreement_id, user_id, customer_key, plan,
+       provider_idempotency_key, auth_key_ciphertext, billing_key_ciphertext,
+       billing_key_fingerprint, status, processing_token`,
+    [
+      input.id,
+      input.agreementId,
+      input.userId,
+      input.customerKey,
+      input.plan,
+      input.checkoutTokenHash,
+      input.providerIdempotencyKey,
+      input.encryptedAuthKey,
+    ]
+  );
+  const intent = created.rows[0];
+  if (!intent) {
+    throw new TossBillingError(
+      'Toss billing authorization is invalid, expired, or already retired.',
+      'TOSS_BILLING_KEY_INTENT_INVALID'
+    );
+  }
+  return intent;
+}
+
+async function readTossBillingKeyIntent(intentId: string) {
+  const result = await db.query<TossBillingKeyIntentRow>(
+    `SELECT id, agreement_id, user_id, customer_key, plan,
+       provider_idempotency_key, auth_key_ciphertext, billing_key_ciphertext,
+       billing_key_fingerprint, status, processing_token
+     FROM toss_billing_key_intents WHERE id = $1`,
+    [intentId]
+  );
+  return result.rows[0] ?? null;
+}
+
+async function materializeTossBillingKeyIntent(
+  intent: TossBillingKeyIntentRow,
+  expectedProcessingToken: string | null = null,
+) {
+  if (
+    (intent.status === 'cleanup_pending' || intent.status === 'live')
+    && intent.billing_key_ciphertext
+    && intent.billing_key_fingerprint
+  ) {
+    return {
+      billingKey: await decryptTossBillingKey(intent.billing_key_ciphertext),
+      encryptedBillingKey: intent.billing_key_ciphertext,
+      fingerprint: intent.billing_key_fingerprint,
+    };
+  }
+  if (
+    intent.status !== 'issuing'
+    || !intent.auth_key_ciphertext
+    || !intent.provider_idempotency_key
+  ) {
+    throw new TossBillingError('Toss billing key intent cannot be issued.', 'TOSS_BILLING_KEY_INTENT_INVALID');
+  }
+
+  let billingKey: string;
+  try {
+    const authKey = await decryptTossBillingKey(intent.auth_key_ciphertext);
+    billingKey = await issueTossBillingKey(
+      authKey,
+      intent.customer_key,
+      intent.provider_idempotency_key,
+    );
+  } catch (error) {
+    await db.query(
+      `UPDATE toss_billing_key_intents SET
+         issue_attempt_count = issue_attempt_count + 1,
+         last_error_code = $2,
+         processing_started_at = NULL,
+         processing_token = NULL,
+         updated_at = NOW()
+       WHERE id = $1 AND status = 'issuing'
+         AND ($3::text IS NULL OR processing_token = $3)`,
+      [intent.id, tossLifecycleErrorCode(error, 'TOSS_BILLING_KEY_ISSUE_ERROR'), expectedProcessingToken]
+    ).catch(() => undefined);
+    throw error;
+  }
+
+  const encryptedBillingKey = await encryptTossBillingKey(billingKey);
+  const fingerprint = await sha256Fingerprint(billingKey);
+  const stored = await db.query<TossBillingKeyIntentRow>(
+    `UPDATE toss_billing_key_intents SET
+       auth_key_ciphertext = NULL,
+       billing_key_ciphertext = $2,
+       billing_key_fingerprint = $3,
+       status = 'cleanup_pending',
+       issue_attempt_count = issue_attempt_count + 1,
+       last_error_code = NULL,
+       processing_started_at = NULL,
+       processing_token = NULL,
+       updated_at = NOW()
+     WHERE id = $1 AND status = 'issuing'
+       AND ($4::text IS NULL OR processing_token = $4)
+     RETURNING id, agreement_id, user_id, customer_key, plan,
+       provider_idempotency_key, auth_key_ciphertext, billing_key_ciphertext,
+       billing_key_fingerprint, status, processing_token`,
+    [intent.id, encryptedBillingKey, fingerprint, expectedProcessingToken]
+  );
+  if (stored.rows[0]) return { billingKey, encryptedBillingKey, fingerprint };
+
+  // A concurrent callback or the recovery worker may have persisted the same
+  // idempotent provider response. Reuse it instead of deleting either copy.
+  const raced = await readTossBillingKeyIntent(intent.id);
+  if (
+    raced?.billing_key_ciphertext
+    && raced.billing_key_fingerprint === fingerprint
+    && (raced.status === 'cleanup_pending' || raced.status === 'live')
+  ) {
+    return {
+      billingKey,
+      encryptedBillingKey: raced.billing_key_ciphertext,
+      fingerprint,
+    };
+  }
+  throw new TossBillingError(
+    'The durable Toss billing key intent changed during issuance.',
+    'TOSS_BILLING_KEY_INTENT_RACE'
+  );
+}
+
+async function markTossBillingKeyIntentLive(intentId: string, agreementId: string) {
+  await db.query(
+    `UPDATE toss_billing_key_intents i SET
+       status = 'live', auth_key_ciphertext = NULL,
+       processing_started_at = NULL, processing_token = NULL,
+       last_error_code = NULL, updated_at = NOW()
+     FROM toss_billing_agreements a
+     WHERE i.id = $1 AND i.agreement_id = $2
+       AND a.id = $2 AND a.billing_key_intent_id = i.id`,
+    [intentId, agreementId]
+  );
+}
+
+async function normalizeTossBillingKeyIntents(limit: number) {
+  // A referenced key is authoritative. Any unreferenced row with the same
+  // fingerprint is only another durable record of that key and must be retired
+  // without calling the provider DELETE endpoint.
+  const duplicate = await db.query<{ id: string }>(
+    `WITH duplicate_candidates AS (
+       SELECT old.id
+       FROM toss_billing_key_intents old
+       WHERE old.status = 'cleanup_pending'
+         AND old.billing_key_fingerprint IS NOT NULL
+         AND (old.processing_started_at IS NULL
+           OR old.processing_started_at < NOW() - INTERVAL '10 minutes')
+         AND NOT EXISTS (
+           SELECT 1 FROM toss_billing_agreements referenced
+           WHERE referenced.billing_key_intent_id = old.id
+         )
+         AND EXISTS (
+           SELECT 1
+           FROM toss_billing_agreements a
+           JOIN toss_billing_key_intents current
+             ON current.id = a.billing_key_intent_id
+           WHERE current.billing_key_fingerprint = old.billing_key_fingerprint
+         )
+       ORDER BY old.updated_at
+       LIMIT $1
+       FOR UPDATE OF old SKIP LOCKED
+     )
+     UPDATE toss_billing_key_intents old SET
+       status = 'cleaned', auth_key_ciphertext = NULL,
+       billing_key_ciphertext = NULL, cleaned_at = NOW(),
+       processing_started_at = NULL, processing_token = NULL,
+       last_error_code = NULL, updated_at = NOW()
+     FROM duplicate_candidates
+     WHERE old.id = duplicate_candidates.id
+     RETURNING old.id`,
+    [limit]
+  );
+
+  const referenced = await db.query<{ id: string }>(
+    `WITH referenced_candidates AS (
+       SELECT i.id
+       FROM toss_billing_key_intents i
+       JOIN toss_billing_agreements a ON a.billing_key_intent_id = i.id
+       WHERE i.status = 'cleanup_pending'
+         AND (i.processing_started_at IS NULL
+           OR i.processing_started_at < NOW() - INTERVAL '10 minutes')
+       ORDER BY i.updated_at
+       LIMIT $1
+       FOR UPDATE OF i SKIP LOCKED
+     )
+     UPDATE toss_billing_key_intents i SET
+       status = 'live', auth_key_ciphertext = NULL,
+       processing_started_at = NULL, processing_token = NULL,
+       last_error_code = NULL, updated_at = NOW()
+     FROM referenced_candidates
+     WHERE i.id = referenced_candidates.id
+     RETURNING i.id`,
+    [limit]
+  );
+
+  return duplicate.rows.length + referenced.rows.length;
+}
+
+async function quarantineExpiredIssuingTossBillingKeyIntents(limit: number) {
+  // Toss guarantees an Idempotency-Key result for 15 days. Stop one day early
+  // so an uncertain issuance is never repeated after that provider guarantee
+  // can expire. The one-time auth material is scrubbed and the retained
+  // idempotency key is sufficient for a provider-support/manual audit.
+  const quarantined = await db.query<{ id: string }>(
+    `WITH expired AS (
+       SELECT id FROM toss_billing_key_intents
+       WHERE status = 'issuing'
+         AND created_at < NOW() - INTERVAL '14 days'
+         AND (processing_started_at IS NULL
+           OR processing_started_at < NOW() - INTERVAL '10 minutes')
+       ORDER BY created_at
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED
+     )
+     UPDATE toss_billing_key_intents i SET
+       status = 'manual_review', auth_key_ciphertext = NULL,
+       processing_started_at = NULL, processing_token = NULL,
+       last_error_code = 'TOSS_BILLING_KEY_IDEMPOTENCY_EXPIRED',
+       updated_at = NOW()
+     FROM expired
+     WHERE i.id = expired.id AND i.status = 'issuing'
+     RETURNING i.id`,
+    [limit]
+  );
+  return quarantined.rows.length;
+}
+
+async function recoverIssuingTossBillingKeyIntents(limit: number) {
+  const processingToken = crypto.randomUUID();
+  const claimed = await db.query<TossBillingKeyIntentRow>(
+    `WITH candidates AS (
+       SELECT id FROM toss_billing_key_intents
+       WHERE status = 'issuing'
+         AND created_at >= NOW() - INTERVAL '14 days'
+         AND updated_at < NOW() - INTERVAL '1 minute'
+         AND (processing_started_at IS NULL
+           OR processing_started_at < NOW() - INTERVAL '10 minutes')
+       ORDER BY updated_at
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED
+     )
+     UPDATE toss_billing_key_intents i SET
+       processing_started_at = NOW(), processing_token = $2, updated_at = NOW()
+     FROM candidates
+     WHERE i.id = candidates.id AND i.status = 'issuing'
+       AND (i.processing_started_at IS NULL
+         OR i.processing_started_at < NOW() - INTERVAL '10 minutes')
+     RETURNING i.id, i.agreement_id, i.user_id, i.customer_key, i.plan,
+       i.provider_idempotency_key, i.auth_key_ciphertext,
+       i.billing_key_ciphertext, i.billing_key_fingerprint, i.status,
+       i.processing_token`,
+    [limit, processingToken]
+  );
+
+  let recovered = 0;
+  let failed = 0;
+  for (const intent of claimed.rows) {
+    try {
+      await materializeTossBillingKeyIntent(intent, processingToken);
+      recovered += 1;
+    } catch (error) {
+      failed += 1;
+      // Provider errors are already recorded by materialize. This conditional
+      // release also covers encryption or DB response failures; if the prior
+      // write actually committed, status is no longer issuing and is untouched.
+      await db.query(
+        `UPDATE toss_billing_key_intents SET
+           issue_attempt_count = issue_attempt_count + 1,
+           last_error_code = $3,
+           processing_started_at = NULL, processing_token = NULL,
+           updated_at = NOW()
+         WHERE id = $1 AND status = 'issuing' AND processing_token = $2`,
+        [intent.id, processingToken, tossLifecycleErrorCode(error, 'TOSS_BILLING_KEY_RECOVERY_ERROR')]
+      ).catch(() => undefined);
+    }
+  }
+  return { recovered, failed };
+}
+
+async function cleanupOrphanedTossBillingKeyIntents(limit: number) {
+  const processingToken = crypto.randomUUID();
+  const claimed = await db.query<TossBillingKeyIntentRow>(
+    `WITH candidates AS (
+       SELECT i.id
+       FROM toss_billing_key_intents i
+       WHERE i.status = 'cleanup_pending'
+         AND i.billing_key_ciphertext IS NOT NULL
+         AND i.billing_key_fingerprint IS NOT NULL
+         AND i.updated_at < NOW() - INTERVAL '5 minutes'
+         AND (i.processing_started_at IS NULL
+           OR i.processing_started_at < NOW() - INTERVAL '10 minutes')
+         AND NOT EXISTS (
+           SELECT 1 FROM toss_billing_agreements a
+           WHERE a.billing_key_intent_id = i.id
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM toss_billing_agreements a
+           JOIN toss_billing_key_intents current
+             ON current.id = a.billing_key_intent_id
+           WHERE current.billing_key_fingerprint = i.billing_key_fingerprint
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM toss_billing_agreements a
+           JOIN toss_billing_key_intents current
+             ON current.id = a.billing_key_intent_id
+           WHERE a.id = i.agreement_id
+             AND current.billing_key_fingerprint IS NULL
+         )
+       ORDER BY i.updated_at
+       LIMIT $1
+       FOR UPDATE OF i SKIP LOCKED
+     )
+     UPDATE toss_billing_key_intents i SET
+       processing_started_at = NOW(), processing_token = $2, updated_at = NOW()
+     FROM candidates
+     WHERE i.id = candidates.id AND i.status = 'cleanup_pending'
+       AND (i.processing_started_at IS NULL
+         OR i.processing_started_at < NOW() - INTERVAL '10 minutes')
+     RETURNING i.id, i.agreement_id, i.user_id, i.customer_key, i.plan,
+       i.provider_idempotency_key, i.auth_key_ciphertext,
+       i.billing_key_ciphertext, i.billing_key_fingerprint, i.status,
+       i.processing_token`,
+    [limit, processingToken]
+  );
+
+  let cleaned = 0;
+  let failed = 0;
+  for (const intent of claimed.rows) {
+    try {
+      // Recheck from a fresh DB snapshot after the claim commits and before the
+      // irreversible provider call. Activation honors the processing lease, so
+      // a passing row cannot become live until this attempt releases it.
+      const authorized = await db.query<{ billing_key_ciphertext: string }>(
+        `SELECT i.billing_key_ciphertext
+         FROM toss_billing_key_intents i
+         WHERE i.id = $1 AND i.status = 'cleanup_pending'
+           AND i.processing_token = $2
+           AND i.billing_key_ciphertext = $3
+           AND i.billing_key_fingerprint IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM toss_billing_agreements a
+             WHERE a.billing_key_intent_id = i.id
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM toss_billing_agreements a
+             JOIN toss_billing_key_intents current
+               ON current.id = a.billing_key_intent_id
+             WHERE current.billing_key_fingerprint = i.billing_key_fingerprint
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM toss_billing_agreements a
+             JOIN toss_billing_key_intents current
+               ON current.id = a.billing_key_intent_id
+             WHERE a.id = i.agreement_id
+               AND current.billing_key_fingerprint IS NULL
+           )`,
+        [intent.id, processingToken, intent.billing_key_ciphertext]
+      );
+      const encryptedBillingKey = authorized.rows[0]?.billing_key_ciphertext;
+      if (!encryptedBillingKey) {
+        await db.query(
+          `UPDATE toss_billing_key_intents SET
+             processing_started_at = NULL, processing_token = NULL,
+             updated_at = NOW()
+           WHERE id = $1 AND status = 'cleanup_pending'
+             AND processing_token = $2`,
+          [intent.id, processingToken]
+        );
+        continue;
+      }
+      if (!intent.billing_key_ciphertext) {
+        throw new TossBillingError(
+          'Toss billing key cleanup intent has no credential.',
+          'TOSS_BILLING_KEY_INTENT_INVALID'
+        );
+      }
+      const billingKey = await decryptTossBillingKey(encryptedBillingKey);
+      try {
+        await deleteTossBillingKey(billingKey);
+      } catch (error) {
+        if (!(error instanceof TossBillingError)
+          || !['HTTP_404', 'NOT_FOUND_BILLING_KEY'].includes(error.code)) {
+          throw error;
+        }
+      }
+      const completed = await db.query<{ id: string }>(
+        `UPDATE toss_billing_key_intents i SET
+           status = 'cleaned', auth_key_ciphertext = NULL,
+           billing_key_ciphertext = NULL,
+           cleanup_attempt_count = cleanup_attempt_count + 1,
+           processing_started_at = NULL, processing_token = NULL,
+           last_error_code = NULL, cleaned_at = NOW(), updated_at = NOW()
+         WHERE i.id = $1 AND i.status = 'cleanup_pending'
+           AND i.processing_token = $2
+           AND i.billing_key_ciphertext = $3
+           AND NOT EXISTS (
+             SELECT 1 FROM toss_billing_agreements a
+             WHERE a.billing_key_intent_id = i.id
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM toss_billing_agreements a
+             JOIN toss_billing_key_intents current
+               ON current.id = a.billing_key_intent_id
+             WHERE current.billing_key_fingerprint = i.billing_key_fingerprint
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM toss_billing_agreements a
+             JOIN toss_billing_key_intents current
+               ON current.id = a.billing_key_intent_id
+             WHERE a.id = i.agreement_id
+               AND current.billing_key_fingerprint IS NULL
+           )
+         RETURNING i.id`,
+        [intent.id, processingToken, encryptedBillingKey]
+      );
+      cleaned += completed.rows.length;
+    } catch (error) {
+      failed += 1;
+      await db.query(
+        `UPDATE toss_billing_key_intents SET
+           cleanup_attempt_count = cleanup_attempt_count + 1,
+           last_error_code = $3,
+           processing_started_at = NULL, processing_token = NULL,
+           updated_at = NOW()
+         WHERE id = $1 AND status = 'cleanup_pending'
+           AND processing_token = $2`,
+        [intent.id, processingToken, tossLifecycleErrorCode(error, 'TOSS_BILLING_KEY_CLEANUP_ERROR')]
+      ).catch(() => undefined);
+    }
+  }
+  return { cleaned, failed };
+}
+
+export async function processTossBillingKeyIntents(limit = 5) {
+  getTossBillingConfig();
+  const boundedLimit = Math.max(1, Math.min(limit, 10));
+  const normalized = await normalizeTossBillingKeyIntents(boundedLimit);
+  const quarantined = await quarantineExpiredIssuingTossBillingKeyIntents(boundedLimit);
+  const recovery = await recoverIssuingTossBillingKeyIntents(boundedLimit);
+  // Freshly recovered keys keep a five-minute adoption window before cleanup.
+  const cleanup = await cleanupOrphanedTossBillingKeyIntents(boundedLimit);
+  return {
+    normalized,
+    quarantined,
+    recovered: recovery.recovered,
+    cleaned: cleanup.cleaned,
+    failed: recovery.failed + cleanup.failed,
+  };
+}
+
 async function claimTossActivation(input: {
   agreementId: string;
   userId: string;
+  customerKey: string;
+  billingKeyIntentId: string;
   encryptedBillingKey: string;
+  billingKeyFingerprint: string;
   plan: TossBillingPlan;
   now: Date;
   processingToken: string;
   checkoutTokenHash: string;
 }): Promise<TossBillingActivation | null> {
-  const inserted = await db.query<{ id: string }>(
-    `WITH checkout_session AS (
+  const inserted = await db.query<TossActivationClaimRow>(
+     `WITH checkout_session AS (
        SELECT token_hash FROM toss_billing_sessions
-       WHERE token_hash = $7 AND user_id = $2 AND status = 'processing'
+       WHERE token_hash = $7 AND user_id = $2 AND customer_key = $10
+         AND plan = $4 AND status = 'processing'
        FOR UPDATE
+     ), candidate_intent AS MATERIALIZED (
+       SELECT candidate.id FROM toss_billing_key_intents candidate
+       WHERE candidate.id = $8 AND candidate.agreement_id = $1 AND candidate.user_id = $2
+         AND candidate.customer_key = $10 AND candidate.plan = $4
+         AND candidate.billing_key_ciphertext = $3
+         AND candidate.billing_key_fingerprint = $9
+         AND candidate.status IN ('cleanup_pending', 'live')
+         AND (candidate.processing_started_at IS NULL
+           OR candidate.processing_started_at < NOW() - INTERVAL '10 minutes')
+         AND NOT EXISTS (
+           SELECT 1 FROM toss_billing_key_intents sibling
+           WHERE sibling.id <> candidate.id
+             AND sibling.agreement_id = candidate.agreement_id
+             AND sibling.billing_key_fingerprint = candidate.billing_key_fingerprint
+             AND (
+               sibling.status = 'cleaned'
+               OR (sibling.status = 'cleanup_pending'
+                 AND sibling.processing_started_at >= NOW() - INTERVAL '10 minutes')
+             )
+         )
+       FOR UPDATE
+     ), cross_provider_blocking AS (
+       SELECT 1 FROM billing_subscriptions
+       WHERE user_id = $2
+         AND provider <> 'toss'
+         AND entitlement = 'ad_free'
+         AND status IN ('incomplete', 'past_due', 'paused', 'trialing', 'active')
+         AND (
+           status NOT IN ('trialing', 'active')
+           OR COALESCE(current_period_end, trial_end) > NOW()
+         )
+       LIMIT 1
+     ), inserted AS (
+       INSERT INTO toss_billing_agreements (
+         id, user_id, billing_key_ciphertext, billing_key_intent_id,
+         plan, status, current_period_start,
+         current_period_end, next_charge_at, retry_count, processing_started_at,
+         processing_token, cancel_at_period_end, updated_at
+       )
+       SELECT $1, $2, $3, $8, $4, 'incomplete', $5, $5, NULL, 0, NOW(), $6, FALSE, NOW()
+       FROM checkout_session, candidate_intent
+       WHERE NOT EXISTS (SELECT 1 FROM cross_provider_blocking)
+       ON CONFLICT DO NOTHING
+       RETURNING id, billing_key_intent_id
+     ), activated_intent AS (
+       UPDATE toss_billing_key_intents i SET
+         status = 'live', auth_key_ciphertext = NULL,
+         processing_started_at = NULL, processing_token = NULL,
+         last_error_code = NULL, updated_at = NOW()
+       FROM inserted
+       WHERE i.id = inserted.billing_key_intent_id
+         AND i.agreement_id = inserted.id
+         AND i.status IN ('cleanup_pending', 'live')
+       RETURNING i.id
      )
-     INSERT INTO toss_billing_agreements (
-       id, user_id, billing_key_ciphertext, plan, status, current_period_start,
-       current_period_end, next_charge_at, retry_count, processing_started_at,
-       processing_token, cancel_at_period_end, updated_at
-     )
-     SELECT $1, $2, $3, $4, 'incomplete', $5, $5, NULL, 0, NOW(), $6, FALSE, NOW()
-     FROM checkout_session
-     ON CONFLICT DO NOTHING
-     RETURNING id`,
+     SELECT
+       EXISTS (SELECT 1 FROM inserted)
+         AND EXISTS (SELECT 1 FROM activated_intent) AS claimed,
+       EXISTS (SELECT 1 FROM checkout_session)
+         AND EXISTS (SELECT 1 FROM cross_provider_blocking) AS cross_provider_blocked`,
     [
       input.agreementId,
       input.userId,
@@ -155,43 +817,139 @@ async function claimTossActivation(input: {
       input.now.toISOString(),
       input.processingToken,
       input.checkoutTokenHash,
+      input.billingKeyIntentId,
+      input.billingKeyFingerprint,
+      input.customerKey,
     ]
   );
-  if (inserted.rows.length > 0) return null;
+  const claim = inserted.rows[0];
+  if (claim?.cross_provider_blocked) {
+    throw new TossBillingError(
+      'Another payment provider already has a subscription for this account.',
+      'TOSS_SUBSCRIPTION_CONFLICT'
+    );
+  }
+  if (claim?.claimed) return null;
 
   // A concurrent callback may have completed after our first read. Returning
   // its durable period makes duplicate browser retries safe and charge-free.
   const existingActivation = await readExistingActivation(input.agreementId, input.userId, input.now);
-  if (existingActivation) return existingActivation;
+  if (existingActivation) {
+    await markTossBillingKeyIntentLive(input.billingKeyIntentId, input.agreementId);
+    return existingActivation;
+  }
 
-  const reclaimed = await db.query<{ id: string }>(
+  // Older agreements can lack the intent pointer during a rolling deploy. Bind
+  // their encrypted key and fingerprint before a stale replacement is allowed.
+  await ensureAgreementBillingKeyIntent(input.agreementId, input.userId);
+
+  const reclaimed = await db.query<{ id: string; previous_intent_id: string | null }>(
     `WITH checkout_session AS (
        SELECT token_hash FROM toss_billing_sessions
-       WHERE token_hash = $7 AND user_id = $2 AND status = 'processing'
+       WHERE token_hash = $7 AND user_id = $2 AND customer_key = $10
+         AND plan = $4 AND status = 'processing'
        FOR UPDATE
+     ), candidate_intent AS MATERIALIZED (
+       SELECT candidate.id FROM toss_billing_key_intents candidate
+       WHERE candidate.id = $8 AND candidate.agreement_id = $1 AND candidate.user_id = $2
+         AND candidate.customer_key = $10 AND candidate.plan = $4
+         AND candidate.billing_key_ciphertext = $3
+         AND candidate.billing_key_fingerprint = $9
+         AND candidate.status IN ('cleanup_pending', 'live')
+         AND (candidate.processing_started_at IS NULL
+           OR candidate.processing_started_at < NOW() - INTERVAL '10 minutes')
+         AND NOT EXISTS (
+           SELECT 1 FROM toss_billing_key_intents sibling
+           WHERE sibling.id <> candidate.id
+             AND sibling.agreement_id = candidate.agreement_id
+             AND sibling.billing_key_fingerprint = candidate.billing_key_fingerprint
+             AND (
+               sibling.status = 'cleaned'
+               OR (sibling.status = 'cleanup_pending'
+                 AND sibling.processing_started_at >= NOW() - INTERVAL '10 minutes')
+             )
+         )
+       FOR UPDATE
+     ), existing AS MATERIALIZED (
+       SELECT a.id, a.billing_key_intent_id AS previous_intent_id
+       FROM toss_billing_agreements a
+       LEFT JOIN toss_billing_key_intents old_intent
+         ON old_intent.id = a.billing_key_intent_id
+       WHERE a.id = $1 AND a.user_id = $2
+         AND a.current_period_end <= $5
+         AND (a.processing_started_at IS NULL
+           OR a.processing_started_at < NOW() - INTERVAL '10 minutes')
+         AND (a.billing_key_intent_id IS NULL
+           OR old_intent.billing_key_fingerprint IS NOT NULL)
+       FOR UPDATE OF a
+     ), reclaimed AS (
+       UPDATE toss_billing_agreements a SET
+         billing_key_ciphertext = $3,
+         billing_key_intent_id = $8,
+         plan = $4,
+         status = 'incomplete',
+         current_period_start = $5,
+         current_period_end = $5,
+         next_charge_at = NULL,
+         retry_count = 0,
+         processing_started_at = NOW(),
+         processing_token = $6,
+         cancel_at_period_end = FALSE,
+         billing_key_cleanup_required = FALSE,
+         billing_key_cleanup_attempts = 0,
+         billing_key_cleanup_last_error = NULL,
+         billing_key_deleted_at = NULL,
+         canceled_at = NULL,
+         updated_at = NOW()
+       FROM checkout_session, candidate_intent, existing
+       WHERE a.id = existing.id
+         AND NOT EXISTS (
+           SELECT 1 FROM billing_subscriptions blocking
+           WHERE blocking.user_id = $2
+             AND blocking.provider <> 'toss'
+             AND blocking.entitlement = 'ad_free'
+             AND blocking.status IN ('incomplete', 'past_due', 'paused', 'trialing', 'active')
+             AND (
+               blocking.status NOT IN ('trialing', 'active')
+               OR COALESCE(blocking.current_period_end, blocking.trial_end) > NOW()
+             )
+         )
+       RETURNING a.id, existing.previous_intent_id
+     ), activated_intent AS (
+       UPDATE toss_billing_key_intents i SET
+         status = 'live', auth_key_ciphertext = NULL,
+         processing_started_at = NULL, processing_token = NULL,
+         last_error_code = NULL, updated_at = NOW()
+       FROM reclaimed
+       WHERE i.id = $8 AND i.agreement_id = reclaimed.id
+         AND i.status IN ('cleanup_pending', 'live')
+       RETURNING i.id
+     ), retired_intent AS (
+       UPDATE toss_billing_key_intents old SET
+         status = CASE
+           WHEN old.billing_key_fingerprint = $9 THEN 'cleaned'
+           ELSE 'cleanup_pending'
+         END,
+         auth_key_ciphertext = NULL,
+         billing_key_ciphertext = CASE
+           WHEN old.billing_key_fingerprint = $9 THEN NULL
+           ELSE old.billing_key_ciphertext
+         END,
+         cleaned_at = CASE
+           WHEN old.billing_key_fingerprint = $9 THEN NOW()
+           ELSE old.cleaned_at
+         END,
+         processing_started_at = NULL, processing_token = NULL,
+         last_error_code = NULL, updated_at = NOW()
+       FROM reclaimed, activated_intent
+       WHERE old.id = reclaimed.previous_intent_id
+         AND old.id <> activated_intent.id
+         AND old.agreement_id = reclaimed.id
+       RETURNING old.id
      )
-     UPDATE toss_billing_agreements a SET
-       billing_key_ciphertext = $3,
-       plan = $4,
-       status = 'incomplete',
-       current_period_start = $5,
-       current_period_end = $5,
-       next_charge_at = NULL,
-       retry_count = 0,
-       processing_started_at = NOW(),
-       processing_token = $6,
-       cancel_at_period_end = FALSE,
-       billing_key_cleanup_required = FALSE,
-       billing_key_cleanup_attempts = 0,
-       billing_key_cleanup_last_error = NULL,
-       billing_key_deleted_at = NULL,
-       canceled_at = NULL,
-       updated_at = NOW()
-     FROM checkout_session
-     WHERE a.id = $1 AND a.user_id = $2
-       AND a.current_period_end <= $5
-       AND (a.processing_started_at IS NULL OR a.processing_started_at < NOW() - INTERVAL '10 minutes')
-     RETURNING a.id`,
+     SELECT reclaimed.id, reclaimed.previous_intent_id,
+       (SELECT COUNT(*) FROM retired_intent) AS retired_count
+     FROM reclaimed, activated_intent`,
     [
       input.agreementId,
       input.userId,
@@ -200,9 +958,13 @@ async function claimTossActivation(input: {
       input.now.toISOString(),
       input.processingToken,
       input.checkoutTokenHash,
+      input.billingKeyIntentId,
+      input.billingKeyFingerprint,
+      input.customerKey,
     ]
   );
-  if (reclaimed.rows.length > 0) return null;
+  const reclaimedAgreement = reclaimed.rows[0];
+  if (reclaimedAgreement) return null;
 
   throw new TossBillingError(
     'Another Toss subscription activation is already in progress.',
@@ -799,32 +1561,53 @@ export async function activateTossBilling(input: {
   const now = new Date();
   const existingActivation = await readExistingActivation(agreementId, input.userId, now);
   if (existingActivation) return existingActivation;
+  // Hydrate legacy fingerprints before a new provider response can possibly be
+  // the same raw key. Unknown legacy ownership is quarantined from orphan
+  // cleanup, but doing this now also enables a safe atomic stale replacement.
+  await ensureAgreementBillingKeyIntent(agreementId, input.userId);
+  if (await hasCrossProviderBlockingSubscription(input.userId)) {
+    throw new TossBillingError(
+      'Another payment provider already has a subscription for this account.',
+      'TOSS_SUBSCRIPTION_CONFLICT'
+    );
+  }
 
   const processingToken = crypto.randomUUID();
   const issueFingerprint = await sha256Fingerprint(`${input.userId}:${input.customerKey}:${input.authKey}`);
-  const billingKey = await issueTossBillingKey(
-    input.authKey,
-    input.customerKey,
-    `girapphe_issue_${issueFingerprint.slice(0, 40)}`
-  );
-  const encryptedBillingKey = await encryptTossBillingKey(billingKey);
-  let concurrentlyActivated: TossBillingActivation | null;
-  try {
-    concurrentlyActivated = await claimTossActivation({
-      agreementId,
-      userId: input.userId,
-      encryptedBillingKey,
-      plan: input.plan,
-      now,
-      processingToken,
-      checkoutTokenHash: input.checkoutTokenHash,
-    });
-  } catch (error) {
-    await deleteTossBillingKey(billingKey).catch(() => undefined);
-    throw error;
-  }
+  const intentId = `toss_intent_${issueFingerprint.slice(0, 48)}`;
+  const providerIdempotencyKey = `girapphe_issue_${issueFingerprint.slice(0, 40)}`;
+  // The authorization material and provider idempotency key are durably stored
+  // before the provider can issue a billing key. If the response is lost, the
+  // scheduled worker can safely repeat the exact same provider operation.
+  const encryptedAuthKey = await encryptTossBillingKey(input.authKey);
+  const intent = await createTossBillingKeyIntent({
+    id: intentId,
+    agreementId,
+    userId: input.userId,
+    customerKey: input.customerKey,
+    plan: input.plan,
+    checkoutTokenHash: input.checkoutTokenHash,
+    providerIdempotencyKey,
+    encryptedAuthKey,
+  });
+  // This transition stores the issued key as cleanup_pending before an
+  // agreement can reference it. DB failures therefore leave recoverable state,
+  // never an untracked provider credential.
+  const materialized = await materializeTossBillingKeyIntent(intent);
+  const { billingKey, encryptedBillingKey, fingerprint } = materialized;
+  const concurrentlyActivated = await claimTossActivation({
+    agreementId,
+    userId: input.userId,
+    customerKey: input.customerKey,
+    billingKeyIntentId: intentId,
+    encryptedBillingKey,
+    billingKeyFingerprint: fingerprint,
+    plan: input.plan,
+    now,
+    processingToken,
+    checkoutTokenHash: input.checkoutTokenHash,
+  });
   if (concurrentlyActivated) {
-    await deleteTossBillingKey(billingKey).catch(() => undefined);
     return concurrentlyActivated;
   }
 
@@ -1048,13 +1831,28 @@ async function processTossBillingKeyCleanup(limit: number) {
         }
       }
       const cleanedAgreement = await db.query<{ id: string }>(
-        `UPDATE toss_billing_agreements SET billing_key_cleanup_required = FALSE,
+        `WITH cleaned_intent AS (
+           UPDATE toss_billing_key_intents i SET
+             status = 'cleaned', auth_key_ciphertext = NULL,
+             billing_key_ciphertext = NULL,
+             cleanup_attempt_count = cleanup_attempt_count + 1,
+             processing_started_at = NULL, processing_token = NULL,
+             last_error_code = NULL, cleaned_at = NOW(), updated_at = NOW()
+           FROM toss_billing_agreements a
+           WHERE a.id = $1 AND a.processing_token = $3
+             AND a.billing_key_intent_id = i.id
+             AND i.billing_key_ciphertext = $2
+           RETURNING i.id
+         )
+         UPDATE toss_billing_agreements a SET billing_key_cleanup_required = FALSE,
            billing_key_cleanup_last_error = NULL, billing_key_deleted_at = NOW(),
            processing_started_at = NULL, processing_token = NULL, updated_at = NOW()
-         WHERE id = $1 AND billing_key_ciphertext = $2
-           AND cancel_at_period_end = TRUE
-         RETURNING id`,
-        [agreement.id, agreement.billing_key_ciphertext]
+         WHERE a.id = $1 AND a.billing_key_ciphertext = $2
+           AND a.cancel_at_period_end = TRUE AND a.processing_token = $3
+           AND (a.billing_key_intent_id IS NULL
+             OR EXISTS (SELECT 1 FROM cleaned_intent))
+         RETURNING a.id`,
+        [agreement.id, agreement.billing_key_ciphertext, processingToken]
       );
       cleaned += cleanedAgreement.rows.length;
     } catch (error) {
@@ -1075,6 +1873,7 @@ async function processTossBillingKeyCleanup(limit: number) {
 export async function processDueTossBilling(limit = 5) {
   getTossBillingConfig();
   const boundedLimit = Math.max(1, Math.min(limit, 10));
+  const keyIntents = await processTossBillingKeyIntents(boundedLimit);
   const reconciled = await reconcilePaidTossCharges(boundedLimit);
   const due = await claimDueAgreements(boundedLimit);
   const results = {
@@ -1086,6 +1885,11 @@ export async function processDueTossBilling(limit = 5) {
     cleaned: 0,
     sessionsCleaned: 0,
     rateLimitsCleaned: 0,
+    keyIntentsNormalized: keyIntents.normalized,
+    keyIntentsQuarantined: keyIntents.quarantined,
+    keyIntentsRecovered: keyIntents.recovered,
+    keyIntentsCleaned: keyIntents.cleaned,
+    keyIntentsFailed: keyIntents.failed,
   };
 
   for (const agreement of due) {

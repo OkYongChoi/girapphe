@@ -423,10 +423,62 @@ CREATE TABLE IF NOT EXISTS billing_webhook_events (
 CREATE INDEX IF NOT EXISTS idx_billing_webhook_events_pending
 ON billing_webhook_events(created_at) WHERE processed_at IS NULL;
 
+CREATE TABLE IF NOT EXISTS toss_billing_key_intents (
+  id TEXT PRIMARY KEY,
+  agreement_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  customer_key TEXT NOT NULL,
+  plan TEXT NOT NULL CHECK (plan IN ('monthly', 'annual')),
+  provider_idempotency_key TEXT UNIQUE,
+  auth_key_ciphertext TEXT,
+  billing_key_ciphertext TEXT,
+  billing_key_fingerprint TEXT,
+  status TEXT NOT NULL DEFAULT 'issuing'
+    CHECK (status IN ('issuing', 'cleanup_pending', 'live', 'cleaned', 'manual_review')),
+  issue_attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (issue_attempt_count >= 0),
+  cleanup_attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (cleanup_attempt_count >= 0),
+  processing_started_at TIMESTAMP WITH TIME ZONE,
+  processing_token TEXT,
+  last_error_code TEXT,
+  cleaned_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT toss_billing_key_intents_id_agreement_user_key
+    UNIQUE (id, agreement_id, user_id),
+  CONSTRAINT toss_billing_key_intents_material_check CHECK (
+    (status = 'issuing'
+      AND provider_idempotency_key IS NOT NULL
+      AND auth_key_ciphertext IS NOT NULL
+      AND billing_key_ciphertext IS NULL
+      AND billing_key_fingerprint IS NULL)
+    OR (status IN ('cleanup_pending', 'live')
+      AND auth_key_ciphertext IS NULL
+      AND billing_key_ciphertext IS NOT NULL
+      AND (billing_key_fingerprint IS NOT NULL
+        OR (status = 'live' AND provider_idempotency_key IS NULL)))
+    OR (status = 'cleaned'
+      AND auth_key_ciphertext IS NULL
+      AND billing_key_ciphertext IS NULL)
+    OR (status = 'manual_review'
+      AND provider_idempotency_key IS NOT NULL
+      AND auth_key_ciphertext IS NULL
+      AND billing_key_ciphertext IS NULL
+      AND billing_key_fingerprint IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_toss_billing_key_intents_recovery
+ON toss_billing_key_intents(status, updated_at)
+WHERE status IN ('issuing', 'cleanup_pending');
+
+CREATE INDEX IF NOT EXISTS idx_toss_billing_key_intents_agreement
+ON toss_billing_key_intents(agreement_id, status);
+
 CREATE TABLE IF NOT EXISTS toss_billing_agreements (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL UNIQUE,
   billing_key_ciphertext TEXT NOT NULL,
+  billing_key_intent_id TEXT,
   plan TEXT NOT NULL CHECK (plan IN ('monthly', 'annual')),
   status TEXT NOT NULL CHECK (status IN ('incomplete', 'trialing', 'active', 'past_due', 'paused', 'canceled')),
   current_period_start TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -444,7 +496,11 @@ CREATE TABLE IF NOT EXISTS toss_billing_agreements (
   last_order_id TEXT,
   canceled_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT toss_billing_agreements_intent_owner_fk
+    FOREIGN KEY (billing_key_intent_id, id, user_id)
+    REFERENCES toss_billing_key_intents(id, agreement_id, user_id)
+    ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS idx_toss_billing_agreements_due
 ON toss_billing_agreements(next_charge_at)

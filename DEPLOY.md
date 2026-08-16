@@ -153,12 +153,16 @@ and the complete Toss credential group is present. Once enabled, Girapphe owns t
 calendar, durable per-cycle order IDs, reconciliation, and retry/pause behavior; Toss does not
 schedule these charges for the application.
 
-Before setting the gate to `true`, complete the Toss automatic-billing contract and test
+`TOSS_BILLING_ENABLED=true` is rejected by both environment validation and a compile-time
+runtime fuse in this release. Before a later PR opens that fuse, complete the Toss automatic-billing contract and test
 authorization, initial charge or trial, process termination after provider success, renewal,
 failed-payment retry, cancellation races, reconciliation, and billing-key cleanup with sandbox
-credentials. Rotate `TOSS_BILLING_CRON_TOKEN` independently from
+credentials. Toss is exclusive: remove the Stripe and RevenueCat server groups, expire or
+disable their external purchase surfaces, and complete the cross-provider attempt matrix before
+adding the gate as the final production secret in that later release. Rotate `TOSS_BILLING_CRON_TOKEN` independently from
 `TOSS_BILLING_ENCRYPTION_KEY`. See `docs/reference/monetization.md` for the complete activation
-checklist.
+checklist. A billing-key issue that remains uncertain for 14 days is quarantined without another
+provider call; the scheduled workflow fails visibly and requires provider-support/manual review.
 
 ## Local work and verification
 

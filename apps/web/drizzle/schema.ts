@@ -374,10 +374,61 @@ export const billingWebhookEvents = pgTable("billing_webhook_events", {
   check("billing_webhook_events_provider_check", sql`${t.provider} IN ('stripe', 'revenuecat', 'toss')`),
 ]);
 
+export const tossBillingKeyIntents = pgTable("toss_billing_key_intents", {
+  id: text("id").primaryKey(),
+  agreementId: text("agreement_id").notNull(),
+  userId: text("user_id").notNull(),
+  customerKey: text("customer_key").notNull(),
+  plan: text("plan").notNull(),
+  providerIdempotencyKey: text("provider_idempotency_key").unique(),
+  authKeyCiphertext: text("auth_key_ciphertext"),
+  billingKeyCiphertext: text("billing_key_ciphertext"),
+  billingKeyFingerprint: text("billing_key_fingerprint"),
+  status: text("status").notNull().default("issuing"),
+  issueAttemptCount: integer("issue_attempt_count").notNull().default(0),
+  cleanupAttemptCount: integer("cleanup_attempt_count").notNull().default(0),
+  processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+  processingToken: text("processing_token"),
+  lastErrorCode: text("last_error_code"),
+  cleanedAt: timestamp("cleaned_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("toss_billing_key_intents_id_agreement_user_key").on(t.id, t.agreementId, t.userId),
+  index("idx_toss_billing_key_intents_recovery").on(t.status, t.updatedAt)
+    .where(sql`${t.status} IN ('issuing', 'cleanup_pending')`),
+  index("idx_toss_billing_key_intents_agreement").on(t.agreementId, t.status),
+  check("toss_billing_key_intents_plan_check", sql`${t.plan} IN ('monthly', 'annual')`),
+  check("toss_billing_key_intents_status_check", sql`${t.status} IN ('issuing', 'cleanup_pending', 'live', 'cleaned', 'manual_review')`),
+  check("toss_billing_key_intents_issue_attempts_check", sql`${t.issueAttemptCount} >= 0`),
+  check("toss_billing_key_intents_cleanup_attempts_check", sql`${t.cleanupAttemptCount} >= 0`),
+  check("toss_billing_key_intents_material_check", sql`
+    (${t.status} = 'issuing'
+      AND ${t.providerIdempotencyKey} IS NOT NULL
+      AND ${t.authKeyCiphertext} IS NOT NULL
+      AND ${t.billingKeyCiphertext} IS NULL
+      AND ${t.billingKeyFingerprint} IS NULL)
+    OR (${t.status} IN ('cleanup_pending', 'live')
+      AND ${t.authKeyCiphertext} IS NULL
+      AND ${t.billingKeyCiphertext} IS NOT NULL
+      AND (${t.billingKeyFingerprint} IS NOT NULL
+        OR (${t.status} = 'live' AND ${t.providerIdempotencyKey} IS NULL)))
+    OR (${t.status} = 'cleaned'
+      AND ${t.authKeyCiphertext} IS NULL
+      AND ${t.billingKeyCiphertext} IS NULL)
+    OR (${t.status} = 'manual_review'
+      AND ${t.providerIdempotencyKey} IS NOT NULL
+      AND ${t.authKeyCiphertext} IS NULL
+      AND ${t.billingKeyCiphertext} IS NULL
+      AND ${t.billingKeyFingerprint} IS NULL)
+  `),
+]);
+
 export const tossBillingAgreements = pgTable("toss_billing_agreements", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().unique(),
   billingKeyCiphertext: text("billing_key_ciphertext").notNull(),
+  billingKeyIntentId: text("billing_key_intent_id"),
   plan: text("plan").notNull(),
   status: text("status").notNull(),
   currentPeriodStart: timestamp("current_period_start", { withTimezone: true }).notNull(),
@@ -397,6 +448,15 @@ export const tossBillingAgreements = pgTable("toss_billing_agreements", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  foreignKey({
+    columns: [t.billingKeyIntentId, t.id, t.userId],
+    foreignColumns: [
+      tossBillingKeyIntents.id,
+      tossBillingKeyIntents.agreementId,
+      tossBillingKeyIntents.userId,
+    ],
+    name: "toss_billing_agreements_intent_owner_fk",
+  }).onDelete("restrict"),
   index("idx_toss_billing_agreements_due").on(t.nextChargeAt).where(sql`${t.nextChargeAt} IS NOT NULL AND ${t.cancelAtPeriodEnd} = FALSE`),
   index("idx_toss_billing_agreements_key_cleanup").on(t.updatedAt).where(sql`${t.billingKeyCleanupRequired} = TRUE`),
   check("toss_billing_agreements_plan_check", sql`${t.plan} IN ('monthly', 'annual')`),

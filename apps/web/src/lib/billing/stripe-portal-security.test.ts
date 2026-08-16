@@ -89,9 +89,10 @@ test('an allowed Stripe portal request reaches the provider after the atomic rat
     }
     throw new Error(`Unexpected query: ${text}`);
   }) as typeof db.query;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, init) => {
     events.push('provider');
     assert.equal(input, 'https://api.stripe.com/v1/billing_portal/sessions');
+    assert.ok(init?.signal, 'Stripe POST requests must carry an AbortSignal');
     return Response.json({ url: 'https://billing.stripe.test/session' });
   }) as typeof fetch;
 

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import db from './db';
 import {
   approveKnowledgeDraftsForUser,
   authenticateMcpAccessToken,
@@ -41,6 +42,88 @@ test('creates an idempotent memory draft batch and preserves normalized tags', a
   assert.equal(retry.batchId, first.batchId);
   const loaded = await getKnowledgeDraftBatchForUser(userId, first.batchId);
   assert.deepEqual(loaded?.drafts[0].tags, ['확률-이론', 'bayes']);
+});
+
+test('loads an owner-scoped batch by its exact id outside the 100-row list window', async (context) => {
+  const originalQuery = db.query;
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const userId = 'user_exact_batch_owner';
+  const batchId = 'batch_older_than_list_window';
+  const now = '2030-01-01T00:00:00.000Z';
+
+  context.after(() => {
+    db.query = originalQuery;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string, params?: unknown[]) => {
+    if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
+    if (text.includes('WHERE b.id = $1 AND b.user_id = $2')) {
+      assert.doesNotMatch(text, /LIMIT 100/);
+      assert.deepEqual(params, [batchId, userId]);
+      return {
+        rows: [{
+          id: batchId,
+          provider: 'chatgpt',
+          status: 'pending',
+          conversation_ref: null,
+          draft_count: 1,
+          pending_count: 1,
+          approved_count: 0,
+          created_at: now,
+          updated_at: now,
+          committed_at: null,
+        }],
+      };
+    }
+    if (text.includes('FROM knowledge_card_drafts WHERE batch_id = $1 AND user_id = $2')) {
+      assert.deepEqual(params, [batchId, userId]);
+      return {
+        rows: [{
+          id: 'draft_oldest',
+          batch_id: batchId,
+          client_card_id: 'oldest-card',
+          title: 'Oldest pending draft',
+          summary: '',
+          explanation: '',
+          topic: 'general',
+          tags: [],
+          proposed_relations: [],
+          status: 'pending',
+          version: 1,
+          knowledge_item_id: null,
+          created_at: now,
+          updated_at: now,
+        }],
+      };
+    }
+
+    // This is the former implementation's capped list query. Returning 100
+    // newer batches makes the regression fail unless the exact lookup is used.
+    if (text.includes('FROM knowledge_ingestion_batches b')) {
+      return {
+        rows: Array.from({ length: 100 }, (_, index) => ({
+          id: `newer_${index}`,
+          provider: 'chatgpt',
+          status: 'pending',
+          conversation_ref: null,
+          draft_count: 1,
+          pending_count: 1,
+          approved_count: 0,
+          created_at: now,
+          updated_at: now,
+          committed_at: null,
+        })),
+      };
+    }
+    throw new Error(`Unexpected query: ${text}`);
+  }) as typeof db.query;
+
+  const loaded = await getKnowledgeDraftBatchForUser(userId, batchId);
+  assert.equal(loaded?.batch.id, batchId);
+  assert.equal(loaded?.drafts[0]?.id, 'draft_oldest');
 });
 
 test('keeps pending drafts out of active private cards and the graph until approval', async () => {

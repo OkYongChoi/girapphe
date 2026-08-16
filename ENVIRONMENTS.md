@@ -82,7 +82,11 @@ ingestion and billing migrations, before enabling preview deploys.
   custom Worker and unified Cloudflare operations.
 - The hourly Toss renewal workflow is also separate from deployment. It skips safely unless
   `TOSS_BILLING_ENABLED` is exactly `true` and the complete production credential group is
-  present, then authenticates the internal endpoint with `TOSS_BILLING_CRON_TOKEN`. Keep the
-  gate false or absent until the automatic-billing contract and sandbox failure/recovery,
-  renewal, and cancellation tests are complete.
+  present, then authenticates the internal endpoint with `TOSS_BILLING_CRON_TOKEN`. The current
+  release rejects `true` and also keeps a compile-time runtime fuse closed. Keep the gate false
+  or absent until a later reviewed PR opens it after the automatic-billing contract and sandbox failure/recovery,
+  renewal, cancellation, and cross-provider attempt tests are complete. Toss is exclusive:
+  Stripe and RevenueCat server groups must be absent before adding the gate as the final secret.
+  The Worker validator cannot see EAS or provider dashboards, so separately disable old Stripe
+  Checkout surfaces and RevenueCat/store offerings before activation.
 - Preview cleanup runs every six hours. It deletes versions only after their PR is closed: 24 hours after a merge, or 7 days after an unmerged close. A reopened/open PR is retained. Run the workflow manually with its dry-run input before an ad-hoc cleanup.

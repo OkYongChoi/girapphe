@@ -85,6 +85,48 @@ enforced trial, do not configure separate store introductory trials. If store tr
 enabled, treat them as platform-specific offers; a detected store trial prevents a later web
 trial, but a previous web trial cannot revoke an offer the store independently grants.
 
+## Exclusive provider and duplicate-charge boundary
+
+Toss is staged but not activation-approved in this release: environment validation rejects
+`TOSS_BILLING_ENABLED=true`, and a compile-time runtime fuse independently fails closed.
+A later activation PR must first add and provider-test a global billing-key fingerprint lock
+covering activation, orphan cleanup, and cancellation recovery. Once approved, Toss remains
+an exclusive acquisition and renewal mode. When `TOSS_BILLING_ENABLED=true`, the
+Stripe and RevenueCat server groups must both be absent. The environment checker rejects a
+complete conflicting group, and the Toss runtime fails closed if any Stripe or RevenueCat
+server value is present. Toss credentials may be staged while the gate remains `false`; add
+the gate as the final production secret only after validation.
+
+This configuration boundary is defense in depth, not proof that another purchase surface is
+off. Previously issued Stripe Checkout Sessions can remain usable, and a shipped mobile app
+can still reach a RevenueCat offering through its EAS public SDK key even when the Worker has
+no RevenueCat server group. Before enabling Toss, expire open Stripe Checkout Sessions and
+disable Stripe prices/links, make the RevenueCat offering unavailable, and verify in Stripe,
+RevenueCat, App Store Connect, and Google Play that no acquisition path or renewal remains.
+Do not switch away from Toss while an agreement, charge reconciliation, billing-key cleanup,
+or renewal is pending: adding another provider's server values makes Toss fail closed.
+
+Billing-key issuance is recovered with the original provider idempotency key only inside a
+14-day safety window. An older uncertain issuance is moved to `manual_review`, its one-time
+authorization ciphertext is scrubbed, and the internal billing run returns an error so the
+scheduled workflow alerts an operator. Do not retry that authorization or enable another
+provider until Toss support and the local intent record have been reconciled.
+
+Provider-neutral subscription checks block Stripe or Toss checkout when a reconciled Clerk
+account already has an incomplete, trialing, active, past-due, or paused `ad_free` record. The
+mobile paywall also hides store packages after the same account's server or SDK entitlement is
+known. Asynchronous webhooks and simultaneous requests across devices are not one atomic
+transaction, so activation must still test Stripe-to-store, store-to-Stripe, and, before Toss
+becomes exclusive, old-provider-to-Toss attempts with the same Clerk account. Confirm that the
+second path cannot purchase, no second trial is granted, and only one renewal remains scheduled.
+
+If two providers charge, stop new acquisition in their dashboards/offerings, preserve all
+provider and local records, reconcile by provider customer/order/transaction IDs, cancel and
+refund the duplicate in the provider that charged it, and let signed webhooks or authoritative
+reconciliation converge `billing_subscriptions`. Never delete a row or grant/revoke `ad_free`
+from a redirect alone. Re-enable acquisition only after both provider dashboards, pending Toss
+orders and `next_charge_at`, and the Clerk account's entitlement agree.
+
 ## Advertising
 
 Web uses the configured AdSense client and practice slot inside the sponsored-card shell.
@@ -147,8 +189,12 @@ checker rejects partially configured groups and test/live mismatches.
    automatic-billing contract, choosing integer KRW prices, generating a base64-encoded 32-byte
    encryption key and independent scheduler token, and verifying test-card authorization,
    renewal, cancellation, process termination after provider success, and reconciliation.
-   Switch the complete credential group to live values, verify the scheduler target, and only
-   then set the gate to exactly `true`.
+   In a later reviewed activation PR, add and sandbox-test the global billing-key fingerprint
+   lock and incomplete-activation recovery before opening the runtime fuse. Expire or disable
+   every Stripe and store acquisition surface, verify there are no pending
+   renewals or provider transitions, run the cross-provider attempt matrix above, switch the
+   complete Toss credential group to live values, verify the scheduler target, and only then
+   add the gate as the final secret with the exact value `true`.
 7. Add names through GitHub Secrets/EAS Environments, deploy a PR preview, and verify webhooks,
    the fifth-action ad, `ad_free` suppression, account switching, and provider dashboards.
 

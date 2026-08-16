@@ -57,6 +57,13 @@
       "when": 1787097600000,
       "tag": "0010_stripe_portal_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787184000000,
+      "tag": "0011_toss_billing_key_intents",
+      "breakpoints": true
     }
   ]
 }
