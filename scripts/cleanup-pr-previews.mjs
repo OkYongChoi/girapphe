@@ -39,25 +39,50 @@ async function request(url, options = {}) {
   return payload;
 }
 
+function normalizeCloudflareVersions(payload, context) {
+  const candidates = [payload?.result, payload?.result?.versions];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  throw new Error(`Cloudflare ${context} response did not contain a versions array.`);
+}
+
 async function listPreviewVersions() {
   const versions = [];
   let page = 1;
+  const endpoints = [
+    `https://api.cloudflare.com/client/v4/accounts/${cloudflareAccountId}/workers/workers/${workerName}/versions`,
+    `https://api.cloudflare.com/client/v4/accounts/${cloudflareAccountId}/workers/scripts/${workerName}/versions`,
+  ];
 
   while (true) {
-    // The beta Versions API returns annotations (including workers/message),
-    // which lets us identify only versions uploaded by this PR workflow.
-    const url = new URL(
-      `https://api.cloudflare.com/client/v4/accounts/${cloudflareAccountId}/workers/workers/${workerName}/versions`
-    );
-    url.searchParams.set('page', String(page));
-    url.searchParams.set('per_page', '100');
+    let payload;
+    const endpointErrors = [];
 
-    const payload = await request(url, {
-      headers: { Authorization: `Bearer ${cloudflareToken}` },
-    });
-    const pageVersions = payload.result;
-    if (!Array.isArray(pageVersions)) {
-      throw new Error('Cloudflare returned an unexpected Versions list response. Refusing cleanup.');
+    for (const base of endpoints) {
+      const url = new URL(base);
+      url.searchParams.set('page', String(page));
+      url.searchParams.set('per_page', '100');
+
+      try {
+        payload = await request(url, {
+          headers: { Authorization: `Bearer ${cloudflareToken}` },
+        });
+        break;
+      } catch (error) {
+        endpointErrors.push(`${base} -> ${error.message}`);
+      }
+    }
+
+    if (!payload) {
+      throw new Error(`All Workers versions endpoints failed for page ${page}: ${endpointErrors.join(' | ')}`);
+    }
+
+    const pageVersions = normalizeCloudflareVersions(payload, `page ${page}`);
+    if (!pageVersions.length && page === 1 && versions.length === 0) {
+      return [];
     }
     versions.push(...pageVersions);
 
@@ -124,9 +149,22 @@ for (const version of versions) {
 
 let deleted = 0;
 let skipped = 0;
+let failed = 0;
 
 for (const [pullNumber, pullVersions] of versionsByPullRequest) {
-  const pullRequest = await getPullRequest(pullNumber);
+  let pullRequest;
+  try {
+    pullRequest = await getPullRequest(pullNumber);
+  } catch (error) {
+    if (/404/.test(error.message)) {
+      console.log(`Skipping PR #${pullNumber}: GitHub API 404.`);
+      skipped += pullVersions.length;
+      continue;
+    }
+
+    throw error;
+  }
+
   const eligibleAt = getEligibleAt(pullRequest);
 
   if (!eligibleAt || eligibleAt > now) {
@@ -144,12 +182,23 @@ for (const [pullNumber, pullVersions] of versionsByPullRequest) {
       continue;
     }
 
-    await deleteVersion(version.id);
-    deleted += 1;
-    console.log(`Deleted Preview version ${version.id} for PR #${pullNumber} (${reason}).`);
+    try {
+      await deleteVersion(version.id);
+      deleted += 1;
+      console.log(`Deleted Preview version ${version.id} for PR #${pullNumber} (${reason}).`);
+    } catch (error) {
+      if (/latest version cannot be deleted/i.test(error.message)) {
+        skipped += 1;
+        console.log(`Skipping latest Preview version ${version.id} for PR #${pullNumber} (${error.message}).`);
+        continue;
+      }
+
+      failed += 1;
+      throw error;
+    }
   }
 }
 
 console.log(
-  `Preview cleanup complete: ${dryRun ? 'dry-run, ' : ''}${deleted} deleted, ${skipped} retained, ${versions.length} versions inspected.`
+  `Preview cleanup complete: ${dryRun ? 'dry-run, ' : ''}${deleted} deleted, ${skipped} retained, ${failed} failed, ${versions.length} versions inspected.`
 );
