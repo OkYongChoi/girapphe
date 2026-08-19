@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/practice', label: 'nav.practice' },
   { href: '/saved', label: 'nav.reviewQueue' },
   { href: '/knowledge', label: 'nav.knowledgeMap' },
+  { href: '/grid', label: 'nav.concepts' },
   { href: '/dashboard', label: 'nav.dashboard' },
   { href: '/my-knowledge', label: 'nav.myNotes' },
   { href: '/knowledge-inbox', label: 'nav.knowledgeInbox' },

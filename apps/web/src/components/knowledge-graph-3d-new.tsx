@@ -448,7 +448,7 @@ export default function KnowledgeGraph3DNew({ graphData, onClose }: Props) {
               onClick={onClose}
               className="flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/20"
             >
-              Grid View
+              Concepts
             </button>
           )}
         </div>

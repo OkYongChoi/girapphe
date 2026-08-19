@@ -218,6 +218,42 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('concepts has its own navigation tab and can open the graph view', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.goto('/grid');
+    const conceptsTab = page.getByRole('link', { name: 'Concepts' });
+    await expect(conceptsTab).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
+    const sort = page.getByLabel('Sort concepts');
+    await expect(sort).toHaveValue('newest');
+    await sort.selectOption('updated');
+    await expect(sort).toHaveValue('updated');
+
+    const filters = page.locator('summary').filter({ hasText: 'Filters' });
+    await filters.click();
+    const addedWithin = page.getByLabel('Added within');
+    await expect(addedWithin).toHaveValue('all');
+    await addedWithin.selectOption('month');
+    await expect(addedWithin).toHaveValue('month');
+    expect(await page.getByTestId('concept-card').count(), 'undated guest concepts remain visible when filtering by date').toBeGreaterThan(0);
+    const filterPanel = await page.getByTestId('concept-filters').boundingBox();
+    const viewport = page.viewportSize();
+    expect(filterPanel?.x ?? -1, 'filter panel left edge').toBeGreaterThanOrEqual(0);
+    expect((filterPanel?.x ?? 0) + (filterPanel?.width ?? 0), 'filter panel right edge').toBeLessThanOrEqual(viewport?.width ?? 0);
+    await page.getByRole('button', { name: 'Reset all' }).click();
+    await expect(sort).toHaveValue('newest');
+    await expect(addedWithin).toHaveValue('all');
+    await filters.click();
+
+    await page.getByRole('button', { name: '3D Graph View' }).click();
+    await expect(page.getByRole('heading', { name: 'Knowledge Graph' })).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('button', { name: 'Back to Concepts' }).click();
+    await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
+
+    await assertNoBrowserFailures();
+  });
+
   test('personal knowledge exposes date controls and a trash view', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
