@@ -9,7 +9,12 @@ import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { deleteKnowledgeItem, type UserKnowledgeItem } from '@/actions/user-knowledge-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import type { KnowledgeLinkTarget } from '@/actions/knowledge-ingestion-actions';
-import { getAddedDateRangeStart, type AddedDateRange } from '@/lib/knowledge-map-time';
+import {
+  isWithinAddedDateRangeOrUndated,
+  sortConceptCards,
+  type AddedDateRange,
+  type ConceptSort,
+} from '@/lib/knowledge-map-time';
 import type { Locale } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 
@@ -20,8 +25,6 @@ type MapCard = KnowledgeCard & {
   createdAt?: string;
   tags?: string[];
 };
-
-type ConceptSort = 'newest' | 'updated' | 'title';
 
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
@@ -72,31 +75,6 @@ function getSearchTerms(value: string) {
     .split(/\s+/)
     .map((term) => term.replace(/^#/, ''))
     .filter(Boolean);
-}
-
-function getCardCreatedAtTime(card: MapCard) {
-  if (!card.createdAt) return 0;
-  const timestamp = Date.parse(card.createdAt);
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function getCardUpdatedAtTime(card: MapCard) {
-  if (!card.updatedAt) return getCardCreatedAtTime(card);
-  const timestamp = Date.parse(card.updatedAt);
-  return Number.isNaN(timestamp) ? getCardCreatedAtTime(card) : timestamp;
-}
-
-function getCardSortTime(card: MapCard, sort: ConceptSort) {
-  return sort === 'updated' ? getCardUpdatedAtTime(card) : getCardCreatedAtTime(card);
-}
-
-function compareConceptCards(a: MapCard, b: MapCard, sort: ConceptSort) {
-  if (sort !== 'title') {
-    const dateDifference = getCardSortTime(b, sort) - getCardSortTime(a, sort);
-    if (dateDifference !== 0) return dateDifference;
-  }
-
-  return a.title.localeCompare(b.title);
 }
 
 function fallbackEndpointLabel(id: string) {
@@ -313,8 +291,6 @@ export default function KnowledgeMap({
   };
 
   const filteredCards = useMemo(() => {
-    const addedDateRangeStart = getAddedDateRangeStart(addedDateRange);
-
     return cards.filter((card) => {
       const searchableText = [card.id, card.title, card.summary, card.explanation, ...getCardDomains(card), ...(card.tags ?? [])]
         .join(' ')
@@ -327,38 +303,12 @@ export default function KnowledgeMap({
           : selectedStatus === 'unstarted'
             ? card.status === null
             : card.status === selectedStatus;
-      const matchesAddedDate = addedDateRangeStart === null || getCardCreatedAtTime(card) >= addedDateRangeStart;
+      const matchesAddedDate = isWithinAddedDateRangeOrUndated(card.createdAt, addedDateRange);
       return matchesFilter && matchesDomain && matchesStatus && matchesAddedDate;
     });
   }, [addedDateRange, cards, filter, selectedDomain, selectedStatus]);
 
-  const cardsByDomain = useMemo(() => {
-    const groups: Record<string, MapCard[]> = {};
-
-    for (const card of filteredCards) {
-      const groupingDomains = selectedDomain === 'all' ? getCardDomains(card) : [selectedDomain];
-      for (const domain of groupingDomains) {
-        (groups[domain] ??= []).push(card);
-      }
-    }
-
-    for (const group of Object.values(groups)) {
-      group.sort((a, b) => compareConceptCards(a, b, sort));
-    }
-
-    return groups;
-  }, [filteredCards, selectedDomain, sort]);
-
-  const orderedDomains = useMemo(
-    () => Object.keys(cardsByDomain).sort((a, b) => {
-      if (sort !== 'title') {
-        const dateDifference = getCardSortTime(cardsByDomain[b][0], sort) - getCardSortTime(cardsByDomain[a][0], sort);
-        if (dateDifference !== 0) return dateDifference;
-      }
-      return a.localeCompare(b);
-    }),
-    [cardsByDomain, sort]
-  );
+  const sortedCards = useMemo(() => sortConceptCards(filteredCards, sort), [filteredCards, sort]);
 
   const activeFilterCount = Number(selectedDomain !== 'all')
     + Number(selectedStatus !== 'all')
@@ -424,8 +374,8 @@ export default function KnowledgeMap({
                 </select>
               </div>
 
-              <details className="relative">
-                <summary className="flex cursor-pointer list-none items-center gap-2 rounded border bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
+              <details className="w-full xl:relative xl:w-auto">
+                <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded border bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
                   <span>{t('knowledge.filters')}</span>
                   {activeFilterCount > 0 ? (
                     <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700">
@@ -433,7 +383,7 @@ export default function KnowledgeMap({
                     </span>
                   ) : null}
                 </summary>
-                <div className="absolute left-0 z-20 mt-2 w-[min(20rem,calc(100vw-3rem))] rounded-xl border bg-white p-4 shadow-lg xl:left-auto xl:right-0">
+                <div data-testid="concept-filters" className="mt-2 w-full rounded-xl border bg-white p-4 shadow-lg xl:absolute xl:right-0 xl:z-20 xl:w-80">
                   <div className="grid gap-3">
                     <label className="grid gap-1 text-sm font-medium text-gray-700" htmlFor="concept-domain">
                       {t('common.domain')}
@@ -552,19 +502,12 @@ export default function KnowledgeMap({
             </div>
           </div>
 
-          <div className="space-y-12">
-            {orderedDomains.map(domain => (
-              <div key={domain} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <h2 className="text-xl font-semibold mb-4 capitalize text-gray-700 border-b pb-2">
-                  {formatDomainLabel(domain)}
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {cardsByDomain[domain].map(card => (
-                    <KnowledgeCardItem key={card.id} card={card} />
-                  ))}
-                </div>
-              </div>
-            ))}
+          <div>
+            <div data-testid="concept-grid" className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+              {sortedCards.map((card) => (
+                <KnowledgeCardItem key={card.id} card={card} />
+              ))}
+            </div>
 
             {filteredCards.length === 0 && (
               <div className="text-center py-12 text-gray-600">
@@ -597,7 +540,7 @@ function KnowledgeCardItem({ card }: { card: MapCard }) {
   };
 
   return (
-    <div className={`p-4 rounded-lg border shadow-sm transition-all hover:shadow-md ${getStatusColor(card.status)}`}>
+    <div data-testid="concept-card" className={`p-4 rounded-lg border shadow-sm transition-all hover:shadow-md ${getStatusColor(card.status)}`}>
       <div className="flex justify-between items-start mb-2">
         <span className="text-xs tracking-wider text-gray-700 font-semibold">
           {card.isPersonal

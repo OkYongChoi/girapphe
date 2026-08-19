@@ -236,6 +236,11 @@ test.describe('browser smoke', () => {
     await expect(addedWithin).toHaveValue('all');
     await addedWithin.selectOption('month');
     await expect(addedWithin).toHaveValue('month');
+    expect(await page.getByTestId('concept-card').count(), 'undated guest concepts remain visible when filtering by date').toBeGreaterThan(0);
+    const filterPanel = await page.getByTestId('concept-filters').boundingBox();
+    const viewport = page.viewportSize();
+    expect(filterPanel?.x ?? -1, 'filter panel left edge').toBeGreaterThanOrEqual(0);
+    expect((filterPanel?.x ?? 0) + (filterPanel?.width ?? 0), 'filter panel right edge').toBeLessThanOrEqual(viewport?.width ?? 0);
     await page.getByRole('button', { name: 'Reset all' }).click();
     await expect(sort).toHaveValue('newest');
     await expect(addedWithin).toHaveValue('all');
