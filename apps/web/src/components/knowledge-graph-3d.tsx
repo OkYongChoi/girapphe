@@ -11,6 +11,8 @@ import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { getDomainColor } from '@stem-brain/graph-engine';
 import { deleteKnowledgeItem } from '@/actions/user-knowledge-actions';
+import { useI18n } from '@/i18n/client';
+import LanguageSwitcher from '@/components/language-switcher';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
@@ -81,14 +83,9 @@ function getCardDomains(card: GraphCard) {
   return card.domains && card.domains.length > 0 ? card.domains : [card.domain];
 }
 
-function getStatusLabel(status: CardStatus | null) {
-  if (status === 'known') return 'Explainable';
-  if (status === 'saved') return 'Unclear';
-  return 'Not started';
-}
-
 export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) {
   const router = useRouter();
+  const { t } = useI18n();
   const [isClient, setIsClient] = useState(false);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
@@ -97,6 +94,12 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
   const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
   const [colorMode, setColorMode] = useState<ColorMode>('progress');
   const fgRef = useRef<any>(null);
+
+  const getStatusLabel = (status: CardStatus | null) => {
+    if (status === 'known') return t('common.explainable');
+    if (status === 'saved') return t('common.unclear');
+    return t('common.notStarted');
+  };
 
   useEffect(() => {
     setIsClient(true);
@@ -169,7 +172,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
         domain,
         domains: [domain],
         conceptCount: count,
-        desc: `${count} visible concepts in ${formatDomainLabel(domain)}.`,
+        desc: t('graph.visibleInDomain', { count, domain: formatDomainLabel(domain) }),
       });
     }
 
@@ -229,7 +232,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
     });
 
     return { nodes, links };
-  }, [colorMode, edges, filteredCards]);
+  }, [colorMode, edges, filteredCards, t]);
 
   const selectedRelationships = useMemo(() => {
     if (!selectedNode || selectedNode.group === 'domain') return [];
@@ -303,10 +306,10 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
         domains: [domain],
         conceptCount: count,
         color: getDomainColor(domain),
-        desc: `${count} visible concepts in ${formatDomainLabel(domain)}.`,
+        desc: t('graph.visibleInDomain', { count, domain: formatDomainLabel(domain) }),
       });
     },
-    [filteredCards, graphData.nodes, handleNodeClick]
+    [filteredCards, graphData.nodes, handleNodeClick, t]
   );
 
   const handleNodeHover = useCallback((node: any) => {
@@ -314,18 +317,20 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
   }, []);
   const selectedLevel = selectedNode?.level ? getCardLevelMeta(selectedNode.level) : null;
   const selectedNodeColorLabel = selectedNode?.group === 'domain'
-    ? 'Domain hub'
+    ? t('graph.domainHub')
     : colorMode === 'domain'
-      ? 'Domain color'
-      : selectedNode?.status ?? 'Not started';
+      ? t('graph.domainColor')
+      : selectedNode?.status
+        ? getStatusLabel(selectedNode.status)
+        : t('common.notStarted');
 
   if (!isClient) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-black text-white">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white border-t-transparent" />
-          <span className="text-sm text-gray-400">Loading 3D Graph...</span>
-        </div>
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white border-t-transparent" />
+        <span className="text-sm text-gray-400">{t('graph.loading')}</span>
+      </div>
       </div>
     );
   }
@@ -345,7 +350,11 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
         nodeOpacity={0.9}
         nodeResolution={16}
         linkColor="color"
-        linkLabel={(link: any) => link.type ? `${link.type}${link.scope === 'private' ? ' · private' : ''}` : 'Domain membership'}
+        linkLabel={(link: any) => {
+          if (!link.type) return t('graph.domainHub');
+          const privateScope = link.scope === 'private' ? ` · ${t('common.privateCard')}` : '';
+          return `${link.type}${privateScope}`;
+        }}
         linkOpacity={0.58}
         linkWidth={(link: any) => link.width ?? 0.5}
         linkDirectionalParticles={(link: any) => link.particles ?? 0}
@@ -369,10 +378,14 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-white tracking-tight">
-                Knowledge Graph
+                {t('graph.title')}
               </h2>
               <p className="text-xs text-gray-400">
-                {filteredCards.length} of {cards.length} concepts &middot; {visibleDomainList.length} domains
+                {t('graph.summary', {
+                  filtered: filteredCards.length,
+                  total: cards.length,
+                  domains: visibleDomainList.length,
+                })}
               </p>
             </div>
             <button
@@ -385,7 +398,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               }}
               className="rounded-md border border-gray-700 px-2.5 py-1.5 text-xs font-medium text-gray-300 transition-colors hover:bg-white/10"
             >
-              Reset
+              {t('common.reset')}
             </button>
           </div>
 
@@ -394,7 +407,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search concepts"
+              placeholder={t('graph.searchPlaceholder')}
               className="min-h-10 rounded-lg border border-gray-700 bg-black/30 px-3 text-sm text-white outline-none transition focus:border-cyan-300/70"
             />
             <select
@@ -402,7 +415,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               onChange={(event) => setSelectedDomain(event.target.value)}
               className="min-h-10 rounded-lg border border-gray-700 bg-black/30 px-3 text-sm text-white outline-none transition focus:border-cyan-300/70"
             >
-              <option value="all">All domains</option>
+              <option value="all">{t('common.allDomains')}</option>
               {domainList
                 .filter((domain) => domain !== 'other')
                 .map((domain) => (
@@ -416,18 +429,18 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               onChange={(event) => setSelectedStatus(event.target.value as CardStatus | 'all' | 'unstarted')}
               className="min-h-10 rounded-lg border border-gray-700 bg-black/30 px-3 text-sm text-white outline-none transition focus:border-cyan-300/70"
             >
-              <option value="all">All progress</option>
-              <option value="known">Explainable</option>
-              <option value="saved">Unclear</option>
-              <option value="unstarted">Not started</option>
+              <option value="all">{t('graph.allProgress')}</option>
+              <option value="known">{t('common.explainable')}</option>
+              <option value="saved">{t('common.unclear')}</option>
+              <option value="unstarted">{t('common.notStarted')}</option>
             </select>
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Color by</span>
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">{t('graph.colorBy')}</span>
             {[
-              { key: 'progress', label: 'Progress' },
-              { key: 'domain', label: 'Domain' },
+              { key: 'progress', label: t('common.progress') },
+              { key: 'domain', label: t('common.domain') },
             ].map((item) => {
               const selected = colorMode === item.key;
 
@@ -451,6 +464,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
         </div>
 
         <div className="pointer-events-auto relative flex items-center gap-2">
+          <LanguageSwitcher compact />
           <button
             type="button"
             onClick={(event) => {
@@ -463,21 +477,21 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
             }}
             className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-950/75 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/10"
           >
-            Back
+            {t('common.back')}
           </button>
           <Link
             href="/practice"
             onClick={(event) => event.stopPropagation()}
             className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-950/75 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/10"
           >
-            Practice
+            {t('nav.practice')}
           </Link>
           <Link
             href="/"
             onClick={(event) => event.stopPropagation()}
             className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-950/75 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/10"
           >
-            Home
+            {t('common.home')}
           </Link>
 
           {onClose && (
@@ -488,7 +502,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 3h7l2 2h9v14H3z" /><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
               </svg>
-              Back to Grid
+              {t('graph.backToGrid')}
             </button>
           )}
         </div>
@@ -498,14 +512,14 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
       <div className="pointer-events-auto absolute bottom-4 left-4 right-4 z-10 max-h-80 overflow-hidden rounded-xl border border-gray-800 bg-gray-900/85 p-4 shadow-xl backdrop-blur-sm md:bottom-6 md:left-6 md:right-auto md:w-72 md:max-h-[28rem]">
         {colorMode === 'progress' ? (
           <>
-            <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">Progress Colors</p>
+            <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">{t('graph.progressColors')}</p>
             <div className="space-y-2">
               {[
-                { label: 'Explainable', color: STATUS_COLORS.known },
-                { label: 'Unclear', color: STATUS_COLORS.saved },
-                { label: 'Not Started', color: STATUS_COLORS.unseen },
-                { label: 'Private card', color: PERSONAL_CARD_COLOR },
-                { label: 'Domain Hub', color: DOMAIN_HUB_PROGRESS_COLOR },
+                { label: t('common.explainable'), color: STATUS_COLORS.known },
+                { label: t('common.unclear'), color: STATUS_COLORS.saved },
+                { label: t('common.notStarted'), color: STATUS_COLORS.unseen },
+                { label: t('common.privateCard'), color: PERSONAL_CARD_COLOR },
+                { label: t('graph.domainHub'), color: DOMAIN_HUB_PROGRESS_COLOR },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2.5">
                   <span
@@ -517,7 +531,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               ))}
             </div>
             <div className="mt-4 border-t border-gray-800 pt-3">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">Relationship lines</p>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">{t('graph.related')}</p>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
                 {(Object.entries(EDGE_COLORS) as Array<[EdgeType, string]>).map(([type, color]) => (
                   <span key={type} className="flex min-w-0 items-center gap-2 text-[10px] text-gray-400">
@@ -526,14 +540,14 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
                   </span>
                 ))}
               </div>
-              <p className="mt-2 text-[10px] leading-relaxed text-gray-500">Moving particles and arrowheads show direction.</p>
+              <p className="mt-2 text-[10px] leading-relaxed text-gray-500">{t('graph.directionHint')}</p>
             </div>
           </>
         ) : (
           <>
             <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">Domain Colors</p>
-              <span className="text-[10px] text-gray-500">Click to inspect</span>
+              <p className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">{t('graph.domainColors')}</p>
+              <span className="text-[10px] text-gray-500">{t('graph.clickInspect')}</span>
             </div>
             <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1 md:max-h-96">
               {visibleDomainList
@@ -617,7 +631,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               ))}
               {selectedNode.level && (
                 <span className="inline-flex items-center rounded-md bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-400 border border-gray-700">
-                  Difficulty {selectedLevel?.rank} · {selectedLevel?.label}
+                  {t('common.difficulty', { rank: selectedLevel?.rank, label: selectedLevel?.label })}
                 </span>
               )}
             </div>
@@ -625,7 +639,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
             {selectedNode.group === 'domain' && selectedNode.conceptCount ? (
               <div className="mb-5 rounded-lg border border-gray-800 bg-white/[0.04] px-3 py-2">
                 <p className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">
-                  Visible Concepts
+                  {t('graph.visibleConcepts')}
                 </p>
                 <p className="mt-1 text-2xl font-semibold text-white">{selectedNode.conceptCount}</p>
               </div>
@@ -634,7 +648,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
             {selectedNode.group === 'domain' && selectedDomainCards.length > 0 ? (
               <div className="mb-6">
                 <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-                  Knowledge in this domain
+                  {t('graph.domainKnowledge')}
                 </p>
                 <div className="space-y-2">
                   {selectedDomainCards.map((card) => {
@@ -675,7 +689,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
             {selectedNode.mainContent && (
               <div className="mb-6">
                 <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-2 font-semibold">
-                  Main Content
+                  {t('graph.mainContent')}
                 </p>
                 <p className="whitespace-pre-line text-sm text-gray-300 leading-relaxed">
                   {selectedNode.mainContent}
@@ -694,7 +708,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               >
                 <input type="hidden" name="id" value={selectedNode.personalItemId} />
                 <button type="submit" className="rounded-lg border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm font-medium text-red-200 hover:bg-red-400/20">
-                  Move to trash (restore within 14 days)
+                  {t('graph.moveTrash', { days: 14 })}
                 </button>
               </form>
             ) : null}
@@ -702,7 +716,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
             {selectedRelationships.length > 0 && (
               <div className="mb-6">
                 <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-2 font-semibold">
-                  Saved relationships
+                  {t('graph.related')}
                 </p>
                 <div className="space-y-2">
                   {selectedRelationships.map((relationship) => (
@@ -718,16 +732,16 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium text-white">{relationship.otherTitle}</span>
                         <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-gray-500">
-                          {relationship.type.replace('_', ' ')} · {relationship.scope}
+                          {relationship.type.replace('_', ' ')} · {relationship.scope === 'private' ? t('common.privateCard') : t('common.domain')}
                         </span>
                       </span>
                       <span
                         className="shrink-0 text-base text-gray-400"
                         aria-label={isDirectedEdge(relationship.type)
                           ? relationship.direction === '→'
-                            ? `Outgoing relationship to ${relationship.otherTitle}`
-                            : `Incoming relationship from ${relationship.otherTitle}`
-                          : `Two-way relationship with ${relationship.otherTitle}`}
+                            ? `${t('graph.related')} to ${relationship.otherTitle}`
+                            : `${t('graph.related')} from ${relationship.otherTitle}`
+                          : `${t('graph.related')} with ${relationship.otherTitle}`}
                       >
                         {relationship.direction}
                       </span>
@@ -748,7 +762,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
                 </svg>
-                Wikipedia
+                {t('graph.wikipedia')}
               </a>
             )}
           </div>
@@ -758,7 +772,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
       {/* Keyboard hint */}
       <div className="pointer-events-none absolute bottom-6 right-6 z-10 hidden md:block">
         <p className="text-[10px] text-gray-600">
-          Drag to rotate &middot; Scroll to zoom &middot; Right-drag to pan
+          {t('graph.controlsHint')}
         </p>
       </div>
     </div>

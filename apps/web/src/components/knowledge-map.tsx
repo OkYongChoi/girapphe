@@ -6,11 +6,11 @@ import KnowledgeGraph3D from './knowledge-graph-3d';
 import type { KnowledgeGraphEdgeView } from './knowledge-graph-3d';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
-import { getCardStatusShortLabel } from '@/lib/card-status';
 import { deleteKnowledgeItem, type UserKnowledgeItem } from '@/actions/user-knowledge-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import type { KnowledgeLinkTarget } from '@/actions/knowledge-ingestion-actions';
 import type { Locale } from '@stem-brain/shared';
+import { useI18n } from '@/i18n/client';
 
 type MapCard = KnowledgeCard & {
   status: CardStatus | null;
@@ -72,9 +72,9 @@ function getSearchTerms(value: string) {
 
 function fallbackEndpointLabel(id: string) {
   const raw = id.replace(/^graph_/, '').replace(/^personal:/, '');
-  if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(raw)) return `Linked concept ${raw.slice(0, 8)}`;
+  if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(raw)) return raw.slice(0, 8);
   const readable = raw.replace(/[_-]+/g, ' ').trim();
-  return readable ? readable.charAt(0).toUpperCase() + readable.slice(1) : 'Linked concept';
+  return readable ? readable.charAt(0).toUpperCase() + readable.slice(1) : '';
 }
 
 export default function KnowledgeMap({
@@ -96,6 +96,7 @@ export default function KnowledgeMap({
   const [generatedCards, setGeneratedCards] = useState<(KnowledgeCard & { status: CardStatus | null })[] | null>(null);
   const [loadingGenerated, setLoadingGenerated] = useState(false);
   const [generatedError, setGeneratedError] = useState<string | null>(null);
+  const { t } = useI18n();
 
   useEffect(() => {
     if (isGuest) return;
@@ -127,13 +128,21 @@ export default function KnowledgeMap({
     const personalItem = personalItemById.get(personalItemId);
     const topic = readString(record, 'topic', 'domain') || 'personal';
     const tags = readStringArray(record, 'tags');
+    const endpointLabel = fallbackEndpointLabel(id);
 
     return [{
       id,
       personalItemId: personalItemId || undefined,
       isPersonal: true,
-      title: personalItem?.title || readString(record, 'title', 'label') || 'Private concept',
-      summary: personalItem?.summary || personalItem?.content || readString(record, 'summary', 'content') || 'Private personal card',
+      title: personalItem?.title
+        || readString(record, 'title', 'label')
+        || (endpointLabel
+          ? t('knowledge.linkedConceptWithId', { id: endpointLabel })
+          : t('knowledge.linkedConcept')),
+      summary: personalItem?.summary
+        || personalItem?.content
+        || readString(record, 'summary', 'content')
+        || t('knowledge.privatePersonalCard'),
       explanation: personalItem?.content || readString(record, 'explanation', 'content'),
       wiki_url: '',
       domain: topic,
@@ -143,7 +152,7 @@ export default function KnowledgeMap({
       status: null,
       createdAt: readString(record, 'created_at'),
     }];
-  }), [personalItemById, privateGraph?.nodes]);
+  }), [personalItemById, privateGraph?.nodes, t]);
 
   const graphPersonalItemIds = useMemo(
     () => new Set(graphPrivateCards.map((card) => card.personalItemId).filter(Boolean)),
@@ -157,7 +166,7 @@ export default function KnowledgeMap({
     personalItemId: item.id,
     isPersonal: true,
     title: item.title,
-    summary: item.summary || item.content || 'Private personal card',
+    summary: item.summary || item.content || t('knowledge.privatePersonalCard'),
     explanation: item.content,
     wiki_url: '',
     domain: 'personal',
@@ -166,7 +175,7 @@ export default function KnowledgeMap({
     level: 'understand',
     status: null,
     createdAt: item.created_at,
-  })), [graphPersonalItemIds, personalItems]);
+  })), [graphPersonalItemIds, personalItems, t]);
   const personalCards = useMemo<MapCard[]>(
     () => [...graphPrivateCards, ...legacyPersonalCards],
     [graphPrivateCards, legacyPersonalCards]
@@ -219,11 +228,15 @@ export default function KnowledgeMap({
       if (visibleIds.has(id)) continue;
       const target = targetById.get(id);
       const topic = target?.topic || 'connected';
+      const fallbackLabel = fallbackEndpointLabel(id);
+
       endpointCards.push({
         id,
         isPersonal: target?.scope === 'private' || id.startsWith('personal:'),
-        title: target?.label || fallbackEndpointLabel(id),
-        summary: 'Included because this concept is the endpoint of a saved graph relationship.',
+        title: target?.label || (fallbackLabel
+          ? t('knowledge.linkedConceptWithId', { id: fallbackLabel })
+          : t('knowledge.linkedConcept')),
+        summary: t('knowledge.endpointSummary'),
         explanation: '',
         wiki_url: '',
         domain: topic,
@@ -235,7 +248,7 @@ export default function KnowledgeMap({
     }
 
     return [...cards, ...endpointCards];
-  }, [cards, graphEdges, graphLinkTargets]);
+  }, [cards, graphEdges, graphLinkTargets, t]);
 
   // Cards can live in multiple taxonomy domains.
   const domains = useMemo(
@@ -259,7 +272,7 @@ export default function KnowledgeMap({
       });
       setGeneratedCards(next);
     } catch {
-      setGeneratedError('Could not load generated cards.');
+      setGeneratedError(t('knowledge.generatedError'));
     } finally {
       setLoadingGenerated(false);
     }
@@ -296,16 +309,22 @@ export default function KnowledgeMap({
       {viewMode === 'graph' ? (
         <KnowledgeGraph3D cards={graphCards} edges={graphEdges} onClose={() => setViewMode('grid')} />
       ) : (
-        <div className="w-full p-6">
+        <div className="w-full max-w-6xl mx-auto p-6">
           <div className="mb-8 flex flex-col md:flex-row gap-4 justify-between items-center">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Knowledge Map</h1>
+              <h1 className="text-3xl font-bold text-gray-900">{t('knowledge.title')}</h1>
               <p className="mt-1 text-sm text-gray-600">
-                Showing {filteredCards.length} of {cards.length} concepts
+                {t('knowledge.showing', { filtered: filteredCards.length, total: cards.length })}
               </p>
               <p className="mt-1 text-xs text-gray-500">
-                Core: {coreCardCount} · Generated: {generatedCardCount}{includeGenerated ? ` (showing up to ${generatedLimit})` : ' (hidden)'}
-                {personalCards.length > 0 ? ` · Private: ${personalCards.length}` : ''}
+                {t('knowledge.generatedSummary', {
+                  core: coreCardCount,
+                  generated: generatedCardCount,
+                  state: includeGenerated
+                    ? t('knowledge.generatedShown', { limit: generatedLimit })
+                    : t('knowledge.generatedHidden'),
+                })}
+                {personalCards.length > 0 ? t('knowledge.privateCount', { count: personalCards.length }) : ''}
               </p>
             </div>
             
@@ -314,12 +333,12 @@ export default function KnowledgeMap({
                   onClick={() => setViewMode('graph')}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
-                  3D Graph View
+                  {t('knowledge.graphView')}
               </button>
 
               <div className="flex items-center gap-2">
                 <label className="text-sm text-gray-700 select-none" htmlFor="toggle-generated">
-                  Show generated
+                  {t('knowledge.showGenerated')}
                 </label>
                 <input
                   id="toggle-generated"
@@ -342,10 +361,10 @@ export default function KnowledgeMap({
                 <button
                   type="button"
                   onClick={() => void loadGenerated(Math.min(5000, generatedLimit + 250))}
-                  disabled={loadingGenerated}
+                disabled={loadingGenerated}
                   className="rounded-md border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                 >
-                  {loadingGenerated ? 'Loading…' : 'Load more'}
+                  {loadingGenerated ? t('common.loading') : t('knowledge.loadMore')}
                 </button>
               ) : null}
 
@@ -354,7 +373,7 @@ export default function KnowledgeMap({
                 onChange={(e) => setSelectedDomain(e.target.value)}
                 className="p-2 border rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
-                <option value="all">All Domains</option>
+                <option value="all">{t('common.allDomains')}</option>
                 {domains.map(d => (
                   <option key={d} value={d}>{formatDomainLabel(d)}</option>
                 ))}
@@ -365,15 +384,15 @@ export default function KnowledgeMap({
                 onChange={(e) => setSelectedStatus(e.target.value as CardStatus | 'all' | 'unstarted')}
                 className="p-2 border rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
-                <option value="all">All Status</option>
-                <option value="known">Can Explain</option>
-                <option value="saved">Unclear</option>
-                <option value="unstarted">Not Started</option>
+                <option value="all">{t('common.allStatus')}</option>
+                <option value="known">{t('common.canExplain')}</option>
+                <option value="saved">{t('common.unclear')}</option>
+                <option value="unstarted">{t('common.notStarted')}</option>
               </select>
               
               <input 
                 type="text" 
-                placeholder="Search concepts, terms, or #tags..."
+                placeholder={t('knowledge.searchPlaceholder')}
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 className="p-2 border rounded flex-grow bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -387,7 +406,7 @@ export default function KnowledgeMap({
                 }}
                 className="p-2 border rounded bg-white text-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
-                Reset
+                {t('common.reset')}
               </button>
             </div>
           </div>
@@ -401,11 +420,11 @@ export default function KnowledgeMap({
           {/* Legend */}
           <div className="mb-6 flex flex-wrap gap-6 rounded-xl border bg-white px-4 py-3 text-xs">
             <div>
-              <span className="mb-1.5 block font-semibold text-gray-500 uppercase tracking-wide">Status</span>
+              <span className="mb-1.5 block font-semibold text-gray-500 uppercase tracking-wide">{t('common.status')}</span>
               <div className="flex flex-wrap gap-2">
-                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-green-300 border border-green-400"></span>Can Explain</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-blue-300 border border-blue-400"></span>Unclear</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-gray-200 border border-gray-300"></span>Not Started</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-green-300 border border-green-400"></span>{t('common.canExplain')}</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-blue-300 border border-blue-400"></span>{t('common.unclear')}</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full bg-gray-200 border border-gray-300"></span>{t('common.notStarted')}</span>
               </div>
             </div>
           </div>
@@ -426,7 +445,7 @@ export default function KnowledgeMap({
 
             {filteredCards.length === 0 && (
               <div className="text-center py-12 text-gray-600">
-                No concepts found matching your criteria.
+                {t('knowledge.noMatches')}
               </div>
             )}
           </div>
@@ -438,6 +457,7 @@ export default function KnowledgeMap({
 
 function KnowledgeCardItem({ card }: { card: MapCard }) {
   const levelMeta = getCardLevelMeta(card.level);
+  const { t } = useI18n();
 
   const getStatusColor = (status: CardStatus | null) => {
     switch (status) {
@@ -448,21 +468,29 @@ function KnowledgeCardItem({ card }: { card: MapCard }) {
   };
 
   const getStatusLabel = (status: CardStatus | null) => {
-    return getCardStatusShortLabel(status);
+    if (status === 'known') return t('common.explainable');
+    if (status === 'saved') return t('common.reviewing');
+    return t('common.notStarted');
   };
 
   return (
     <div className={`p-4 rounded-lg border shadow-sm transition-all hover:shadow-md ${getStatusColor(card.status)}`}>
       <div className="flex justify-between items-start mb-2">
         <span className="text-xs tracking-wider text-gray-700 font-semibold">
-          {card.isPersonal ? 'Private card' : `Difficulty ${levelMeta.rank} · ${levelMeta.label}`}
+          {card.isPersonal
+            ? t('common.privateCard')
+            : t('common.difficulty', { rank: levelMeta.rank, label: levelMeta.label })}
         </span>
         <span className={`text-xs px-2 py-0.5 rounded-full bg-white/80 text-gray-700`}>
           {getStatusLabel(card.status)}
         </span>
       </div>
       <h3 className="font-bold text-lg mb-1 leading-tight text-gray-900">{card.title}</h3>
-      {card.isPersonal && card.createdAt ? <p className="mb-2 text-xs text-gray-500">Added {new Date(card.createdAt).toLocaleDateString()}</p> : null}
+      {card.isPersonal && card.createdAt ? (
+        <p className="mb-2 text-xs text-gray-500">
+          {t('knowledge.added', { date: new Date(card.createdAt).toLocaleDateString() })}
+        </p>
+      ) : null}
       {card.domains && card.domains.length > 0 ? (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {card.domains.map((domain) => (
@@ -488,16 +516,16 @@ function KnowledgeCardItem({ card }: { card: MapCard }) {
           rel="noopener noreferrer"
           className="text-xs text-blue-700 hover:text-blue-800 hover:underline transition-colors"
         >
-          Wiki &rarr;
+          {t('knowledge.wiki')}
         </a>
       )}
       {card.isPersonal && card.personalItemId ? (
         <form action={deleteKnowledgeItem} className="mt-3">
           <input type="hidden" name="id" value={card.personalItemId} />
           <ConfirmDeleteButton
-            label="Move to trash"
-            confirmMessage={`Move "${card.title}" to trash? You can restore it for 14 days.`}
-            ariaLabel={`Move ${card.title} to trash`}
+            label={t('knowledge.moveTrash')}
+            confirmMessage={t('knowledge.moveTrashConfirm', { title: card.title, days: 14 })}
+            ariaLabel={t('knowledge.moveTrashAria', { title: card.title })}
             className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
           />
         </form>
