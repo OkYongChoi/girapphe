@@ -296,7 +296,7 @@ export default function KnowledgeMap({
       {viewMode === 'graph' ? (
         <KnowledgeGraph3D cards={graphCards} edges={graphEdges} onClose={() => setViewMode('grid')} />
       ) : (
-        <div className="w-full max-w-6xl mx-auto p-6">
+        <div className="w-full p-6">
           <div className="mb-8 flex flex-col md:flex-row gap-4 justify-between items-center">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Knowledge Map</h1>
