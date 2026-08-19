@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next';
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES, localizePathname } from '@stem-brain/shared';
 
 const SITE_URL = 'https://www.girapphe.com';
-const PUBLIC_ROUTES = ['/', '/knowledge', '/practice'] as const;
+const PUBLIC_ROUTES = ['/', '/knowledge', '/grid', '/practice'] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return PUBLIC_ROUTES.flatMap((pathname) => {

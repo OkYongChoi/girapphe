@@ -25,8 +25,10 @@ export const knowledgeCards = pgTable("knowledge_cards", {
   domain: text("domain"),
   level: text("level"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("idx_knowledge_cards_domain").on(t.domain),
+  index("idx_knowledge_cards_updated_at").on(t.updatedAt),
 ]);
 
 // Translation ids are constrained by the server-side static allowlist and source hash.

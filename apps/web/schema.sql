@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS knowledge_cards (
   wiki_url TEXT,
   domain TEXT,
   level TEXT CHECK (level IN ('memorize', 'understand', 'connect', 'apply')),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- 3. User Card States Table (legacy — kept for backward compatibility)
@@ -102,6 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_user_card_states_status ON user_card_states(statu
 CREATE INDEX IF NOT EXISTS idx_user_card_states_self_report_label ON user_card_states(self_report_label);
 CREATE INDEX IF NOT EXISTS idx_user_card_states_is_bookmarked ON user_card_states(is_bookmarked);
 CREATE INDEX IF NOT EXISTS idx_knowledge_cards_domain ON knowledge_cards(domain);
+CREATE INDEX IF NOT EXISTS idx_knowledge_cards_updated_at ON knowledge_cards(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_graph_nodes_domain ON graph_nodes(domain);
 CREATE INDEX IF NOT EXISTS idx_graph_nodes_level ON graph_nodes(level);
 CREATE INDEX IF NOT EXISTS idx_graph_edges_source ON graph_edges(source);

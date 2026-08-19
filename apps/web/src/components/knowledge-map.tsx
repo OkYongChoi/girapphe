@@ -9,6 +9,7 @@ import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { deleteKnowledgeItem, type UserKnowledgeItem } from '@/actions/user-knowledge-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import type { KnowledgeLinkTarget } from '@/actions/knowledge-ingestion-actions';
+import { getAddedDateRangeStart, type AddedDateRange } from '@/lib/knowledge-map-time';
 import type { Locale } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 
@@ -20,8 +21,11 @@ type MapCard = KnowledgeCard & {
   tags?: string[];
 };
 
+type ConceptSort = 'newest' | 'updated' | 'title';
+
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
+  initialView?: 'grid' | 'graph';
   personalItems?: UserKnowledgeItem[];
   publicEdges?: KnowledgeMapEdge[];
   privateGraph?: {
@@ -70,6 +74,31 @@ function getSearchTerms(value: string) {
     .filter(Boolean);
 }
 
+function getCardCreatedAtTime(card: MapCard) {
+  if (!card.createdAt) return 0;
+  const timestamp = Date.parse(card.createdAt);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function getCardUpdatedAtTime(card: MapCard) {
+  if (!card.updatedAt) return getCardCreatedAtTime(card);
+  const timestamp = Date.parse(card.updatedAt);
+  return Number.isNaN(timestamp) ? getCardCreatedAtTime(card) : timestamp;
+}
+
+function getCardSortTime(card: MapCard, sort: ConceptSort) {
+  return sort === 'updated' ? getCardUpdatedAtTime(card) : getCardCreatedAtTime(card);
+}
+
+function compareConceptCards(a: MapCard, b: MapCard, sort: ConceptSort) {
+  if (sort !== 'title') {
+    const dateDifference = getCardSortTime(b, sort) - getCardSortTime(a, sort);
+    if (dateDifference !== 0) return dateDifference;
+  }
+
+  return a.title.localeCompare(b.title);
+}
+
 function fallbackEndpointLabel(id: string) {
   const raw = id.replace(/^graph_/, '').replace(/^personal:/, '');
   if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(raw)) return raw.slice(0, 8);
@@ -79,6 +108,7 @@ function fallbackEndpointLabel(id: string) {
 
 export default function KnowledgeMap({
   initialCards,
+  initialView = 'graph',
   personalItems = [],
   publicEdges = [],
   privateGraph = null,
@@ -90,7 +120,9 @@ export default function KnowledgeMap({
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
   const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
-  const [viewMode, setViewMode] = useState<'grid' | 'graph'>('graph');
+  const [addedDateRange, setAddedDateRange] = useState<AddedDateRange>('all');
+  const [sort, setSort] = useState<ConceptSort>('newest');
+  const [viewMode, setViewMode] = useState<'grid' | 'graph'>(initialView);
   const [includeGenerated, setIncludeGenerated] = useState(false);
   const [generatedLimit, setGeneratedLimit] = useState(250);
   const [generatedCards, setGeneratedCards] = useState<(KnowledgeCard & { status: CardStatus | null })[] | null>(null);
@@ -150,7 +182,8 @@ export default function KnowledgeMap({
       tags: personalItem?.tags ?? tags,
       level: 'understand' as const,
       status: null,
-      createdAt: readString(record, 'created_at'),
+      createdAt: personalItem?.created_at || readString(record, 'created_at'),
+      updatedAt: personalItem?.updated_at || readString(record, 'updated_at'),
     }];
   }), [personalItemById, privateGraph?.nodes, t]);
 
@@ -175,6 +208,7 @@ export default function KnowledgeMap({
     level: 'understand',
     status: null,
     createdAt: item.created_at,
+    updatedAt: item.updated_at,
   })), [graphPersonalItemIds, personalItems, t]);
   const personalCards = useMemo<MapCard[]>(
     () => [...graphPrivateCards, ...legacyPersonalCards],
@@ -278,31 +312,58 @@ export default function KnowledgeMap({
     }
   };
 
-  const filteredCards = cards.filter(card => {
-    const searchableText = [card.id, card.title, card.summary, card.explanation, ...getCardDomains(card), ...(card.tags ?? [])]
-      .join(' ')
-      .toLowerCase();
-    const matchesFilter = getSearchTerms(filter).every((term) => searchableText.includes(term));
-    const matchesDomain = selectedDomain === 'all' || getCardDomains(card).includes(selectedDomain);
-    const matchesStatus =
-      selectedStatus === 'all'
-        ? true
-        : selectedStatus === 'unstarted'
-          ? card.status === null
-          : card.status === selectedStatus;
-    return matchesFilter && matchesDomain && matchesStatus;
-  });
+  const filteredCards = useMemo(() => {
+    const addedDateRangeStart = getAddedDateRangeStart(addedDateRange);
 
-  const cardsByDomain = filteredCards.reduce((acc, card) => {
-    const groupingDomains = selectedDomain === 'all' ? getCardDomains(card) : [selectedDomain];
-    for (const domain of groupingDomains) {
-      if (!acc[domain]) {
-        acc[domain] = [];
+    return cards.filter((card) => {
+      const searchableText = [card.id, card.title, card.summary, card.explanation, ...getCardDomains(card), ...(card.tags ?? [])]
+        .join(' ')
+        .toLowerCase();
+      const matchesFilter = getSearchTerms(filter).every((term) => searchableText.includes(term));
+      const matchesDomain = selectedDomain === 'all' || getCardDomains(card).includes(selectedDomain);
+      const matchesStatus =
+        selectedStatus === 'all'
+          ? true
+          : selectedStatus === 'unstarted'
+            ? card.status === null
+            : card.status === selectedStatus;
+      const matchesAddedDate = addedDateRangeStart === null || getCardCreatedAtTime(card) >= addedDateRangeStart;
+      return matchesFilter && matchesDomain && matchesStatus && matchesAddedDate;
+    });
+  }, [addedDateRange, cards, filter, selectedDomain, selectedStatus]);
+
+  const cardsByDomain = useMemo(() => {
+    const groups: Record<string, MapCard[]> = {};
+
+    for (const card of filteredCards) {
+      const groupingDomains = selectedDomain === 'all' ? getCardDomains(card) : [selectedDomain];
+      for (const domain of groupingDomains) {
+        (groups[domain] ??= []).push(card);
       }
-      acc[domain].push(card);
     }
-    return acc;
-  }, {} as Record<string, typeof initialCards>);
+
+    for (const group of Object.values(groups)) {
+      group.sort((a, b) => compareConceptCards(a, b, sort));
+    }
+
+    return groups;
+  }, [filteredCards, selectedDomain, sort]);
+
+  const orderedDomains = useMemo(
+    () => Object.keys(cardsByDomain).sort((a, b) => {
+      if (sort !== 'title') {
+        const dateDifference = getCardSortTime(cardsByDomain[b][0], sort) - getCardSortTime(cardsByDomain[a][0], sort);
+        if (dateDifference !== 0) return dateDifference;
+      }
+      return a.localeCompare(b);
+    }),
+    [cardsByDomain, sort]
+  );
+
+  const activeFilterCount = Number(selectedDomain !== 'all')
+    + Number(selectedStatus !== 'all')
+    + Number(addedDateRange !== 'all')
+    + Number(includeGenerated);
 
   return (
     <div className="w-full h-full">
@@ -310,9 +371,9 @@ export default function KnowledgeMap({
         <KnowledgeGraph3D cards={graphCards} edges={graphEdges} onClose={() => setViewMode('grid')} />
       ) : (
         <div className="w-full max-w-6xl mx-auto p-6">
-          <div className="mb-8 flex flex-col md:flex-row gap-4 justify-between items-center">
+          <div className="mb-8 flex flex-col gap-4 justify-between items-center xl:flex-row">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">{t('knowledge.title')}</h1>
+              <h1 className="text-3xl font-bold text-gray-900">{t('nav.concepts')}</h1>
               <p className="mt-1 text-sm text-gray-600">
                 {t('knowledge.showing', { filtered: filteredCards.length, total: cards.length })}
               </p>
@@ -328,86 +389,148 @@ export default function KnowledgeMap({
               </p>
             </div>
             
-            <div className="flex gap-4 w-full md:w-auto items-center">
-              <button 
-                  onClick={() => setViewMode('graph')}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:flex-nowrap">
+              <button
+                type="button"
+                onClick={() => setViewMode('graph')}
+                className="rounded bg-blue-600 px-4 py-2 font-medium text-white shadow transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
-                  {t('knowledge.graphView')}
+                {t('knowledge.graphView')}
               </button>
 
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-700 select-none" htmlFor="toggle-generated">
-                  {t('knowledge.showGenerated')}
-                </label>
+              <div className="min-w-[12rem] flex-1 xl:w-60 xl:flex-none">
                 <input
-                  id="toggle-generated"
-                  type="checkbox"
-                  checked={includeGenerated}
-                  onChange={(e) => {
-                    const next = e.target.checked;
-                    if (next) {
-                      void loadGenerated(generatedLimit);
-                    } else {
-                      setIncludeGenerated(false);
-                      setGeneratedCards(null);
-                      setGeneratedError(null);
-                    }
-                  }}
+                  id="concept-search"
+                  type="text"
+                  aria-label={t('knowledge.searchPlaceholder')}
+                  placeholder={t('knowledge.searchPlaceholder')}
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  className="w-full rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
               </div>
 
-              {includeGenerated ? (
-                <button
-                  type="button"
-                  onClick={() => void loadGenerated(Math.min(5000, generatedLimit + 250))}
-                disabled={loadingGenerated}
-                  className="rounded-md border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              <div>
+                <select
+                  id="concept-sort"
+                  aria-label={t('knowledge.sort')}
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as ConceptSort)}
+                  className="rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 >
-                  {loadingGenerated ? t('common.loading') : t('knowledge.loadMore')}
-                </button>
-              ) : null}
+                  <option value="newest">{t('knowledge.sortNewest')}</option>
+                  <option value="updated">{t('knowledge.sortUpdated')}</option>
+                  <option value="title">{t('knowledge.sortTitle')}</option>
+                </select>
+              </div>
 
-              <select 
-                value={selectedDomain} 
-                onChange={(e) => setSelectedDomain(e.target.value)}
-                className="p-2 border rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
-                <option value="all">{t('common.allDomains')}</option>
-                {domains.map(d => (
-                  <option key={d} value={d}>{formatDomainLabel(d)}</option>
-                ))}
-              </select>
+              <details className="relative">
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded border bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
+                  <span>{t('knowledge.filters')}</span>
+                  {activeFilterCount > 0 ? (
+                    <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700">
+                      {activeFilterCount}
+                    </span>
+                  ) : null}
+                </summary>
+                <div className="absolute left-0 z-20 mt-2 w-[min(20rem,calc(100vw-3rem))] rounded-xl border bg-white p-4 shadow-lg xl:left-auto xl:right-0">
+                  <div className="grid gap-3">
+                    <label className="grid gap-1 text-sm font-medium text-gray-700" htmlFor="concept-domain">
+                      {t('common.domain')}
+                      <select
+                        id="concept-domain"
+                        value={selectedDomain}
+                        onChange={(e) => setSelectedDomain(e.target.value)}
+                        className="rounded border bg-white p-2 font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      >
+                        <option value="all">{t('common.allDomains')}</option>
+                        {domains.map((domain) => (
+                          <option key={domain} value={domain}>{formatDomainLabel(domain)}</option>
+                        ))}
+                      </select>
+                    </label>
 
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value as CardStatus | 'all' | 'unstarted')}
-                className="p-2 border rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
-                <option value="all">{t('common.allStatus')}</option>
-                <option value="known">{t('common.canExplain')}</option>
-                <option value="saved">{t('common.unclear')}</option>
-                <option value="unstarted">{t('common.notStarted')}</option>
-              </select>
-              
-              <input 
-                type="text" 
-                placeholder={t('knowledge.searchPlaceholder')}
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="p-2 border rounded flex-grow bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setFilter('');
-                  setSelectedDomain('all');
-                  setSelectedStatus('all');
-                }}
-                className="p-2 border rounded bg-white text-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
-                {t('common.reset')}
-              </button>
+                    <label className="grid gap-1 text-sm font-medium text-gray-700" htmlFor="concept-status">
+                      {t('common.status')}
+                      <select
+                        id="concept-status"
+                        value={selectedStatus}
+                        onChange={(e) => setSelectedStatus(e.target.value as CardStatus | 'all' | 'unstarted')}
+                        className="rounded border bg-white p-2 font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      >
+                        <option value="all">{t('common.allStatus')}</option>
+                        <option value="known">{t('common.canExplain')}</option>
+                        <option value="saved">{t('common.unclear')}</option>
+                        <option value="unstarted">{t('common.notStarted')}</option>
+                      </select>
+                    </label>
+
+                    <label className="grid gap-1 text-sm font-medium text-gray-700" htmlFor="concept-added-range">
+                      {t('knowledge.addedWithin')}
+                      <select
+                        id="concept-added-range"
+                        value={addedDateRange}
+                        onChange={(e) => setAddedDateRange(e.target.value as AddedDateRange)}
+                        className="rounded border bg-white p-2 font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      >
+                        <option value="all">{t('knowledge.allTime')}</option>
+                        <option value="today">{t('knowledge.today')}</option>
+                        <option value="week">{t('knowledge.pastDays', { days: 7 })}</option>
+                        <option value="month">{t('knowledge.pastDays', { days: 30 })}</option>
+                        <option value="quarter">{t('knowledge.pastDays', { days: 90 })}</option>
+                        <option value="year">{t('knowledge.pastYear')}</option>
+                      </select>
+                    </label>
+
+                    <label className="flex items-center gap-2 text-sm text-gray-700" htmlFor="toggle-generated">
+                      <input
+                        id="toggle-generated"
+                        type="checkbox"
+                        checked={includeGenerated}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          if (next) {
+                            void loadGenerated(generatedLimit);
+                          } else {
+                            setIncludeGenerated(false);
+                            setGeneratedCards(null);
+                            setGeneratedError(null);
+                          }
+                        }}
+                      />
+                      {t('knowledge.showGenerated')}
+                    </label>
+
+                    {includeGenerated ? (
+                      <button
+                        type="button"
+                        onClick={() => void loadGenerated(Math.min(5000, generatedLimit + 250))}
+                        disabled={loadingGenerated}
+                        className="rounded-md border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                      >
+                        {loadingGenerated ? t('common.loading') : t('knowledge.loadMore')}
+                      </button>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFilter('');
+                        setSelectedDomain('all');
+                        setSelectedStatus('all');
+                        setAddedDateRange('all');
+                        setSort('newest');
+                        setIncludeGenerated(false);
+                        setGeneratedCards(null);
+                        setGeneratedError(null);
+                      }}
+                      className="rounded border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    >
+                      {t('knowledge.resetAll')}
+                    </button>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
 
@@ -430,7 +553,7 @@ export default function KnowledgeMap({
           </div>
 
           <div className="space-y-12">
-            {Object.keys(cardsByDomain).sort().map(domain => (
+            {orderedDomains.map(domain => (
               <div key={domain} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <h2 className="text-xl font-semibold mb-4 capitalize text-gray-700 border-b pb-2">
                   {formatDomainLabel(domain)}

@@ -44,6 +44,8 @@ export type KnowledgeCard = {
   title: string;
   summary: string;
   explanation: string;
+  createdAt?: string;
+  updatedAt?: string;
   wiki_url: string;
   domain: string;
   domains?: string[];
@@ -84,6 +86,8 @@ export type NodeQuiz = {
 };
 
 type CardWithStatusRow = KnowledgeCard & {
+  created_at?: string | Date | null;
+  updated_at?: string | Date | null;
   status: CardStatus | null;
   self_report_label?: SelfReportLabel | null;
   is_bookmarked?: boolean | null;
@@ -449,6 +453,34 @@ function withCardDomains<T extends { id: string; domain?: string | null; domains
   };
 }
 
+function withCardCreatedAt<T extends { createdAt?: string; created_at?: string | Date | null }>(
+  card: T
+): T & { createdAt?: string } {
+  const rawCreatedAt = card.createdAt ?? card.created_at;
+  const timestamp = rawCreatedAt instanceof Date
+    ? rawCreatedAt.getTime()
+    : typeof rawCreatedAt === 'string'
+      ? Date.parse(rawCreatedAt)
+      : Number.NaN;
+
+  if (Number.isNaN(timestamp)) return card;
+  return { ...card, createdAt: new Date(timestamp).toISOString() };
+}
+
+function withCardUpdatedAt<T extends { updatedAt?: string; updated_at?: string | Date | null }>(
+  card: T
+): T & { updatedAt?: string } {
+  const rawUpdatedAt = card.updatedAt ?? card.updated_at;
+  const timestamp = rawUpdatedAt instanceof Date
+    ? rawUpdatedAt.getTime()
+    : typeof rawUpdatedAt === 'string'
+      ? Date.parse(rawUpdatedAt)
+      : Number.NaN;
+
+  if (Number.isNaN(timestamp)) return card;
+  return { ...card, updatedAt: new Date(timestamp).toISOString() };
+}
+
 function withRelatedConcepts<T extends { id: string; related_concepts?: string[] | null }>(card: T) {
   if (card.related_concepts && card.related_concepts.length > 0) return card;
   const nodeId = normalizeGraphNodeId(card.id);
@@ -538,7 +570,8 @@ async function _initCardSchema() {
       wiki_url TEXT,
       domain TEXT CHECK (domain IN ('signal', 'control', 'info', 'ml', 'other')),
       level TEXT CHECK (level IN ('memorize', 'understand', 'connect', 'apply')),
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     );
   `);
 
@@ -551,6 +584,21 @@ async function _initCardSchema() {
   await pool.query(`
     ALTER TABLE knowledge_cards
       ADD COLUMN IF NOT EXISTS is_generated BOOLEAN NOT NULL DEFAULT FALSE;
+  `);
+
+  await pool.query(`
+    ALTER TABLE knowledge_cards
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE,
+      ALTER COLUMN updated_at SET DEFAULT NOW();
+  `);
+  await pool.query(`
+    UPDATE knowledge_cards
+    SET updated_at = COALESCE(updated_at, created_at, NOW())
+    WHERE updated_at IS NULL;
+  `);
+  await pool.query(`
+    ALTER TABLE knowledge_cards
+      ALTER COLUMN updated_at SET NOT NULL;
   `);
 
   await pool.query(`
@@ -622,6 +670,9 @@ async function _initCardSchema() {
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_knowledge_cards_domain ON knowledge_cards(domain);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_cards_updated_at ON knowledge_cards(updated_at DESC);
   `);
   await pool.query(`
     DELETE FROM knowledge_cards
@@ -741,7 +792,17 @@ async function _initCardSchema() {
         wiki_url = EXCLUDED.wiki_url,
         domain = EXCLUDED.domain,
         level = EXCLUDED.level,
-        is_generated = EXCLUDED.is_generated;
+        is_generated = EXCLUDED.is_generated,
+        updated_at = CASE
+          WHEN knowledge_cards.title IS DISTINCT FROM EXCLUDED.title
+            OR knowledge_cards.summary IS DISTINCT FROM EXCLUDED.summary
+            OR knowledge_cards.explanation IS DISTINCT FROM EXCLUDED.explanation
+            OR knowledge_cards.wiki_url IS DISTINCT FROM EXCLUDED.wiki_url
+            OR knowledge_cards.domain IS DISTINCT FROM EXCLUDED.domain
+            OR knowledge_cards.level IS DISTINCT FROM EXCLUDED.level
+          THEN NOW()
+          ELSE knowledge_cards.updated_at
+        END;
       `,
       params
     );
@@ -1587,7 +1648,9 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
 }
 
 export async function getAllCardsWithStatus(options?: GetAllCardsWithStatusOptions) {
-  const cards = await getAllCardsWithStatusSource(options);
+  const cards = (await getAllCardsWithStatusSource(options))
+    .map(withCardCreatedAt)
+    .map(withCardUpdatedAt);
   if (!options?.locale) return cards;
   return localizeKnowledgeCards(cards, options.locale, {
     generateMissing: options.generateTranslations ?? false,

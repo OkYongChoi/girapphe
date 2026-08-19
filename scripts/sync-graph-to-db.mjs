@@ -163,6 +163,26 @@ async function upsertEdges(sql, edges) {
   }
 }
 
+async function ensureCardUpdatedTimestamp(sql) {
+  await sql.query(`
+    ALTER TABLE knowledge_cards
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE,
+      ALTER COLUMN updated_at SET DEFAULT NOW();
+  `);
+  await sql.query(`
+    UPDATE knowledge_cards
+    SET updated_at = COALESCE(updated_at, created_at, NOW())
+    WHERE updated_at IS NULL;
+  `);
+  await sql.query(`
+    ALTER TABLE knowledge_cards
+      ALTER COLUMN updated_at SET NOT NULL;
+  `);
+  await sql.query(`
+    CREATE INDEX IF NOT EXISTS idx_knowledge_cards_updated_at ON knowledge_cards(updated_at DESC);
+  `);
+}
+
 async function upsertCards(sql, cards) {
   for (const chunk of chunks(cards)) {
     const params = [];
@@ -182,7 +202,17 @@ async function upsertCards(sql, cards) {
         explanation = EXCLUDED.explanation,
         wiki_url = EXCLUDED.wiki_url,
         domain = EXCLUDED.domain,
-        level = EXCLUDED.level
+        level = EXCLUDED.level,
+        updated_at = CASE
+          WHEN knowledge_cards.title IS DISTINCT FROM EXCLUDED.title
+            OR knowledge_cards.summary IS DISTINCT FROM EXCLUDED.summary
+            OR knowledge_cards.explanation IS DISTINCT FROM EXCLUDED.explanation
+            OR knowledge_cards.wiki_url IS DISTINCT FROM EXCLUDED.wiki_url
+            OR knowledge_cards.domain IS DISTINCT FROM EXCLUDED.domain
+            OR knowledge_cards.level IS DISTINCT FROM EXCLUDED.level
+          THEN NOW()
+          ELSE knowledge_cards.updated_at
+        END
       `,
       params,
     );
@@ -219,6 +249,7 @@ const sql = neon(process.env.DATABASE_URL);
 
 await sql.query('BEGIN');
 try {
+  await ensureCardUpdatedTimestamp(sql);
   await upsertNodes(sql, GRAPH_NODES);
   await upsertEdges(sql, validEdges);
   await upsertCards(sql, cards);

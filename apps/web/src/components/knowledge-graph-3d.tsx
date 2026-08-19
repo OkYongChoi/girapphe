@@ -400,6 +400,18 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
             >
               {t('common.reset')}
             </button>
+            {onClose && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onClose();
+                }}
+                className="rounded-md border border-gray-700 bg-gray-950/75 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-white/10 xl:hidden"
+              >
+                {t('graph.backToConcepts')}
+              </button>
+            )}
           </div>
 
           <div className="mt-3 grid gap-2 md:grid-cols-[1fr_10rem_9rem]">
@@ -463,7 +475,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
           </div>
         </div>
 
-        <div className="pointer-events-auto relative flex items-center gap-2">
+        <div className="pointer-events-auto relative hidden items-center gap-2 xl:flex">
           <LanguageSwitcher compact />
           <button
             type="button"
@@ -502,7 +514,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 3h7l2 2h9v14H3z" /><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
               </svg>
-              {t('graph.backToGrid')}
+              {t('graph.backToConcepts')}
             </button>
           )}
         </div>
