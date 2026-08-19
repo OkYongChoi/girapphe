@@ -631,7 +631,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               ))}
               {selectedNode.level && (
                 <span className="inline-flex items-center rounded-md bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-400 border border-gray-700">
-                  {t('common.difficulty', { rank: selectedLevel?.rank, label: selectedLevel?.label })}
+                  {t('common.difficulty', { rank: selectedLevel?.rank ?? 0, label: selectedLevel?.label ?? '' })}
                 </span>
               )}
             </div>
