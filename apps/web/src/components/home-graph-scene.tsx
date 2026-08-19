@@ -206,7 +206,6 @@ export default function HomeGraphScene({
   const [dimensions, setDimensions] = useState({ width: 720, height: 560 });
   const [activeDemoGroup, setActiveDemoGroup] = useState<DemoGroup>('biology');
   const [activeCaseKey, setActiveCaseKey] = useState<LearningCaseKey>('explore');
-  const [isAutoCycling, setIsAutoCycling] = useState(true);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const activeCase = LEARNING_CASES[activeCaseKey];
   const activeStatusGroup = activeCase.activeGroup;
@@ -250,19 +249,6 @@ export default function HomeGraphScene({
 
     return () => window.clearInterval(intervalId);
   }, [demo, prefersReducedMotion]);
-
-  useEffect(() => {
-    if (demo || !isAutoCycling || prefersReducedMotion) return;
-
-    const intervalId = window.setInterval(() => {
-      setActiveCaseKey((current) => {
-        const index = CASE_SEQUENCE.indexOf(current);
-        return CASE_SEQUENCE[(index + 1) % CASE_SEQUENCE.length];
-      });
-    }, 3400);
-
-    return () => window.clearInterval(intervalId);
-  }, [demo, isAutoCycling, prefersReducedMotion]);
 
   const enableOrbit = useCallback(() => {
     const controls = graphRef.current?.controls?.();
@@ -554,7 +540,6 @@ export default function HomeGraphScene({
                 type="button"
                 aria-pressed={selected}
                 onClick={() => {
-                  setIsAutoCycling(false);
                   setActiveCaseKey(caseKey);
                 }}
                 className={`min-h-10 rounded-lg border px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-cyan-200/60 ${
