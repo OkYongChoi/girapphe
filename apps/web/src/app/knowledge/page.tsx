@@ -24,7 +24,8 @@ export default async function KnowledgePage() {
     <main className="min-h-screen bg-gray-50 flex flex-col">
       <Navbar user={actor.isGuest ? null : actor} />
       <div className="flex-grow">
-        <KnowledgeMap
+        <div className="mx-auto flex h-full w-full max-w-6xl">
+          <KnowledgeMap
           initialCards={cards}
           personalItems={actor.isGuest ? [] : personalItems}
           publicEdges={publicEdges}
@@ -33,6 +34,7 @@ export default async function KnowledgePage() {
           isGuest={actor.isGuest}
           locale={locale}
         />
+        </div>
       </div>
     </main>
   );
