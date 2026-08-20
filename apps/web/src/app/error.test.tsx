@@ -6,7 +6,6 @@ import GlobalError from './error';
 test('renders recovery controls that work without client-side navigation', () => {
   const markup = renderToStaticMarkup(<GlobalError error={new Error('test error')} />);
 
-  assert.match(markup, /<form action="" method="get">/);
-  assert.match(markup, /<button type="submit"[^>]*>Try again<\/button>/);
+  assert.match(markup, /<a href=""[^>]*>Try again<\/a>/);
   assert.match(markup, /<a href="\/en"[^>]*>Return home<\/a>/);
 });

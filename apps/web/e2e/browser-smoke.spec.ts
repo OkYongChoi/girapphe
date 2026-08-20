@@ -8,7 +8,7 @@ const usesDeployedPreview = Boolean(process.env.PLAYWRIGHT_BASE_URL);
 const authEntrypointOrConfigFallback = /Sign in|Sign up|Authentication is (?:unavailable|not available)|Clerk keys are missing|Live Clerk keys cannot be used/i;
 const errorRecoveryMarkup = `
   <main id="main-content">
-    <form action="" method="get"><button type="submit">Try again</button></form>
+    <a href="">Try again</a>
     <a href="/en">Return home</a>
   </main>
 `;
@@ -43,10 +43,10 @@ test.describe('browser smoke', () => {
     await page.goto('/practice?error-recovery=1');
     await page.setContent(errorRecoveryMarkup);
 
-    const retry = page.getByRole('button', { name: 'Try again' });
+    const retry = page.getByRole('link', { name: 'Try again' });
     await expect(retry).toBeVisible();
     await Promise.all([
-      page.waitForURL(/\/en\/practice/),
+      page.waitForURL(/\/en\/practice\?error-recovery=1$/),
       retry.click(),
     ]);
 
