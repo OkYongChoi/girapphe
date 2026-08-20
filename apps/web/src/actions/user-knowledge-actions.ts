@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import pool from '@/lib/db';
 import { requireCurrentActor } from '@/lib/auth';
-import { PERSONAL_CARD_RETENTION_DAYS, purgeExpiredPersonalKnowledgeItems } from '@/lib/personal-knowledge';
+import { PERSONAL_CARD_RETENTION_DAYS } from '@/lib/personal-knowledge';
+import { canRunRuntimeSchemaBootstrap } from '@/lib/schema-bootstrap';
 import {
   createMemoryKnowledgeItemForUser,
   createPrivateKnowledgeEdgeForUser,
@@ -41,6 +42,10 @@ let schemaReady = false;
 
 async function ensureSchema() {
   if (!process.env.DATABASE_URL || schemaReady) return;
+  if (!canRunRuntimeSchemaBootstrap()) {
+    schemaReady = true;
+    return;
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_knowledge_items (
@@ -97,9 +102,6 @@ async function ensureSchema() {
   schemaReady = true;
 }
 
-async function purgeExpiredKnowledgeItems() {
-  await purgeExpiredPersonalKnowledgeItems();
-}
 
 export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
   const user = await requireCurrentActor();
@@ -112,7 +114,6 @@ export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
   }
 
   await ensureSchema();
-  await purgeExpiredKnowledgeItems();
 
   const result = await pool.query<UserKnowledgeItem>(
     `
@@ -289,7 +290,6 @@ export async function getDeletedKnowledgeItems(): Promise<UserKnowledgeItem[]> {
   }
 
   await ensureSchema();
-  await purgeExpiredKnowledgeItems();
   const result = await pool.query<UserKnowledgeItem>(
     `SELECT id, user_id, title, summary, content, topic, tags, created_at::text, updated_at::text,
       deleted_at::text, purge_at::text

@@ -1,4 +1,5 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
@@ -15,7 +16,7 @@ export type CurrentActor = AuthUser & {
   isGuest: boolean;
 };
 
-export async function getCurrentUser(): Promise<AuthUser | null> {
+export const getCurrentUser = cache(async function getCurrentUser(): Promise<AuthUser | null> {
   if (!hasValidClerkConfig()) return null;
 
   const { userId } = await auth();
@@ -30,9 +31,9 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     '';
 
   return { id: userId, email };
-}
+});
 
-export async function getCurrentActor(): Promise<CurrentActor> {
+export const getCurrentActor = cache(async function getCurrentActor(): Promise<CurrentActor> {
   const user = await getCurrentUser();
   if (user) return { ...user, isGuest: false };
 
@@ -44,7 +45,7 @@ export async function getCurrentActor(): Promise<CurrentActor> {
     email: 'Guest',
     isGuest: true,
   };
-}
+});
 
 export async function requireCurrentActor(): Promise<CurrentActor> {
   return getCurrentActor();

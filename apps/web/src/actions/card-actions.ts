@@ -25,6 +25,7 @@ import {
   savePrivatePracticeCardState,
 } from '@/lib/private-practice-cards';
 import { localizeDomain } from '@stem-brain/shared';
+import { canRunRuntimeSchemaBootstrap } from '@/lib/schema-bootstrap';
 import {
   localizeGraphNodes,
   localizeKnowledgeCards,
@@ -545,6 +546,11 @@ for (const edge of GRAPH_EDGES) {
 async function ensureCardSchema() {
   if (!process.env.DATABASE_URL) return;
   if (cardSchemaReady) return;
+  if (!canRunRuntimeSchemaBootstrap()) {
+    // CI applies the checked-in migrations before production deploys.
+    cardSchemaReady = true;
+    return;
+  }
   if (cardSchemaPromise) return cardSchemaPromise;
   cardSchemaPromise = _initCardSchema();
   return cardSchemaPromise;
