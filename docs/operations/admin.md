@@ -1,7 +1,8 @@
 # Admin Operations
 
-The `/admin` routes are intended for a single trusted Clerk user and operate only on the
-PostgreSQL-backed graph tables in `apps/web`.
+The `/admin` routes are intended for a single trusted Clerk user.
+Graph-management routes operate on PostgreSQL-backed graph tables in `apps/web`.
+The Capacity route reads bounded Cloudflare, Clerk, and Neon operating signals.
 
 ## Required Environment Variables
 
@@ -22,17 +23,36 @@ Use the web app templates as your source of truth:
 - `apps/web/.env.dev.example`
 - `apps/web/.env.prod.example`
 
+## Optional Live Capacity Signals
+
+`/admin/ops` remains configuration-safe without these values. To show live
+Cloudflare and Neon signals in production, configure both complete groups:
+
+```bash
+CLOUDFLARE_ACCOUNT_ID=...
+CLOUDFLARE_ANALYTICS_API_TOKEN=...
+NEON_API_KEY=...
+NEON_PROJECT_ID=...
+NEON_BRANCH_ID=...
+```
+
+The Cloudflare token needs only Account Analytics read access. Store API tokens
+as GitHub and Worker secrets; use repository variables for Neon identifiers.
+See `docs/operations/resource-planning.md` for source coverage and thresholds.
+
 ## Route Behavior
 
 - Signed-out users are redirected to `/login`.
 - Signed-in non-admin users are redirected to `/`.
-- `/admin` redirects to `/admin/nodes`.
+- `/admin` redirects to `/admin/ops`.
 - All mutations re-check admin authorization in the server action before executing.
 
 ## Supported Operations
 
 - Nodes: list, create, delete
 - Edges: list, create, delete
+- Capacity: read Worker, identity, and database headroom signals; no provider mutation
+  is available from this route.
 - Users: view aggregated learning progress
 
 ## Validation Rules
@@ -51,3 +71,6 @@ Use the web app templates as your source of truth:
 4. Create and delete a node.
 5. Create and delete an edge.
 6. Visit `/admin/users` and verify user aggregates render.
+7. Visit `/admin/ops`; without optional provider credentials, verify clear unavailable states.
+8. Configure the complete Cloudflare and Neon groups only in production and verify live values.
+9. Confirm a partially configured group fails `pnpm check:env:prod` before deployment.

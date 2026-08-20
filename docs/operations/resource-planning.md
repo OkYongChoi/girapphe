@@ -110,3 +110,60 @@ Update this document whenever you change:
 - Neon branch topology, connection method, replica strategy, or preview DB
   policy
 - background-job architecture such as cleanup, billing, or translation backfill
+
+## Admin Capacity Dashboard
+
+`/admin/ops` is the protected, production-oriented review surface for the
+three shared providers. It caches an aggregated snapshot for five minutes and
+continues to render a clear unavailable state when a provider is not connected.
+It never exposes provider credentials to the browser.
+
+### Signals and Sources
+
+- **Cloudflare**: Worker request/error totals, a current-versus-prior-range
+  request comparison, and `cpuTimeP99` come from the Workers Analytics GraphQL
+  API. The dashboard also shows the repository-owned compressed Worker bundle
+  budget from `config/resource-limits.json`.
+- **Clerk**: the Backend API supplies total users and sign-ins during the
+  selected range via the documented `last_sign_in_at_*` filters. Monthly
+  Retained Users (MRU) stays a Clerk Console metric and is not inferred from this count.
+- **Neon**: a guarded SQL read supplies database size, active sessions,
+  configured connection ceiling, and query-read latency. The Neon control-plane
+  API supplies autoscaling limits, compute state, and compute-unit consumption
+  when the active plan permits that history endpoint. Pooling is detected from
+  the `-pooler` hostname in `DATABASE_URL`, not inferred from endpoint metadata.
+
+### Activation
+
+The dashboard is usable with no extra provider credentials, but shows
+configuration-safe unavailable states. For production live provider signals,
+configure both complete groups in GitHub Actions and Worker runtime secrets:
+
+```bash
+CLOUDFLARE_ACCOUNT_ID=...
+CLOUDFLARE_ANALYTICS_API_TOKEN=...
+NEON_API_KEY=...
+NEON_PROJECT_ID=...
+NEON_BRANCH_ID=...
+```
+
+Use a dedicated Cloudflare token limited to Account Analytics read access. Keep
+Neon project and branch identifiers as repository variables where possible;
+store API tokens as secrets. These credentials are intentionally absent from
+PR preview deployments so previews cannot inspect production operations data.
+
+### Review and Expansion Rules
+
+- Treat Worker error rate at or above 1% as an immediate investigation signal.
+- Review Neon sessions when active sessions reach 70% of the configured ceiling
+  and move serverless traffic to a Neon pooled URL before adding a larger
+  compute plan.
+- Investigate persistent Worker CPU p99 increases before changing a Cloudflare
+  plan; first remove request-path batch work, cache stable reads, or split
+  background work from user traffic.
+- Review Clerk MRU and sign-in errors in the Clerk Console before crossing a
+  plan threshold; do not use total historical users as an active-user proxy.
+- Estimate supported simultaneous rooms only after a representative load test:
+  measure peak Worker CPU, requests, database sessions, and query latency for a
+  known room count, retain a 30% headroom buffer, then scale the limiting
+  provider. Do not publish a static room-count promise from plan names alone.

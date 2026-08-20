@@ -229,6 +229,16 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('capacity dashboard stays behind admin authentication', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.goto('/admin/ops');
+    await expect(page.locator('main')).toBeVisible();
+    await expect(page.locator('body')).toContainText(authEntrypointOrConfigFallback);
+
+    await assertNoBrowserFailures();
+  });
+
   test('knowledge graph renders a non-empty graph surface', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
