@@ -1,6 +1,7 @@
 import { getNextCard, getUserStats } from '@/actions/card-actions';
 import CardViewer from '@/components/card-viewer';
 import Navbar from '@/components/navbar';
+import PrepareReviewSessionWebMcp from '@/components/prepare-review-session-webmcp';
 import { getCurrentActor } from '@/lib/auth';
 import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 import { hasAdFreeEntitlement } from '@/lib/billing/database';
@@ -24,6 +25,7 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
 
   return (
     <main id="main-content" className="min-h-screen bg-gray-50 flex flex-col">
+      <PrepareReviewSessionWebMcp currentMode={mode} />
       <Navbar user={actor.isGuest ? null : actor} />
 
       <div className="mx-auto w-full max-w-lg flex-grow px-4 py-4 md:py-6">

@@ -75,8 +75,14 @@ export default async function RootLayout({
 }>) {
   const useClerk = hasValidClerkConfig();
   const i18n = await getServerI18n();
+  const webMcpOriginTrialToken = process.env.NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN?.trim();
   const body = (
     <html lang={i18n.locale} dir={i18n.direction} suppressHydrationWarning>
+      {webMcpOriginTrialToken ? (
+        <head>
+          <meta httpEquiv="origin-trial" content={webMcpOriginTrialToken} />
+        </head>
+      ) : null}
       <body className="antialiased" suppressHydrationWarning>
         <I18nProvider locale={i18n.locale}>{children}</I18nProvider>
       </body>

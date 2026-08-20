@@ -4,6 +4,7 @@ import {
   getMcpAccessTokens,
 } from '@/actions/knowledge-ingestion-actions';
 import DraftReviewMcpConnections from '@/components/draft-review-mcp-connections';
+import OpenPendingReviewWebMcp from '@/components/open-pending-review-webmcp';
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
 
@@ -51,9 +52,14 @@ export default async function KnowledgeInboxPage({ searchParams }: KnowledgeInbo
     getKnowledgeDraftBatches(),
     getMcpAccessTokens(),
   ]);
+  const pendingReviewSummaries = batches.flatMap((batch) => {
+    const id = readString(asRecord(batch), 'id', 'batch_id');
+    return id ? [{ id }] : [];
+  });
 
   return (
     <main id="main-content" className="min-h-screen bg-slate-50">
+      <OpenPendingReviewWebMcp batches={pendingReviewSummaries} />
       <Navbar />
       <section className="mx-auto w-full max-w-5xl p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-4">

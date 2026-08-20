@@ -34,6 +34,7 @@ export default async function KnowledgePage() {
           publicEdges={publicEdges}
           privateGraph={actor.isGuest ? null : privateGraph}
           graphLinkTargets={graphLinkTargets}
+          enableWebMcp
           isGuest={actor.isGuest}
           locale={locale}
         />
