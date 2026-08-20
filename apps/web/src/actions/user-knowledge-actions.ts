@@ -161,6 +161,8 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
     }
 
     revalidatePath('/my-knowledge');
+    revalidatePath('/grid');
+    revalidatePath('/knowledge');
     return;
   }
 
@@ -200,6 +202,8 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   }
 
   revalidatePath('/my-knowledge');
+  revalidatePath('/grid');
+  revalidatePath('/knowledge');
 }
 
 export async function updateKnowledgeItem(formData: FormData): Promise<void> {
@@ -222,6 +226,8 @@ export async function updateKnowledgeItem(formData: FormData): Promise<void> {
     updateMemoryKnowledgeItemForUser(user.id, id, { title, summary, content, topic, tags }, { syncGraph });
 
     revalidatePath('/my-knowledge');
+    revalidatePath('/grid');
+    revalidatePath('/knowledge');
     return;
   }
 
@@ -240,6 +246,8 @@ export async function updateKnowledgeItem(formData: FormData): Promise<void> {
   );
 
   revalidatePath('/my-knowledge');
+  revalidatePath('/grid');
+  revalidatePath('/knowledge');
 }
 
 export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
@@ -255,6 +263,7 @@ export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
     softDeleteMemoryKnowledgeItemForUser(user.id, id, PERSONAL_CARD_RETENTION_DAYS, { syncGraph });
 
     revalidatePath('/my-knowledge');
+    revalidatePath('/grid');
     revalidatePath('/knowledge');
     return;
   }
@@ -279,6 +288,7 @@ export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
   );
 
   revalidatePath('/my-knowledge');
+  revalidatePath('/grid');
   revalidatePath('/knowledge');
 }
 
@@ -334,5 +344,6 @@ export async function restoreKnowledgeItem(formData: FormData): Promise<void> {
   }
 
   revalidatePath('/my-knowledge');
+  revalidatePath('/grid');
   revalidatePath('/knowledge');
 }

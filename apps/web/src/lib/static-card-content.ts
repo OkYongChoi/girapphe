@@ -11,9 +11,7 @@ export async function getStaticCardContent(): Promise<StaticCardContent> {
     staticCardContentPromise = (async () => {
       const assets = getCloudflareContext().env.ASSETS;
       if (!assets) throw new Error('The static asset binding is unavailable.');
-      const response = await assets.fetch(
-        new Request('https://assets.local/localization/card-content.json'),
-      );
+      const response = await assets.fetch('https://assets.local/localization/card-content.json');
       if (!response.ok) {
         throw new Error(`Unable to load the static card-content asset (${response.status}).`);
       }

@@ -211,11 +211,36 @@ test('mobile private graph summaries are invalidated on account transitions', as
   ]);
 
   for (const source of [homeSource, browseSource]) {
+    assert.match(source, /useFocusEffect\(/);
     assert.match(source, /let active = true;/);
     assert.match(source, /if \(!isSignedIn \|\| !userId\)/);
     assert.match(source, /if \(!active\)|if \(active\)/);
     assert.match(source, /return \(\) => \{ active = false; \};/);
     assert.match(source, /\[isSignedIn, (?:locale, )?userId\]/);
-    assert.match(source, /isSignedIn && userId && personalNotes\.length > 0/);
+    assert.match(source, /isCurrentPrivateGraphOwner\(isSignedIn, userId, graphOwnerId\)/);
+    assert.match(source, /setGraphOwnerId\(requestUserId\)/);
+    assert.match(source, /isSignedIn && userId && currentPersonalNotes\.length > 0/);
+  }
+  assert.match(browseSource, /mergeBrowseConcepts\(publicNodes, visiblePersonalNotes\)/);
+  assert.match(browseSource, /data=\{concepts\}/);
+});
+
+test('web Concepts includes current guest notes without enabling the signed-in private graph', async () => {
+  const sources = await Promise.all([
+    readFile(new URL('../app/grid/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../app/knowledge/page.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  for (const source of sources) {
+    assert.match(source, /getUserKnowledgeItems\(\),/);
+    assert.doesNotMatch(
+      source,
+      /actor\.isGuest \? Promise\.resolve\(\[\]\) : getUserKnowledgeItems\(\)/,
+    );
+    assert.match(source, /const personalMapItems = personalItems\.map/);
+    assert.match(source, /personalItems=\{personalMapItems\}/);
+    assert.doesNotMatch(source, /personalItems=\{personalItems\}/);
+    assert.doesNotMatch(source, /user_id|source_provider|source_batch_id/);
+    assert.match(source, /actor\.isGuest \? Promise\.resolve\(null\) : getPrivateKnowledgeGraph\(\)/);
   }
 });

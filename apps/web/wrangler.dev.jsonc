@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "girapphe-dev-bindings",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-16",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "vars": {
+    "APP_ENV": "base"
+  },
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS"
+  }
+}

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { type Href, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import { type Href, useFocusEffect, useRouter } from 'expo-router';
 import {
   FlatList,
   Pressable,
@@ -26,14 +26,17 @@ import {
   getNodeSummary,
   getPrerequisiteCount,
 } from '@/knowledge';
-import { mobileApi, type PersonalNoteSummary } from '@/api';
-import type { MobileCard } from '@/api';
+import { mobileApi, type GraphCardSummary, type PersonalNoteSummary } from '@/api';
+import { isCurrentPrivateGraphOwner } from '@/browse-concepts';
 import { useMobileAuth } from '@/auth';
 import { LanguageSelector } from '@/components/language-selector';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 import { useI18n } from '@/i18n';
 import { normalizeCardNodeId, useLocalizedContent } from '@/localized-content';
 import { localizeDomain, localizeType } from '@stem-brain/shared';
+
+const EMPTY_PERSONAL_NOTES: PersonalNoteSummary[] = [];
+const EMPTY_CARDS_BY_NODE_ID = new Map<string, GraphCardSummary>();
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -51,34 +54,44 @@ export default function HomeScreen() {
   const visibleNodes = useMemo(() => filterNodes({ domain: selectedDomain, limit: 36 }), [selectedDomain]);
   const prerequisiteCount = useMemo(() => getPrerequisiteCount(selectedNode.id), [selectedNode.id]);
   const [personalNotes, setPersonalNotes] = useState<PersonalNoteSummary[]>([]);
-  const [cardsByNodeId, setCardsByNodeId] = useState<Map<string, MobileCard>>(new Map());
+  const [cardsByNodeId, setCardsByNodeId] = useState<Map<string, GraphCardSummary>>(new Map());
+  const [graphOwnerId, setGraphOwnerId] = useState<string | null>(null);
+  const hasCurrentPrivateGraph = isCurrentPrivateGraphOwner(isSignedIn, userId, graphOwnerId);
+  const currentPersonalNotes = hasCurrentPrivateGraph ? personalNotes : EMPTY_PERSONAL_NOTES;
+  const currentCardsByNodeId = hasCurrentPrivateGraph ? cardsByNodeId : EMPTY_CARDS_BY_NODE_ID;
   const contentIds = useMemo(() => [...new Set([...visibleNodes.map((node) => node.id), ...featuredNodes.map((node) => node.id), selectedNode.id])], [featuredNodes, selectedNode.id, visibleNodes]);
   const localized = useLocalizedContent(contentIds, selectedNode.id);
 
-  function cardFor(node: GraphNode) { return cardsByNodeId.get(node.id); }
+  function cardFor(node: GraphNode) { return currentCardsByNodeId.get(node.id); }
   function labelFor(node: GraphNode) { return cardFor(node)?.title ?? localized.get(node.id)?.label ?? localized.get(node.id)?.title ?? node.label; }
-  function domainFor(node: GraphNode) { return cardFor(node)?.domain_label ?? localized.get(node.id)?.domain_label ?? localizeDomain(locale, node.domain); }
-  function typeFor(node: GraphNode) { return cardFor(node)?.type_label ?? localized.get(node.id)?.type_label ?? localizeType(locale, node.type); }
-  function summaryFor(node: GraphNode) { return cardFor(node)?.summary ?? localized.get(node.id)?.summary ?? getNodeSummary(node.id); }
+  function domainFor(node: GraphNode) { return localized.get(node.id)?.domain_label ?? localizeDomain(locale, node.domain); }
+  function typeFor(node: GraphNode) { return localized.get(node.id)?.type_label ?? localizeType(locale, node.type); }
+  function summaryFor(node: GraphNode) { return localized.get(node.id)?.summary ?? getNodeSummary(node.id); }
 
-  useEffect(() => {
-    let active = true;
-    setPersonalNotes([]);
-    setCardsByNodeId(new Map());
-    if (!isSignedIn || !userId) return () => { active = false; };
-
-    void mobileApi.graph().then(({ cards, personalItems }) => {
-      if (!active) return;
-      setPersonalNotes(personalItems);
-      setCardsByNodeId(new Map(cards.map((card) => [normalizeCardNodeId(card.id), card])));
-    }).catch(() => {
-      if (!active) return;
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setGraphOwnerId(null);
       setPersonalNotes([]);
       setCardsByNodeId(new Map());
-    });
+      if (!isSignedIn || !userId) return () => { active = false; };
+      const requestUserId = userId;
 
-    return () => { active = false; };
-  }, [isSignedIn, locale, userId]);
+      void mobileApi.graph().then(({ cards, personalItems }) => {
+        if (!active) return;
+        setPersonalNotes(personalItems);
+        setCardsByNodeId(new Map(cards.map((card) => [normalizeCardNodeId(card.id), card])));
+        setGraphOwnerId(requestUserId);
+      }).catch(() => {
+        if (!active) return;
+        setGraphOwnerId(null);
+        setPersonalNotes([]);
+        setCardsByNodeId(new Map());
+      });
+
+      return () => { active = false; };
+    }, [isSignedIn, locale, userId]),
+  );
 
   function openSelectedTopic() {
     router.push({ pathname: '/topic/[id]', params: { id: selectedNode.id } });
@@ -158,7 +171,7 @@ export default function HomeScreen() {
               </View>
               <Text style={styles.detailTitle}>{labelFor(selectedNode)}</Text>
               <Text style={styles.detailText}>{summaryFor(selectedNode)}</Text>
-              <TranslationFallbackNotice dark translation={cardFor(selectedNode) ?? localized.get(selectedNode.id)} />
+              <TranslationFallbackNotice dark translation={localized.get(selectedNode.id)} />
               <View style={styles.metaRow}>
                 <Text style={styles.metaChip}>{typeFor(selectedNode)}</Text>
                 <Text style={styles.metaChip}>{t('home.level', { value: formatNumber(selectedNode.level) })}</Text>
@@ -174,7 +187,7 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            {isSignedIn && userId && personalNotes.length > 0 ? (
+            {isSignedIn && userId && currentPersonalNotes.length > 0 ? (
               <View style={styles.personalPanel}>
                 <View style={styles.personalHeader}>
                   <Text style={styles.personalTitle}>{t('home.myNotesPrivate')}</Text>
@@ -183,7 +196,7 @@ export default function HomeScreen() {
                   </Pressable>
                 </View>
                 <Text style={styles.personalCopy}>{t('home.privateNotesCopy')}</Text>
-                {personalNotes.slice(0, 3).map((note) => <Text key={note.id} style={styles.personalNote} numberOfLines={1}>● {note.title}</Text>)}
+                {currentPersonalNotes.slice(0, 3).map((note) => <Text key={note.id} style={styles.personalNote} numberOfLines={1}>● {note.title}</Text>)}
               </View>
             ) : null}
 

@@ -30,10 +30,15 @@ type MapCard = KnowledgeCard & {
   tags?: string[];
 };
 
+type KnowledgeMapPersonalItem = Pick<
+  UserKnowledgeItem,
+  'id' | 'title' | 'summary' | 'content' | 'topic' | 'tags' | 'created_at' | 'updated_at'
+>;
+
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
   initialView?: 'grid' | 'graph';
-  personalItems?: UserKnowledgeItem[];
+  personalItems?: KnowledgeMapPersonalItem[];
   publicEdges?: KnowledgeMapEdge[];
   privateGraph?: {
     nodes?: unknown[];
