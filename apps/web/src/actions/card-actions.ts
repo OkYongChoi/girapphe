@@ -7,7 +7,7 @@ import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 import { GRAPH_EDGES } from '@stem-brain/graph-engine';
 import { GRAPH_NODES } from '@stem-brain/graph-engine';
 import { getCardLevelMeta, type CardLevel, type EdgeType } from '@stem-brain/graph-engine';
-import { getStaticCardContent, type StaticCardContent } from '@/lib/static-card-content';
+import { getStaticCardContent, getStaticCardSummaries, type StaticCardContent, type StaticCardSummary } from '@/lib/static-card-content';
 import {
   getMockCardStatus,
   getMockPracticeStats,
@@ -32,6 +32,11 @@ import {
   type ContentLocale,
   type TranslationResolutionStatus,
 } from '@/lib/content-localization';
+import {
+  getKnowledgeMapCardDomains,
+  paginateKnowledgeMapCards,
+  type KnowledgeMapPageOptions,
+} from '@/lib/knowledge-map-pagination';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -61,6 +66,30 @@ export type KnowledgeCard = {
   resolved_locale?: ContentLocale;
   translation_status?: TranslationResolutionStatus;
   translation_error_code?: string;
+};
+
+export type KnowledgeMapCard = Pick<
+  KnowledgeCard,
+  'id' | 'title' | 'summary' | 'createdAt' | 'updatedAt' | 'wiki_url' | 'domain' | 'domains' | 'level'
+> & {
+  status: CardStatus | null;
+};
+
+export type KnowledgeMapCardPage = {
+  cards: KnowledgeMapCard[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  coreTotal: number;
+  generatedTotal: number;
+  domains: string[];
+};
+
+export type GetKnowledgeMapCardPageOptions = KnowledgeMapPageOptions & {
+  includeGenerated?: boolean;
+  generatedLimit?: number;
+  locale?: string;
 };
 
 export type KnowledgeMapEdge = {
@@ -314,6 +343,27 @@ function buildCoreGraphCards(cardContent: StaticCardContent): KnowledgeCard[] {
   .filter((card): card is KnowledgeCard => Boolean(card));
 }
 
+function buildCoreKnowledgeMapCards(cardSummaries: StaticCardSummary): KnowledgeCard[] {
+  return GRAPH_NODES
+    .filter((node) => node.level > 0 && !META_NODE_IDS.has(node.id))
+    .slice(0, KNOWLEDGE_CARD_LIMIT)
+    .map<KnowledgeCard | null>((node) => {
+      const content = cardSummaries[node.id];
+      if (!content?.hasContent) return null;
+      return {
+        id: `graph_${node.id}`,
+        title: node.label,
+        summary: content.summary || `${node.type} in ${node.domain}`,
+        explanation: '',
+        wiki_url: `https://en.wikipedia.org/wiki/${encodeURIComponent(node.label.replace(/\s+/g, '_'))}`,
+        domain: getPrimaryCardDomain(getCardDomainsForNode(node)),
+        domains: getCardDomainsForNode(node),
+        level: mapDifficultyToLevel(node.difficulty),
+      };
+    })
+    .filter((card): card is KnowledgeCard => Boolean(card));
+}
+
 const DRILL_ELIGIBLE_NODES = [...GRAPH_NODES]
   .filter((node) => node.level > 0)
   .sort((a, b) => {
@@ -419,6 +469,17 @@ async function getMockCards(): Promise<KnowledgeCard[]> {
     );
   }
   return mockCardsPromise;
+}
+
+let mockKnowledgeMapCardsPromise: Promise<KnowledgeCard[]> | null = null;
+
+async function getMockKnowledgeMapCards(): Promise<KnowledgeCard[]> {
+  if (!mockKnowledgeMapCardsPromise) {
+    mockKnowledgeMapCardsPromise = getStaticCardSummaries().then((summaries) =>
+      buildCoreKnowledgeMapCards(summaries).slice(0, TARGET_CARD_COUNT),
+    );
+  }
+  return mockKnowledgeMapCardsPromise;
 }
 
 const GUEST_CARD_IDS = new Set(
@@ -1518,11 +1579,13 @@ type GetAllCardsWithStatusOptions = {
   locale?: string;
   generateTranslations?: boolean;
   maxTranslationGenerations?: number;
+  includeRelationshipMetadata?: boolean;
 };
 
 async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOptions) {
   const user = await requireCurrentActor();
   const includeGenerated = options?.includeGenerated ?? false;
+  const includeRelationshipMetadata = options?.includeRelationshipMetadata ?? true;
   const generatedLimit = Math.max(0, Math.min(options?.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
 
   if (user.isGuest || !process.env.DATABASE_URL) {
@@ -1574,7 +1637,7 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
           ...row,
           status: user.isGuest ? getMockCardStatus(index) : deriveLegacyStatus(row),
         }))
-        .map((row) => withCardDomains(withRelatedConcepts(row)));
+        .map((row) => withCardDomains(includeRelationshipMetadata ? withRelatedConcepts(row) : row));
     }
 
     // Ensure we can satisfy the requested generatedLimit.
@@ -1627,7 +1690,7 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
         ...row,
         status: user.isGuest ? getMockCardStatus(index) : deriveLegacyStatus(row),
       }))
-      .map((row) => withCardDomains(withRelatedConcepts(row)));
+      .map((row) => withCardDomains(includeRelationshipMetadata ? withRelatedConcepts(row) : row));
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
     const sourceCards = limitCardsForGuestKnowledgeMap(await getMockCards(), user.isGuest);
@@ -1656,7 +1719,296 @@ export async function getAllCardsWithStatus(options?: GetAllCardsWithStatusOptio
     generateMissing: options.generateTranslations ?? false,
     maxGenerations: options.maxTranslationGenerations ?? 0,
     maxRelatedGenerations: Math.min(8, Math.max(0, options.maxTranslationGenerations ?? 0) * 4),
+    includeRelationshipMetadata: options.includeRelationshipMetadata,
   });
+}
+
+type KnowledgeMapCardSourceOptions = Pick<
+  GetKnowledgeMapCardPageOptions,
+  'includeGenerated' | 'generatedLimit'
+> & {
+  includeExplanation: boolean;
+};
+
+function knowledgeMapCardColumns(includeExplanation: boolean) {
+  const explanation = includeExplanation
+    ? "COALESCE(kc.explanation, '') AS explanation"
+    : "''::text AS explanation";
+
+  return `
+    kc.id,
+    kc.title,
+    COALESCE(kc.summary, '') AS summary,
+    ${explanation},
+    COALESCE(kc.wiki_url, '') AS wiki_url,
+    COALESCE(kc.domain, 'other') AS domain,
+    COALESCE(kc.level, 'understand') AS level,
+    kc.created_at,
+    kc.updated_at,
+    ucs.status,
+    ucs.knowledge_state,
+    ucs.progress_state
+  `;
+}
+
+function omitExplanationFromKnowledgeMapCards<T extends KnowledgeCard>(cards: T[], includeExplanation: boolean) {
+  if (includeExplanation) return cards;
+  return cards.map((card) => ({ ...card, explanation: '' }));
+}
+
+function toKnowledgeMapCard(card: CardWithStatusRow): KnowledgeMapCard {
+  return {
+    id: card.id,
+    title: card.title,
+    summary: card.summary,
+    createdAt: card.createdAt,
+    updatedAt: card.updatedAt,
+    wiki_url: card.wiki_url,
+    domain: card.domain,
+    domains: card.domains,
+    level: card.level,
+    status: card.status,
+  };
+}
+
+async function getKnowledgeMapCardSource(options: KnowledgeMapCardSourceOptions) {
+  const user = await requireCurrentActor();
+  const includeGenerated = options.includeGenerated ?? false;
+  const generatedLimit = Math.max(0, Math.min(options.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
+
+  if (user.isGuest || !process.env.DATABASE_URL) {
+    const sourceCards = limitCardsForGuestKnowledgeMap(await getMockKnowledgeMapCards(), user.isGuest);
+    const cards = includeGenerated
+      ? sourceCards
+      : sourceCards.filter((card) => !isExcludedFromKnowledgeMap(card.id));
+    const limited = includeGenerated
+      ? [
+          ...cards.filter((card) => !isExcludedFromKnowledgeMap(card.id)),
+          ...cards.filter((card) => card.id.startsWith('drill_')).slice(0, generatedLimit),
+        ]
+      : cards;
+
+    return omitExplanationFromKnowledgeMapCards(
+      limited
+        .map((card, index) => ({
+          ...withCardDomains(card),
+          status: user.isGuest ? getMockCardStatus(index) : (null as CardStatus | null),
+        }))
+        .map(withCardCreatedAt)
+        .map(withCardUpdatedAt),
+      options.includeExplanation,
+    );
+  }
+
+  try {
+    await ensureCardSchema();
+    const columns = knowledgeMapCardColumns(options.includeExplanation);
+    const coreQuery = `
+      SELECT ${columns}
+      FROM knowledge_cards kc
+      LEFT JOIN user_card_states ucs
+        ON kc.id = ucs.card_id AND ucs.user_id = $1
+      WHERE kc.id NOT LIKE 'drill_%'
+        AND kc.id NOT LIKE 'graph_adv_%'
+        AND kc.title NOT ILIKE 'Sponsored Content %'
+      ORDER BY
+        kc.domain,
+        CASE kc.level
+          WHEN 'memorize' THEN 1
+          WHEN 'understand' THEN 2
+          WHEN 'connect' THEN 3
+          WHEN 'apply' THEN 4
+          ELSE 99
+        END,
+        kc.title;
+    `;
+
+    if (!includeGenerated) {
+      const result = await pool.query<CardWithStatusRow>(coreQuery, [user.id]);
+      return omitExplanationFromKnowledgeMapCards(
+        limitCardsForGuestKnowledgeMap(result.rows, user.isGuest)
+          .map((row, index) => ({
+            ...row,
+            status: user.isGuest ? getMockCardStatus(index) : deriveLegacyStatus(row),
+          }))
+          .map(withCardDomains)
+          .map(withCardCreatedAt)
+          .map(withCardUpdatedAt),
+        options.includeExplanation,
+      );
+    }
+
+    const generatedCountResult = await pool.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM knowledge_cards WHERE is_generated = TRUE OR id LIKE 'drill_%';"
+    );
+    const existingGenerated = Number.parseInt(generatedCountResult.rows[0]?.count ?? '0', 10);
+    if (existingGenerated < generatedLimit) {
+      await ensureMoreGeneratedCards(generatedLimit - existingGenerated);
+    }
+
+    const generatedQuery = `
+      SELECT ${columns}
+      FROM knowledge_cards kc
+      LEFT JOIN user_card_states ucs
+        ON kc.id = ucs.card_id AND ucs.user_id = $1
+      WHERE kc.is_generated = TRUE OR kc.id LIKE 'drill_%'
+      ORDER BY kc.created_at DESC, kc.id DESC
+      LIMIT $2;
+    `;
+    const [coreResult, generatedResult] = await Promise.all([
+      pool.query<CardWithStatusRow>(coreQuery, [user.id]),
+      pool.query<CardWithStatusRow>(generatedQuery, [user.id, generatedLimit]),
+    ]);
+
+    return omitExplanationFromKnowledgeMapCards(
+      limitCardsForGuestKnowledgeMap(
+        [...coreResult.rows, ...generatedResult.rows],
+        user.isGuest,
+      )
+        .map((row, index) => ({
+          ...row,
+          status: user.isGuest ? getMockCardStatus(index) : deriveLegacyStatus(row),
+        }))
+        .map(withCardDomains)
+        .map(withCardCreatedAt)
+        .map(withCardUpdatedAt),
+      options.includeExplanation,
+    );
+  } catch (error) {
+    console.error('Error in getKnowledgeMapCardSource:', error);
+    const sourceCards = limitCardsForGuestKnowledgeMap(await getMockKnowledgeMapCards(), user.isGuest);
+    const cards = includeGenerated
+      ? sourceCards
+      : sourceCards.filter((card) => !isExcludedFromKnowledgeMap(card.id));
+    const limited = includeGenerated
+      ? [
+          ...cards.filter((card) => !isExcludedFromKnowledgeMap(card.id)),
+          ...cards.filter((card) => card.id.startsWith('drill_')).slice(0, generatedLimit),
+        ]
+      : cards;
+
+    return omitExplanationFromKnowledgeMapCards(
+      limited
+        .map((card, index) => ({
+          ...withCardDomains(card),
+          status: user.isGuest ? getMockCardStatus(index) : (null as CardStatus | null),
+        }))
+        .map(withCardCreatedAt)
+        .map(withCardUpdatedAt),
+      options.includeExplanation,
+    );
+  }
+}
+
+async function localizeKnowledgeMapCardSource(
+  cards: CardWithStatusRow[],
+  locale: string | undefined,
+) {
+  if (!locale) return cards;
+  return localizeKnowledgeCards(cards, locale, {
+    generateMissing: false,
+    maxGenerations: 0,
+    includeExplanation: false,
+    includeRelationshipMetadata: false,
+  });
+}
+
+export async function getKnowledgeMapCardPage(
+  options: GetKnowledgeMapCardPageOptions = {},
+): Promise<KnowledgeMapCardPage> {
+  const sourceCards = await getKnowledgeMapCardSource({
+    includeGenerated: options.includeGenerated,
+    generatedLimit: options.generatedLimit,
+    includeExplanation: false,
+  });
+  const page = paginateKnowledgeMapCards(sourceCards, options);
+  const localizedCards = await localizeKnowledgeMapCardSource(page.cards, options.locale);
+  const generatedTotal = sourceCards.filter((card) => card.id.startsWith('drill_')).length;
+
+  return {
+    ...page,
+    cards: localizedCards.map(toKnowledgeMapCard),
+    coreTotal: sourceCards.length - generatedTotal,
+    generatedTotal,
+    domains: Array.from(new Set(sourceCards.flatMap(getKnowledgeMapCardDomains))).sort(),
+  };
+}
+
+export async function getKnowledgeMapGraphCards(
+  options: Pick<GetKnowledgeMapCardPageOptions, 'includeGenerated' | 'generatedLimit' | 'locale'> = {},
+): Promise<KnowledgeMapCard[]> {
+  const sourceCards = await getKnowledgeMapCardSource({
+    includeGenerated: options.includeGenerated,
+    generatedLimit: options.generatedLimit,
+    includeExplanation: false,
+  });
+  const localizedCards = await localizeKnowledgeMapCardSource(sourceCards, options.locale);
+  return localizedCards.map(toKnowledgeMapCard);
+}
+
+export async function getKnowledgeMapCardDetail(
+  cardId: string,
+  locale?: string,
+): Promise<KnowledgeCard | null> {
+  if (!cardId || cardId.length > 200) return null;
+
+  const user = await requireCurrentActor();
+  const localizeDetail = async (card: CardWithStatusRow) => {
+    if (!locale) return card;
+    const [localized] = await localizeKnowledgeCards([card], locale, {
+      generateMissing: false,
+      maxGenerations: 0,
+      includeRelationshipMetadata: false,
+    });
+    return localized ?? card;
+  };
+
+  if (user.isGuest || !process.env.DATABASE_URL) {
+    const card = (await getMockCards()).find((candidate) => candidate.id === cardId);
+    if (!card || card.id.startsWith('graph_adv_')) return null;
+    return localizeDetail(
+      withCardUpdatedAt(withCardCreatedAt({
+        ...withCardDomains(card),
+        status: user.isGuest ? getMockCardStatus(0) : null,
+      })),
+    );
+  }
+
+  try {
+    await ensureCardSchema();
+    const result = await pool.query<CardWithStatusRow>(
+      `
+        SELECT kc.*, ucs.status, ucs.knowledge_state, ucs.progress_state
+        FROM knowledge_cards kc
+        LEFT JOIN user_card_states ucs
+          ON kc.id = ucs.card_id AND ucs.user_id = $1
+        WHERE kc.id = $2
+          AND kc.id NOT LIKE 'graph_adv_%'
+          AND kc.title NOT ILIKE 'Sponsored Content %'
+        LIMIT 1;
+      `,
+      [user.id, cardId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return localizeDetail(
+      withCardUpdatedAt(withCardCreatedAt({
+        ...withCardDomains(row),
+        status: deriveLegacyStatus(row),
+      })),
+    );
+  } catch (error) {
+    console.error('Error in getKnowledgeMapCardDetail:', error);
+    const card = (await getMockCards()).find((candidate) => candidate.id === cardId);
+    if (!card || card.id.startsWith('graph_adv_')) return null;
+    return localizeDetail(
+      withCardUpdatedAt(withCardCreatedAt({
+        ...withCardDomains(card),
+        status: null,
+      })),
+    );
+  }
 }
 
 export async function resetUserCardProgress() {

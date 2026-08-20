@@ -5,7 +5,7 @@ import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
+import { getKnowledgeMapCardDetail, type CardStatus, type KnowledgeMapCard } from '@/actions/card-actions';
 import type { EdgeType } from '@stem-brain/graph-engine';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
@@ -13,13 +13,14 @@ import { getDomainColor } from '@stem-brain/graph-engine';
 import { deleteKnowledgeItem } from '@/actions/user-knowledge-actions';
 import { useI18n } from '@/i18n/client';
 import LanguageSwitcher from '@/components/language-switcher';
+import type { Locale } from '@stem-brain/shared';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
 type ColorMode = 'progress' | 'domain';
 
-type GraphCard = KnowledgeCard & {
-  status: CardStatus | null;
+type GraphCard = KnowledgeMapCard & {
+  explanation?: string;
   isPersonal?: boolean;
   personalItemId?: string;
   createdAt?: string;
@@ -36,6 +37,7 @@ export type KnowledgeGraphEdgeView = {
 
 type Props = {
   cards: GraphCard[];
+  locale: Locale;
   edges?: KnowledgeGraphEdgeView[];
   onClose?: () => void;
 };
@@ -83,7 +85,7 @@ function getCardDomains(card: GraphCard) {
   return card.domains && card.domains.length > 0 ? card.domains : [card.domain];
 }
 
-export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) {
+export default function KnowledgeGraph3D({ cards, edges = [], locale, onClose }: Props) {
   const router = useRouter();
   const { t } = useI18n();
   const [isClient, setIsClient] = useState(false);
@@ -94,6 +96,9 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
   const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
   const [colorMode, setColorMode] = useState<ColorMode>('progress');
   const fgRef = useRef<any>(null);
+  const detailCache = useRef(new Map<string, string>());
+  const detailRequestId = useRef(0);
+  const [detailLoadingNodeId, setDetailLoadingNodeId] = useState<string | null>(null);
 
   const getStatusLabel = (status: CardStatus | null) => {
     if (status === 'known') return t('common.explainable');
@@ -269,7 +274,37 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
   const handleNodeClick = useCallback(
     (node: any) => {
       setSelectedNode(node);
-
+      if (
+        node.group === 'card'
+        && !node.isPersonal
+        && !node.mainContent
+        && typeof node.id === 'string'
+      ) {
+        const cached = detailCache.current.get(node.id);
+        if (cached !== undefined) {
+          setSelectedNode((current) => {
+            if (!current || current.id !== node.id) return current;
+            return { ...current, mainContent: cached };
+          });
+        } else {
+          const requestId = ++detailRequestId.current;
+          setDetailLoadingNodeId(node.id);
+          void getKnowledgeMapCardDetail(node.id, locale)
+            .then((detail) => {
+              if (requestId !== detailRequestId.current) return;
+              const explanation = detail?.explanation ?? '';
+              detailCache.current.set(node.id, explanation);
+              setSelectedNode((current) => {
+                if (!current || current.id !== node.id) return current;
+                return { ...current, mainContent: explanation };
+              });
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              if (requestId === detailRequestId.current) setDetailLoadingNodeId(null);
+            });
+        }
+      }
       // Fly camera to the node
       if (fgRef.current && Number.isFinite(node.x) && Number.isFinite(node.y) && Number.isFinite(node.z)) {
         const distance = 120;
@@ -286,7 +321,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
         );
       }
     },
-    []
+    [locale]
   );
 
   const focusDomain = useCallback(
@@ -698,6 +733,11 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               </p>
             )}
 
+            {detailLoadingNodeId === selectedNode.id ? (
+              <div className="mb-6 rounded-lg border border-gray-800 bg-white/[0.04] px-3 py-2 text-sm text-gray-400">
+                {t('common.loading')}
+              </div>
+            ) : null}
             {selectedNode.mainContent && (
               <div className="mb-6">
                 <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-2 font-semibold">

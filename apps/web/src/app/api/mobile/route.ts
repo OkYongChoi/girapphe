@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseAcceptLanguage } from '@stem-brain/shared';
 import {
-  getAllCardsWithStatus,
+  getKnowledgeMapGraphCards,
   getCardLeaderboard,
   getNextCard,
   getSavedCards,
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
     }
     case 'graph': {
       const [cards, personalItems] = await Promise.all([
-        getAllCardsWithStatus({ locale }),
+        getKnowledgeMapGraphCards({ locale }),
         getUserKnowledgeItems(),
       ]);
       return NextResponse.json({

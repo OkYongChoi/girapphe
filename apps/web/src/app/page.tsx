@@ -13,6 +13,7 @@ import type { MessageKey } from '@/i18n/messages';
 import type { Translate } from '@/i18n/core';
 import { localizeDomain, type Locale } from '@stem-brain/shared';
 import { localizeGraphNodes } from '@/lib/content-localization';
+import { buildHomeGraphPreview } from '@/lib/home-graph-preview';
 
 export const dynamic = 'force-dynamic';
 
@@ -244,7 +245,7 @@ export default async function HomePage() {
 
 async function getHomeUserGraphData(userId: string, locale: Locale): Promise<ForceGraphData | null> {
   try {
-    const graphData = await getDbGraphDataForUser(userId);
+    const graphData = buildHomeGraphPreview(await getDbGraphDataForUser(userId));
     return {
       ...graphData,
       nodes: await localizeGraphNodes(graphData.nodes, locale, { generateMissing: false }),
