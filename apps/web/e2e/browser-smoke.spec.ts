@@ -6,6 +6,12 @@ const toleratedConsoleErrors = [
 const usesDeployedPreview = Boolean(process.env.PLAYWRIGHT_BASE_URL);
 
 const authEntrypointOrConfigFallback = /Sign in|Sign up|Authentication is (?:unavailable|not available)|Clerk keys are missing|Live Clerk keys cannot be used/i;
+const errorRecoveryMarkup = `
+  <main id="main-content">
+    <form action="" method="get"><button type="submit">Try again</button></form>
+    <a href="/en">Return home</a>
+  </main>
+`;
 
 function attachBrowserFailureGuards(page: Page) {
   const consoleErrors: string[] = [];
@@ -33,6 +39,27 @@ function attachBrowserFailureGuards(page: Page) {
 }
 
 test.describe('browser smoke', () => {
+  test('error recovery controls work before client-side hydration', async ({ page }) => {
+    await page.goto('/practice?error-recovery=1');
+    await page.setContent(errorRecoveryMarkup);
+
+    const retry = page.getByRole('button', { name: 'Try again' });
+    await expect(retry).toBeVisible();
+    await Promise.all([
+      page.waitForURL(/\/en\/practice/),
+      retry.click(),
+    ]);
+
+    await page.setContent(errorRecoveryMarkup);
+    const returnHome = page.getByRole('link', { name: 'Return home' });
+    await expect(returnHome).toHaveAttribute('href', '/en');
+    await Promise.all([
+      page.waitForURL(/\/en$/),
+      returnHome.click(),
+    ]);
+    await expect(page.getByRole('heading', { name: /Practice STEM concepts/i })).toBeVisible();
+  });
+
   test('health endpoint responds', async ({ request }) => {
     const response = await request.get('/api/health');
     expect(response.status()).toBe(200);
