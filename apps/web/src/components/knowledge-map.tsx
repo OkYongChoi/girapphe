@@ -1,16 +1,22 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getAllCardsWithStatus, type KnowledgeCard, type CardStatus, type KnowledgeMapEdge } from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
 import type { KnowledgeGraphEdgeView } from './knowledge-graph-3d';
+import KnowledgeMapWebMcpRegistration from './knowledge-map-webmcp-registration';
+import {
+  filterKnowledgeSearchCards,
+  getKnowledgeSearchCardDomains as getCardDomains,
+  isPublicKnowledgeSearchCard,
+  type KnowledgeSearchFilters,
+} from './knowledge-map-webmcp';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { deleteKnowledgeItem, type UserKnowledgeItem } from '@/actions/user-knowledge-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import type { KnowledgeLinkTarget } from '@/actions/knowledge-ingestion-actions';
 import {
-  isWithinAddedDateRangeOrUndated,
   type AddedDateRange,
   type ConceptSort,
 } from '@/lib/knowledge-map-time';
@@ -45,6 +51,7 @@ type Props = {
     edges?: unknown[];
   } | null;
   graphLinkTargets?: KnowledgeLinkTarget[];
+  enableWebMcp?: boolean;
   isGuest?: boolean;
   locale: Locale;
 };
@@ -72,20 +79,6 @@ function readStringArray(record: Record<string, unknown>, ...keys: string[]) {
   return [];
 }
 
-function getCardDomains(card: KnowledgeCard) {
-  const domains = card.domains && card.domains.length > 0 ? card.domains : [card.domain];
-  return Array.from(new Set(domains.filter(Boolean)));
-}
-
-function getSearchTerms(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .map((term) => term.replace(/^#/, ''))
-    .filter(Boolean);
-}
-
 function fallbackEndpointLabel(id: string) {
   const raw = id.replace(/^graph_/, '').replace(/^personal:/, '');
   if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(raw)) return raw.slice(0, 8);
@@ -100,6 +93,7 @@ export default function KnowledgeMap({
   publicEdges = [],
   privateGraph = null,
   graphLinkTargets = [],
+  enableWebMcp = false,
   isGuest = false,
   locale,
 }: Props) {
@@ -277,6 +271,12 @@ export default function KnowledgeMap({
     () => Array.from(new Set(cards.flatMap(getCardDomains))).sort(),
     [cards]
   );
+  const publicDomains = useMemo(
+    () => Array.from(new Set(cards
+      .filter(isPublicKnowledgeSearchCard)
+      .flatMap(getCardDomains))).sort(),
+    [cards]
+  );
 
   const coreCardCount = useMemo(() => cards.filter((c) => !c.isPersonal && !c.id.startsWith('drill_')).length, [cards]);
   const generatedCardCount = useMemo(() => cards.filter((c) => c.id.startsWith('drill_')).length, [cards]);
@@ -300,21 +300,20 @@ export default function KnowledgeMap({
     }
   };
 
+  const applyWebMcpFilters = useCallback((nextFilters: KnowledgeSearchFilters) => {
+    setFilter(nextFilters.query);
+    setSelectedDomain(nextFilters.domain);
+    setSelectedStatus(nextFilters.status);
+    setAddedDateRange(nextFilters.addedWithin);
+    setViewMode('grid');
+  }, []);
+
   const filteredCards = useMemo(() => {
-    return cards.filter((card) => {
-      const searchableText = [card.id, card.title, card.summary, card.explanation, ...getCardDomains(card), ...(card.tags ?? [])]
-        .join(' ')
-        .toLowerCase();
-      const matchesFilter = getSearchTerms(filter).every((term) => searchableText.includes(term));
-      const matchesDomain = selectedDomain === 'all' || getCardDomains(card).includes(selectedDomain);
-      const matchesStatus =
-        selectedStatus === 'all'
-          ? true
-          : selectedStatus === 'unstarted'
-            ? card.status === null
-            : card.status === selectedStatus;
-      const matchesAddedDate = isWithinAddedDateRangeOrUndated(card.createdAt, addedDateRange);
-      return matchesFilter && matchesDomain && matchesStatus && matchesAddedDate;
+    return filterKnowledgeSearchCards(cards, {
+      query: filter,
+      domain: selectedDomain,
+      status: selectedStatus,
+      addedWithin: addedDateRange,
     });
   }, [addedDateRange, cards, filter, selectedDomain, selectedStatus]);
 
@@ -330,6 +329,13 @@ export default function KnowledgeMap({
 
   return (
     <div className="w-full h-full">
+      {enableWebMcp ? (
+        <KnowledgeMapWebMcpRegistration
+          cards={cards}
+          publicDomains={publicDomains}
+          onApplyFilters={applyWebMcpFilters}
+        />
+      ) : null}
       {viewMode === 'graph' ? (
         <KnowledgeGraph3D cards={graphCards} edges={graphEdges} onClose={() => setViewMode('grid')} />
       ) : (

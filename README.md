@@ -26,6 +26,7 @@ This project implements an AI/CS knowledge graph MVP with:
 - Architecture overview: `docs/architecture/overview.md`
 - Mobile app architecture: `docs/apps/mobile.md`
 - API spec: `docs/reference/api-spec.md`
+- WebMCP browser tools: `docs/reference/webmcp.md`
 - Data model: `docs/reference/data-model.md`
 - Ads and subscriptions: `docs/reference/monetization.md`
 - Mobile purchase and AdMob setup: `apps/mobile/SETUP.md`
