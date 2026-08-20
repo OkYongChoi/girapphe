@@ -41,8 +41,13 @@ public, origin-specific token:
 NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN=...
 ```
 
-The root layout emits the `origin-trial` meta tag only when that variable is non-empty.
-Never reuse a token for a different origin. The adapter prefers `document.modelContext` and
+Deploy the production token through the GitHub Actions variable
+`NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN`; deploy the preview token through
+`NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN_PREVIEW`. The workflow makes each value available
+to the matching build and Worker runtime, and removes the runtime value when it is unset.
+For PR preview aliases, request a token for the preview Worker subdomain with Chrome
+subdomain matching enabled, or leave the preview token unset. Never reuse a token for a
+different origin. The adapter prefers `document.modelContext` and
 temporarily falls back to `navigator.modelContext` for earlier browser implementations.
 
 Review Chrome's [secure tools guidance](https://developer.chrome.com/docs/ai/webmcp/secure-tools)
