@@ -239,6 +239,11 @@ jobs:
           NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /practice
           NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /practice
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ANALYTICS_API_TOKEN: ${{ secrets.CLOUDFLARE_ANALYTICS_API_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          NEON_BRANCH_ID: ${{ vars.NEON_BRANCH_ID }}
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           ADMIN_CLERK_USER_ID: ${{ secrets.ADMIN_CLERK_USER_ID }}
           PERSONAL_KNOWLEDGE_PURGE_TOKEN: ${{ secrets.PERSONAL_KNOWLEDGE_PURGE_TOKEN }}
@@ -304,6 +309,10 @@ jobs:
           TOSS_BILLING_CRON_TOKEN: ${{ secrets.TOSS_BILLING_CRON_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ANALYTICS_API_TOKEN: ${{ secrets.CLOUDFLARE_ANALYTICS_API_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          NEON_BRANCH_ID: ${{ vars.NEON_BRANCH_ID }}
         run: |
           umask 077
           secrets_file="$(mktemp)"
@@ -331,6 +340,8 @@ jobs:
             'TOSS_SECRET_KEY', 'TOSS_BILLING_ENCRYPTION_KEY',
             'TOSS_MONTHLY_AMOUNT_KRW', 'TOSS_ANNUAL_AMOUNT_KRW',
             'TOSS_BILLING_CRON_TOKEN',
+            'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_ANALYTICS_API_TOKEN',
+            'NEON_API_KEY', 'NEON_PROJECT_ID', 'NEON_BRANCH_ID',
           ];
           const payload = {};
           for (const name of required) {
@@ -360,6 +371,10 @@ jobs:
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          CLOUDFLARE_ANALYTICS_API_TOKEN: ${{ secrets.CLOUDFLARE_ANALYTICS_API_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          NEON_BRANCH_ID: ${{ vars.NEON_BRANCH_ID }}
           STRIPE_PRICE_AD_FREE_MONTHLY: ${{ secrets.STRIPE_PRICE_AD_FREE_MONTHLY }}
           STRIPE_PRICE_AD_FREE_ANNUAL: ${{ secrets.STRIPE_PRICE_AD_FREE_ANNUAL }}
           REVENUECAT_WEBHOOK_AUTHORIZATION: ${{ secrets.REVENUECAT_WEBHOOK_AUTHORIZATION }}

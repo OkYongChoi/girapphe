@@ -83,6 +83,8 @@ test('production requires live Clerk keys, canonical URL, and admin cleanup sett
   assert.match(result.warnings.join('\n'), /RevenueCat entitlement sync is not configured; its production feature stays disabled/);
   assert.match(result.warnings.join('\n'), /AdSense practice ads is not configured; its production feature stays disabled/);
   assert.match(result.warnings.join('\n'), /Toss recurring billing is not configured; its production feature stays disabled/);
+  assert.match(result.warnings.join('\n'), /Cloudflare operations dashboard is not configured; its production feature stays disabled/);
+  assert.match(result.warnings.join('\n'), /Neon control-plane dashboard is not configured; its production feature stays disabled/);
 });
 
 test('billing groups must be complete and Toss remains fuse-closed', () => {
@@ -105,4 +107,27 @@ test('billing groups must be complete and Toss remains fuse-closed', () => {
   assert.match(result.errors.join('\n'), /Missing required key: STRIPE_WEBHOOK_SECRET/);
   assert.match(result.errors.join('\n'), /TOSS_BILLING_ENABLED=true requires the complete Toss recurring billing group/);
   assert.match(result.errors.join('\n'), /TOSS_BILLING_ENABLED=true is not release-approved; the runtime safety fuse is closed/);
+});
+
+test('capacity dashboard provider groups must be complete when configured', () => {
+  const result = validate({
+    envName: 'prod',
+    map: baseEnv({
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkKey('pk_live_'),
+      CLERK_SECRET_KEY: clerkKey('sk_live_'),
+      APP_BASE_URL: 'https://www.girapphe.com',
+      DATABASE_URL: 'postgres://user:password@host/prod_db?sslmode=require',
+      ADMIN_CLERK_USER_ID: 'user_123',
+      PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
+      CLOUDFLARE_ACCOUNT_ID: 'account_123',
+      NEON_API_KEY: 'napi_partial',
+    }),
+    allowPlaceholders: false,
+  });
+
+  const errors = result.errors.join('\n');
+  assert.match(errors, /Cloudflare operations dashboard must be configured as a complete group/);
+  assert.match(errors, /Missing required key: CLOUDFLARE_ANALYTICS_API_TOKEN/);
+  assert.match(errors, /Neon control-plane dashboard must be configured as a complete group/);
+  assert.match(errors, /Missing required key: NEON_PROJECT_ID/);
 });

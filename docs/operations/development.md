@@ -110,7 +110,7 @@ When changing graph behavior, update docs in this order:
 3. `docs/reference/knowledge-graph-spec.md`
 4. `README.md` summary links
 
-When changing `/admin`, also update:
+When changing `/admin` or its capacity signals, also update:
 
 5. `docs/operations/admin.md`
 

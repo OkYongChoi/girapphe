@@ -258,6 +258,16 @@ export function validate({ envName, map, allowPlaceholders }) {
     'TOSS_ANNUAL_AMOUNT_KRW',
     'TOSS_BILLING_CRON_TOKEN',
   ];
+  const cloudflareOpsKeys = [
+    'CLOUDFLARE_ACCOUNT_ID',
+    'CLOUDFLARE_ANALYTICS_API_TOKEN',
+  ];
+  const neonOpsKeys = [
+    'NEON_API_KEY',
+    'NEON_PROJECT_ID',
+    'NEON_BRANCH_ID',
+  ];
+
   const stripeConfigured = validateCompleteGroup(
     map, 'Stripe billing', stripeKeys, allowPlaceholders, errors, warnings, envName,
   );
@@ -266,6 +276,12 @@ export function validate({ envName, map, allowPlaceholders }) {
   );
   const adSenseConfigured = validateCompleteGroup(
     map, 'AdSense practice ads', adSenseKeys, allowPlaceholders, errors, warnings, envName,
+  );
+  validateCompleteGroup(
+    map, 'Cloudflare operations dashboard', cloudflareOpsKeys, allowPlaceholders, errors, warnings, envName,
+  );
+  validateCompleteGroup(
+    map, 'Neon control-plane dashboard', neonOpsKeys, allowPlaceholders, errors, warnings, envName,
   );
   const tossConfigured = validateCompleteGroup(
     map, 'Toss recurring billing', tossKeys, allowPlaceholders, errors, warnings, envName,
