@@ -2,7 +2,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type PointerEvent, type ReactNode } from 'react';
 import type { ForceGraphData } from '@stem-brain/graph-engine';
 import {
   escapeGraphTooltipText,
@@ -23,6 +23,33 @@ type HomeGraphSceneProps = {
   personalizedGraphData?: ForceGraphData | null;
   personalizedNotes?: PersonalizedGraphNote[];
 };
+
+type GraphErrorBoundaryState = { hasError: boolean };
+
+class GraphErrorBoundary extends Component<{ children: ReactNode }, GraphErrorBoundaryState> {
+  state: GraphErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): GraphErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Home graph is unavailable; showing the static homepage surface.', error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          aria-label="Static knowledge graph preview"
+          className="absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(34,211,238,0.14),transparent_30%),linear-gradient(135deg,#020617,#0f172a)]"
+        />
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 type LearningCaseKey = 'explore' | 'review' | 'notes' | 'mastery';
 
@@ -485,37 +512,39 @@ export default function HomeGraphScene({
       <div className="absolute inset-0 bg-[#030712]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--pointer-x)_var(--pointer-y),rgba(255,255,255,0.04),transparent_18rem)] transition-[background] duration-300" />
       <div ref={graphContainerRef} aria-hidden="true" className="home-graph-canvas pointer-events-auto absolute inset-y-0 left-1/2 w-[120%] -translate-x-1/2 md:w-[92%] lg:w-[82%]">
-        <ForceGraph3D
-          ref={graphRef}
-          graphData={graphData}
-          width={dimensions.width}
-          height={dimensions.height}
-          backgroundColor="rgba(0,0,0,0)"
-          nodeLabel={(node: any) => escapeGraphTooltipText(String(node.name ?? ''))}
-          nodeVal="val"
-          nodeColor="color"
-          nodeOpacity={0.9}
-          nodeResolution={16}
-          linkColor="color"
-          linkOpacity={0.58}
-          linkWidth={(link: any) => link.width}
-          linkDirectionalParticles={(link: any) => (link.active ? 4 : 1)}
-          linkDirectionalParticleWidth={(link: any) => (link.active ? 0.9 : 0.42)}
-          linkDirectionalParticleSpeed={(link: any) => (link.active ? 0.008 : 0.003)}
-          enableNodeDrag={false}
-          enableNavigationControls={true}
-          onNodeHover={(node: any) => {
-            document.body.style.cursor = node ? 'pointer' : 'default';
-          }}
-          d3AlphaDecay={0.015}
-          d3VelocityDecay={0.24}
-          warmupTicks={90}
-          cooldownTicks={Infinity}
-          onEngineStop={() => {
-            enableOrbit();
-            graphRef.current?.zoomToFit?.(650, 42);
-          }}
-        />
+        <GraphErrorBoundary>
+          <ForceGraph3D
+            ref={graphRef}
+            graphData={graphData}
+            width={dimensions.width}
+            height={dimensions.height}
+            backgroundColor="rgba(0,0,0,0)"
+            nodeLabel={(node: any) => escapeGraphTooltipText(String(node.name ?? ''))}
+            nodeVal="val"
+            nodeColor="color"
+            nodeOpacity={0.9}
+            nodeResolution={16}
+            linkColor="color"
+            linkOpacity={0.58}
+            linkWidth={(link: any) => link.width}
+            linkDirectionalParticles={(link: any) => (link.active ? 4 : 1)}
+            linkDirectionalParticleWidth={(link: any) => (link.active ? 0.9 : 0.42)}
+            linkDirectionalParticleSpeed={(link: any) => (link.active ? 0.008 : 0.003)}
+            enableNodeDrag={false}
+            enableNavigationControls={true}
+            onNodeHover={(node: any) => {
+              document.body.style.cursor = node ? 'pointer' : 'default';
+            }}
+            d3AlphaDecay={0.015}
+            d3VelocityDecay={0.24}
+            warmupTicks={90}
+            cooldownTicks={Infinity}
+            onEngineStop={() => {
+              enableOrbit();
+              graphRef.current?.zoomToFit?.(650, 42);
+            }}
+          />
+        </GraphErrorBoundary>
       </div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,transparent_0%,rgba(2,6,23,0.08)_58%,rgba(2,6,23,0.5)_100%)]" />
       <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950 to-transparent" />
