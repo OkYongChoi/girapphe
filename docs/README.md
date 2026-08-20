@@ -13,6 +13,7 @@ This folder contains technical documentation for the Personal STEM Brain project
 - [Ads and Subscriptions](./reference/monetization.md)
 - [Data Model](./reference/data-model.md)
 - [Development & Operations](./operations/development.md)
+- [Resource Planning](./operations/resource-planning.md)
 - [Admin Operations](./operations/admin.md)
 
 ## Reading Order
@@ -24,4 +25,5 @@ This folder contains technical documentation for the Personal STEM Brain project
 5. API Specification
 6. Knowledge Graph Spec
 7. Development & Operations
-8. Admin Operations (if working on `/admin`)
+8. Resource Planning
+9. Admin Operations (if working on `/admin`)

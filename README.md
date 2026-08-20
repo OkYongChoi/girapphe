@@ -31,6 +31,7 @@ This project implements an AI/CS knowledge graph MVP with:
 - Mobile purchase and AdMob setup: `apps/mobile/SETUP.md`
 - Knowledge graph spec: `docs/reference/knowledge-graph-spec.md`
 - Development/operations: `docs/operations/development.md`
+- Resource planning: `docs/operations/resource-planning.md`
 - Admin operations: `docs/operations/admin.md`
 
 ## Key Implementation Files
@@ -92,10 +93,10 @@ Flow:
 ## Development
 
 ```bash
-npm install
-npm run env:setup:dev
-npm run check:env:dev
-npm run dev
+pnpm install
+pnpm env:setup:dev
+pnpm check:env:dev
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
@@ -116,26 +117,25 @@ Core routes:
 Quality commands:
 
 ```bash
-npm run lint
-npm run typecheck
-npm run check
-npm run check:env:examples
-# local dev env validation
-npm run check:env:dev
+pnpm check
+pnpm check:env:examples
+pnpm check:env:dev
+pnpm --filter @stem-brain/web check
+pnpm --filter @stem-brain/mobile check
 ```
 
 Smoke check (requires running app):
 
 ```bash
-npm run smoke
+pnpm smoke
 ```
 
 Database migrations (Drizzle):
 
 ```bash
-npm run db:generate
-npm run db:migrate
-npm run db:studio
+pnpm db:generate
+pnpm db:migrate
+pnpm db:studio
 ```
 
 ## UX Defaults

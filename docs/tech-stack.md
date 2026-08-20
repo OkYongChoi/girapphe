@@ -16,9 +16,10 @@
 
 ## Data and Persistence
 
-- **PostgreSQL** (target): primary relational store for users, graph nodes/edges, and user knowledge states.
-- **Neon Serverless driver (@neondatabase/serverless)**: Postgres connectivity in serverless-friendly environments.
-- **In-memory graph store (current MVP mode)**: fast local iteration with migration path to Postgres.
+- **PostgreSQL**: primary relational store for authenticated notes, billing, MCP drafts, and graph persistence.
+- **Neon Serverless Postgres** with `@neondatabase/serverless`: preview and production database runtime.
+- **In-memory fallback mode**: local-only fallback for public graph/practice flows when `DATABASE_URL` is intentionally absent.
+- **Drizzle Kit**: schema generation and migration tooling for the web app.
 
 ## Graph & Domain Logic
 
@@ -34,18 +35,21 @@
 
 ## Deployment
 
-- **OpenNext / Cloudflare Workers**: edge-oriented deployment target.
-- **Wrangler**: deployment/runtime tooling for Cloudflare.
+- **OpenNext / Cloudflare Workers**: production and PR-preview deployment target.
+- **Wrangler**: deployment/runtime tooling and Worker type generation.
+- **Cloudflare Workers AI binding (`AI`)**: translation backfill runtime binding for cached public-content localization.
 
 ## Quality and Tooling
 
+- **pnpm workspaces + Turborepo**: shared workspace scripts and package-level validation orchestration.
 - **ESLint 9 + eslint-config-next**: linting and framework-aware rules.
 - **TypeScript compiler (`tsc`)**: type checking.
-- **npm scripts**: unified developer workflow (`dev`, `build`, `lint`, etc.).
+- **Node.js test runner via `tsx --test`**: server, billing, MCP, and operational guardrail tests.
+- **Playwright**: browser smoke coverage for critical user-visible routes.
 
 ## Why This Stack
 
-- **Fast iteration**: Next.js + TypeScript + in-memory graph enables rapid product iteration.
-- **Low migration risk**: schema and graph contracts are already aligned with PostgreSQL.
+- **Fast iteration**: local fallback mode keeps public practice flows usable even before wiring a full database.
+- **Low migration risk**: production already runs on PostgreSQL/Neon, while public contracts still allow controlled fallback in development.
 - **Visualization-ready**: force-graph integration supports immediate graph UX prototyping.
-- **Scalable path**: architecture can evolve from local memory to DB-backed graph services without rewriting frontend contracts.
+- **Scalable path**: the app can add pooling, replicas, or queued/background work without rewriting the web/mobile contracts.
