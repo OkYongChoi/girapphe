@@ -1,5 +1,8 @@
 # Architecture Overview
 
+For the current risk assessment, boundary recommendations, and incremental roadmap,
+see the [August 2026 architecture consulting review](./consulting-review-2026-08.md).
+
 ## High-Level Flow
 
 ```text
