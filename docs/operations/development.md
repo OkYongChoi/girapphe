@@ -3,23 +3,33 @@
 ## Local Setup
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm env:setup:dev
+pnpm check:env:dev
+pnpm dev
 ```
 
 If port `3000` is in use:
 
 ```bash
-npm run dev -- --hostname 127.0.0.1 --port 3001
+pnpm dev -- --hostname 127.0.0.1 --port 3001
 ```
 
 ## Quality Checks
 
 ```bash
-npm run lint
-npm run typecheck
-npm run check
+pnpm check
+pnpm check:env:examples
+pnpm --filter @stem-brain/web check
+pnpm --filter @stem-brain/mobile check
 ```
+
+`pnpm check` is the workspace gate. It runs each package's own `check` task
+through Turborepo, which currently includes:
+
+- web lint, typecheck, server tests, localization tests, and Worker type drift checks
+- mobile lint, typecheck, purchase-guard tests, and i18n catalog validation
+- shared package and graph-engine type checks
 
 ## Harness
 
@@ -88,7 +98,7 @@ After pushing, wait for CI to finish. GitHub Actions is the only shared deployme
 Optional smoke test (app must be running):
 
 ```bash
-npm run smoke
+pnpm smoke
 ```
 
 ## Documentation Update Rules
@@ -103,6 +113,10 @@ When changing graph behavior, update docs in this order:
 When changing `/admin`, also update:
 
 5. `docs/operations/admin.md`
+
+When changing deployment/runtime scale assumptions, also update:
+
+6. `docs/operations/resource-planning.md`
 
 ## Graph Taxonomy Change Workflow
 

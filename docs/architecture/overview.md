@@ -33,7 +33,10 @@
 
 - `GET /api/graph`: returns graph nodes/links and user-aware stats.
 - `POST /api/quiz_result`: accepts assessment result, updates state, propagates, and diffuses.
-- Serializes data into force-graph-friendly response format.
+- `GET /api/mobile`: serves authenticated mobile graph, notes, progress, ranking, and admin payloads.
+- `POST /api/mcp`: exposes the pending-only `create_card_drafts` MCP tool.
+- Billing, webhook, and health routes live in the same Next.js application and deploy as one Cloudflare Worker.
+- Serializes graph data into force-graph-friendly response format.
 
 ### 3. Knowledge Update Layer
 
@@ -59,15 +62,27 @@
 ### 6. Authentication Layer
 
 - Powered by [Clerk](https://clerk.com).
-- `apps/web/src/middleware.ts` enforces auth on all routes except `/`, `/login`, `/signup`, `/register`, `/api/health`.
+- `apps/web/src/middleware.ts` attaches auth context and protects non-public routes while preserving locale handling.
 - `apps/web/src/lib/auth.ts` exports `getCurrentUser()` and `requireCurrentUser()` as thin shims over Clerk's `auth()` and `currentUser()`.
-- All existing pages and actions use these shims unchanged.
+- Mobile uses Clerk's Expo SDK with SecureStore-backed session persistence when the publishable key is configured.
+- MCP OAuth discovery is published under `/.well-known/` and remains scoped to draft creation rather than public-graph mutation.
 - User IDs from Clerk (format: `user_2abc123`) are stored as `text` in `user_knowledge_states.user_id` and related tables.
 
 ### 7. Persistence Layer
 
-- Current default: in-memory for rapid development.
-- Target production: PostgreSQL schema (`graph_nodes`, `graph_edges`, `user_knowledge_states`).
+- Preview and production use PostgreSQL on Neon via `@neondatabase/serverless`.
+- Local development can intentionally omit `DATABASE_URL`; public graph/practice routes fall back to in-memory mode.
+- Admin, billing, private notes, MCP draft ingestion, and mobile account sync require database mode.
+- Static graph taxonomy remains source-controlled in `packages/graph-engine`, while user state and private data persist in PostgreSQL.
+
+### 8. Runtime Topology
+
+```text
+[Browser / Expo app / MCP client]
+    -> [Next.js App Router on Cloudflare Workers]
+    -> [Clerk auth + OAuth metadata]
+    -> [Neon Postgres]
+```
 
 ## Design Principles Applied
 
@@ -76,9 +91,9 @@
 - **State over score**: explicit tri-state knowledge with confidence metadata.
 - **Visualization-driven API**: payload optimized for force graph usage.
 
-## Migration Path (MVP -> Production)
+## Scaling Path
 
-1. Keep current `graph-types.ts` as canonical contract.
-2. Replace in-memory store access with SQL repository implementation.
-3. Preserve API shape to avoid web and mobile rewrites.
-4. Add caching/indexing around graph queries and per-user state reads.
+1. Keep `graph-types.ts`, API payloads, and mobile contracts as the stable surface area.
+2. Add caching, pooling, and read/write separation before splitting the app into more services.
+3. Move background work such as cleanup, reconciliation, or translation backfills off user-facing requests as traffic grows.
+4. Expand authorization and admin topology only after the current single-admin model stops fitting the product.
