@@ -89,8 +89,9 @@ type CardTranslationRow = {
   locale: string;
   title: string | null;
   summary: string | null;
-  explanation: string | null;
+  explanation?: string | null;
   source_hash: string;
+  list_source_hash: string | null;
   status: StoredTranslationStatus;
   error_code: string | null;
 };
@@ -147,6 +148,12 @@ function sourceHash(parts: Array<string | null | undefined>): string {
 
 function cardSourceHash(card: LocalizableKnowledgeCard): string {
   return sourceHash([card.title, card.summary, card.explanation]);
+}
+
+function cardListSourceHash(card: LocalizableKnowledgeCard): string {
+  return createHash('md5')
+    .update(`${card.title}\u001f${card.summary}`)
+    .digest('hex');
 }
 
 function nodeSourceHash(node: LocalizableGraphNode): string {
@@ -208,8 +215,9 @@ export async function ensureContentLocalizationSchema(): Promise<boolean> {
     // Migrations own DDL. Keep request handlers read-only with respect to schema
     // and do not retain request-scoped database promises in module globals.
     await pool.query(`
-      SELECT 1
-      FROM knowledge_card_translations, graph_node_translations
+      SELECT card_translation.list_source_hash, node_translation.node_id
+      FROM knowledge_card_translations AS card_translation
+      CROSS JOIN graph_node_translations AS node_translation
       LIMIT 0
     `);
     localizationSchemaReady = true;
@@ -269,11 +277,15 @@ async function runTranslation(text: string, locale: ContentTargetLocale, ai: Ai)
 
 async function readCardTranslations(
   cards: LocalizableKnowledgeCard[],
-  locale: ContentTargetLocale
+  locale: ContentTargetLocale,
+  includeExplanation = true,
 ): Promise<Map<string, CardTranslationRow>> {
   if (cards.length === 0) return new Map();
+  const columns = includeExplanation
+    ? 'card_id, locale, title, summary, explanation, source_hash, list_source_hash, status, error_code'
+    : 'card_id, locale, title, summary, source_hash, list_source_hash, status, error_code';
   const result = await pool.query<CardTranslationRow>(
-    `SELECT card_id, locale, title, summary, explanation, source_hash, status, error_code
+    `SELECT ${columns}
      FROM knowledge_card_translations
      WHERE locale = $1 AND card_id = ANY($2::text[])`,
     [locale, cards.map((card) => card.id)]
@@ -302,19 +314,28 @@ async function saveCardTranslation(
 ): Promise<void> {
   await pool.query(
     `INSERT INTO knowledge_card_translations (
-       card_id, locale, title, summary, explanation, source_hash, status, error_code
-     ) VALUES ($1, $2, $3, $4, $5, $6, 'machine', NULL)
+       card_id, locale, title, summary, explanation, source_hash, list_source_hash, status, error_code
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'machine', NULL)
      ON CONFLICT (card_id, locale) DO UPDATE SET
        title = EXCLUDED.title,
        summary = EXCLUDED.summary,
        explanation = EXCLUDED.explanation,
        source_hash = EXCLUDED.source_hash,
+       list_source_hash = EXCLUDED.list_source_hash,
        status = 'machine',
        error_code = NULL,
        updated_at = NOW()
      WHERE knowledge_card_translations.status = 'failed'
         OR knowledge_card_translations.status = 'machine'`,
-    [card.id, locale, translated.title, translated.summary, translated.explanation, cardSourceHash(card)]
+    [
+      card.id,
+      locale,
+      translated.title,
+      translated.summary,
+      translated.explanation,
+      cardSourceHash(card),
+      cardListSourceHash(card),
+    ]
   );
 }
 
@@ -365,13 +386,14 @@ async function saveCardFailure(
 ): Promise<void> {
   await pool.query(
     `INSERT INTO knowledge_card_translations (
-       card_id, locale, source_hash, status, error_code
-     ) VALUES ($1, $2, $3, 'failed', $4)
+       card_id, locale, source_hash, list_source_hash, status, error_code
+     ) VALUES ($1, $2, $3, $4, 'failed', $5)
      ON CONFLICT (card_id, locale) DO UPDATE SET
        title = NULL,
        summary = NULL,
        explanation = NULL,
        source_hash = EXCLUDED.source_hash,
+       list_source_hash = EXCLUDED.list_source_hash,
        status = 'failed',
        error_code = EXCLUDED.error_code,
        updated_at = NOW()
@@ -380,7 +402,7 @@ async function saveCardFailure(
           knowledge_card_translations.status = 'machine'
           AND knowledge_card_translations.source_hash <> EXCLUDED.source_hash
         )`,
-    [card.id, locale, cardSourceHash(card), errorCode]
+    [card.id, locale, cardSourceHash(card), cardListSourceHash(card), errorCode]
   );
 }
 
@@ -419,15 +441,18 @@ function translationErrorCode(error: unknown): TranslationFailureCode {
 
 function successfulCardRow(
   card: LocalizableKnowledgeCard,
-  row: CardTranslationRow | undefined
-): row is CardTranslationRow & { title: string; summary: string; explanation: string } {
+  row: CardTranslationRow | undefined,
+  includeExplanation = true,
+): row is CardTranslationRow & { title: string; summary: string; explanation?: string } {
+  const expectedSourceHash = includeExplanation ? cardSourceHash(card) : cardListSourceHash(card);
+  const rowSourceHash = includeExplanation ? row?.source_hash : row?.list_source_hash;
   return Boolean(
     row
-    && row.source_hash === cardSourceHash(card)
+    && rowSourceHash === expectedSourceHash
     && row.status !== 'failed'
     && typeof row.title === 'string'
     && typeof row.summary === 'string'
-    && typeof row.explanation === 'string'
+    && (!includeExplanation || typeof row.explanation === 'string')
   );
 }
 
@@ -679,11 +704,15 @@ export async function localizeKnowledgeCards<T extends LocalizableKnowledgeCard>
     generateMissing?: boolean;
     maxGenerations?: number;
     maxRelatedGenerations?: number;
+    includeExplanation?: boolean;
+    includeRelationshipMetadata?: boolean;
     retryFailed?: boolean;
   }
 ): Promise<Array<T & TranslationMetadata & LocalizedKnowledgeCardTaxonomy>> {
   const staticContent = await getStaticContent();
+  const includeExplanation = options?.includeExplanation ?? true;
   const locale = parseContentLocale(requestedLocale) ?? 'en';
+  const includeRelationshipMetadata = options?.includeRelationshipMetadata ?? true;
   if (locale === 'en') {
     return cards.map((card) => ({
       ...card,
@@ -703,7 +732,7 @@ export async function localizeKnowledgeCards<T extends LocalizableKnowledgeCard>
 
   let cached: Map<string, CardTranslationRow>;
   try {
-    cached = await readCardTranslations(cards, locale);
+    cached = await readCardTranslations(cards, locale, includeExplanation);
   } catch {
     return cards.map((card) => ({
       ...card,
@@ -718,14 +747,16 @@ export async function localizeKnowledgeCards<T extends LocalizableKnowledgeCard>
 
   for (const card of cards) {
     const row = cached.get(card.id);
-    if (successfulCardRow(card, row)) continue;
+    if (successfulCardRow(card, row, includeExplanation)) continue;
     // Preserve curated translations even when their source hash becomes stale.
     // They remain stored for an explicit reviewer decision and are not served as
     // current until their source hash is updated.
     if (row?.status === 'reviewed' || row?.status === 'human') continue;
-    const matchingFailure = row?.source_hash === cardSourceHash(card) && row.status === 'failed';
+    const expectedSourceHash = includeExplanation ? cardSourceHash(card) : cardListSourceHash(card);
+    const rowSourceHash = includeExplanation ? row?.source_hash : row?.list_source_hash;
+    const matchingFailure = rowSourceHash === expectedSourceHash && row?.status === 'failed';
     if (
-      !generateMissing
+      !includeExplanation
       || !ai
       || remainingGenerations <= 0
       || (matchingFailure && !options?.retryFailed)
@@ -749,6 +780,7 @@ export async function localizeKnowledgeCards<T extends LocalizableKnowledgeCard>
         locale,
         ...translated,
         source_hash: cardSourceHash(card),
+        list_source_hash: cardListSourceHash(card),
         status: 'machine',
         error_code: null,
       });
@@ -766,6 +798,7 @@ export async function localizeKnowledgeCards<T extends LocalizableKnowledgeCard>
         summary: null,
         explanation: null,
         source_hash: cardSourceHash(card),
+        list_source_hash: cardListSourceHash(card),
         status: 'failed',
         error_code: code,
       });
@@ -773,39 +806,44 @@ export async function localizeKnowledgeCards<T extends LocalizableKnowledgeCard>
     }
   }
 
-  const relatedNodesById = new Map<string, LocalizableGraphNode>();
-  // Insert primary nodes first so a bounded single-card request always prioritizes
-  // the card's own label/domain/type before optional related labels.
-  for (const card of cards) {
-    const node = staticNodeForCard(card, staticContent);
-    if (node) relatedNodesById.set(node.id, node);
-  }
-  for (const card of cards) {
-    for (const label of card.related_concepts ?? []) {
-      const nodeId = relatedNodeIdForLabel(card, label, staticContent);
-      const node = nodeId ? staticContent.STATIC_NODE_BY_ID.get(nodeId) : undefined;
+  const relatedById = new Map<string, Awaited<ReturnType<typeof localizeGraphNodes>>[number]>();
+  if (includeRelationshipMetadata) {
+    const relatedNodesById = new Map<string, LocalizableGraphNode>();
+    // Insert primary nodes first so a bounded single-card request always prioritizes
+    // the card's own label/domain/type before optional related labels.
+    for (const card of cards) {
+      const node = staticNodeForCard(card, staticContent);
       if (node) relatedNodesById.set(node.id, node);
     }
-    for (const prerequisite of card.prerequisites ?? []) {
-      const node = staticContent.STATIC_NODE_BY_ID.get(prerequisite.id);
-      if (node) relatedNodesById.set(node.id, node);
+    for (const card of cards) {
+      for (const label of card.related_concepts ?? []) {
+        const nodeId = relatedNodeIdForLabel(card, label, staticContent);
+        const node = nodeId ? staticContent.STATIC_NODE_BY_ID.get(nodeId) : undefined;
+        if (node) relatedNodesById.set(node.id, node);
+      }
+      for (const prerequisite of card.prerequisites ?? []) {
+        const node = staticContent.STATIC_NODE_BY_ID.get(prerequisite.id);
+        if (node) relatedNodesById.set(node.id, node);
+      }
     }
-  }
 
-  const localizedRelated = await localizeGraphNodes([...relatedNodesById.values()], locale, {
-    generateMissing,
-    maxGenerations: options?.maxRelatedGenerations
-      ?? Math.min(10, Math.max(0, options?.maxGenerations ?? (generateMissing ? 1 : 0)) * 5),
-    retryFailed: options?.retryFailed,
-  });
-  const relatedById = new Map(localizedRelated.map((node) => [node.id, node]));
+    const localizedRelated = await localizeGraphNodes([...relatedNodesById.values()], locale, {
+      generateMissing,
+      maxGenerations: options?.maxRelatedGenerations
+        ?? Math.min(10, Math.max(0, options?.maxGenerations ?? (generateMissing ? 1 : 0)) * 5),
+      retryFailed: options?.retryFailed,
+    });
+    for (const node of localizedRelated) {
+      relatedById.set(node.id, node);
+    }
+  }
 
   return cards.map((card) => {
     const row = cached.get(card.id);
-    const contentResolved = successfulCardRow(card, row);
+    const contentResolved = successfulCardRow(card, row, includeExplanation);
     const sourceTaxonomy = sourceCardTaxonomy(card, locale, staticContent);
     const primaryNode = staticNodeForCard(card, staticContent);
-    const translatedPrimary = primaryNode ? relatedById.get(primaryNode.id) : undefined;
+    const translatedPrimary = includeRelationshipMetadata && primaryNode ? relatedById.get(primaryNode.id) : undefined;
     const primaryResolved = Boolean(
       primaryNode && translatedPrimary && hasResolvedTranslation(translatedPrimary, locale)
     );
@@ -822,7 +860,7 @@ export async function localizeKnowledgeCards<T extends LocalizableKnowledgeCard>
     let relatedFallback = false;
     let translatedRelatedCount = 0;
     let relatedErrorCode: string | undefined;
-    const relatedConcepts = (card.related_concepts ?? []).map((label) => {
+    const relatedConcepts = includeRelationshipMetadata ? (card.related_concepts ?? []).map((label) => {
       const nodeId = relatedNodeIdForLabel(card, label, staticContent);
       const translatedNode = nodeId ? relatedById.get(nodeId) : undefined;
       if (!translatedNode || !hasResolvedTranslation(translatedNode, locale)) {
@@ -832,8 +870,8 @@ export async function localizeKnowledgeCards<T extends LocalizableKnowledgeCard>
       }
       translatedRelatedCount += 1;
       return translatedNode.label;
-    });
-    const prerequisites = (card.prerequisites ?? []).map((prerequisite) => {
+    }) : (card.related_concepts ?? []);
+    const prerequisites = includeRelationshipMetadata ? (card.prerequisites ?? []).map((prerequisite) => {
       const translatedNode = relatedById.get(prerequisite.id);
       if (!translatedNode || !hasResolvedTranslation(translatedNode, locale)) {
         relatedFallback = true;
@@ -842,19 +880,21 @@ export async function localizeKnowledgeCards<T extends LocalizableKnowledgeCard>
       }
       translatedRelatedCount += 1;
       return { ...prerequisite, label: translatedNode.label };
-    });
+    }) : (card.prerequisites ?? []);
 
-    const taxonomyFallback = Boolean(
+    const taxonomyFallback = includeRelationshipMetadata && Boolean(
       (primaryNode || sourceTaxonomy.domain_label || sourceTaxonomy.type_label) && !primaryResolved
     );
     const translatedAny = contentResolved || primaryResolved || translatedRelatedCount > 0;
-    const contentErrorCode = row?.source_hash === cardSourceHash(card)
-      ? row.error_code ?? undefined
+    const expectedSourceHash = includeExplanation ? cardSourceHash(card) : cardListSourceHash(card);
+    const rowSourceHash = includeExplanation ? row?.source_hash : row?.list_source_hash;
+    const contentErrorCode = rowSourceHash === expectedSourceHash
+      ? row?.error_code ?? undefined
       : undefined;
     const missingAiCode = generateMissing && !ai ? 'AI_BINDING_UNAVAILABLE' : undefined;
     const errorCode = contentErrorCode
-      ?? translatedPrimary?.translation_error_code
-      ?? relatedErrorCode
+      ?? (includeRelationshipMetadata ? translatedPrimary?.translation_error_code : undefined)
+      ?? (includeRelationshipMetadata ? relatedErrorCode : undefined)
       ?? missingAiCode;
     const metadata: TranslationMetadata = contentResolved
       ? {
@@ -879,10 +919,14 @@ export async function localizeKnowledgeCards<T extends LocalizableKnowledgeCard>
         ? Array.from(new Set([...taxonomy.aliases, row.title]))
         : taxonomy.aliases,
       ...(contentResolved
-        ? { title: row.title, summary: row.summary, explanation: row.explanation }
+        ? {
+            title: row.title,
+            summary: row.summary,
+            ...(includeExplanation ? { explanation: row.explanation ?? card.explanation } : {}),
+          }
         : {}),
-      ...(card.related_concepts ? { related_concepts: relatedConcepts } : {}),
-      ...(card.prerequisites ? { prerequisites } : {}),
+      ...(includeRelationshipMetadata && card.related_concepts ? { related_concepts: relatedConcepts } : {}),
+      ...(includeRelationshipMetadata && card.prerequisites ? { prerequisites } : {}),
       ...metadata,
     };
   });

@@ -252,6 +252,12 @@ test.describe('browser smoke', () => {
     const conceptsTab = page.getByRole('link', { name: 'Concepts' });
     await expect(conceptsTab).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
+    const conceptCards = page.getByTestId('concept-card');
+    await expect(conceptCards).toHaveCount(48);
+    const loadMore = page.getByRole('button', { name: 'Load more' });
+    await expect(loadMore).toBeVisible();
+    await loadMore.click();
+    await expect(conceptCards).toHaveCount(96);
     const sort = page.getByLabel('Sort concepts');
     await expect(sort).toHaveValue('newest');
     await sort.selectOption('updated');

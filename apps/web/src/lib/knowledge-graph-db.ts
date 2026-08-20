@@ -58,6 +58,21 @@ type DomainSummary = {
   avg: number;
 };
 
+type GraphStats = {
+  total_nodes: number;
+  mastered: number;
+  reinforcing: number;
+  not_started: number;
+  avg_knowledge: number;
+  domains: Record<string, DomainSummary>;
+};
+
+type GraphSnapshot = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  states: Map<string, UserKnowledgeState>;
+};
+
 type KnowledgeProfileNode = {
   id: string;
   label: string;
@@ -189,6 +204,103 @@ async function getUserStateMap(userId: string): Promise<Map<string, UserKnowledg
   return new Map(rows.map((row) => [row.node_id, asUserKnowledgeState(row)]));
 }
 
+async function getGraphSnapshotForUser(
+  userId: string,
+  options?: { includeEdges?: boolean }
+): Promise<GraphSnapshot> {
+  const includeEdges = options?.includeEdges ?? true;
+  const [nodes, edges, states] = await Promise.all([
+    getGraphNodes(),
+    includeEdges ? getGraphEdges() : Promise.resolve([]),
+    getUserStateMap(userId),
+  ]);
+
+  return { nodes, edges, states };
+}
+
+function buildForceGraphDataFromSnapshot(snapshot: GraphSnapshot): ForceGraphData {
+  const now = Date.now();
+
+  const nodesWithKnowledge: GraphNodeWithKnowledge[] = snapshot.nodes.map((node) => {
+    const state = snapshot.states.get(node.id);
+    const knowledge = toRenderKnowledge(state);
+    const confidence = state?.confidence ?? 0;
+    const firstKnownAt = state?.first_known_at ? new Date(state.first_known_at).getTime() : null;
+
+    let growth_daily = 0;
+    let growth_weekly = 0;
+    let growth_monthly = 0;
+
+    if (firstKnownAt) {
+      const ageMs = now - firstKnownAt;
+      const day = 86400000;
+      if (ageMs < day) growth_daily = knowledge;
+      if (ageMs < 7 * day) growth_weekly = knowledge;
+      if (ageMs < 30 * day) growth_monthly = knowledge;
+    }
+
+    return {
+      ...node,
+      knowledge,
+      confidence,
+      growth_daily,
+      growth_weekly,
+      growth_monthly,
+    };
+  });
+
+  return {
+    nodes: nodesWithKnowledge,
+    links: snapshot.edges,
+  };
+}
+
+function buildGraphStatsFromSnapshot(snapshot: Pick<GraphSnapshot, 'nodes' | 'states'>): GraphStats {
+  let mastered = 0;
+  let reinforcing = 0;
+  let totalK = 0;
+  const domains: Record<string, { total: number; mastered: number; reinforcing: number; sumK: number }> = {};
+
+  for (const node of snapshot.nodes) {
+    const state = snapshot.states.get(node.id);
+    const k = state?.knowledge_state ?? 0;
+    totalK += k;
+    if (k === 1) mastered += 1;
+    else if (k === 0.5) reinforcing += 1;
+
+    if (!domains[node.domain]) {
+      domains[node.domain] = { total: 0, mastered: 0, reinforcing: 0, sumK: 0 };
+    }
+    domains[node.domain].total += 1;
+    domains[node.domain].sumK += k;
+    if (k === 1) domains[node.domain].mastered += 1;
+    if (k === 0.5) domains[node.domain].reinforcing += 1;
+  }
+
+  const totalNodes = snapshot.nodes.length;
+  const notStarted = totalNodes - mastered - reinforcing;
+
+  return {
+    total_nodes: totalNodes,
+    mastered,
+    reinforcing,
+    not_started: notStarted,
+    avg_knowledge: totalNodes > 0 ? totalK / totalNodes : 0,
+    domains: Object.fromEntries(
+      Object.entries(domains).map(([domain, stats]) => [
+        domain,
+        {
+          total: stats.total,
+          mastered: stats.mastered,
+          reinforcing: stats.reinforcing,
+          not_started: stats.total - stats.mastered - stats.reinforcing,
+          avg: stats.total > 0 ? stats.sumK / stats.total : 0,
+        },
+      ])
+    ),
+  };
+}
+
 async function persistUserStates(userId: string, states: UserKnowledgeState[]): Promise<void> {
   if (states.length === 0) return;
   ensureGraphDatabase();
@@ -254,100 +366,22 @@ async function claimQuizSubmission(userId: string): Promise<void> {
 }
 
 export async function getDbGraphDataForUser(userId: string): Promise<ForceGraphData> {
-  const [nodes, edges, states] = await Promise.all([
-    getGraphNodes(),
-    getGraphEdges(),
-    getUserStateMap(userId),
-  ]);
-  const now = Date.now();
+  return buildForceGraphDataFromSnapshot(await getGraphSnapshotForUser(userId, { includeEdges: true }));
+}
 
-  const nodesWithKnowledge: GraphNodeWithKnowledge[] = nodes.map((node) => {
-    const state = states.get(node.id);
-    const knowledge = toRenderKnowledge(state);
-    const confidence = state?.confidence ?? 0;
-    const firstKnownAt = state?.first_known_at ? new Date(state.first_known_at).getTime() : null;
-
-    let growth_daily = 0;
-    let growth_weekly = 0;
-    let growth_monthly = 0;
-
-    if (firstKnownAt) {
-      const ageMs = now - firstKnownAt;
-      const day = 86400000;
-      if (ageMs < day) growth_daily = knowledge;
-      if (ageMs < 7 * day) growth_weekly = knowledge;
-      if (ageMs < 30 * day) growth_monthly = knowledge;
-    }
-
-    return {
-      ...node,
-      knowledge,
-      confidence,
-      growth_daily,
-      growth_weekly,
-      growth_monthly,
-    };
-  });
-
+export async function getDbGraphBundleForUser(userId: string): Promise<{
+  graphData: ForceGraphData;
+  stats: GraphStats;
+}> {
+  const snapshot = await getGraphSnapshotForUser(userId, { includeEdges: true });
   return {
-    nodes: nodesWithKnowledge,
-    links: edges,
+    graphData: buildForceGraphDataFromSnapshot(snapshot),
+    stats: buildGraphStatsFromSnapshot(snapshot),
   };
 }
 
-export async function getDbUserGraphStats(userId: string): Promise<{
-  total_nodes: number;
-  mastered: number;
-  reinforcing: number;
-  not_started: number;
-  avg_knowledge: number;
-  domains: Record<string, DomainSummary>;
-}> {
-  const [nodes, states] = await Promise.all([getGraphNodes(), getUserStateMap(userId)]);
-
-  let mastered = 0;
-  let reinforcing = 0;
-  let totalK = 0;
-  const domains: Record<string, { total: number; mastered: number; reinforcing: number; sumK: number }> = {};
-
-  for (const node of nodes) {
-    const state = states.get(node.id);
-    const k = state?.knowledge_state ?? 0;
-    totalK += k;
-    if (k === 1) mastered += 1;
-    else if (k === 0.5) reinforcing += 1;
-
-    if (!domains[node.domain]) {
-      domains[node.domain] = { total: 0, mastered: 0, reinforcing: 0, sumK: 0 };
-    }
-    domains[node.domain].total += 1;
-    domains[node.domain].sumK += k;
-    if (k === 1) domains[node.domain].mastered += 1;
-    if (k === 0.5) domains[node.domain].reinforcing += 1;
-  }
-
-  const totalNodes = nodes.length;
-  const notStarted = totalNodes - mastered - reinforcing;
-
-  return {
-    total_nodes: totalNodes,
-    mastered,
-    reinforcing,
-    not_started: notStarted,
-    avg_knowledge: totalNodes > 0 ? totalK / totalNodes : 0,
-    domains: Object.fromEntries(
-      Object.entries(domains).map(([domain, stats]) => [
-        domain,
-        {
-          total: stats.total,
-          mastered: stats.mastered,
-          reinforcing: stats.reinforcing,
-          not_started: stats.total - stats.mastered - stats.reinforcing,
-          avg: stats.total > 0 ? stats.sumK / stats.total : 0,
-        },
-      ])
-    ),
-  };
+export async function getDbUserGraphStats(userId: string): Promise<GraphStats> {
+  return buildGraphStatsFromSnapshot(await getGraphSnapshotForUser(userId, { includeEdges: false }));
 }
 
 export async function getDbNodeKnowledge(
@@ -469,12 +503,9 @@ export async function submitDbQuizResult(
 }
 
 export async function buildKnowledgeProfile(userId: string): Promise<KnowledgeProfile> {
-  const [nodes, edges, states, summary] = await Promise.all([
-    getGraphNodes(),
-    getGraphEdges(),
-    getUserStateMap(userId),
-    getDbUserGraphStats(userId),
-  ]);
+  const snapshot = await getGraphSnapshotForUser(userId, { includeEdges: true });
+  const { nodes, edges, states } = snapshot;
+  const summary = buildGraphStatsFromSnapshot(snapshot);
 
   const prereqByTarget = new Map<string, string[]>();
   const dependentBySource = new Map<string, string[]>();

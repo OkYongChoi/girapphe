@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { getAllCardsWithStatus, type KnowledgeCard, type CardStatus, type KnowledgeMapEdge } from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
 import type { KnowledgeGraphEdgeView } from './knowledge-graph-3d';
@@ -36,7 +36,6 @@ type Props = {
     edges?: unknown[];
   } | null;
   graphLinkTargets?: KnowledgeLinkTarget[];
-  isGuest?: boolean;
   locale: Locale;
 };
 
@@ -91,10 +90,8 @@ export default function KnowledgeMap({
   publicEdges = [],
   privateGraph = null,
   graphLinkTargets = [],
-  isGuest = false,
   locale,
 }: Props) {
-  const [baseCards, setBaseCards] = useState(initialCards);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
   const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
@@ -107,24 +104,6 @@ export default function KnowledgeMap({
   const [loadingGenerated, setLoadingGenerated] = useState(false);
   const [generatedError, setGeneratedError] = useState<string | null>(null);
   const { t } = useI18n();
-
-  useEffect(() => {
-    if (isGuest) return;
-
-    let active = true;
-
-    getAllCardsWithStatus({ locale })
-      .then((freshCards) => {
-        if (active) setBaseCards(freshCards);
-      })
-      .catch(() => {
-        // Keep server-rendered cards if the refresh fails.
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [isGuest, locale]);
 
   const personalItemById = useMemo(
     () => new Map(personalItems.map((item) => [item.id, item])),
@@ -193,8 +172,8 @@ export default function KnowledgeMap({
     [graphPrivateCards, legacyPersonalCards]
   );
   const publicCards = useMemo(
-    () => includeGenerated ? (generatedCards ?? baseCards) : baseCards,
-    [baseCards, generatedCards, includeGenerated]
+    () => includeGenerated ? (generatedCards ?? initialCards) : initialCards,
+    [generatedCards, includeGenerated, initialCards]
   );
   const cards = useMemo<MapCard[]>(() => [...publicCards, ...personalCards], [publicCards, personalCards]);
   const graphEdges = useMemo<KnowledgeGraphEdgeView[]>(() => {
@@ -281,6 +260,7 @@ export default function KnowledgeMap({
         includeGenerated: true,
         generatedLimit: nextLimit,
         locale,
+        includeRelationshipMetadata: false,
       });
       setGeneratedCards(next);
     } catch {
@@ -318,7 +298,7 @@ export default function KnowledgeMap({
   return (
     <div className="w-full h-full">
       {viewMode === 'graph' ? (
-        <KnowledgeGraph3D cards={graphCards} edges={graphEdges} onClose={() => setViewMode('grid')} />
+        <KnowledgeGraph3D cards={graphCards} edges={graphEdges} locale={locale} onClose={() => setViewMode('grid')} />
       ) : (
         <div className="w-full max-w-6xl mx-auto p-6">
           <div className="mb-8 flex flex-col gap-4 justify-between items-center xl:flex-row">

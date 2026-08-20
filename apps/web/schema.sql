@@ -582,6 +582,7 @@ CREATE TABLE IF NOT EXISTS knowledge_card_translations (
   summary TEXT,
   explanation TEXT,
   source_hash TEXT NOT NULL,
+  list_source_hash TEXT,
   status TEXT NOT NULL CHECK (status IN ('machine', 'reviewed', 'human', 'failed')),
   error_code TEXT,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
