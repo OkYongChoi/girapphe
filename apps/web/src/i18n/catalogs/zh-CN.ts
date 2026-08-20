@@ -365,6 +365,15 @@ export const ZH_CN_MESSAGES = {
   "knowledge.sortNewest": "最新优先",
   "knowledge.sortUpdated": "最近更新",
   "knowledge.sortTitle": "标题 A–Z",
+  "knowledge.groupBy": "分组方式",
+  "knowledge.groupByDomain": "领域",
+  "knowledge.groupByTag": "标签",
+  "knowledge.groupByNone": "不分组",
+  "knowledge.untagged": "无标签",
+  "knowledge.groupCount": {
+    "other": "{count} 个概念"
+  },
+  "knowledge.tagGroupingHint": "自定义标签用于整理私有概念；没有标签的公开概念会显示在“无标签”下。",
   "knowledge.addedWithin": "添加于最近",
   "knowledge.allTime": "全部时间",
   "knowledge.today": "今天",

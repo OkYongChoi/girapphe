@@ -352,6 +352,15 @@ export const JA_MESSAGES = {
   "knowledge.sortNewest": "新しい順",
   "knowledge.sortUpdated": "最近更新",
   "knowledge.sortTitle": "タイトル順",
+  "knowledge.groupBy": "グループ化",
+  "knowledge.groupByDomain": "分野",
+  "knowledge.groupByTag": "タグ",
+  "knowledge.groupByNone": "グループ化なし",
+  "knowledge.untagged": "タグなし",
+  "knowledge.groupCount": {
+    "other": "{count}件の概念"
+  },
+  "knowledge.tagGroupingHint": "カスタムタグでは非公開の概念を整理します。タグのない公開概念は「タグなし」に表示されます。",
   "knowledge.addedWithin": "追加された期間",
   "knowledge.allTime": "すべて",
   "knowledge.today": "今日",

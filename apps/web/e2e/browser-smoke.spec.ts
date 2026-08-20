@@ -262,10 +262,31 @@ test.describe('browser smoke', () => {
     const conceptsTab = page.getByRole('link', { name: 'Concepts' });
     await expect(conceptsTab).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
+
+    const groupBy = page.getByLabel('Group by');
+    await expect(groupBy).toHaveValue('domain');
+    expect(await page.getByTestId('concept-group').count(), 'domain sections render by default').toBeGreaterThan(1);
+
+    const domainCardIds = await page.getByTestId('concept-card').evaluateAll((cards) => (
+      cards.map((card) => card.getAttribute('data-concept-id')).filter(Boolean)
+    ));
+    expect(new Set(domainCardIds).size, 'domain grouping does not duplicate multi-domain cards').toBe(domainCardIds.length);
+    const visibleCardCount = domainCardIds.length;
+
+    await groupBy.selectOption('tag');
+    await expect(page.getByRole('heading', { name: 'Untagged', exact: true })).toBeVisible();
+    expect(await page.getByTestId('concept-card').count(), 'tag grouping keeps tagless public concepts visible').toBe(visibleCardCount);
+
+    await groupBy.selectOption('none');
+    await expect(page.getByTestId('concept-grid')).toBeVisible();
+    await expect(page.getByTestId('concept-group')).toHaveCount(0);
+
     const sort = page.getByLabel('Sort concepts');
     await expect(sort).toHaveValue('newest');
-    await sort.selectOption('updated');
-    await expect(sort).toHaveValue('updated');
+    await sort.selectOption('title');
+    await expect(sort).toHaveValue('title');
+    const titles = await page.getByTestId('concept-card').locator('h3').allTextContents();
+    expect(titles).toEqual([...titles].sort((a, b) => a.localeCompare(b)));
 
     const filters = page.locator('summary').filter({ hasText: 'Filters' });
     await filters.click();
@@ -280,6 +301,7 @@ test.describe('browser smoke', () => {
     expect((filterPanel?.x ?? 0) + (filterPanel?.width ?? 0), 'filter panel right edge').toBeLessThanOrEqual(viewport?.width ?? 0);
     await page.getByRole('button', { name: 'Reset all' }).click();
     await expect(sort).toHaveValue('newest');
+    await expect(groupBy).toHaveValue('domain');
     await expect(addedWithin).toHaveValue('all');
     await filters.click();
 

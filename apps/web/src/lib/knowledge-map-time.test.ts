@@ -46,7 +46,7 @@ test('added-date filtering keeps undated static concepts visible', () => {
   assert.equal(isWithinAddedDateRangeOrUndated('2026-08-12T11:59:59.999Z', 'week', now), false);
 });
 
-test('concept sorting is global rather than limited to a domain group', () => {
+test('ungrouped concept sorting follows the selected global order', () => {
   const cards = [
     { title: 'Older mathematics', createdAt: '2026-08-01T12:00:00.000Z', updatedAt: '2026-08-18T12:00:00.000Z' },
     { title: 'Newest physics', createdAt: '2026-08-19T12:00:00.000Z', updatedAt: '2026-08-10T12:00:00.000Z' },
@@ -60,5 +60,9 @@ test('concept sorting is global rather than limited to a domain group', () => {
   assert.deepEqual(
     sortConceptCards(cards, 'updated').map((card) => card.title),
     ['Newest update computer science', 'Older mathematics', 'Newest physics'],
+  );
+  assert.deepEqual(
+    sortConceptCards(cards, 'title').map((card) => card.title),
+    ['Newest physics', 'Newest update computer science', 'Older mathematics'],
   );
 });

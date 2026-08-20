@@ -365,6 +365,16 @@ export const ES_MESSAGES = {
   "knowledge.sortNewest": "Más recientes primero",
   "knowledge.sortUpdated": "Actualizados recientemente",
   "knowledge.sortTitle": "Título A–Z",
+  "knowledge.groupBy": "Agrupar por",
+  "knowledge.groupByDomain": "Campo",
+  "knowledge.groupByTag": "Etiqueta",
+  "knowledge.groupByNone": "Sin agrupar",
+  "knowledge.untagged": "Sin etiqueta",
+  "knowledge.groupCount": {
+    "one": "{count} concepto",
+    "other": "{count} conceptos"
+  },
+  "knowledge.tagGroupingHint": "Las etiquetas personalizadas organizan conceptos privados; los conceptos públicos sin etiquetas aparecen en «Sin etiqueta».",
   "knowledge.addedWithin": "Añadido en los últimos",
   "knowledge.allTime": "Todo el tiempo",
   "knowledge.today": "Hoy",

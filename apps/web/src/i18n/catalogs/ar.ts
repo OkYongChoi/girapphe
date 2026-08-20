@@ -365,6 +365,16 @@ export const AR_MESSAGES = {
   "knowledge.sortNewest": "الأحدث أولًا",
   "knowledge.sortUpdated": "المعدّل حديثًا",
   "knowledge.sortTitle": "العنوان أ–ي",
+  "knowledge.groupBy": "تجميع حسب",
+  "knowledge.groupByDomain": "المجال",
+  "knowledge.groupByTag": "الوسم",
+  "knowledge.groupByNone": "من دون تجميع",
+  "knowledge.untagged": "من دون وسم",
+  "knowledge.groupCount": {
+    "one": "{count} مفهوم",
+    "other": "{count} مفاهيم"
+  },
+  "knowledge.tagGroupingHint": "تنظّم الوسوم المخصصة المفاهيم الخاصة؛ وتظهر المفاهيم العامة بلا وسوم ضمن «من دون وسم».",
   "knowledge.addedWithin": "أُضيف خلال",
   "knowledge.allTime": "كل الوقت",
   "knowledge.today": "اليوم",
