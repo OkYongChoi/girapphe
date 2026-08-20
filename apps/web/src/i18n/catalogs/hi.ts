@@ -365,6 +365,16 @@ export const HI_MESSAGES = {
   "knowledge.sortNewest": "नवीनतम पहले",
   "knowledge.sortUpdated": "हाल में बदले गए",
   "knowledge.sortTitle": "शीर्षक अ–ज़",
+  "knowledge.groupBy": "इसके अनुसार समूहित करें",
+  "knowledge.groupByDomain": "क्षेत्र",
+  "knowledge.groupByTag": "टैग",
+  "knowledge.groupByNone": "समूहित न करें",
+  "knowledge.untagged": "बिना टैग",
+  "knowledge.groupCount": {
+    "one": "{count} अवधारणा",
+    "other": "{count} अवधारणाएँ"
+  },
+  "knowledge.tagGroupingHint": "कस्टम टैग निजी अवधारणाओं को व्यवस्थित करते हैं; बिना टैग वाली सार्वजनिक अवधारणाएँ “बिना टैग” में दिखाई देती हैं।",
   "knowledge.addedWithin": "इस अवधि में जोड़े गए",
   "knowledge.allTime": "सभी समय",
   "knowledge.today": "आज",

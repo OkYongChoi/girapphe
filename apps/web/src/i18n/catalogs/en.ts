@@ -365,6 +365,16 @@ export const EN_MESSAGES = {
   "knowledge.sortNewest": "Newest first",
   "knowledge.sortUpdated": "Recently updated",
   "knowledge.sortTitle": "Title A–Z",
+  "knowledge.groupBy": "Group by",
+  "knowledge.groupByDomain": "Domain",
+  "knowledge.groupByTag": "Tag",
+  "knowledge.groupByNone": "None",
+  "knowledge.untagged": "Untagged",
+  "knowledge.groupCount": {
+    "one": "{count} concept",
+    "other": "{count} concepts"
+  },
+  "knowledge.tagGroupingHint": "Custom tags organize private concepts; public concepts without tags appear under Untagged.",
   "knowledge.addedWithin": "Added within",
   "knowledge.allTime": "All time",
   "knowledge.today": "Today",

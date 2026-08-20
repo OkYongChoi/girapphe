@@ -11,10 +11,14 @@ import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import type { KnowledgeLinkTarget } from '@/actions/knowledge-ingestion-actions';
 import {
   isWithinAddedDateRangeOrUndated,
-  sortConceptCards,
   type AddedDateRange,
   type ConceptSort,
 } from '@/lib/knowledge-map-time';
+import {
+  groupConceptCards,
+  UNTAGGED_CONCEPT_GROUP_KEY,
+  type ConceptGroupBy,
+} from '@/lib/knowledge-map-grouping';
 import type { Locale } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 
@@ -100,13 +104,14 @@ export default function KnowledgeMap({
   const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
   const [addedDateRange, setAddedDateRange] = useState<AddedDateRange>('all');
   const [sort, setSort] = useState<ConceptSort>('newest');
+  const [groupBy, setGroupBy] = useState<ConceptGroupBy>('domain');
   const [viewMode, setViewMode] = useState<'grid' | 'graph'>(initialView);
   const [includeGenerated, setIncludeGenerated] = useState(false);
   const [generatedLimit, setGeneratedLimit] = useState(250);
   const [generatedCards, setGeneratedCards] = useState<(KnowledgeCard & { status: CardStatus | null })[] | null>(null);
   const [loadingGenerated, setLoadingGenerated] = useState(false);
   const [generatedError, setGeneratedError] = useState<string | null>(null);
-  const { t } = useI18n();
+  const { t, formatNumber } = useI18n();
 
   useEffect(() => {
     if (isGuest) return;
@@ -308,7 +313,10 @@ export default function KnowledgeMap({
     });
   }, [addedDateRange, cards, filter, selectedDomain, selectedStatus]);
 
-  const sortedCards = useMemo(() => sortConceptCards(filteredCards, sort), [filteredCards, sort]);
+  const cardGroups = useMemo(
+    () => groupConceptCards(filteredCards, groupBy, sort),
+    [filteredCards, groupBy, sort]
+  );
 
   const activeFilterCount = Number(selectedDomain !== 'all')
     + Number(selectedStatus !== 'all')
@@ -371,6 +379,20 @@ export default function KnowledgeMap({
                   <option value="newest">{t('knowledge.sortNewest')}</option>
                   <option value="updated">{t('knowledge.sortUpdated')}</option>
                   <option value="title">{t('knowledge.sortTitle')}</option>
+                </select>
+              </div>
+
+              <div>
+                <select
+                  id="concept-group-by"
+                  aria-label={t('knowledge.groupBy')}
+                  value={groupBy}
+                  onChange={(e) => setGroupBy(e.target.value as ConceptGroupBy)}
+                  className="rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                  <option value="domain">{t('knowledge.groupByDomain')}</option>
+                  <option value="tag">{t('knowledge.groupByTag')}</option>
+                  <option value="none">{t('knowledge.groupByNone')}</option>
                 </select>
               </div>
 
@@ -470,6 +492,7 @@ export default function KnowledgeMap({
                         setSelectedStatus('all');
                         setAddedDateRange('all');
                         setSort('newest');
+                        setGroupBy('domain');
                         setIncludeGenerated(false);
                         setGeneratedCards(null);
                         setGeneratedError(null);
@@ -503,11 +526,46 @@ export default function KnowledgeMap({
           </div>
 
           <div>
-            <div data-testid="concept-grid" className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-              {sortedCards.map((card) => (
-                <KnowledgeCardItem key={card.id} card={card} />
-              ))}
-            </div>
+            {groupBy === 'tag' ? (
+              <p className="mb-5 text-sm text-gray-600">{t('knowledge.tagGroupingHint')}</p>
+            ) : null}
+
+            {groupBy === 'none' ? (
+              <ConceptCardGrid cards={cardGroups[0]?.cards ?? []} testId="concept-grid" />
+            ) : (
+              <div data-testid="concept-groups" className="space-y-10">
+                {cardGroups.map((group, index) => {
+                  const heading = groupBy === 'domain'
+                    ? formatDomainLabel(group.key)
+                    : group.key === UNTAGGED_CONCEPT_GROUP_KEY
+                      ? t('knowledge.untagged')
+                      : `#${group.key}`;
+                  const headingId = `concept-group-${index}`;
+
+                  return (
+                    <section
+                      key={group.key}
+                      data-testid="concept-group"
+                      data-group-key={group.key}
+                      aria-labelledby={headingId}
+                    >
+                      <div className="mb-4 flex items-center gap-2 border-b pb-2">
+                        <h2 id={headingId} className="text-xl font-semibold text-gray-700">
+                          {heading}
+                        </h2>
+                        <span
+                          className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-600"
+                          aria-label={t('knowledge.groupCount', { count: group.cards.length })}
+                        >
+                          {formatNumber(group.cards.length)}
+                        </span>
+                      </div>
+                      <ConceptCardGrid cards={group.cards} />
+                    </section>
+                  );
+                })}
+              </div>
+            )}
 
             {filteredCards.length === 0 && (
               <div className="text-center py-12 text-gray-600">
@@ -517,6 +575,16 @@ export default function KnowledgeMap({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ConceptCardGrid({ cards, testId }: { cards: MapCard[]; testId?: string }) {
+  return (
+    <div data-testid={testId} className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+      {cards.map((card) => (
+        <KnowledgeCardItem key={card.id} card={card} />
+      ))}
     </div>
   );
 }
@@ -540,7 +608,11 @@ function KnowledgeCardItem({ card }: { card: MapCard }) {
   };
 
   return (
-    <div data-testid="concept-card" className={`p-4 rounded-lg border shadow-sm transition-all hover:shadow-md ${getStatusColor(card.status)}`}>
+    <div
+      data-testid="concept-card"
+      data-concept-id={card.id}
+      className={`p-4 rounded-lg border shadow-sm transition-all hover:shadow-md ${getStatusColor(card.status)}`}
+    >
       <div className="flex justify-between items-start mb-2">
         <span className="text-xs tracking-wider text-gray-700 font-semibold">
           {card.isPersonal
