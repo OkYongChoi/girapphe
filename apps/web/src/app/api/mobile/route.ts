@@ -16,6 +16,7 @@ import {
   createKnowledgeItem,
   deleteKnowledgeItem,
   getDeletedKnowledgeItems,
+  getUserKnowledgeMapItems,
   getUserKnowledgeItems,
   restoreKnowledgeItem,
   updateKnowledgeItem,
@@ -115,7 +116,7 @@ export async function GET(request: NextRequest) {
     case 'graph': {
       const [cards, personalItems] = await Promise.all([
         getKnowledgeMapGraphCards({ locale }),
-        getUserKnowledgeItems(),
+        getUserKnowledgeMapItems(),
       ]);
       return NextResponse.json({
         cards: cards.map((card) => ({ id: card.id, title: card.title, status: card.status })),

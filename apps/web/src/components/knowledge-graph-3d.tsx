@@ -10,7 +10,7 @@ import type { EdgeType } from '@stem-brain/graph-engine';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { getDomainColor } from '@stem-brain/graph-engine';
-import { deleteKnowledgeItem } from '@/actions/user-knowledge-actions';
+import { deleteKnowledgeItem, getUserKnowledgeItemDetail } from '@/actions/user-knowledge-actions';
 import { useI18n } from '@/i18n/client';
 import LanguageSwitcher from '@/components/language-switcher';
 import type { Locale } from '@stem-brain/shared';
@@ -274,13 +274,18 @@ export default function KnowledgeGraph3D({ cards, edges = [], locale, onClose }:
   const handleNodeClick = useCallback(
     (node: any) => {
       setSelectedNode(node);
-      if (
-        node.group === 'card'
-        && !node.isPersonal
+      const personalItemId = typeof node.personalItemId === 'string' ? node.personalItemId : '';
+      const canLoadDetail = node.group === 'card'
         && !node.mainContent
-        && typeof node.id === 'string'
-      ) {
-        const cached = detailCache.current.get(node.id);
+        && (
+          (!node.isPersonal && typeof node.id === 'string')
+          || (node.isPersonal && Boolean(personalItemId))
+        );
+      if (canLoadDetail) {
+        const detailKey = node.isPersonal
+          ? `personal-item:${personalItemId}`
+          : `public-card:${node.id}`;
+        const cached = detailCache.current.get(detailKey);
         if (cached !== undefined) {
           setSelectedNode((current) => {
             if (!current || current.id !== node.id) return current;
@@ -289,11 +294,13 @@ export default function KnowledgeGraph3D({ cards, edges = [], locale, onClose }:
         } else {
           const requestId = ++detailRequestId.current;
           setDetailLoadingNodeId(node.id);
-          void getKnowledgeMapCardDetail(node.id, locale)
-            .then((detail) => {
+          const detailRequest = node.isPersonal
+            ? getUserKnowledgeItemDetail(personalItemId).then((detail) => detail?.content ?? '')
+            : getKnowledgeMapCardDetail(node.id, locale).then((detail) => detail?.explanation ?? '');
+          void detailRequest
+            .then((explanation) => {
               if (requestId !== detailRequestId.current) return;
-              const explanation = detail?.explanation ?? '';
-              detailCache.current.set(node.id, explanation);
+              detailCache.current.set(detailKey, explanation);
               setSelectedNode((current) => {
                 if (!current || current.id !== node.id) return current;
                 return { ...current, mainContent: explanation };

@@ -12,28 +12,22 @@ import {
 import KnowledgeGraph3D from './knowledge-graph-3d';
 import type { KnowledgeGraphEdgeView } from './knowledge-graph-3d';
 import { formatDomainLabel, getCardLevelMeta } from '@stem-brain/graph-engine';
-import { deleteKnowledgeItem, type UserKnowledgeItem } from '@/actions/user-knowledge-actions';
+import { deleteKnowledgeItem, type UserKnowledgeMapItem } from '@/actions/user-knowledge-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import type { KnowledgeLinkTarget } from '@/actions/knowledge-ingestion-actions';
-import {
-  getKnowledgeMapCardDomains,
-  matchesKnowledgeMapCard,
-} from '@/lib/knowledge-map-pagination';
-import { sortConceptCards, type AddedDateRange, type ConceptSort } from '@/lib/knowledge-map-time';
+import { getKnowledgeMapCardDomains } from '@/lib/knowledge-map-pagination';
+import { type AddedDateRange, type ConceptSort } from '@/lib/knowledge-map-time';
 import type { Locale } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 
 type MapCard = KnowledgeMapCard & {
   explanation?: string;
-  isPersonal?: boolean;
-  personalItemId?: string;
-  tags?: string[];
 };
 
 type Props = {
   initialCardPage?: KnowledgeMapCardPage;
   initialView?: 'grid' | 'graph';
-  personalItems?: UserKnowledgeItem[];
+  personalItems?: UserKnowledgeMapItem[];
   publicEdges?: KnowledgeMapEdge[];
   privateGraph?: {
     nodes?: unknown[];
@@ -217,10 +211,8 @@ export default function KnowledgeMapPaginated({
           ? t('knowledge.linkedConceptWithId', { id: endpointLabel })
           : t('knowledge.linkedConcept')),
       summary: personalItem?.summary
-        || personalItem?.content
-        || readString(record, 'summary', 'content')
+        || readString(record, 'summary')
         || t('knowledge.privatePersonalCard'),
-      explanation: personalItem?.content || readString(record, 'explanation', 'content'),
       wiki_url: '',
       domain: topic,
       domains: [topic],
@@ -243,8 +235,7 @@ export default function KnowledgeMapPaginated({
       personalItemId: item.id,
       isPersonal: true,
       title: item.title,
-      summary: item.summary || item.content || t('knowledge.privatePersonalCard'),
-      explanation: item.content,
+      summary: item.summary || t('knowledge.privatePersonalCard'),
       wiki_url: '',
       domain: 'personal',
       domains: [item.topic || 'personal'],
@@ -323,27 +314,15 @@ export default function KnowledgeMapPaginated({
     return [...baseCards, ...endpointCards];
   }, [graphEdges, graphLinkTargets, graphPublicCards, personalCards, t]);
 
-  const pageCards = cardPage?.cards;
-  const filteredPersonalCards = useMemo(() => sortConceptCards(
-    personalCards.filter((card) => matchesKnowledgeMapCard(card, {
-      query: deferredFilter,
-      domain: selectedDomain,
-      status: selectedStatus,
-      addedDateRange,
-      sort,
-    })),
-    sort,
-  ), [addedDateRange, deferredFilter, personalCards, selectedDomain, selectedStatus, sort]);
-  const gridCards = useMemo<MapCard[]>(
-    () => [...(pageCards ?? []), ...filteredPersonalCards],
-    [filteredPersonalCards, pageCards]
-  );
-  const filteredTotal = (cardPage?.total ?? 0) + filteredPersonalCards.length;
-  const availablePublicDomains = cardPage?.domains
+  const gridCards: MapCard[] = cardPage?.cards ?? [];
+  const filteredTotal = cardPage?.total ?? 0;
+  const availableDomains = cardPage?.domains
     ?? Array.from(new Set((graphPublicCards ?? []).flatMap(getKnowledgeMapCardDomains))).sort();
   const domains = useMemo(
-    () => Array.from(new Set([...availablePublicDomains, ...personalCards.flatMap(getKnowledgeMapCardDomains)])).sort(),
-    [availablePublicDomains, personalCards]
+    () => cardPage
+      ? availableDomains
+      : Array.from(new Set([...availableDomains, ...personalCards.flatMap(getKnowledgeMapCardDomains)])).sort(),
+    [availableDomains, cardPage, personalCards]
   );
   const coreCardCount = cardPage?.coreTotal
     ?? (graphPublicCards ?? []).filter((card) => !card.id.startsWith('drill_')).length;

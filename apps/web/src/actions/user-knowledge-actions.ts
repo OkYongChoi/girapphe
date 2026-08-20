@@ -37,6 +37,13 @@ export type UserKnowledgeItem = {
   source_batch_id?: string | null;
 };
 
+export type UserKnowledgeMapItem = Pick<
+  UserKnowledgeItem,
+  'id' | 'title' | 'summary' | 'topic' | 'tags' | 'created_at' | 'updated_at'
+>;
+
+export type UserKnowledgeItemDetail = Pick<UserKnowledgeItem, 'id' | 'content'>;
+
 let schemaReady = false;
 
 async function ensureSchema() {
@@ -130,6 +137,72 @@ export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
   );
 
   return result.rows;
+}
+
+export async function getUserKnowledgeMapItems(): Promise<UserKnowledgeMapItem[]> {
+  const user = await requireCurrentActor();
+  if (user.isGuest) return [];
+
+  if (!process.env.DATABASE_URL) {
+    const now = Date.now();
+    purgeMemoryKnowledgeItemsForUser(user.id);
+    return getMemoryKnowledgeItemsForUser(user.id)
+      .filter((item) => !item.deleted_at && (!item.purge_at || new Date(item.purge_at).getTime() > now))
+      .map(({ id, title, summary, topic, tags, created_at, updated_at }) => ({
+        id,
+        title,
+        summary,
+        topic,
+        tags,
+        created_at,
+        updated_at,
+      }));
+  }
+
+  await ensureSchema();
+  await purgeExpiredKnowledgeItems();
+
+  const result = await pool.query<UserKnowledgeMapItem>(
+    `
+    SELECT id, title, summary, topic, tags, created_at::text, updated_at::text
+    FROM user_knowledge_items
+    WHERE user_id = $1 AND deleted_at IS NULL
+    ORDER BY created_at DESC;
+    `,
+    [user.id]
+  );
+
+  return result.rows;
+}
+
+export async function getUserKnowledgeItemDetail(itemId: string): Promise<UserKnowledgeItemDetail | null> {
+  const user = await requireCurrentActor();
+  if (user.isGuest || !itemId || itemId.length > 200) return null;
+
+  if (!process.env.DATABASE_URL) {
+    const now = Date.now();
+    purgeMemoryKnowledgeItemsForUser(user.id);
+    const item = getMemoryKnowledgeItemsForUser(user.id).find((candidate) => (
+      candidate.id === itemId
+      && !candidate.deleted_at
+      && (!candidate.purge_at || new Date(candidate.purge_at).getTime() > now)
+    ));
+    return item ? { id: item.id, content: item.content } : null;
+  }
+
+  await ensureSchema();
+  await purgeExpiredKnowledgeItems();
+  const result = await pool.query<UserKnowledgeItemDetail>(
+    `
+    SELECT id, content
+    FROM user_knowledge_items
+    WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+    LIMIT 1;
+    `,
+    [itemId, user.id]
+  );
+
+  return result.rows[0] ?? null;
 }
 
 export async function createKnowledgeItem(formData: FormData): Promise<void> {

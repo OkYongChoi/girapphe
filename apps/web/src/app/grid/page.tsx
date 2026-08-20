@@ -2,7 +2,7 @@ import { getKnowledgeMapCardPage, getKnowledgeMapEdges } from '@/actions/card-ac
 import KnowledgeMap from '@/components/knowledge-map-paginated';
 import Navbar from '@/components/navbar';
 import { getCurrentActor } from '@/lib/auth';
-import { getUserKnowledgeItems } from '@/actions/user-knowledge-actions';
+import { getUserKnowledgeMapItems } from '@/actions/user-knowledge-actions';
 import { getKnowledgeLinkTargets, getPrivateKnowledgeGraph } from '@/actions/knowledge-ingestion-actions';
 import { getServerLocale } from '@/i18n/server';
 
@@ -12,7 +12,7 @@ export default async function GridPage() {
   const [actor, locale] = await Promise.all([getCurrentActor(), getServerLocale()]);
   const [initialCardPage, personalItems, publicEdges, privateGraph, graphLinkTargets] = await Promise.all([
     getKnowledgeMapCardPage({ locale }),
-    actor.isGuest ? Promise.resolve([]) : getUserKnowledgeItems(),
+    actor.isGuest ? Promise.resolve([]) : getUserKnowledgeMapItems(),
     getKnowledgeMapEdges(),
     actor.isGuest ? Promise.resolve(null) : getPrivateKnowledgeGraph(),
     actor.isGuest ? Promise.resolve([]) : getKnowledgeLinkTargets(),

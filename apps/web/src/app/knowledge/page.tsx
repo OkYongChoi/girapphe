@@ -2,7 +2,7 @@ import { getKnowledgeMapEdges } from '@/actions/card-actions';
 import KnowledgeMap from '@/components/knowledge-map-paginated';
 import Navbar from '@/components/navbar';
 import { getCurrentActor } from '@/lib/auth';
-import { getUserKnowledgeItems } from '@/actions/user-knowledge-actions';
+import { getUserKnowledgeMapItems } from '@/actions/user-knowledge-actions';
 import { getKnowledgeLinkTargets, getPrivateKnowledgeGraph } from '@/actions/knowledge-ingestion-actions';
 import { getServerLocale } from '@/i18n/server';
 
@@ -13,7 +13,7 @@ export default async function KnowledgePage() {
   // client component control query params by navigating to the same route.
   const [actor, locale] = await Promise.all([getCurrentActor(), getServerLocale()]);
   const [personalItems, publicEdges, privateGraph, graphLinkTargets] = await Promise.all([
-    actor.isGuest ? Promise.resolve([]) : getUserKnowledgeItems(),
+    actor.isGuest ? Promise.resolve([]) : getUserKnowledgeMapItems(),
     getKnowledgeMapEdges(),
     actor.isGuest ? Promise.resolve(null) : getPrivateKnowledgeGraph(),
     actor.isGuest ? Promise.resolve([]) : getKnowledgeLinkTargets(),

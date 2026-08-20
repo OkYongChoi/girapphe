@@ -49,3 +49,50 @@ test('knowledge map pagination returns a bounded server window and exact total',
   assert.equal(page.hasMore, false);
   assert.deepEqual(page.cards.map((card) => card.id), ['neural_network']);
 });
+
+test('knowledge map pagination searches and title-sorts the localized compact fields it receives', () => {
+  const localizedCards = [
+    {
+      id: 'public_z',
+      title: 'Zulu',
+      summary: '기본 개념입니다.',
+      domain: 'mathematics',
+      status: null,
+    },
+    {
+      id: 'public_a',
+      title: 'Alpha',
+      summary: '한국어 검색 대상입니다.',
+      domain: 'mathematics',
+      status: null,
+    },
+  ];
+
+  const searched = paginateKnowledgeMapCards(localizedCards, { query: '한국어', sort: 'title' });
+  const sorted = paginateKnowledgeMapCards(localizedCards, { sort: 'title' });
+
+  assert.deepEqual(searched.cards.map((card) => card.id), ['public_a']);
+  assert.deepEqual(sorted.cards.map((card) => card.id), ['public_a', 'public_z']);
+});
+
+test('knowledge map pagination globally sorts compact public and personal cards together', () => {
+  const page = paginateKnowledgeMapCards([
+    {
+      id: 'public_z',
+      title: 'Zulu',
+      summary: 'A public concept.',
+      domain: 'mathematics',
+      status: null,
+    },
+    {
+      id: 'personal_alpha',
+      title: 'Alpha',
+      summary: 'A private concept.',
+      domain: 'personal',
+      tags: ['private'],
+      status: null,
+    },
+  ], { sort: 'title' });
+
+  assert.deepEqual(page.cards.map((card) => card.id), ['personal_alpha', 'public_z']);
+});

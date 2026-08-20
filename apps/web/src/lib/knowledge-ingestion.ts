@@ -1421,11 +1421,16 @@ export async function deletePrivateKnowledgeEdgeForUser(userId: string, edgeId: 
 }
 
 export async function getPrivateKnowledgeGraphForUser(userId: string): Promise<PrivateKnowledgeGraph> {
-  if (!process.env.DATABASE_URL) return { nodes: memoryNodes.get(userId) ?? [], edges: memoryEdges.get(userId) ?? [] };
+  if (!process.env.DATABASE_URL) {
+    return {
+      nodes: (memoryNodes.get(userId) ?? []).map((node) => ({ ...node, explanation: '' })),
+      edges: memoryEdges.get(userId) ?? [],
+    };
+  }
   await ensureKnowledgeIngestionSchema();
   const [nodeResult, edgeResult] = await Promise.all([
     pool.query<Record<string, unknown>>(
-      `SELECT n.id AS graph_node_id, n.knowledge_item_id, n.label, i.summary, i.content AS explanation,
+      `SELECT n.id AS graph_node_id, n.knowledge_item_id, n.label, i.summary,
         n.topic, i.tags, n.origin, n.created_at::text
        FROM user_graph_nodes n JOIN user_knowledge_items i ON i.id = n.knowledge_item_id AND i.user_id = n.user_id
        WHERE n.user_id = $1 AND n.deleted_at IS NULL AND i.deleted_at IS NULL ORDER BY n.created_at DESC`,
@@ -1451,7 +1456,7 @@ export async function getPrivateKnowledgeGraphForUser(userId: string): Promise<P
     knowledge_item_id: String(row.knowledge_item_id),
     label: String(row.label),
     summary: String(row.summary ?? ''),
-    explanation: String(row.explanation ?? ''),
+    explanation: '',
     topic: String(row.topic),
     tags: sanitizeKnowledgeTags(row.tags),
     origin: row.origin as PrivateKnowledgeNode['origin'],

@@ -37,6 +37,7 @@ import {
   paginateKnowledgeMapCards,
   type KnowledgeMapPageOptions,
 } from '@/lib/knowledge-map-pagination';
+import { getUserKnowledgeMapItems } from '@/actions/user-knowledge-actions';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -73,6 +74,9 @@ export type KnowledgeMapCard = Pick<
   'id' | 'title' | 'summary' | 'createdAt' | 'updatedAt' | 'wiki_url' | 'domain' | 'domains' | 'level'
 > & {
   status: CardStatus | null;
+  tags?: string[];
+  isPersonal?: boolean;
+  personalItemId?: string;
 };
 
 export type KnowledgeMapCardPage = {
@@ -1756,7 +1760,13 @@ function omitExplanationFromKnowledgeMapCards<T extends KnowledgeCard>(cards: T[
   return cards.map((card) => ({ ...card, explanation: '' }));
 }
 
-function toKnowledgeMapCard(card: CardWithStatusRow): KnowledgeMapCard {
+type KnowledgeMapCardSource = CardWithStatusRow & {
+  tags?: string[];
+  isPersonal?: boolean;
+  personalItemId?: string;
+};
+
+function toKnowledgeMapCard(card: KnowledgeMapCardSource): KnowledgeMapCard {
   return {
     id: card.id,
     title: card.title,
@@ -1768,10 +1778,36 @@ function toKnowledgeMapCard(card: CardWithStatusRow): KnowledgeMapCard {
     domains: card.domains,
     level: card.level,
     status: card.status,
+    ...(card.tags ? { tags: card.tags } : {}),
+    ...(card.isPersonal ? { isPersonal: true } : {}),
+    ...(card.personalItemId ? { personalItemId: card.personalItemId } : {}),
   };
 }
 
-async function getKnowledgeMapCardSource(options: KnowledgeMapCardSourceOptions) {
+async function getKnowledgeMapPersonalCards(): Promise<KnowledgeMapCardSource[]> {
+  const items = await getUserKnowledgeMapItems();
+  return items.map((item) => {
+    const topic = item.topic || 'personal';
+    return {
+      id: `personal:${item.id}`,
+      title: item.title,
+      summary: item.summary,
+      explanation: '',
+      createdAt: item.created_at,
+      updatedAt: item.updated_at,
+      wiki_url: '',
+      domain: topic,
+      domains: [topic],
+      level: 'understand',
+      status: null,
+      tags: item.tags,
+      isPersonal: true,
+      personalItemId: item.id,
+    };
+  });
+}
+
+async function getKnowledgeMapCardSource(options: KnowledgeMapCardSourceOptions): Promise<KnowledgeMapCardSource[]> {
   const user = await requireCurrentActor();
   const includeGenerated = options.includeGenerated ?? false;
   const generatedLimit = Math.max(0, Math.min(options.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
@@ -1901,7 +1937,7 @@ async function getKnowledgeMapCardSource(options: KnowledgeMapCardSourceOptions)
 }
 
 async function localizeKnowledgeMapCardSource(
-  cards: CardWithStatusRow[],
+  cards: KnowledgeMapCardSource[],
   locale: string | undefined,
 ) {
   if (!locale) return cards;
@@ -1916,21 +1952,26 @@ async function localizeKnowledgeMapCardSource(
 export async function getKnowledgeMapCardPage(
   options: GetKnowledgeMapCardPageOptions = {},
 ): Promise<KnowledgeMapCardPage> {
-  const sourceCards = await getKnowledgeMapCardSource({
-    includeGenerated: options.includeGenerated,
-    generatedLimit: options.generatedLimit,
-    includeExplanation: false,
-  });
-  const page = paginateKnowledgeMapCards(sourceCards, options);
-  const localizedCards = await localizeKnowledgeMapCardSource(page.cards, options.locale);
+  const [sourceCards, personalCards] = await Promise.all([
+    getKnowledgeMapCardSource({
+      includeGenerated: options.includeGenerated,
+      generatedLimit: options.generatedLimit,
+      includeExplanation: false,
+    }),
+    getKnowledgeMapPersonalCards(),
+  ]);
+  // List filtering and title sorting must use the translated compact fields.
+  const localizedCards = await localizeKnowledgeMapCardSource(sourceCards, options.locale);
+  const allCards = [...localizedCards, ...personalCards];
+  const page = paginateKnowledgeMapCards(allCards, options);
   const generatedTotal = sourceCards.filter((card) => card.id.startsWith('drill_')).length;
 
   return {
     ...page,
-    cards: localizedCards.map(toKnowledgeMapCard),
+    cards: page.cards.map(toKnowledgeMapCard),
     coreTotal: sourceCards.length - generatedTotal,
     generatedTotal,
-    domains: Array.from(new Set(sourceCards.flatMap(getKnowledgeMapCardDomains))).sort(),
+    domains: Array.from(new Set(allCards.flatMap(getKnowledgeMapCardDomains))).sort(),
   };
 }
 
