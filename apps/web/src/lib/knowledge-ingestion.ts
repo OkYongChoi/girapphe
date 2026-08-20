@@ -4,6 +4,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { GRAPH_EDGES, GRAPH_NODES } from '@stem-brain/graph-engine';
 import pool from '@/lib/db';
+import { canRunRuntimeSchemaBootstrap } from '@/lib/schema-bootstrap';
 
 export const MCP_DRAFT_CREATE_SCOPE = 'knowledge:drafts:create' as const;
 export const MCP_REQUESTS_PER_TOKEN_PER_MINUTE = 60;
@@ -318,7 +319,7 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
   // behavior because preview deployments do not apply unmerged migrations.
   // MCP bearer authentication itself never calls this function, so invalid
   // token traffic cannot amplify DDL round trips on a cold Worker isolate.
-  if (process.env.NODE_ENV === 'production' && process.env.APP_ENV !== 'preview') return;
+  if (!canRunRuntimeSchemaBootstrap()) return;
   if (!ingestionSchemaPromise) {
     ingestionSchemaPromise = (async () => {
       await pool.query(`ALTER TABLE user_knowledge_items

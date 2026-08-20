@@ -10,7 +10,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check": "pnpm lint && pnpm typecheck && pnpm test:server && pnpm test:error-recovery && pnpm test:localization && pnpm check:worker-types",
-    "test:server": "NODE_ENV=test NODE_OPTIONS=--conditions=react-server tsx --test src/app/api/mcp/*.test.ts src/lib/mcp/*.test.ts src/lib/env-validation.test.ts src/lib/ops/*.test.ts src/lib/knowledge-ingestion.test.ts src/lib/knowledge-map-grouping.test.ts src/lib/knowledge-map-time.test.ts src/lib/practice-ad-schedule.test.ts src/lib/private-practice-cards.test.ts src/lib/stabilization.test.ts src/lib/billing/*.test.ts src/components/draft-review-selection.test.ts",
+    "test:server": "NODE_ENV=test NODE_OPTIONS=--conditions=react-server tsx --test src/app/api/mcp/*.test.ts src/lib/mcp/*.test.ts src/lib/env-validation.test.ts src/lib/ops/*.test.ts src/lib/knowledge-ingestion.test.ts src/lib/knowledge-map-grouping.test.ts src/lib/knowledge-map-time.test.ts src/lib/practice-ad-schedule.test.ts src/lib/private-practice-cards.test.ts src/lib/stabilization.test.ts src/lib/schema-bootstrap.test.ts src/lib/billing/*.test.ts src/components/draft-review-selection.test.ts",
     "test:error-recovery": "tsx --test src/app/error.test.tsx",
     "test:knowledge-ingestion": "pnpm test:server",
     "env:setup:dev": "bash ../../scripts/setup-dev-env.sh",

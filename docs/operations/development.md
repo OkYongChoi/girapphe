@@ -93,6 +93,18 @@ Branch and environment handoff:
 3. Review the preview URL and merge to `main`.
 4. The `main` push runs production migrations, deploys the production Worker, and smoke tests it.
 
+### Runtime Schema Policy
+
+Production request handlers never run `CREATE`, `ALTER`, index creation, or
+card seeding. The `Run Drizzle Migrations` CI job is the only production schema
+and seed path, and it completes before the Worker deployment. This keeps a cold
+Worker request below Cloudflare's subrequest limit and makes database changes
+auditable.
+
+Preview and local environments may use the existing bootstrap behavior because
+preview Workers intentionally do not run migrations. Any production data or
+schema change must therefore be represented by a checked-in Drizzle migration.
+
 After pushing, wait for CI to finish. GitHub Actions is the only shared deployment path.
 
 Optional smoke test (app must be running):
