@@ -120,13 +120,13 @@ It never exposes provider credentials to the browser.
 
 ### Signals and Sources
 
-- **Cloudflare**: Worker request/error totals, request trend, and `cpuTimeP99`
-  come from the Workers Analytics GraphQL API. The dashboard also shows the
-  repository-owned compressed Worker bundle budget from
-  `config/resource-limits.json`.
+- **Cloudflare**: Worker request/error totals, a current-versus-prior-range
+  request comparison, and `cpuTimeP99` come from the Workers Analytics GraphQL
+  API. The dashboard also shows the repository-owned compressed Worker bundle
+  budget from `config/resource-limits.json`.
 - **Clerk**: the Backend API supplies total users and sign-ins during the
-  selected range. Monthly Retained Users (MRU) stays a Clerk Console metric, so
-  the UI deliberately does not relabel range sign-ins as MRU.
+  selected range via the documented `last_sign_in_at_*` filters. Monthly
+  Retained Users (MRU) stays a Clerk Console metric and is not inferred from this count.
 - **Neon**: a guarded SQL read supplies database size, active sessions,
   configured connection ceiling, and query-read latency. The Neon control-plane
   API supplies autoscaling limits, compute state, and compute-unit consumption

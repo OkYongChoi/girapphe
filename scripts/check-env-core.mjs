@@ -116,9 +116,10 @@ function requireKeys(map, keys, allowPlaceholders, errors) {
   }
 }
 
-function validateCompleteGroup(map, label, keys, allowPlaceholders, errors, warnings, envName) {
+function validateCompleteGroup(map, label, keys, allowPlaceholders, errors, warnings, envName, activationKey) {
   const configured = keys.filter((key) => Boolean(valueFor(map, key)));
-  if (configured.length === 0) {
+  const activated = !activationKey || Boolean(valueFor(map, activationKey));
+  if (configured.length === 0 || !activated) {
     if (envName === 'prod') warnings.push(`${label} is not configured; its production feature stays disabled.`);
     return false;
   }
@@ -278,10 +279,10 @@ export function validate({ envName, map, allowPlaceholders }) {
     map, 'AdSense practice ads', adSenseKeys, allowPlaceholders, errors, warnings, envName,
   );
   validateCompleteGroup(
-    map, 'Cloudflare operations dashboard', cloudflareOpsKeys, allowPlaceholders, errors, warnings, envName,
+    map, 'Cloudflare operations dashboard', cloudflareOpsKeys, allowPlaceholders, errors, warnings, envName, 'CLOUDFLARE_ANALYTICS_API_TOKEN',
   );
   validateCompleteGroup(
-    map, 'Neon control-plane dashboard', neonOpsKeys, allowPlaceholders, errors, warnings, envName,
+    map, 'Neon control-plane dashboard', neonOpsKeys, allowPlaceholders, errors, warnings, envName, 'NEON_API_KEY',
   );
   const tossConfigured = validateCompleteGroup(
     map, 'Toss recurring billing', tossKeys, allowPlaceholders, errors, warnings, envName,

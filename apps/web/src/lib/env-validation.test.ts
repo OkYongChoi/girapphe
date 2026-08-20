@@ -109,8 +109,8 @@ test('billing groups must be complete and Toss remains fuse-closed', () => {
   assert.match(result.errors.join('\n'), /TOSS_BILLING_ENABLED=true is not release-approved; the runtime safety fuse is closed/);
 });
 
-test('capacity dashboard provider groups must be complete when configured', () => {
-  const result = validate({
+test('capacity dashboard provider groups activate only with their control-plane tokens', () => {
+  const dormant = validate({
     envName: 'prod',
     map: baseEnv({
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkKey('pk_live_'),
@@ -120,14 +120,31 @@ test('capacity dashboard provider groups must be complete when configured', () =
       ADMIN_CLERK_USER_ID: 'user_123',
       PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
       CLOUDFLARE_ACCOUNT_ID: 'account_123',
+    }),
+    allowPlaceholders: false,
+  });
+
+  assert.doesNotMatch(dormant.errors.join('\n'), /Cloudflare operations dashboard must be configured as a complete group/);
+  assert.match(dormant.warnings.join('\n'), /Cloudflare operations dashboard is not configured/);
+
+  const activated = validate({
+    envName: 'prod',
+    map: baseEnv({
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkKey('pk_live_'),
+      CLERK_SECRET_KEY: clerkKey('sk_live_'),
+      APP_BASE_URL: 'https://www.girapphe.com',
+      DATABASE_URL: 'postgres://user:password@host/prod_db?sslmode=require',
+      ADMIN_CLERK_USER_ID: 'user_123',
+      PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
+      CLOUDFLARE_ANALYTICS_API_TOKEN: 'analytics_partial',
       NEON_API_KEY: 'napi_partial',
     }),
     allowPlaceholders: false,
   });
 
-  const errors = result.errors.join('\n');
+  const errors = activated.errors.join('\n');
   assert.match(errors, /Cloudflare operations dashboard must be configured as a complete group/);
-  assert.match(errors, /Missing required key: CLOUDFLARE_ANALYTICS_API_TOKEN/);
+  assert.match(errors, /Missing required key: CLOUDFLARE_ACCOUNT_ID/);
   assert.match(errors, /Neon control-plane dashboard must be configured as a complete group/);
   assert.match(errors, /Missing required key: NEON_PROJECT_ID/);
 });

@@ -3,26 +3,20 @@ import test from 'node:test';
 import {
   collectOpsSnapshot,
   isPooledConnectionUrl,
-  normalizeCloudflareRows,
+  normalizeCloudflareAggregate,
   parseOpsRange,
 } from './metrics';
 
-test('normalizes Cloudflare rows into selected-range request buckets', () => {
-  const metrics = normalizeCloudflareRows([
-    { dimensions: { datetime: '2026-08-20T10:03:00.000Z' }, sum: { requests: 20, errors: 1 }, quantiles: { cpuTimeP99: 9 } },
-    { dimensions: { datetime: '2026-08-20T10:44:00.000Z' }, sum: { requests: 30, errors: 2 }, quantiles: { cpuTimeP99: 12 } },
-    { dimensions: { datetime: '2026-08-20T11:02:00.000Z' }, sum: { requests: 50, errors: 0 }, quantiles: { cpuTimeP99: 7 } },
-    { dimensions: { datetime: 'invalid' }, sum: { requests: 99, errors: 99 } },
-  ], '24h');
-
-  assert.equal(metrics.requests, 100);
-  assert.equal(metrics.errors, 3);
-  assert.equal(metrics.errorRate, 0.03);
-  assert.equal(metrics.peakCpuP99Ms, 12);
-  assert.deepEqual(metrics.requestTrend, [
-    { at: '2026-08-20T10:00:00.000Z', value: 50 },
-    { at: '2026-08-20T11:00:00.000Z', value: 50 },
+test('normalizes bounded Cloudflare aggregate rows', () => {
+  const metrics = normalizeCloudflareAggregate([
+    { sum: { requests: 20, errors: 1 }, quantiles: { cpuTimeP99: 9 } },
+    { sum: { requests: 30, errors: 2 }, quantiles: { cpuTimeP99: 12 } },
   ]);
+
+  assert.equal(metrics.requests, 50);
+  assert.equal(metrics.errors, 3);
+  assert.equal(metrics.errorRate, 0.06);
+  assert.equal(metrics.peakCpuP99Ms, 12);
   assert.equal(parseOpsRange('unknown'), '7d');
 });
 
@@ -36,21 +30,26 @@ test('collects configured provider signals without exposing credentials', async 
   const cloudflareToken = 'cloudflare-token-must-not-appear';
   const neonToken = 'neon-token-must-not-appear';
   const clerkToken = 'clerk-token-must-not-appear';
-  const fetcher: typeof fetch = async (input) => {
+  const clerkRequests: string[] = [];
+  let cloudflareQuery = '';
+  const fetcher: typeof fetch = async (input, init) => {
     const url = String(input);
     if (url.includes('cloudflare.com/client/v4/graphql')) {
+      cloudflareQuery = String(init?.body);
       const cloudflareBody = {
         data: {
           viewer: {
-            accounts: [{ workersInvocationsAdaptive: [
-              { dimensions: { datetime: '2026-08-20T00:00:00.000Z' }, sum: { requests: 100, errors: 1 }, quantiles: { cpuTimeP99: 8 } },
-            ] }],
+            accounts: [{
+              current: [{ sum: { requests: 100, errors: 1 }, quantiles: { cpuTimeP99: 8 } }],
+              previous: [{ sum: { requests: 90, errors: 0 }, quantiles: { cpuTimeP99: 7 } }],
+            }],
           },
         },
       };
       return new Response(JSON.stringify(cloudflareBody), { status: 200 });
     }
     if (url.includes('api.clerk.com')) {
+      clerkRequests.push(url);
       return new Response(JSON.stringify({ total_count: url.includes('last_sign_in_at_after') ? 4 : 20 }), { status: 200 });
     }
     if (url.endsWith('/projects/project_123')) {
@@ -84,6 +83,10 @@ test('collects configured provider signals without exposing credentials', async 
   assert.equal(snapshot.neon.consumptionState, 'plan_required');
   assert.equal(snapshot.neon.pooledConnection, true);
   assert.deepEqual(snapshot.actions.map((action) => action.id), ['review_error_rate']);
+  assert.match(cloudflareQuery, /workersInvocationsAdaptive\(limit: 1/);
+  assert.doesNotMatch(cloudflareQuery, /dimensions/);
+  assert.ok(clerkRequests.some((url) => url.includes('last_sign_in_at_after')));
+  assert.ok(clerkRequests.every((url) => !url.includes('last_active_at_')));
   const serialized = JSON.stringify(snapshot);
   assert.doesNotMatch(serialized, new RegExp(cloudflareToken));
   assert.doesNotMatch(serialized, new RegExp(neonToken));

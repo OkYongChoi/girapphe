@@ -162,7 +162,7 @@ export default async function OpsPage({ searchParams }: { searchParams: Promise<
               <Metric label="Worker bundle" value={`${formatNumber(snapshot.cloudflare.workerBundleBudgetKiB)} KiB`} detail="shared compressed limit" />
             </dl>
           </div>
-          {snapshot.cloudflare.state === 'unavailable' ? <p className="mt-6 rounded-md border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-400">Cloudflare signal is unavailable: {stateReason(snapshot.cloudflare.reason)}.</p> : <Trend points={snapshot.cloudflare.requestTrend} color="cyan" label="Requests over selected range" />}
+          {snapshot.cloudflare.state === 'unavailable' ? <p className="mt-6 rounded-md border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-400">Cloudflare signal is unavailable: {stateReason(snapshot.cloudflare.reason)}.</p> : <Trend points={snapshot.cloudflare.requestTrend} color="cyan" label="Requests: current versus prior range" />}
         </section>
 
         <section className="py-8" aria-labelledby="clerk-heading">

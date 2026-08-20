@@ -175,51 +175,31 @@ async function fetchJson(fetcher: typeof fetch, url: string, init: RequestInit) 
   }
 }
 
-function bucketDate(at: string, range: OpsRange): string | null {
-  const date = new Date(at);
-  if (Number.isNaN(date.getTime())) return null;
-  if (range === '24h') date.setUTCMinutes(0, 0, 0);
-  else date.setUTCHours(0, 0, 0, 0);
-  return date.toISOString();
-}
-
-export function normalizeCloudflareRows(rows: unknown[], range: OpsRange) {
-  const buckets = new Map<string, { requests: number; errors: number; cpuP99: number | null }>();
+export function normalizeCloudflareAggregate(rows: unknown[]) {
   let requests = 0;
   let errors = 0;
   let peakCpuP99Ms: number | null = null;
+  let foundMetrics = false;
 
   for (const row of rows) {
     if (!isRecord(row)) continue;
-    const dimensions = isRecord(row.dimensions) ? row.dimensions : {};
     const sum = isRecord(row.sum) ? row.sum : {};
     const quantiles = isRecord(row.quantiles) ? row.quantiles : {};
-    const at = asString(dimensions.datetime);
     const requestCount = asNumber(sum.requests);
     const errorCount = asNumber(sum.errors);
-    if (!at || requestCount === null || errorCount === null) continue;
-    const key = bucketDate(at, range);
-    if (!key) continue;
-
-    const current = buckets.get(key) ?? { requests: 0, errors: 0, cpuP99: null };
+    if (requestCount === null || errorCount === null) continue;
     const cpuP99 = asNumber(quantiles.cpuTimeP99);
-    current.requests += requestCount;
-    current.errors += errorCount;
-    current.cpuP99 = cpuP99 === null ? current.cpuP99 : Math.max(current.cpuP99 ?? 0, cpuP99);
-    buckets.set(key, current);
     requests += requestCount;
     errors += errorCount;
+    foundMetrics = true;
     peakCpuP99Ms = cpuP99 === null ? peakCpuP99Ms : Math.max(peakCpuP99Ms ?? 0, cpuP99);
   }
 
   return {
-    requests,
-    errors,
-    errorRate: requests > 0 ? errors / requests : null,
+    requests: foundMetrics ? requests : null,
+    errors: foundMetrics ? errors : null,
+    errorRate: foundMetrics && requests > 0 ? errors / requests : null,
     peakCpuP99Ms,
-    requestTrend: [...buckets.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([at, value]) => ({ at, value: value.requests })),
   };
 }
 
@@ -240,11 +220,19 @@ async function collectCloudflare(range: OpsRange, deps: OpsDependencies): Promis
 
   try {
     const dates = rangeDates(range, now);
+    const rangeDurationMs = dates.end.getTime() - dates.start.getTime();
+    const previousDates = {
+      start: new Date(dates.start.getTime() - rangeDurationMs),
+      end: dates.start,
+    };
     const query = [
-      'query GetWorkersAnalytics($accountTag: string, $datetimeStart: string, $datetimeEnd: string, $scriptName: string) {',
+      'query GetWorkersAnalytics($accountTag: string, $currentStart: string, $currentEnd: string, $previousStart: string, $previousEnd: string, $scriptName: string) {',
       'viewer { accounts(filter: { accountTag: $accountTag }) {',
-      'workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) {',
-      'sum { requests errors } quantiles { cpuTimeP99 } dimensions { datetime }',
+      'current: workersInvocationsAdaptive(limit: 1, filter: { scriptName: $scriptName, datetime_geq: $currentStart, datetime_leq: $currentEnd }) {',
+      'sum { requests errors } quantiles { cpuTimeP99 }',
+      '}',
+      'previous: workersInvocationsAdaptive(limit: 1, filter: { scriptName: $scriptName, datetime_geq: $previousStart, datetime_leq: $previousEnd }) {',
+      'sum { requests errors } quantiles { cpuTimeP99 }',
       '} } } }',
     ].join(' ');
     const response = await fetchJson(deps.fetch, CLOUDFLARE_GRAPHQL_URL, {
@@ -258,8 +246,10 @@ async function collectCloudflare(range: OpsRange, deps: OpsDependencies): Promis
         query,
         variables: {
           accountTag: accountId,
-          datetimeStart: dates.start.toISOString(),
-          datetimeEnd: dates.end.toISOString(),
+          currentStart: dates.start.toISOString(),
+          currentEnd: dates.end.toISOString(),
+          previousStart: previousDates.start.toISOString(),
+          previousEnd: previousDates.end.toISOString(),
           scriptName: 'girapphe',
         },
       }),
@@ -273,7 +263,16 @@ async function collectCloudflare(range: OpsRange, deps: OpsDependencies): Promis
     const account = viewer ? asArray(viewer.accounts)[0] : null;
     if (!root || asArray(root.errors).length > 0 || !isRecord(account)) throw new ProviderError('invalid_response');
 
-    const metrics = normalizeCloudflareRows(asArray(account.workersInvocationsAdaptive), range);
+    const currentMetrics = normalizeCloudflareAggregate(asArray(account.current));
+    const previousMetrics = normalizeCloudflareAggregate(asArray(account.previous));
+    const requestTrend: TrendPoint[] = [];
+    if (previousMetrics.requests !== null) {
+      requestTrend.push({ at: previousDates.start.toISOString(), value: previousMetrics.requests });
+    }
+    if (currentMetrics.requests !== null) {
+      requestTrend.push({ at: dates.start.toISOString(), value: currentMetrics.requests });
+    }
+    const metrics = { ...currentMetrics, requestTrend };
     return {
       state: metrics.errorRate !== null && metrics.errorRate >= ERROR_RATE_ATTENTION_THRESHOLD ? 'attention' : 'healthy',
       fetchedAt: now.toISOString(),
