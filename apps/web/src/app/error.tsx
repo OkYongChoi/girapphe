@@ -5,11 +5,16 @@ import { useI18n } from '@/i18n/client';
 
 export default function GlobalError({
   error,
+  reset,
 }: {
   error: Error & { digest?: string };
+  reset: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const { locale, t } = useI18n();
+  // Keep the anchor usable before hydration, while the click handler lets the
+  // App Router recover the failed segment without a full document navigation.
+  const retryHref = typeof window === 'undefined' ? '' : window.location.href;
 
   useEffect(() => {
     // ChunkLoadError occurs when a new deployment invalidates cached JS chunks.
@@ -32,7 +37,11 @@ export default function GlobalError({
       <p className="max-w-md text-sm text-slate-600">{t('errors.body')}</p>
       <div className="flex flex-wrap justify-center gap-3">
         <a
-          href=""
+          href={retryHref}
+          onClick={(event) => {
+            event.preventDefault();
+            reset();
+          }}
           className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50 transition-colors"
         >
           {t('errors.tryAgain')}
