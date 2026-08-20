@@ -19,6 +19,7 @@ import {
   getUserKnowledgeItems,
   restoreKnowledgeItem,
   updateKnowledgeItem,
+  type UserKnowledgeItem,
 } from '@/actions/user-knowledge-actions';
 import {
   createAdminEdge,
@@ -53,6 +54,40 @@ function unauthorized() {
 
 function invalid(message: string, code = 'INVALID_REQUEST') {
   return NextResponse.json({ error: message, code }, { status: 400 });
+}
+
+function privateJson(body: unknown) {
+  return NextResponse.json(body, {
+    headers: { 'Cache-Control': 'private, no-store' },
+  });
+}
+
+function toMobileNote(item: UserKnowledgeItem) {
+  return {
+    id: item.id,
+    title: item.title,
+    summary: item.summary,
+    content: item.content,
+    topic: item.topic,
+    tags: item.tags,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    deleted_at: item.deleted_at,
+    purge_at: item.purge_at,
+  };
+}
+
+function toMobileConcept(item: UserKnowledgeItem) {
+  return {
+    id: item.id,
+    title: item.title,
+    summary: item.summary,
+    content: item.content,
+    topic: item.topic,
+    tags: item.tags,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+  };
 }
 
 function stringField(value: unknown, maxLength: number) {
@@ -110,16 +145,16 @@ export async function GET(request: NextRequest) {
     case 'notes': {
       const view = request.nextUrl.searchParams.get('view');
       const items = view === 'trash' ? await getDeletedKnowledgeItems() : await getUserKnowledgeItems();
-      return NextResponse.json({ items });
+      return privateJson({ items: items.map(toMobileNote) });
     }
     case 'graph': {
       const [cards, personalItems] = await Promise.all([
         getAllCardsWithStatus({ locale }),
         getUserKnowledgeItems(),
       ]);
-      return NextResponse.json({
+      return privateJson({
         cards: cards.map((card) => ({ id: card.id, title: card.title, status: card.status })),
-        personalItems: personalItems.map((item) => ({ id: item.id, title: item.title, topic: item.topic })),
+        personalItems: personalItems.map(toMobileConcept),
       });
     }
     case 'practice': {

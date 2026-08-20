@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,3 +15,9 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
+void initOpenNextCloudflareForDev({
+  configPath: path.join(appDir, 'wrangler.dev.jsonc'),
+  persist: false,
+  remoteBindings: false,
+});

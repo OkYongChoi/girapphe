@@ -57,15 +57,18 @@ export type ContentResponse = {
 export type PersonalNote = {
   id: string;
   title: string;
+  summary: string;
   content: string;
   topic: string;
+  tags: string[];
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
   purge_at: string | null;
 };
 
-export type PersonalNoteSummary = Pick<PersonalNote, 'id' | 'title' | 'topic'>;
+export type PersonalNoteSummary = Pick<PersonalNote, 'id' | 'title' | 'summary' | 'content' | 'topic' | 'tags' | 'created_at' | 'updated_at'>;
+export type GraphCardSummary = Pick<MobileCard, 'id' | 'title' | 'status'>;
 
 function getBaseUrl() {
   if (!apiBaseUrl) throw new Error(translate(getActiveLocale(), 'api.missingUrl'));
@@ -134,7 +137,7 @@ export const mobileApi = {
     return publicRequest<ContentResponse>(withLocale(`/api/mobile?resource=content&ids=${query}`));
   },
   notes: (view: 'active' | 'trash' = 'active') => request<{ items: PersonalNote[] }>(withLocale(`/api/mobile?resource=notes&view=${view}`)),
-  graph: () => request<{ cards: MobileCard[]; personalItems: PersonalNoteSummary[] }>(withLocale('/api/mobile?resource=graph')),
+  graph: () => request<{ cards: GraphCardSummary[]; personalItems: PersonalNoteSummary[] }>(withLocale('/api/mobile?resource=graph')),
   practice: (mode: 'new' | 'review', exclude: string[] = []) => request<{ card: MobileCard | null; stats: { explainable: number; unclear: number } }>(withLocale(`/api/mobile?resource=practice&mode=${mode}${exclude.map((id) => `&exclude=${encodeURIComponent(id)}`).join('')}`)),
   saved: () => request<{ cards: MobileCard[] }>(withLocale('/api/mobile?resource=saved')),
   dashboard: () => request<{ stats: { explainable: number; unclear: number }; domains: Array<{ domain: string; domain_label?: string; reviewed: number; explainable: number; unclear: number }> }>(withLocale('/api/mobile?resource=dashboard')),

@@ -23,7 +23,10 @@ export default defineConfig({
     : {
         command: 'pnpm --filter @stem-brain/web dev',
         url: baseURL,
-        reuseExistingServer: !process.env.CI,
+        env: {
+          DATABASE_URL: '',
+        },
+        reuseExistingServer: false,
         timeout: 120_000,
       },
   projects: [

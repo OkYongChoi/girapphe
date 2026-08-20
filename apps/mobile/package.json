@@ -10,7 +10,7 @@
     "build": "pnpm run build:ios && pnpm run build:android",
     "build:ios": "expo export --platform ios --output-dir dist/ios --no-bytecode",
     "build:android": "expo export --platform android --output-dir dist/android --no-bytecode",
-    "test": "tsx --test src/subscription-purchase-guard.test.ts",
+    "test": "tsx --test src/subscription-purchase-guard.test.ts src/browse-concepts.test.ts",
     "eas:login": "pnpm --workspace-root exec eas login",
     "eas:init": "pnpm --workspace-root exec eas init",
     "eas:android:development": "pnpm --workspace-root exec eas build --platform android --profile development",

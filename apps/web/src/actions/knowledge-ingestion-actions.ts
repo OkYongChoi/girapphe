@@ -39,6 +39,7 @@ function revalidateKnowledgeSurfaces(batchId?: string) {
   revalidatePath('/knowledge-inbox');
   if (batchId) revalidatePath(`/knowledge-inbox/${batchId}`);
   revalidatePath('/my-knowledge');
+  revalidatePath('/grid');
   revalidatePath('/knowledge');
 }
 
