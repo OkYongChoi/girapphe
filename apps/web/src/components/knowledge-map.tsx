@@ -402,7 +402,7 @@ export default function KnowledgeMap({
               <button
                 type="button"
                 onClick={() => setViewMode('graph')}
-                className="rounded bg-blue-600 px-4 py-2 font-medium text-white shadow transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                className="min-h-11 rounded bg-blue-600 px-4 py-2 font-medium text-white shadow transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
                 {t('knowledge.graphView')}
               </button>
@@ -415,7 +415,7 @@ export default function KnowledgeMap({
                   placeholder={t('knowledge.searchPlaceholder')}
                   value={filter}
                   onChange={(e) => setFilter(e.target.value)}
-                  className="w-full rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="min-h-11 w-full rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
               </div>
 
@@ -425,7 +425,7 @@ export default function KnowledgeMap({
                   aria-label={t('knowledge.sort')}
                   value={sort}
                   onChange={(e) => setSort(e.target.value as ConceptSort)}
-                  className="rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="min-h-11 rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 >
                   <option value="newest">{t('knowledge.sortNewest')}</option>
                   <option value="updated">{t('knowledge.sortUpdated')}</option>
@@ -439,7 +439,7 @@ export default function KnowledgeMap({
                   aria-label={t('knowledge.groupBy')}
                   value={groupBy}
                   onChange={(e) => setGroupBy(e.target.value as ConceptGroupBy)}
-                  className="rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="min-h-11 rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
                 >
                   <option value="domain">{t('knowledge.groupByDomain')}</option>
                   <option value="tag">{t('knowledge.groupByTag')}</option>
@@ -448,7 +448,7 @@ export default function KnowledgeMap({
               </div>
 
               <details className="w-full xl:relative xl:w-auto">
-                <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded border bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
+                <summary className="flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded border bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
                   <span>{t('knowledge.filters')}</span>
                   {activeFilterCount > 0 ? (
                     <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700">
@@ -464,7 +464,7 @@ export default function KnowledgeMap({
                         id="concept-domain"
                         value={selectedDomain}
                         onChange={(e) => setSelectedDomain(e.target.value)}
-                        className="rounded border bg-white p-2 font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        className="min-h-11 rounded border bg-white p-2 font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
                       >
                         <option value="all">{t('common.allDomains')}</option>
                         {domains.map((domain) => (
@@ -479,7 +479,7 @@ export default function KnowledgeMap({
                         id="concept-status"
                         value={selectedStatus}
                         onChange={(e) => setSelectedStatus(e.target.value as CardStatus | 'all' | 'unstarted')}
-                        className="rounded border bg-white p-2 font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        className="min-h-11 rounded border bg-white p-2 font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
                       >
                         <option value="all">{t('common.allStatus')}</option>
                         <option value="known">{t('common.canExplain')}</option>
@@ -494,7 +494,7 @@ export default function KnowledgeMap({
                         id="concept-added-range"
                         value={addedDateRange}
                         onChange={(e) => setAddedDateRange(e.target.value as AddedDateRange)}
-                        className="rounded border bg-white p-2 font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        className="min-h-11 rounded border bg-white p-2 font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
                       >
                         <option value="all">{t('knowledge.allTime')}</option>
                         <option value="today">{t('knowledge.today')}</option>
@@ -505,7 +505,7 @@ export default function KnowledgeMap({
                       </select>
                     </label>
 
-                    <label className="flex items-center gap-2 text-sm text-gray-700" htmlFor="toggle-generated">
+                    <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-gray-700" htmlFor="toggle-generated">
                       <input
                         id="toggle-generated"
                         type="checkbox"
@@ -529,7 +529,7 @@ export default function KnowledgeMap({
                         type="button"
                         onClick={() => void loadGenerated(Math.min(5000, generatedLimit + 250))}
                         disabled={loadingGenerated}
-                        className="rounded-md border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                        className="min-h-11 rounded-md border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                       >
                         {loadingGenerated ? t('common.loading') : t('knowledge.loadMore')}
                       </button>
@@ -548,7 +548,7 @@ export default function KnowledgeMap({
                         setGeneratedCards(null);
                         setGeneratedError(null);
                       }}
-                      className="rounded border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      className="min-h-11 rounded border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
                     >
                       {t('knowledge.resetAll')}
                     </button>
