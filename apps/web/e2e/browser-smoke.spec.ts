@@ -290,6 +290,8 @@ test.describe('browser smoke', () => {
         const box = await conceptsTab.boundingBox();
         return Boolean(box && box.x >= 0 && box.x + box.width <= 390);
       }, { message: 'active Concepts navigation tab stays visible after resize' }).toBe(true);
+      const alignedConceptsBox = await conceptsTab.boundingBox();
+      expect(alignedConceptsBox?.x ?? Number.POSITIVE_INFINITY, 'active Concepts tab left alignment').toBeLessThanOrEqual(24);
     }
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
 
