@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from 'react';
 import { getAllCardsWithStatus, type KnowledgeCard, type CardStatus, type KnowledgeMapEdge } from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
 import type { KnowledgeGraphEdgeView } from './knowledge-graph-3d';
@@ -13,7 +13,13 @@ import {
 } from './knowledge-map-webmcp';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
-import { deleteKnowledgeItem, type UserKnowledgeItem } from '@/actions/user-knowledge-actions';
+import {
+  createKnowledgeItem,
+  deleteKnowledgeItem,
+  getUserKnowledgeItems,
+  updateKnowledgeItem,
+  type UserKnowledgeItem,
+} from '@/actions/user-knowledge-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import type { KnowledgeLinkTarget } from '@/actions/knowledge-ingestion-actions';
 import {
@@ -34,12 +40,21 @@ type MapCard = KnowledgeCard & {
   personalItemId?: string;
   createdAt?: string;
   tags?: string[];
+  storedSummary?: string;
 };
 
 type KnowledgeMapPersonalItem = Pick<
   UserKnowledgeItem,
   'id' | 'title' | 'summary' | 'content' | 'topic' | 'tags' | 'created_at' | 'updated_at'
 >;
+
+type EditableCardValues = {
+  title: string;
+  topic: string;
+  summary: string;
+  content: string;
+  tags: string;
+};
 
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
@@ -98,6 +113,7 @@ export default function KnowledgeMap({
   locale,
 }: Props) {
   const [baseCards, setBaseCards] = useState(initialCards);
+  const [currentPersonalItems, setCurrentPersonalItems] = useState(personalItems);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
   const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
@@ -111,6 +127,10 @@ export default function KnowledgeMap({
   const [loadingGenerated, setLoadingGenerated] = useState(false);
   const [generatedError, setGeneratedError] = useState<string | null>(null);
   const { t, formatNumber } = useI18n();
+
+  useEffect(() => {
+    setCurrentPersonalItems(personalItems);
+  }, [personalItems]);
 
   useEffect(() => {
     if (isGuest) return;
@@ -131,8 +151,8 @@ export default function KnowledgeMap({
   }, [isGuest, locale]);
 
   const personalItemById = useMemo(
-    () => new Map(personalItems.map((item) => [item.id, item])),
-    [personalItems]
+    () => new Map(currentPersonalItems.map((item) => [item.id, item])),
+    [currentPersonalItems]
   );
   const graphPrivateCards = useMemo<MapCard[]>(() => (privateGraph?.nodes ?? []).flatMap((node) => {
     const record = asRecord(node);
@@ -166,6 +186,7 @@ export default function KnowledgeMap({
       status: null,
       createdAt: personalItem?.created_at || readString(record, 'created_at'),
       updatedAt: personalItem?.updated_at || readString(record, 'updated_at'),
+      storedSummary: personalItem?.summary,
     }];
   }), [personalItemById, privateGraph?.nodes, t]);
 
@@ -174,7 +195,7 @@ export default function KnowledgeMap({
     [graphPrivateCards]
   );
 
-  const legacyPersonalCards = useMemo<MapCard[]>(() => personalItems
+  const legacyPersonalCards = useMemo<MapCard[]>(() => currentPersonalItems
     .filter((item) => !graphPersonalItemIds.has(item.id))
     .map((item) => ({
     id: `personal:${item.id}`,
@@ -182,6 +203,7 @@ export default function KnowledgeMap({
     isPersonal: true,
     title: item.title,
     summary: item.summary || item.content || t('knowledge.privatePersonalCard'),
+    storedSummary: item.summary,
     explanation: item.content,
     wiki_url: '',
     domain: 'personal',
@@ -191,7 +213,7 @@ export default function KnowledgeMap({
     status: null,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
-  })), [graphPersonalItemIds, personalItems, t]);
+  })), [currentPersonalItems, graphPersonalItemIds, t]);
   const personalCards = useMemo<MapCard[]>(
     () => [...graphPrivateCards, ...legacyPersonalCards],
     [graphPrivateCards, legacyPersonalCards]
@@ -326,6 +348,24 @@ export default function KnowledgeMap({
     + Number(selectedStatus !== 'all')
     + Number(addedDateRange !== 'all')
     + Number(includeGenerated);
+
+  const saveCard = useCallback(async (card: MapCard, values: EditableCardValues) => {
+    const formData = new FormData();
+    formData.set('title', values.title);
+    formData.set('topic', values.topic);
+    formData.set('summary', values.summary);
+    formData.set('content', values.content);
+    formData.set('tags', values.tags);
+
+    if (card.personalItemId) {
+      formData.set('id', card.personalItemId);
+      await updateKnowledgeItem(formData);
+    } else {
+      await createKnowledgeItem(formData);
+    }
+
+    setCurrentPersonalItems(await getUserKnowledgeItems());
+  }, []);
 
   return (
     <div className="w-full h-full">
@@ -542,7 +582,7 @@ export default function KnowledgeMap({
             ) : null}
 
             {groupBy === 'none' ? (
-              <ConceptCardGrid cards={cardGroups[0]?.cards ?? []} testId="concept-grid" />
+              <ConceptCardGrid cards={cardGroups[0]?.cards ?? []} testId="concept-grid" onSave={saveCard} />
             ) : (
               <div data-testid="concept-groups" className="space-y-10">
                 {cardGroups.map((group, index) => {
@@ -571,7 +611,7 @@ export default function KnowledgeMap({
                           {formatNumber(group.cards.length)}
                         </span>
                       </div>
-                      <ConceptCardGrid cards={group.cards} />
+                      <ConceptCardGrid cards={group.cards} onSave={saveCard} />
                     </section>
                   );
                 })}
@@ -590,19 +630,42 @@ export default function KnowledgeMap({
   );
 }
 
-function ConceptCardGrid({ cards, testId }: { cards: MapCard[]; testId?: string }) {
+function ConceptCardGrid({
+  cards,
+  testId,
+  onSave,
+}: {
+  cards: MapCard[];
+  testId?: string;
+  onSave: (card: MapCard, values: EditableCardValues) => Promise<void>;
+}) {
   return (
     <div data-testid={testId} className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
       {cards.map((card) => (
-        <KnowledgeCardItem key={card.id} card={card} />
+        <KnowledgeCardItem key={card.id} card={card} onSave={onSave} />
       ))}
     </div>
   );
 }
 
-function KnowledgeCardItem({ card }: { card: MapCard }) {
+function KnowledgeCardItem({
+  card,
+  onSave,
+}: {
+  card: MapCard;
+  onSave: (card: MapCard, values: EditableCardValues) => Promise<void>;
+}) {
   const levelMeta = getCardLevelMeta(card.level);
   const { t } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, startSaving] = useTransition();
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const editorId = `concept-card-editor-${card.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+
+  useEffect(() => {
+    if (editing) titleInputRef.current?.focus();
+  }, [editing]);
 
   const getStatusColor = (status: CardStatus | null) => {
     switch (status) {
@@ -618,58 +681,97 @@ function KnowledgeCardItem({ card }: { card: MapCard }) {
     return t('common.notStarted');
   };
 
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const values: EditableCardValues = {
+      title: String(formData.get('title') ?? '').trim(),
+      topic: String(formData.get('topic') ?? ''),
+      summary: String(formData.get('summary') ?? ''),
+      content: String(formData.get('content') ?? ''),
+      tags: String(formData.get('tags') ?? ''),
+    };
+
+    if (!values.title) {
+      setSaveError(t('knowledge.titleRequired'));
+      return;
+    }
+
+    setSaveError(null);
+    startSaving(async () => {
+      try {
+        await onSave(card, values);
+        setEditing(false);
+      } catch {
+        setSaveError(t('knowledge.saveError'));
+      }
+    });
+  };
+
   return (
     <div
       data-testid="concept-card"
       data-concept-id={card.id}
-      className={`p-4 rounded-lg border shadow-sm transition-all hover:shadow-md ${getStatusColor(card.status)}`}
+      className={`relative p-4 rounded-lg border shadow-sm transition-all hover:shadow-md focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 ${getStatusColor(card.status)}`}
     >
-      <div className="flex justify-between items-start mb-2">
-        <span className="text-xs tracking-wider text-gray-700 font-semibold">
-          {card.isPersonal
-            ? t('common.privateCard')
-            : t('common.difficulty', { rank: levelMeta.rank, label: levelMeta.label })}
-        </span>
-        <span className={`text-xs px-2 py-0.5 rounded-full bg-white/80 text-gray-700`}>
-          {getStatusLabel(card.status)}
-        </span>
+      {!editing ? (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          aria-expanded={false}
+          aria-controls={editorId}
+          aria-label={t('knowledge.editCardAria', { title: card.title })}
+          className="absolute inset-0 z-0 rounded-lg focus:outline-none"
+        />
+      ) : null}
+      <div className="relative z-10 pointer-events-none">
+        <div className="flex justify-between items-start mb-2">
+          <span className="text-xs tracking-wider text-gray-700 font-semibold">
+            {card.isPersonal
+              ? t('common.privateCard')
+              : t('common.difficulty', { rank: levelMeta.rank, label: levelMeta.label })}
+          </span>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-white/80 text-gray-700">
+            {getStatusLabel(card.status)}
+          </span>
+        </div>
+        <h3 className="font-bold text-lg mb-1 leading-tight text-gray-900">{card.title}</h3>
+        {card.isPersonal && card.createdAt ? (
+          <p className="mb-2 text-xs text-gray-500">
+            {t('knowledge.added', { date: new Date(card.createdAt).toLocaleDateString() })}
+          </p>
+        ) : null}
+        {card.domains && card.domains.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {card.domains.map((domain) => (
+              <span key={domain} className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                {formatDomainLabel(domain)}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {card.isPersonal && card.tags && card.tags.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {card.tags.map((tag) => (
+              <span key={tag} className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700">#{tag}</span>
+            ))}
+          </div>
+        ) : null}
+        <p className="text-sm text-gray-700 line-clamp-2 mb-3">{card.summary}</p>
       </div>
-      <h3 className="font-bold text-lg mb-1 leading-tight text-gray-900">{card.title}</h3>
-      {card.isPersonal && card.createdAt ? (
-        <p className="mb-2 text-xs text-gray-500">
-          {t('knowledge.added', { date: new Date(card.createdAt).toLocaleDateString() })}
-        </p>
-      ) : null}
-      {card.domains && card.domains.length > 0 ? (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {card.domains.map((domain) => (
-            <span key={domain} className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-gray-600">
-              {formatDomainLabel(domain)}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {card.isPersonal && card.tags && card.tags.length > 0 ? (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {card.tags.map((tag) => (
-            <span key={tag} className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700">#{tag}</span>
-          ))}
-        </div>
-      ) : null}
-      <p className="text-sm text-gray-700 line-clamp-2 mb-3">{card.summary}</p>
-      
+
       {card.wiki_url && (
-        <a 
-          href={card.wiki_url} 
-          target="_blank" 
+        <a
+          href={card.wiki_url}
+          target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-blue-700 hover:text-blue-800 hover:underline transition-colors"
+          className="relative z-10 text-xs text-blue-700 hover:text-blue-800 hover:underline transition-colors"
         >
           {t('knowledge.wiki')}
         </a>
       )}
       {card.isPersonal && card.personalItemId ? (
-        <form action={deleteKnowledgeItem} className="mt-3">
+        <form action={deleteKnowledgeItem} className="relative z-10 mt-3">
           <input type="hidden" name="id" value={card.personalItemId} />
           <ConfirmDeleteButton
             label={t('knowledge.moveTrash')}
@@ -677,6 +779,56 @@ function KnowledgeCardItem({ card }: { card: MapCard }) {
             ariaLabel={t('knowledge.moveTrashAria', { title: card.title })}
             className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
           />
+        </form>
+      ) : null}
+      {editing ? (
+        <form
+          id={editorId}
+          data-testid="concept-card-editor"
+          onSubmit={handleSubmit}
+          className="relative z-10 mt-4 grid gap-3 border-t border-gray-200 pt-4"
+        >
+          <p className="text-xs leading-relaxed text-gray-600">
+            {card.personalItemId ? t('knowledge.editPersonalHint') : t('knowledge.editCopyHint')}
+          </p>
+          <label className="grid gap-1 text-xs font-medium text-gray-700">
+            {t('notes.titleLabel')}
+            <input ref={titleInputRef} name="title" required defaultValue={card.title} className="rounded border bg-white px-3 py-2 text-sm" />
+          </label>
+          <label className="grid gap-1 text-xs font-medium text-gray-700">
+            {t('notes.newTopic')}
+            <input name="topic" defaultValue={card.domains?.[0] ?? card.domain} className="rounded border bg-white px-3 py-2 text-sm" />
+          </label>
+          <label className="grid gap-1 text-xs font-medium text-gray-700">
+            {t('knowledge.summaryLabel')}
+            <textarea name="summary" defaultValue={card.storedSummary ?? card.summary} maxLength={500} className="min-h-20 rounded border bg-white px-3 py-2 text-sm" />
+          </label>
+          <label className="grid gap-1 text-xs font-medium text-gray-700">
+            {t('notes.contentLabel')}
+            <textarea name="content" defaultValue={card.explanation} className="min-h-28 rounded border bg-white px-3 py-2 text-sm" />
+          </label>
+          <label className="grid gap-1 text-xs font-medium text-gray-700">
+            {t('knowledge.tagsLabel')}
+            <input name="tags" defaultValue={card.tags?.join(', ') ?? ''} maxLength={599} className="rounded border bg-white px-3 py-2 text-sm" />
+          </label>
+          {saveError ? <p role="alert" className="text-xs text-red-700">{saveError}</p> : null}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="rounded bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+            >
+              {isSaving ? t('common.saving') : card.personalItemId ? t('notes.save') : t('knowledge.savePrivateCopy')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              disabled={isSaving}
+              className="rounded border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+            >
+              {t('common.cancel')}
+            </button>
+          </div>
         </form>
       ) : null}
     </div>

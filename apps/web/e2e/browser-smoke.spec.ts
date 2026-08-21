@@ -313,6 +313,42 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('concept cards save public edits as a private copy', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.goto('/grid');
+    const firstCard = page.getByTestId('concept-card').first();
+    await firstCard.getByRole('button', { name: /^Edit / }).click();
+
+    const editor = firstCard.getByTestId('concept-card-editor');
+    await expect(editor).toBeVisible();
+    await expect(editor.getByText('Edits to public concepts are saved as a private copy.')).toBeVisible();
+    await editor.getByLabel('Title').fill('   ');
+    await editor.getByRole('button', { name: 'Save private copy' }).click();
+    await expect(editor.getByRole('alert')).toHaveText('Enter a title before saving.');
+    await expect(editor.getByLabel('Summary')).toBeVisible();
+    await expect(editor.getByLabel('Tags')).toBeVisible();
+    await editor.getByLabel('Title').fill('Editable private copy');
+    await editor.getByRole('button', { name: 'Save private copy' }).click();
+
+    await expect(editor).toBeHidden();
+    const personalCard = page.getByTestId('concept-card').filter({ hasText: 'Editable private copy' });
+    await expect(personalCard).toHaveCount(1);
+    await personalCard.getByRole('button', { name: /^Edit / }).click();
+    const personalEditor = personalCard.getByTestId('concept-card-editor');
+    await personalEditor.getByLabel('Summary').fill('');
+    await personalEditor.getByRole('button', { name: 'Save changes' }).click();
+    await expect(personalEditor).toBeHidden();
+
+    await personalCard.getByRole('button', { name: /^Edit / }).click();
+    const reopenedEditor = personalCard.getByTestId('concept-card-editor');
+    await expect(reopenedEditor.getByLabel('Summary')).toHaveValue('');
+    await reopenedEditor.getByLabel('Title').fill('Editable private copy updated');
+    await reopenedEditor.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByTestId('concept-card').filter({ hasText: 'Editable private copy updated' })).toHaveCount(1);
+    await assertNoBrowserFailures();
+  });
+
   test('personal knowledge exposes date controls and a trash view', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
