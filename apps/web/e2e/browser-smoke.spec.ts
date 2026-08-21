@@ -251,7 +251,7 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
-  test('knowledge graph renders a non-empty graph surface', async ({ page }) => {
+  test('knowledge graph renders a non-empty graph surface', async ({ page }, testInfo) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
     await page.goto('/knowledge');
@@ -263,6 +263,38 @@ test.describe('browser smoke', () => {
     const box = await canvas.boundingBox();
     expect(box?.width ?? 0, 'knowledge graph canvas width').toBeGreaterThan(0);
     expect(box?.height ?? 0, 'knowledge graph canvas height').toBeGreaterThan(0);
+
+    const legend = page.getByTestId('graph-legend');
+    const legendContent = page.locator('#knowledge-graph-legend-content');
+    const legendToggle = page.getByRole('button', { name: 'Show legend' });
+
+    if (testInfo.project.name === 'chromium-mobile') {
+      await expect(legendToggle).toBeVisible();
+      await expect(legendToggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(legendContent).toBeHidden();
+
+      const controlsBox = await page.getByTestId('graph-controls').boundingBox();
+      const legendBox = await legend.boundingBox();
+      expect(
+        (legendBox?.y ?? 0) - ((controlsBox?.y ?? 0) + (controlsBox?.height ?? 0)),
+        'collapsed mobile legend leaves room to manipulate the graph',
+      ).toBeGreaterThan(350);
+
+      await legendToggle.click();
+      await expect(page.getByRole('button', { name: 'Hide legend' })).toHaveAttribute('aria-expanded', 'true');
+      await expect(legendContent).toBeVisible();
+      expect(
+        await legendContent.evaluate((element) => element.scrollHeight > element.clientHeight),
+        'expanded mobile legend has a bounded scroll region',
+      ).toBe(true);
+      await legendContent.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+      await expect(legendContent.getByText('Moving particles and arrowheads show direction.')).toBeVisible();
+      await page.getByRole('button', { name: 'Hide legend' }).click();
+      await expect(legendContent).toBeHidden();
+    } else {
+      await expect(legendToggle).toBeHidden();
+      await expect(legendContent).toBeVisible();
+    }
 
     await assertNoBrowserFailures();
   });

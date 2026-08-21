@@ -408,6 +408,8 @@ export const ES_MESSAGES = {
   "graph.backToConcepts": "Volver a los conceptos",
   "graph.progressColors": "Colores de progreso",
   "graph.domainColors": "Colores de los campos",
+  "graph.showLegend": "Mostrar leyenda",
+  "graph.hideLegend": "Ocultar leyenda",
   "graph.clickInspect": "Haz clic para ver los detalles",
   "graph.domainHub": "Centro del campo",
   "graph.domainColor": "Color del campo",

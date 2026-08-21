@@ -408,6 +408,8 @@ export const AR_MESSAGES = {
   "graph.backToConcepts": "العودة إلى المفاهيم",
   "graph.progressColors": "ألوان التقدم",
   "graph.domainColors": "ألوان المجالات",
+  "graph.showLegend": "إظهار وسيلة الإيضاح",
+  "graph.hideLegend": "إخفاء وسيلة الإيضاح",
   "graph.clickInspect": "انقر للاستكشاف",
   "graph.domainHub": "محور المجال",
   "graph.domainColor": "لون المجال",

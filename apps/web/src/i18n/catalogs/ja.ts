@@ -394,6 +394,8 @@ export const JA_MESSAGES = {
   "graph.backToConcepts": "概念に戻る",
   "graph.progressColors": "進捗の色",
   "graph.domainColors": "分野の色",
+  "graph.showLegend": "凡例を表示",
+  "graph.hideLegend": "凡例を非表示",
   "graph.clickInspect": "クリックして詳細表示",
   "graph.domainHub": "分野ハブ",
   "graph.domainColor": "分野カラー",

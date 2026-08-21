@@ -408,6 +408,8 @@ export const HI_MESSAGES = {
   "graph.backToConcepts": "अवधारणाओं पर वापस जाएँ",
   "graph.progressColors": "प्रगति के रंग",
   "graph.domainColors": "क्षेत्रों के रंग",
+  "graph.showLegend": "संकेत दिखाएँ",
+  "graph.hideLegend": "संकेत छिपाएँ",
   "graph.clickInspect": "जाँचने के लिए क्लिक करें",
   "graph.domainHub": "क्षेत्र केंद्र",
   "graph.domainColor": "क्षेत्र का रंग",
