@@ -93,15 +93,16 @@ export default async function HomePage() {
               {t('home.heroBody')}
             </p>
 
-            <div className="home-discipline-rail mt-7 max-w-3xl overflow-hidden text-xs font-semibold uppercase text-slate-300" aria-label={t('home.disciplinesAria')}>
-              <div className="home-discipline-track flex w-max gap-2">
-                {[...HOME_DISCIPLINES, ...HOME_DISCIPLINES].map((key, index) => (
-                  <span key={`${key}-${index}`} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 backdrop-blur">
-                    {t(key)}
-                  </span>
-                ))}
-              </div>
-            </div>
+            <ul
+              className="mt-7 flex max-w-3xl flex-wrap gap-2 text-xs font-semibold uppercase text-slate-300"
+              aria-label={t('home.disciplinesAria')}
+            >
+              {HOME_DISCIPLINES.map((key) => (
+                <li key={key} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 backdrop-blur">
+                  {t(key)}
+                </li>
+              ))}
+            </ul>
 
             <div className="mt-8 flex flex-wrap gap-3">
               {user ? (

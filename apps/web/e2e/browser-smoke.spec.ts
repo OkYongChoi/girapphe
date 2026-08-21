@@ -134,6 +134,18 @@ test.describe('browser smoke', () => {
     await page.goto('/');
     await expect(page.locator('main#main-content')).toBeVisible();
     await expect(page.getByRole('heading', { name: /Practice STEM concepts/i })).toBeVisible();
+    const disciplines = page.getByRole('list', { name: 'STEM disciplines' });
+    const disciplineItems = disciplines.getByRole('listitem');
+    await expect(disciplineItems).toHaveCount(8);
+    const disciplineLabels = await disciplineItems.allTextContents();
+    expect(new Set(disciplineLabels).size, 'home disciplines are not duplicated').toBe(disciplineLabels.length);
+
+    const viewport = page.viewportSize();
+    const disciplineBoxes = await disciplineItems.evaluateAll((items) => items.map((item) => {
+      const box = item.getBoundingClientRect();
+      return { left: box.left, right: box.right };
+    }));
+    expect(disciplineBoxes.every((box) => box.left >= 0 && box.right <= (viewport?.width ?? 0)), 'discipline chips stay inside the viewport').toBe(true);
 
     await assertNoBrowserFailures();
   });
