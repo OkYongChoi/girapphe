@@ -187,6 +187,15 @@ test.describe('browser smoke', () => {
 
     await page.goto('/practice');
 
+    for (const control of [
+      page.getByRole('button', { name: 'Go to previous card' }),
+      page.getByRole('button', { name: 'Skip this card' }),
+    ]) {
+      const box = await control.boundingBox();
+      expect(box?.width ?? 0, 'practice navigation touch target width').toBeGreaterThanOrEqual(44);
+      expect(box?.height ?? 0, 'practice navigation touch target height').toBeGreaterThanOrEqual(44);
+    }
+
     const revealButton = page.getByRole('button', { name: 'Show answer' });
     await expect(revealButton).toHaveAttribute('aria-expanded', 'false');
     await revealButton.click();

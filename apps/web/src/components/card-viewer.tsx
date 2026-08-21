@@ -422,7 +422,7 @@ export default function CardViewer({
           onClick={handlePrevious}
           disabled={history.length === 0 || loading}
           aria-label={t('practice.previousAria')}
-          className="text-sm text-gray-500 hover:text-gray-900 disabled:opacity-30 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:pointer-events-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex min-h-11 items-center gap-1 rounded-lg px-3 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:pointer-events-none disabled:opacity-30"
         >
           {t('practice.previous')}
         </button>
@@ -430,7 +430,7 @@ export default function CardViewer({
           onClick={handleSkip}
           disabled={loading}
           aria-label={t('practice.skipAria')}
-          className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors rounded-lg px-2 py-1 hover:bg-gray-100 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex min-h-11 items-center gap-1 rounded-lg px-3 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
         >
           {loading ? '…' : t('practice.skip')}
         </button>
