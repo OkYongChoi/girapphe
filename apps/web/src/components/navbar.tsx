@@ -26,7 +26,7 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
       >
         <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-3">
           <div className="flex min-w-0 items-center justify-between gap-3">
-            <LocalizedLink href="/" aria-label={t('nav.homeLabel')} className="inline-flex min-w-0 items-center">
+            <LocalizedLink href="/" aria-label={t('nav.homeLabel')} className="inline-flex min-h-11 min-w-11 items-center justify-center">
               <BrandLogo
                 textClassName={`${isHome ? '!text-white' : ''} hidden text-xl min-[480px]:inline`}
               />
@@ -45,7 +45,7 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
                   <button
                     type="submit"
                     aria-label={t('nav.logoutAria')}
-                    className={`rounded-md border px-3 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'hover:bg-gray-50'}`}
+                    className={`inline-flex min-h-11 items-center justify-center rounded-md border px-3 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'hover:bg-gray-50'}`}
                   >
                     {t('nav.logout')}
                   </button>
@@ -54,10 +54,10 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
             ) : (
               <div className="flex shrink-0 items-center gap-2 text-sm font-medium">
                 <LanguageSwitcher compact />
-                <LocalizedLink href="/login" className={`rounded-md border px-3 py-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'hover:bg-gray-50'}`}>
+                <LocalizedLink href="/login" className={`inline-flex min-h-11 items-center justify-center rounded-md border px-3 py-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'hover:bg-gray-50'}`}>
                   {t('nav.login')}
                 </LocalizedLink>
-                <LocalizedLink href="/signup" className={`rounded-md px-3 py-1.5 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 ${isHome ? 'bg-cyan-500 hover:bg-cyan-400' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                <LocalizedLink href="/signup" className={`inline-flex min-h-11 items-center justify-center rounded-md px-3 py-1.5 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 ${isHome ? 'bg-cyan-500 hover:bg-cyan-400' : 'bg-blue-600 hover:bg-blue-700'}`}>
                   {t('nav.signup')}
                 </LocalizedLink>
               </div>

@@ -40,7 +40,7 @@ export default function LanguageSwitcher({ compact = false }: { compact?: boolea
         value={locale}
         aria-label={t('locale.select')}
         onChange={(event) => changeLocale(event.target.value as Locale)}
-        className="max-w-36 rounded-md border border-current/20 bg-transparent px-2 py-1.5 text-xs font-medium outline-none transition focus:ring-2 focus:ring-blue-500"
+        className="min-h-11 max-w-36 rounded-md border border-current/20 bg-transparent px-2 py-1.5 text-xs font-medium outline-none transition focus:ring-2 focus:ring-blue-500"
       >
         {SUPPORTED_LOCALES.map((supportedLocale) => (
           <option key={supportedLocale} value={supportedLocale} className="bg-white text-slate-900">
