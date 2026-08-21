@@ -27,7 +27,9 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
         <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-3">
           <div className="flex min-w-0 items-center justify-between gap-3">
             <LocalizedLink href="/" aria-label={t('nav.homeLabel')} className="inline-flex min-w-0 items-center">
-              <BrandLogo textClassName={isHome ? 'text-xl !text-white' : 'text-xl'} />
+              <BrandLogo
+                textClassName={`${isHome ? '!text-white' : ''} hidden text-xl min-[480px]:inline`}
+              />
             </LocalizedLink>
 
             {user ? (
