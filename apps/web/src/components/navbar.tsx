@@ -2,6 +2,7 @@ import { logoutAction } from '@/actions/auth-actions';
 import { getCurrentUser, isAdminUser, type AuthUser } from '@/lib/auth';
 import NavLinks from '@/components/nav-links';
 import BrandLogo from '@/components/brand-logo';
+import LogoutButton from '@/components/logout-button';
 import LanguageSwitcher from '@/components/language-switcher';
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
@@ -42,13 +43,11 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
                   {user.email}
                 </span>
                 <form action={logoutAction}>
-                  <button
-                    type="submit"
-                    aria-label={t('nav.logoutAria')}
+                  <LogoutButton
+                    label={t('nav.logout')}
+                    ariaLabel={t('nav.logoutAria')}
                     className={`rounded-md border px-3 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'hover:bg-gray-50'}`}
-                  >
-                    {t('nav.logout')}
-                  </button>
+                  />
                 </form>
               </div>
             ) : (
