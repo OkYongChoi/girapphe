@@ -359,6 +359,23 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('active navigation stays visible when the viewport narrows', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/grid');
+    const conceptsTab = page.getByRole('link', { name: 'Concepts' });
+    await expect(conceptsTab).toHaveAttribute('aria-current', 'page');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(async () => {
+      const box = await conceptsTab.boundingBox();
+      return Boolean(box && box.x >= 0 && box.x + box.width <= 390);
+    }, { message: 'active Concepts navigation tab stays visible after resize' }).toBe(true);
+
+    await assertNoBrowserFailures();
+  });
+
   test('personal knowledge exposes date controls and a trash view', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
