@@ -371,6 +371,10 @@ test.describe('browser smoke', () => {
       await page.setViewportSize({ width: 390, height: 844 });
     }
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
+    const wikiLink = page.getByRole('link', { name: 'Wiki →' }).first();
+    const wikiLinkBox = await wikiLink.boundingBox();
+    expect(wikiLinkBox?.width ?? 0, 'concept source touch target width').toBeGreaterThanOrEqual(44);
+    expect(wikiLinkBox?.height ?? 0, 'concept source touch target height').toBeGreaterThanOrEqual(44);
 
     const groupBy = page.getByLabel('Group by');
     await expect(groupBy).toHaveValue('domain');
@@ -456,6 +460,16 @@ test.describe('browser smoke', () => {
     const editor = firstCard.getByTestId('concept-card-editor');
     await expect(editor).toBeVisible();
     await expect(editor.getByText('Edits to public concepts are saved as a private copy.')).toBeVisible();
+    for (const control of [
+      editor.getByLabel('Title'),
+      editor.getByLabel('Topic'),
+      editor.getByLabel('Tags'),
+      editor.getByRole('button', { name: 'Save private copy' }),
+      editor.getByRole('button', { name: 'Cancel' }),
+    ]) {
+      const box = await control.boundingBox();
+      expect(box?.height ?? 0, 'concept editor touch target height').toBeGreaterThanOrEqual(44);
+    }
     await editor.getByLabel('Title').fill('   ');
     await editor.getByRole('button', { name: 'Save private copy' }).click();
     await expect(editor.getByRole('alert')).toHaveText('Enter a title before saving.');

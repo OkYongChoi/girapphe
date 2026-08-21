@@ -765,7 +765,7 @@ function KnowledgeCardItem({
           href={card.wiki_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="relative z-10 text-xs text-blue-700 hover:text-blue-800 hover:underline transition-colors"
+          className="relative z-10 inline-flex min-h-11 min-w-11 items-center text-xs text-blue-700 transition-colors hover:text-blue-800 hover:underline"
         >
           {t('knowledge.wiki')}
         </a>
@@ -777,7 +777,7 @@ function KnowledgeCardItem({
             label={t('knowledge.moveTrash')}
             confirmMessage={t('knowledge.moveTrashConfirm', { title: card.title, days: 14 })}
             ariaLabel={t('knowledge.moveTrashAria', { title: card.title })}
-            className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+            className="min-h-11 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
           />
         </form>
       ) : null}
@@ -793,11 +793,11 @@ function KnowledgeCardItem({
           </p>
           <label className="grid gap-1 text-xs font-medium text-gray-700">
             {t('notes.titleLabel')}
-            <input ref={titleInputRef} name="title" required defaultValue={card.title} className="rounded border bg-white px-3 py-2 text-sm" />
+            <input ref={titleInputRef} name="title" required defaultValue={card.title} className="min-h-11 rounded border bg-white px-3 py-2 text-sm" />
           </label>
           <label className="grid gap-1 text-xs font-medium text-gray-700">
             {t('notes.newTopic')}
-            <input name="topic" defaultValue={card.domains?.[0] ?? card.domain} className="rounded border bg-white px-3 py-2 text-sm" />
+            <input name="topic" defaultValue={card.domains?.[0] ?? card.domain} className="min-h-11 rounded border bg-white px-3 py-2 text-sm" />
           </label>
           <label className="grid gap-1 text-xs font-medium text-gray-700">
             {t('knowledge.summaryLabel')}
@@ -809,14 +809,14 @@ function KnowledgeCardItem({
           </label>
           <label className="grid gap-1 text-xs font-medium text-gray-700">
             {t('knowledge.tagsLabel')}
-            <input name="tags" defaultValue={card.tags?.join(', ') ?? ''} maxLength={599} className="rounded border bg-white px-3 py-2 text-sm" />
+            <input name="tags" defaultValue={card.tags?.join(', ') ?? ''} maxLength={599} className="min-h-11 rounded border bg-white px-3 py-2 text-sm" />
           </label>
           {saveError ? <p role="alert" className="text-xs text-red-700">{saveError}</p> : null}
           <div className="flex flex-wrap gap-2">
             <button
               type="submit"
               disabled={isSaving}
-              className="rounded bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+              className="min-h-11 rounded bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
             >
               {isSaving ? t('common.saving') : card.personalItemId ? t('notes.save') : t('knowledge.savePrivateCopy')}
             </button>
@@ -824,7 +824,7 @@ function KnowledgeCardItem({
               type="button"
               onClick={() => setEditing(false)}
               disabled={isSaving}
-              className="rounded border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              className="min-h-11 rounded border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
             >
               {t('common.cancel')}
             </button>
