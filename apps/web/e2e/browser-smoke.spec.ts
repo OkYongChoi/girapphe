@@ -264,6 +264,11 @@ test.describe('browser smoke', () => {
     }
 
     await page.goto('/grid');
+    const homeLink = page.getByRole('link', { name: 'STEMBrain — go to home' });
+    const brandWordmark = page.getByTestId('brand-wordmark');
+    await expect(homeLink.locator('svg')).toBeVisible();
+    await expect(brandWordmark).toBeVisible();
+
     const conceptsTab = page.getByRole('link', { name: 'Concepts' });
     await expect(conceptsTab).toHaveAttribute('aria-current', 'page');
     await expect.poll(async () => {
@@ -279,6 +284,8 @@ test.describe('browser smoke', () => {
 
     if (exercisesViewportResize) {
       await page.setViewportSize({ width: 390, height: 844 });
+      await expect(brandWordmark).toBeHidden();
+      await expect(homeLink.locator('svg')).toBeVisible();
       await expect.poll(async () => {
         const box = await conceptsTab.boundingBox();
         return Boolean(box && box.x >= 0 && box.x + box.width <= 390);
