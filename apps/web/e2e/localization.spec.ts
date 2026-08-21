@@ -67,8 +67,13 @@ test.describe('localized web routes', () => {
   });
 
   for (const { locale, direction, script } of LOCALE_CASES) {
-    test(`${locale} renders its localized document and home copy`, async ({ page }) => {
+    test(`${locale} renders its localized document and home copy`, async ({ page }, testInfo) => {
       const i18n = createI18n(locale);
+      const exercisesMobileHeader = testInfo.project.name === 'chromium-mobile';
+
+      if (exercisesMobileHeader) {
+        await page.setViewportSize({ width: 360, height: 844 });
+      }
 
       await page.goto(`/${locale}`);
 
@@ -81,6 +86,21 @@ test.describe('localized web routes', () => {
       await expect(heading).toBeVisible();
       expect(await heading.textContent()).toMatch(script);
       await expect(page.getByRole('combobox', { name: i18n.t('locale.select') })).toHaveValue(locale);
+      if (exercisesMobileHeader) {
+        const siteHeader = page.getByRole('navigation', { name: i18n.t('nav.siteHeader') });
+        for (const control of [
+          siteHeader.getByRole('link', { name: i18n.t('nav.homeLabel') }),
+          siteHeader.getByRole('combobox', { name: i18n.t('locale.select') }),
+          siteHeader.getByRole('link', { name: i18n.t('nav.login') }),
+          siteHeader.getByRole('link', { name: i18n.t('nav.signup') }),
+        ]) {
+          const box = await control.boundingBox();
+          expect(box?.width ?? 0, `${locale} header target width`).toBeGreaterThanOrEqual(44);
+          expect(box?.height ?? 0, `${locale} header target height`).toBeGreaterThanOrEqual(44);
+          expect(box?.x ?? Number.NEGATIVE_INFINITY, `${locale} header target left edge`).toBeGreaterThanOrEqual(0);
+          expect((box?.x ?? 360) + (box?.width ?? 1), `${locale} header target right edge`).toBeLessThanOrEqual(360);
+        }
+      }
       await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', `https://www.girapphe.com/${locale}`);
       await expect(page.locator('link[rel="alternate"][hreflang="x-default"]')).toHaveAttribute(
         'href',

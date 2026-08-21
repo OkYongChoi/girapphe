@@ -339,6 +339,16 @@ test.describe('browser smoke', () => {
       await page.setViewportSize({ width: 390, height: 844 });
       await expect(brandWordmark).toBeHidden();
       await expect(homeLink.locator('svg')).toBeVisible();
+      for (const control of [
+        homeLink,
+        page.getByRole('combobox', { name: 'Choose language' }),
+        page.getByRole('link', { name: 'Log in' }),
+        page.getByRole('link', { name: 'Sign up' }),
+      ]) {
+        const box = await control.boundingBox();
+        expect(box?.width ?? 0, 'site header touch target width').toBeGreaterThanOrEqual(44);
+        expect(box?.height ?? 0, 'site header touch target height').toBeGreaterThanOrEqual(44);
+      }
       await expect.poll(async () => {
         const box = await conceptsTab.boundingBox();
         return Boolean(box && box.x >= 0 && box.x + box.width <= 390);

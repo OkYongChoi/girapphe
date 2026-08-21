@@ -25,15 +25,15 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
         className={`sticky top-0 z-40 overflow-hidden border-b px-4 py-3 backdrop-blur ${isHome ? 'border-white/10 bg-slate-950/60 text-white shadow-[0_10px_40px_rgba(2,6,23,0.18)]' : 'border-slate-200 bg-white/95 text-slate-800'}`}
       >
         <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-3">
-          <div className="flex min-w-0 items-center justify-between gap-3">
-            <LocalizedLink href="/" aria-label={t('nav.homeLabel')} className="inline-flex min-w-0 items-center">
+          <div className="flex min-w-0 items-center justify-between gap-2 min-[400px]:gap-3">
+            <LocalizedLink href="/" aria-label={t('nav.homeLabel')} className="-mx-2 inline-flex min-h-11 min-w-11 items-center justify-center">
               <BrandLogo
                 textClassName={`${isHome ? '!text-white' : ''} hidden text-xl min-[480px]:inline`}
               />
             </LocalizedLink>
 
             {user ? (
-              <div className="flex shrink-0 items-center gap-2 text-sm font-medium">
+              <div className="flex shrink-0 items-center gap-1 text-sm font-medium min-[400px]:gap-2">
                 <LanguageSwitcher compact />
                 <span
                   className={`hidden rounded-md px-2 py-1 text-xs md:inline ${isHome ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-600'}`}
@@ -45,19 +45,19 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
                   <button
                     type="submit"
                     aria-label={t('nav.logoutAria')}
-                    className={`rounded-md border px-3 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'hover:bg-gray-50'}`}
+                    className={`inline-flex min-h-11 items-center justify-center rounded-md border px-2 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 min-[400px]:px-3 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'hover:bg-gray-50'}`}
                   >
                     {t('nav.logout')}
                   </button>
                 </form>
               </div>
             ) : (
-              <div className="flex shrink-0 items-center gap-2 text-sm font-medium">
+              <div className="flex shrink-0 items-center gap-1 text-sm font-medium min-[400px]:gap-2">
                 <LanguageSwitcher compact />
-                <LocalizedLink href="/login" className={`rounded-md border px-3 py-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'hover:bg-gray-50'}`}>
+                <LocalizedLink href="/login" className={`inline-flex min-h-11 items-center justify-center rounded-md border px-2 py-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 min-[400px]:px-3 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'hover:bg-gray-50'}`}>
                   {t('nav.login')}
                 </LocalizedLink>
-                <LocalizedLink href="/signup" className={`rounded-md px-3 py-1.5 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 ${isHome ? 'bg-cyan-500 hover:bg-cyan-400' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                <LocalizedLink href="/signup" className={`inline-flex min-h-11 items-center justify-center rounded-md px-2 py-1.5 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 min-[400px]:px-3 ${isHome ? 'bg-cyan-500 hover:bg-cyan-400' : 'bg-blue-600 hover:bg-blue-700'}`}>
                   {t('nav.signup')}
                 </LocalizedLink>
               </div>
