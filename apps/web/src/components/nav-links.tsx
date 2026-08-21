@@ -40,7 +40,17 @@ export default function NavLinks({
   useEffect(() => {
     let animationFrame = 0;
     const keepActiveLinkVisible = () => {
-      activeLinkRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const activeLink = activeLinkRef.current;
+      const navList = navListRef.current;
+      if (!activeLink || !navList) return;
+
+      const activeRect = activeLink.getBoundingClientRect();
+      const listRect = navList.getBoundingClientRect();
+      const isClipped = activeRect.left < listRect.left || activeRect.right > listRect.right;
+
+      if (isClipped) {
+        activeLink.scrollIntoView({ block: 'nearest', inline: 'start' });
+      }
     };
     const scheduleActiveLinkAlignment = () => {
       cancelAnimationFrame(animationFrame);

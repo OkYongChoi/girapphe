@@ -290,6 +290,20 @@ test.describe('browser smoke', () => {
         const box = await conceptsTab.boundingBox();
         return Boolean(box && box.x >= 0 && box.x + box.width <= 390);
       }, { message: 'active Concepts navigation tab stays visible after resize' }).toBe(true);
+      const alignedConceptsBox = await conceptsTab.boundingBox();
+      expect(alignedConceptsBox?.x ?? Number.POSITIVE_INFINITY, 'active Concepts tab left alignment').toBeLessThanOrEqual(24);
+
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.locator('html').evaluate((element) => element.setAttribute('dir', 'rtl'));
+      await page.setViewportSize({ width: 390, height: 844 });
+      await expect.poll(async () => {
+        const box = await conceptsTab.boundingBox();
+        return Boolean(box && box.x + box.width >= 366 && box.x + box.width <= 390);
+      }, { message: 'active Concepts tab aligns to the logical start in RTL' }).toBe(true);
+
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.locator('html').evaluate((element) => element.setAttribute('dir', 'ltr'));
+      await page.setViewportSize({ width: 390, height: 844 });
     }
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
 
