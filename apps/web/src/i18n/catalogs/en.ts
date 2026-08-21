@@ -409,6 +409,8 @@ export const EN_MESSAGES = {
   "graph.backToConcepts": "Back to Concepts",
   "graph.progressColors": "Progress Colors",
   "graph.domainColors": "Domain Colors",
+  "graph.showLegend": "Show legend",
+  "graph.hideLegend": "Hide legend",
   "graph.clickInspect": "Click to inspect",
   "graph.domainHub": "Domain Hub",
   "graph.domainColor": "Domain color",

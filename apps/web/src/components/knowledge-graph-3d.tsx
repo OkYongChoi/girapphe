@@ -93,6 +93,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
   const [selectedStatus, setSelectedStatus] = useState<CardStatus | 'all' | 'unstarted'>('all');
   const [colorMode, setColorMode] = useState<ColorMode>('progress');
+  const [isLegendExpanded, setIsLegendExpanded] = useState(false);
   const fgRef = useRef<any>(null);
 
   const getStatusLabel = (status: CardStatus | null) => {
@@ -374,7 +375,10 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
 
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 z-20 flex items-start justify-between gap-3 px-4 py-4 md:px-6 pointer-events-none">
-        <div className="pointer-events-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border border-gray-800 bg-gray-950/80 p-3 backdrop-blur-sm shadow-lg">
+        <div
+          data-testid="graph-controls"
+          className="pointer-events-auto w-[min(34rem,calc(100vw-2rem))] rounded-xl border border-gray-800 bg-gray-950/80 p-3 backdrop-blur-sm shadow-lg"
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-white tracking-tight">
@@ -521,10 +525,36 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
       </div>
 
       {/* Legend - bottom left */}
-      <div className="pointer-events-auto absolute bottom-4 left-4 right-4 z-10 max-h-80 overflow-hidden rounded-xl border border-gray-800 bg-gray-900/85 p-4 shadow-xl backdrop-blur-sm md:bottom-6 md:left-6 md:right-auto md:w-72 md:max-h-[28rem]">
-        {colorMode === 'progress' ? (
-          <>
-            <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3 font-semibold">{t('graph.progressColors')}</p>
+      <div
+        data-testid="graph-legend"
+        className="pointer-events-auto absolute bottom-4 left-4 right-4 z-10 max-h-80 overflow-hidden rounded-xl border border-gray-800 bg-gray-900/85 p-3 shadow-xl backdrop-blur-sm md:bottom-6 md:left-6 md:right-auto md:w-72 md:max-h-[28rem] md:p-4"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+            {colorMode === 'progress' ? t('graph.progressColors') : t('graph.domainColors')}
+          </p>
+          <div className="flex items-center gap-3">
+            {colorMode === 'domain' && (
+              <span className="hidden text-[10px] text-gray-500 md:inline">{t('graph.clickInspect')}</span>
+            )}
+            <button
+              type="button"
+              aria-controls="knowledge-graph-legend-content"
+              aria-expanded={isLegendExpanded}
+              onClick={() => setIsLegendExpanded((expanded) => !expanded)}
+              className="rounded-md border border-gray-700 bg-black/20 px-2.5 py-1.5 text-xs font-medium text-gray-300 transition-colors hover:bg-white/10 md:hidden"
+            >
+              {isLegendExpanded ? t('graph.hideLegend') : t('graph.showLegend')}
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="knowledge-graph-legend-content"
+          className={`${isLegendExpanded ? 'mt-3 block' : 'hidden'} md:mt-3 md:block`}
+        >
+          {colorMode === 'progress' ? (
+            <>
             <div className="space-y-2">
               {[
                 { label: t('common.explainable'), color: STATUS_COLORS.known },
@@ -554,13 +584,8 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
               </div>
               <p className="mt-2 text-[10px] leading-relaxed text-gray-500">{t('graph.directionHint')}</p>
             </div>
-          </>
-        ) : (
-          <>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">{t('graph.domainColors')}</p>
-              <span className="text-[10px] text-gray-500">{t('graph.clickInspect')}</span>
-            </div>
+            </>
+          ) : (
             <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1 md:max-h-96">
               {visibleDomainList
                 .filter((domain) => domain !== 'other')
@@ -592,8 +617,8 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
                   );
                 })}
             </div>
-          </>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Node Detail Panel - slides in from right */}

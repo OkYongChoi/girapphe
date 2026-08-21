@@ -407,6 +407,8 @@ export const ZH_CN_MESSAGES = {
   "graph.backToConcepts": "返回概念",
   "graph.progressColors": "进度颜色",
   "graph.domainColors": "领域颜色",
+  "graph.showLegend": "显示图例",
+  "graph.hideLegend": "隐藏图例",
   "graph.clickInspect": "点击查看",
   "graph.domainHub": "领域中心",
   "graph.domainColor": "领域颜色",
