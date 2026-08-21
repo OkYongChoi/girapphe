@@ -40,6 +40,7 @@ type MapCard = KnowledgeCard & {
   personalItemId?: string;
   createdAt?: string;
   tags?: string[];
+  storedSummary?: string;
 };
 
 type KnowledgeMapPersonalItem = Pick<
@@ -185,6 +186,7 @@ export default function KnowledgeMap({
       status: null,
       createdAt: personalItem?.created_at || readString(record, 'created_at'),
       updatedAt: personalItem?.updated_at || readString(record, 'updated_at'),
+      storedSummary: personalItem?.summary,
     }];
   }), [personalItemById, privateGraph?.nodes, t]);
 
@@ -201,6 +203,7 @@ export default function KnowledgeMap({
     isPersonal: true,
     title: item.title,
     summary: item.summary || item.content || t('knowledge.privatePersonalCard'),
+    storedSummary: item.summary,
     explanation: item.content,
     wiki_url: '',
     domain: 'personal',
@@ -682,12 +685,17 @@ function KnowledgeCardItem({
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const values: EditableCardValues = {
-      title: String(formData.get('title') ?? ''),
+      title: String(formData.get('title') ?? '').trim(),
       topic: String(formData.get('topic') ?? ''),
       summary: String(formData.get('summary') ?? ''),
       content: String(formData.get('content') ?? ''),
       tags: String(formData.get('tags') ?? ''),
     };
+
+    if (!values.title) {
+      setSaveError(t('knowledge.titleRequired'));
+      return;
+    }
 
     setSaveError(null);
     startSaving(async () => {
@@ -792,15 +800,15 @@ function KnowledgeCardItem({
             <input name="topic" defaultValue={card.domains?.[0] ?? card.domain} className="rounded border bg-white px-3 py-2 text-sm" />
           </label>
           <label className="grid gap-1 text-xs font-medium text-gray-700">
-            Summary
-            <textarea name="summary" defaultValue={card.summary} maxLength={500} className="min-h-20 rounded border bg-white px-3 py-2 text-sm" />
+            {t('knowledge.summaryLabel')}
+            <textarea name="summary" defaultValue={card.storedSummary ?? card.summary} maxLength={500} className="min-h-20 rounded border bg-white px-3 py-2 text-sm" />
           </label>
           <label className="grid gap-1 text-xs font-medium text-gray-700">
             {t('notes.contentLabel')}
             <textarea name="content" defaultValue={card.explanation} className="min-h-28 rounded border bg-white px-3 py-2 text-sm" />
           </label>
           <label className="grid gap-1 text-xs font-medium text-gray-700">
-            Tags
+            {t('knowledge.tagsLabel')}
             <input name="tags" defaultValue={card.tags?.join(', ') ?? ''} maxLength={599} className="rounded border bg-white px-3 py-2 text-sm" />
           </label>
           {saveError ? <p role="alert" className="text-xs text-red-700">{saveError}</p> : null}
