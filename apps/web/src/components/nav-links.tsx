@@ -49,8 +49,7 @@ export default function NavLinks({
       const isClipped = activeRect.left < listRect.left || activeRect.right > listRect.right;
 
       if (isClipped) {
-        const listPadding = Number.parseFloat(getComputedStyle(navList).paddingInlineStart) || 0;
-        navList.scrollLeft += activeRect.left - listRect.left - listPadding;
+        activeLink.scrollIntoView({ block: 'nearest', inline: 'start' });
       }
     };
     const scheduleActiveLinkAlignment = () => {
