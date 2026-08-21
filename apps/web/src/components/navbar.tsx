@@ -1,5 +1,5 @@
 import { logoutAction } from '@/actions/auth-actions';
-import { getCurrentUser, type AuthUser } from '@/lib/auth';
+import { getCurrentUser, isAdminUser, type AuthUser } from '@/lib/auth';
 import NavLinks from '@/components/nav-links';
 import BrandLogo from '@/components/brand-logo';
 import LanguageSwitcher from '@/components/language-switcher';
@@ -62,7 +62,7 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
             )}
           </div>
 
-          <NavLinks variant={variant} isAuthenticated={Boolean(user)} />
+          <NavLinks variant={variant} isAuthenticated={Boolean(user)} isAdmin={isAdminUser(user)} />
         </div>
       </nav>
     </>

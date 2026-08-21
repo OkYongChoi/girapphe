@@ -57,9 +57,13 @@ export async function requireCurrentUser(): Promise<AuthUser> {
   return user;
 }
 
+export function isAdminUser(user: AuthUser | null): boolean {
+  const adminId = process.env.ADMIN_CLERK_USER_ID;
+  return Boolean(adminId && user && user.id === adminId);
+}
+
 export async function requireAdminUser(): Promise<AuthUser> {
   const user = await requireCurrentUser();
-  const adminId = process.env.ADMIN_CLERK_USER_ID;
-  if (!adminId || user.id !== adminId) redirect(localizePathname('/', await getServerLocale()));
+  if (!isAdminUser(user)) redirect(localizePathname('/', await getServerLocale()));
   return user;
 }

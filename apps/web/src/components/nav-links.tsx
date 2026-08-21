@@ -24,9 +24,11 @@ function isActive(pathname: string, href: string) {
 export default function NavLinks({
   variant = 'default',
   isAuthenticated = false,
+  isAdmin = false,
 }: {
   variant?: 'default' | 'home';
   isAuthenticated?: boolean;
+  isAdmin?: boolean;
 }) {
   const pathname = stripLocaleFromPathname(usePathname());
   const { t } = useI18n();
@@ -53,6 +55,16 @@ export default function NavLinks({
             </li>
           );
         })}
+        {isAdmin ? (
+          <li className="shrink-0">
+            <LocalizedLink
+              href="/admin/ops"
+              className={`inline-flex min-h-8 items-center rounded-md border px-3 py-1.5 transition focus:outline-none focus:ring-2 focus:ring-blue-500 ${isHome ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20 focus:ring-offset-slate-950' : 'border-cyan-200 bg-cyan-50 text-cyan-800 hover:bg-cyan-100 focus:ring-offset-2 focus:ring-offset-white'}`}
+            >
+              {t('nav.adminOps')}
+            </LocalizedLink>
+          </li>
+        ) : null}
       </ul>
     </nav>
   );
