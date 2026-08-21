@@ -38,17 +38,30 @@ export default function NavLinks({
   const navListRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
+    let animationFrame = 0;
     const keepActiveLinkVisible = () => {
       activeLinkRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     };
-    keepActiveLinkVisible();
+    const scheduleActiveLinkAlignment = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(keepActiveLinkVisible);
+    };
+    scheduleActiveLinkAlignment();
+
+    window.addEventListener('resize', scheduleActiveLinkAlignment, { passive: true });
 
     const navList = navListRef.current;
-    if (!navList || typeof ResizeObserver === 'undefined') return;
+    let resizeObserver: ResizeObserver | null = null;
+    if (navList && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(scheduleActiveLinkAlignment);
+      resizeObserver.observe(navList);
+    }
 
-    const resizeObserver = new ResizeObserver(keepActiveLinkVisible);
-    resizeObserver.observe(navList);
-    return () => resizeObserver.disconnect();
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      window.removeEventListener('resize', scheduleActiveLinkAlignment);
+      resizeObserver?.disconnect();
+    };
   }, [pathname]);
 
   return (

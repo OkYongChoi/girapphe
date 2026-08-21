@@ -255,8 +255,13 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
-  test('concepts has its own navigation tab and can open the graph view', async ({ page }) => {
+  test('concepts has its own navigation tab and can open the graph view', async ({ page }, testInfo) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+    const exercisesViewportResize = testInfo.project.name === 'chromium-mobile';
+
+    if (exercisesViewportResize) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
 
     await page.goto('/grid');
     const conceptsTab = page.getByRole('link', { name: 'Concepts' });
@@ -271,6 +276,14 @@ test.describe('browser smoke', () => {
         && box.x + box.width <= viewport.width,
       );
     }, { message: 'active Concepts navigation tab is fully visible' }).toBe(true);
+
+    if (exercisesViewportResize) {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await expect.poll(async () => {
+        const box = await conceptsTab.boundingBox();
+        return Boolean(box && box.x >= 0 && box.x + box.width <= 390);
+      }, { message: 'active Concepts navigation tab stays visible after resize' }).toBe(true);
+    }
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
 
     const groupBy = page.getByLabel('Group by');
@@ -356,23 +369,6 @@ test.describe('browser smoke', () => {
     await reopenedEditor.getByLabel('Title').fill('Editable private copy updated');
     await reopenedEditor.getByRole('button', { name: 'Save changes' }).click();
     await expect(page.getByTestId('concept-card').filter({ hasText: 'Editable private copy updated' })).toHaveCount(1);
-    await assertNoBrowserFailures();
-  });
-
-  test('active navigation stays visible when the viewport narrows', async ({ page }) => {
-    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
-
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/grid');
-    const conceptsTab = page.getByRole('link', { name: 'Concepts' });
-    await expect(conceptsTab).toHaveAttribute('aria-current', 'page');
-
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect.poll(async () => {
-      const box = await conceptsTab.boundingBox();
-      return Boolean(box && box.x >= 0 && box.x + box.width <= 390);
-    }, { message: 'active Concepts navigation tab stays visible after resize' }).toBe(true);
-
     await assertNoBrowserFailures();
   });
 
