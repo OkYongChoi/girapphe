@@ -283,6 +283,12 @@ test.describe('browser smoke', () => {
       await legendToggle.click();
       await expect(page.getByRole('button', { name: 'Hide legend' })).toHaveAttribute('aria-expanded', 'true');
       await expect(legendContent).toBeVisible();
+      expect(
+        await legendContent.evaluate((element) => element.scrollHeight > element.clientHeight),
+        'expanded mobile legend has a bounded scroll region',
+      ).toBe(true);
+      await legendContent.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+      await expect(legendContent.getByText('Moving particles and arrowheads show direction.')).toBeVisible();
       await page.getByRole('button', { name: 'Hide legend' }).click();
       await expect(legendContent).toBeHidden();
     } else {

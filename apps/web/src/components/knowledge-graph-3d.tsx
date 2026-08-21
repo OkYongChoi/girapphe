@@ -551,7 +551,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
 
         <div
           id="knowledge-graph-legend-content"
-          className={`${isLegendExpanded ? 'mt-3 block' : 'hidden'} md:mt-3 md:block`}
+          className={`${isLegendExpanded ? 'mt-3 block' : 'hidden'} max-h-60 overflow-y-auto pr-1 md:mt-3 md:block md:max-h-none md:overflow-visible md:pr-0`}
         >
           {colorMode === 'progress' ? (
             <>
@@ -586,7 +586,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
             </div>
             </>
           ) : (
-            <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1 md:max-h-96">
+            <div className="space-y-1.5 md:max-h-96 md:overflow-y-auto md:pr-1">
               {visibleDomainList
                 .filter((domain) => domain !== 'other')
                 .map((domain) => {
