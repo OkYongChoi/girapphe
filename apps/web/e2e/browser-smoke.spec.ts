@@ -345,6 +345,8 @@ test.describe('browser smoke', () => {
       }, { message: 'active Concepts navigation tab stays visible after resize' }).toBe(true);
       const alignedConceptsBox = await conceptsTab.boundingBox();
       expect(alignedConceptsBox?.x ?? Number.POSITIVE_INFINITY, 'active Concepts tab left alignment').toBeLessThanOrEqual(24);
+      expect(alignedConceptsBox?.width ?? 0, 'main navigation touch target width').toBeGreaterThanOrEqual(44);
+      expect(alignedConceptsBox?.height ?? 0, 'main navigation touch target height').toBeGreaterThanOrEqual(44);
 
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.locator('html').evaluate((element) => element.setAttribute('dir', 'rtl'));
