@@ -374,6 +374,20 @@ test.describe('browser smoke', () => {
 
     const groupBy = page.getByLabel('Group by');
     await expect(groupBy).toHaveValue('domain');
+    const sort = page.getByLabel('Sort concepts');
+    const filters = page.locator('summary').filter({ hasText: 'Filters' });
+    if (exercisesViewportResize) {
+      for (const control of [
+        page.getByRole('button', { name: '3D Graph View' }),
+        page.locator('#concept-search'),
+        sort,
+        groupBy,
+        filters,
+      ]) {
+        const box = await control.boundingBox();
+        expect(box?.height ?? 0, 'concept discovery touch target height').toBeGreaterThanOrEqual(44);
+      }
+    }
     expect(await page.getByTestId('concept-group').count(), 'domain sections render by default').toBeGreaterThan(1);
 
     const domainCardIds = await page.getByTestId('concept-card').evaluateAll((cards) => (
@@ -390,17 +404,27 @@ test.describe('browser smoke', () => {
     await expect(page.getByTestId('concept-grid')).toBeVisible();
     await expect(page.getByTestId('concept-group')).toHaveCount(0);
 
-    const sort = page.getByLabel('Sort concepts');
     await expect(sort).toHaveValue('newest');
     await sort.selectOption('title');
     await expect(sort).toHaveValue('title');
     const titles = await page.getByTestId('concept-card').locator('h3').allTextContents();
     expect(titles).toEqual([...titles].sort((a, b) => a.localeCompare(b)));
 
-    const filters = page.locator('summary').filter({ hasText: 'Filters' });
     await filters.click();
     const addedWithin = page.getByLabel('Added within');
     await expect(addedWithin).toHaveValue('all');
+    if (exercisesViewportResize) {
+      for (const control of [
+        page.locator('#concept-domain'),
+        page.locator('#concept-status'),
+        addedWithin,
+        page.locator('label[for="toggle-generated"]'),
+        page.getByRole('button', { name: 'Reset all' }),
+      ]) {
+        const box = await control.boundingBox();
+        expect(box?.height ?? 0, 'concept filter touch target height').toBeGreaterThanOrEqual(44);
+      }
+    }
     await addedWithin.selectOption('month');
     await expect(addedWithin).toHaveValue('month');
     expect(await page.getByTestId('concept-card').count(), 'undated guest concepts remain visible when filtering by date').toBeGreaterThan(0);
