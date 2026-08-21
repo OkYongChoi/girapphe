@@ -313,6 +313,24 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('concept cards save public edits as a private copy', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.goto('/grid');
+    const firstCard = page.getByTestId('concept-card').first();
+    await firstCard.getByRole('button', { name: /^Edit / }).click();
+
+    const editor = firstCard.getByTestId('concept-card-editor');
+    await expect(editor).toBeVisible();
+    await expect(editor.getByText('Edits to public concepts are saved as a private copy.')).toBeVisible();
+    await editor.getByLabel('Title').fill('Editable private copy');
+    await editor.getByRole('button', { name: 'Save private copy' }).click();
+
+    await expect(editor).toBeHidden();
+    await expect(page.getByTestId('concept-card').filter({ hasText: 'Editable private copy' })).toHaveCount(1);
+    await assertNoBrowserFailures();
+  });
+
   test('personal knowledge exposes date controls and a trash view', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
