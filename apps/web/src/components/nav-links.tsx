@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { stripLocaleFromPathname } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
@@ -33,6 +34,11 @@ export default function NavLinks({
   const pathname = stripLocaleFromPathname(usePathname());
   const { t } = useI18n();
   const isHome = variant === 'home';
+  const activeLinkRef = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    activeLinkRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [pathname]);
 
   return (
     <nav aria-label={t('nav.main')} className="min-w-0 overflow-hidden">
@@ -43,6 +49,7 @@ export default function NavLinks({
             <li key={item.href} className="shrink-0">
               <LocalizedLink
                 href={item.href}
+                ref={active ? activeLinkRef : undefined}
                 aria-current={active ? 'page' : undefined}
                 className={`inline-flex min-h-8 items-center rounded-md px-3 py-1.5 transition focus:outline-none focus:ring-2 focus:ring-blue-500 ${isHome ? 'focus:ring-offset-slate-950' : 'focus:ring-offset-2 focus:ring-offset-white'} ${
                   active

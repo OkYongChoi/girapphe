@@ -261,6 +261,16 @@ test.describe('browser smoke', () => {
     await page.goto('/grid');
     const conceptsTab = page.getByRole('link', { name: 'Concepts' });
     await expect(conceptsTab).toHaveAttribute('aria-current', 'page');
+    await expect.poll(async () => {
+      const box = await conceptsTab.boundingBox();
+      const viewport = page.viewportSize();
+      return Boolean(
+        box
+        && viewport
+        && box.x >= 0
+        && box.x + box.width <= viewport.width,
+      );
+    }, { message: 'active Concepts navigation tab is fully visible' }).toBe(true);
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
 
     const groupBy = page.getByLabel('Group by');
