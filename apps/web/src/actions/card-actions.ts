@@ -1693,7 +1693,7 @@ export async function getAllCardsWithStatus(options?: GetAllCardsWithStatusOptio
 export async function getKnowledgeMapCardPage({
   locale,
   offset = 0,
-  limit = 72,
+  limit = 24,
 }: {
   locale: string;
   offset?: number;

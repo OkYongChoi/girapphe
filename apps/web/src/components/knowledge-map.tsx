@@ -80,7 +80,7 @@ type Props = {
 };
 
 const EDGE_TYPES = new Set(['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to']);
-const INITIAL_VISIBLE_CONCEPT_CARDS = 72;
+const INITIAL_VISIBLE_CONCEPT_CARDS = 24;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
