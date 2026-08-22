@@ -38,6 +38,11 @@ export type UserKnowledgeItem = {
   source_batch_id?: string | null;
 };
 
+export type UserKnowledgeOverview = {
+  count: number;
+  graphNotes: Array<Pick<UserKnowledgeItem, 'id' | 'title' | 'topic'>>;
+};
+
 let schemaReady = false;
 
 async function ensureSchema() {
@@ -131,6 +136,39 @@ export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
   );
 
   return result.rows;
+}
+
+export async function getUserKnowledgeOverview(maxGraphNotes = 48): Promise<UserKnowledgeOverview> {
+  const user = await requireCurrentActor();
+  const limit = Math.max(1, Math.min(Math.trunc(maxGraphNotes), 100));
+
+  if (!process.env.DATABASE_URL) {
+    const now = Date.now();
+    purgeMemoryKnowledgeItemsForUser(user.id);
+    const items = getMemoryKnowledgeItemsForUser(user.id)
+      .filter((item) => !item.deleted_at && (!item.purge_at || new Date(item.purge_at).getTime() > now));
+    return {
+      count: items.length,
+      graphNotes: items.slice(0, limit).map(({ id, title, topic }) => ({ id, title, topic })),
+    };
+  }
+
+  await ensureSchema();
+  const result = await pool.query<Pick<UserKnowledgeItem, 'id' | 'title' | 'topic'> & { total_count: string }>(
+    `
+    SELECT id, title, topic, COUNT(*) OVER()::text AS total_count
+    FROM user_knowledge_items
+    WHERE user_id = $1 AND deleted_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT $2;
+    `,
+    [user.id, limit],
+  );
+
+  return {
+    count: Number.parseInt(result.rows[0]?.total_count ?? '0', 10),
+    graphNotes: result.rows.map(({ id, title, topic }) => ({ id, title, topic })),
+  };
 }
 
 export async function createKnowledgeItem(formData: FormData): Promise<void> {

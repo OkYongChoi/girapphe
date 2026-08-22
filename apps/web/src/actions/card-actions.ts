@@ -1524,12 +1524,23 @@ type GetAllCardsWithStatusOptions = {
   locale?: string;
   generateTranslations?: boolean;
   maxTranslationGenerations?: number;
+  knowledgeMapLimit?: number;
+  knowledgeMapOffset?: number;
 };
+
+function getKnowledgeMapWindow(options?: GetAllCardsWithStatusOptions) {
+  if (options?.knowledgeMapLimit === undefined) return null;
+  return {
+    limit: Math.max(1, Math.min(Math.trunc(options.knowledgeMapLimit), 500)),
+    offset: Math.max(0, Math.trunc(options.knowledgeMapOffset ?? 0)),
+  };
+}
 
 async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOptions) {
   const user = await requireCurrentActor();
   const includeGenerated = options?.includeGenerated ?? false;
   const generatedLimit = Math.max(0, Math.min(options?.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
+  const knowledgeMapWindow = getKnowledgeMapWindow(options);
 
   if (user.isGuest || !process.env.DATABASE_URL) {
     const sourceCards = limitCardsForGuestKnowledgeMap(await getMockCards(), user.isGuest);
@@ -1544,9 +1555,12 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
         ]
       : cards;
 
-    return limited.map((c, index) => ({
+    const windowed = knowledgeMapWindow
+      ? limited.slice(knowledgeMapWindow.offset, knowledgeMapWindow.offset + knowledgeMapWindow.limit)
+      : limited;
+    return windowed.map((c, index) => ({
       ...withCardDomains(c),
-      status: user.isGuest ? getMockCardStatus(index) : null,
+      status: user.isGuest ? getMockCardStatus(index + (knowledgeMapWindow?.offset ?? 0)) : null,
     }));
   }
 
@@ -1571,10 +1585,16 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
             WHEN 'apply' THEN 4
             ELSE 99
           END,
-          kc.title;
+          kc.title
+        ${knowledgeMapWindow ? 'LIMIT $2 OFFSET $3' : ''};
       `;
 
-      const res = await pool.query(query, [user.id]);
+      const res = await pool.query(
+        query,
+        knowledgeMapWindow
+          ? [user.id, knowledgeMapWindow.limit, knowledgeMapWindow.offset]
+          : [user.id],
+      );
       return limitCardsForGuestKnowledgeMap(res.rows as CardWithStatusRow[], user.isGuest)
         .map((row, index) => ({
           ...row,
@@ -1646,9 +1666,14 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
           ...cards.filter((c) => c.id.startsWith('drill_')).slice(0, generatedLimit),
         ]
       : cards;
-    return limited.map((c, index) => ({
+    const windowed = knowledgeMapWindow
+      ? limited.slice(knowledgeMapWindow.offset, knowledgeMapWindow.offset + knowledgeMapWindow.limit)
+      : limited;
+    return windowed.map((c, index) => ({
       ...withCardDomains(c),
-      status: user.isGuest ? getMockCardStatus(index) : (null as CardStatus | null),
+      status: user.isGuest
+        ? getMockCardStatus(index + (knowledgeMapWindow?.offset ?? 0))
+        : (null as CardStatus | null),
     }));
   }
 }
@@ -1663,6 +1688,29 @@ export async function getAllCardsWithStatus(options?: GetAllCardsWithStatusOptio
     maxGenerations: options.maxTranslationGenerations ?? 0,
     maxRelatedGenerations: Math.min(8, Math.max(0, options.maxTranslationGenerations ?? 0) * 4),
   });
+}
+
+export async function getKnowledgeMapCardPage({
+  locale,
+  offset = 0,
+  limit = 24,
+}: {
+  locale: string;
+  offset?: number;
+  limit?: number;
+}) {
+  const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 144));
+  const boundedOffset = Math.max(0, Math.trunc(offset));
+  const cards = await getAllCardsWithStatus({
+    locale,
+    knowledgeMapLimit: boundedLimit + 1,
+    knowledgeMapOffset: boundedOffset,
+  });
+
+  return {
+    cards: cards.slice(0, boundedLimit),
+    hasMore: cards.length > boundedLimit,
+  };
 }
 
 export async function resetUserCardProgress() {

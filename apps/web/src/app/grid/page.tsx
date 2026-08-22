@@ -1,4 +1,4 @@
-import { getAllCardsWithStatus, getKnowledgeMapEdges } from '@/actions/card-actions';
+import { getKnowledgeMapCardPage, getKnowledgeMapEdges } from '@/actions/card-actions';
 import KnowledgeMap from '@/components/knowledge-map';
 import Navbar from '@/components/navbar';
 import { getCurrentActor } from '@/lib/auth';
@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic';
 
 export default async function GridPage() {
   const [actor, locale] = await Promise.all([getCurrentActor(), getServerLocale()]);
-  const [cards, personalItems, publicEdges, privateGraph, graphLinkTargets] = await Promise.all([
-    getAllCardsWithStatus({ locale }),
+  const [cardPage, personalItems, publicEdges, privateGraph, graphLinkTargets] = await Promise.all([
+    getKnowledgeMapCardPage({ locale }),
     getUserKnowledgeItems(),
     getKnowledgeMapEdges(),
     actor.isGuest ? Promise.resolve(null) : getPrivateKnowledgeGraph(),
@@ -26,7 +26,8 @@ export default async function GridPage() {
       <Navbar user={actor.isGuest ? null : actor} />
       <div className="flex-grow">
         <KnowledgeMap
-          initialCards={cards}
+          initialCards={cardPage.cards}
+          initialHasMoreCards={cardPage.hasMore}
           initialView="grid"
           personalItems={personalMapItems}
           publicEdges={publicEdges}

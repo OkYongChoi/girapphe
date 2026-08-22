@@ -1,11 +1,15 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { KnowledgeCard } from '@/actions/card-actions';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { localizeDomain, localizeLevel } from '@stem-brain/shared';
-import MathText from './math-text';
 import { useI18n } from '@/i18n/client';
 import TranslationFallbackBadge from '@/components/translation-fallback-badge';
+
+const MathText = dynamic(() => import('./math-text'), {
+  loading: () => <div className="h-12 animate-pulse rounded bg-amber-100/70" aria-hidden="true" />,
+});
 
 interface CardProps {
   card: KnowledgeCard;

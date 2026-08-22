@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from 'react';
-import { getAllCardsWithStatus, type KnowledgeCard, type CardStatus, type KnowledgeMapEdge } from '@/actions/card-actions';
+import {
+  getAllCardsWithStatus,
+  getKnowledgeMapCardPage,
+  type KnowledgeCard,
+  type CardStatus,
+  type KnowledgeMapEdge,
+} from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
 import type { KnowledgeGraphEdgeView } from './knowledge-graph-3d';
 import KnowledgeMapWebMcpRegistration from './knowledge-map-webmcp-registration';
@@ -28,6 +34,7 @@ import {
 } from '@/lib/knowledge-map-time';
 import {
   groupConceptCards,
+  limitConceptCardGroups,
   UNTAGGED_CONCEPT_GROUP_KEY,
   type ConceptGroupBy,
 } from '@/lib/knowledge-map-grouping';
@@ -58,6 +65,7 @@ type EditableCardValues = {
 
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
+  initialHasMoreCards?: boolean;
   initialView?: 'grid' | 'graph';
   personalItems?: KnowledgeMapPersonalItem[];
   publicEdges?: KnowledgeMapEdge[];
@@ -72,6 +80,7 @@ type Props = {
 };
 
 const EDGE_TYPES = new Set(['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to']);
+const INITIAL_VISIBLE_CONCEPT_CARDS = 24;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -103,16 +112,18 @@ function fallbackEndpointLabel(id: string) {
 
 export default function KnowledgeMap({
   initialCards,
+  initialHasMoreCards = false,
   initialView = 'graph',
   personalItems = [],
   publicEdges = [],
   privateGraph = null,
   graphLinkTargets = [],
   enableWebMcp = false,
-  isGuest = false,
   locale,
 }: Props) {
   const [baseCards, setBaseCards] = useState(initialCards);
+  const [hasMoreCards, setHasMoreCards] = useState(initialHasMoreCards);
+  const [loadingMoreCards, setLoadingMoreCards] = useState(false);
   const [currentPersonalItems, setCurrentPersonalItems] = useState(personalItems);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
@@ -126,29 +137,12 @@ export default function KnowledgeMap({
   const [generatedCards, setGeneratedCards] = useState<(KnowledgeCard & { status: CardStatus | null })[] | null>(null);
   const [loadingGenerated, setLoadingGenerated] = useState(false);
   const [generatedError, setGeneratedError] = useState<string | null>(null);
+  const [visibleCardLimit, setVisibleCardLimit] = useState(INITIAL_VISIBLE_CONCEPT_CARDS);
   const { t, formatNumber } = useI18n();
 
   useEffect(() => {
     setCurrentPersonalItems(personalItems);
   }, [personalItems]);
-
-  useEffect(() => {
-    if (isGuest) return;
-
-    let active = true;
-
-    getAllCardsWithStatus({ locale })
-      .then((freshCards) => {
-        if (active) setBaseCards(freshCards);
-      })
-      .catch(() => {
-        // Keep server-rendered cards if the refresh fails.
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [isGuest, locale]);
 
   const personalItemById = useMemo(
     () => new Map(currentPersonalItems.map((item) => [item.id, item])),
@@ -322,6 +316,28 @@ export default function KnowledgeMap({
     }
   };
 
+  const loadMoreCards = async () => {
+    const nextVisibleLimit = visibleCardLimit + INITIAL_VISIBLE_CONCEPT_CARDS;
+    if (nextVisibleLimit <= baseCards.length || !hasMoreCards) {
+      setVisibleCardLimit(nextVisibleLimit);
+      return;
+    }
+
+    setLoadingMoreCards(true);
+    try {
+      const nextPage = await getKnowledgeMapCardPage({
+        locale,
+        offset: baseCards.length,
+        limit: INITIAL_VISIBLE_CONCEPT_CARDS,
+      });
+      setBaseCards((current) => [...current, ...nextPage.cards]);
+      setHasMoreCards(nextPage.hasMore);
+      setVisibleCardLimit(nextVisibleLimit);
+    } finally {
+      setLoadingMoreCards(false);
+    }
+  };
+
   const applyWebMcpFilters = useCallback((nextFilters: KnowledgeSearchFilters) => {
     setFilter(nextFilters.query);
     setSelectedDomain(nextFilters.domain);
@@ -343,6 +359,18 @@ export default function KnowledgeMap({
     () => groupConceptCards(filteredCards, groupBy, sort),
     [filteredCards, groupBy, sort]
   );
+  const visibleCardGroups = useMemo(
+    () => limitConceptCardGroups(cardGroups, visibleCardLimit),
+    [cardGroups, visibleCardLimit],
+  );
+  const groupCardCounts = useMemo(
+    () => new Map(cardGroups.map((group) => [group.key, group.cards.length])),
+    [cardGroups],
+  );
+
+  useEffect(() => {
+    setVisibleCardLimit(INITIAL_VISIBLE_CONCEPT_CARDS);
+  }, [addedDateRange, filter, groupBy, includeGenerated, selectedDomain, selectedStatus, sort]);
 
   const activeFilterCount = Number(selectedDomain !== 'all')
     + Number(selectedStatus !== 'all')
@@ -582,10 +610,10 @@ export default function KnowledgeMap({
             ) : null}
 
             {groupBy === 'none' ? (
-              <ConceptCardGrid cards={cardGroups[0]?.cards ?? []} testId="concept-grid" onSave={saveCard} />
+              <ConceptCardGrid cards={visibleCardGroups[0]?.cards ?? []} testId="concept-grid" onSave={saveCard} />
             ) : (
               <div data-testid="concept-groups" className="space-y-10">
-                {cardGroups.map((group, index) => {
+                {visibleCardGroups.map((group, index) => {
                   const heading = groupBy === 'domain'
                     ? formatDomainLabel(group.key)
                     : group.key === UNTAGGED_CONCEPT_GROUP_KEY
@@ -606,9 +634,9 @@ export default function KnowledgeMap({
                         </h2>
                         <span
                           className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-600"
-                          aria-label={t('knowledge.groupCount', { count: group.cards.length })}
+                          aria-label={t('knowledge.groupCount', { count: groupCardCounts.get(group.key) ?? group.cards.length })}
                         >
-                          {formatNumber(group.cards.length)}
+                          {formatNumber(groupCardCounts.get(group.key) ?? group.cards.length)}
                         </span>
                       </div>
                       <ConceptCardGrid cards={group.cards} onSave={saveCard} />
@@ -623,6 +651,19 @@ export default function KnowledgeMap({
                 {t('knowledge.noMatches')}
               </div>
             )}
+
+            {filteredCards.length > visibleCardLimit || hasMoreCards ? (
+              <div className="mt-10 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => void loadMoreCards()}
+                  disabled={loadingMoreCards}
+                  className="min-h-11 rounded-md border bg-white px-5 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-60"
+                >
+                  {loadingMoreCards ? t('common.loading') : t('knowledge.loadMore')}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       )}

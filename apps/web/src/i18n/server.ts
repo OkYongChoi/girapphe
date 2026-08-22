@@ -9,6 +9,7 @@ import {
   type Locale,
 } from '@stem-brain/shared';
 import { createI18n } from './core';
+import { MESSAGE_CATALOGS } from './messages';
 
 export const getServerLocale = cache(async (): Promise<Locale> => {
   const requestHeaders = await headers();
@@ -19,4 +20,7 @@ export const getServerLocale = cache(async (): Promise<Locale> => {
   return resolveLocale(cookieStore.get(LOCALE_COOKIE_NAME)?.value, DEFAULT_LOCALE);
 });
 
-export const getServerI18n = cache(async () => createI18n(await getServerLocale()));
+export const getServerI18n = cache(async () => {
+  const locale = await getServerLocale();
+  return createI18n(locale, MESSAGE_CATALOGS[locale] ?? MESSAGE_CATALOGS[DEFAULT_LOCALE]);
+});

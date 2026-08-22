@@ -35,12 +35,14 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
             {user ? (
               <div className="flex shrink-0 items-center gap-1 text-sm font-medium min-[400px]:gap-2">
                 <LanguageSwitcher compact />
-                <span
-                  className={`hidden rounded-md px-2 py-1 text-xs md:inline ${isHome ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-600'}`}
-                  title={user.email}
-                >
-                  {user.email}
-                </span>
+                {user.email ? (
+                  <span
+                    className={`hidden rounded-md px-2 py-1 text-xs md:inline ${isHome ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-600'}`}
+                    title={user.email}
+                  >
+                    {user.email}
+                  </span>
+                ) : null}
                 <form action={logoutAction}>
                   <button
                     type="submit"

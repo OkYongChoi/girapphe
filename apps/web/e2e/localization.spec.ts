@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { SUPPORTED_LOCALES, type Locale } from '@stem-brain/shared';
 import { createI18n } from '../src/i18n/core';
+import { MESSAGE_CATALOGS } from '../src/i18n/messages';
+
+function i18nFor(locale: Locale) {
+  return createI18n(locale, MESSAGE_CATALOGS[locale]);
+}
 
 const LOCALE_CASES: Array<{ locale: Locale; direction: 'ltr' | 'rtl'; script: RegExp }> = [
   { locale: 'en', direction: 'ltr', script: /[A-Za-z]/ },
@@ -68,7 +73,7 @@ test.describe('localized web routes', () => {
 
   for (const { locale, direction, script } of LOCALE_CASES) {
     test(`${locale} renders its localized document and home copy`, async ({ page }, testInfo) => {
-      const i18n = createI18n(locale);
+      const i18n = i18nFor(locale);
       const exercisesMobileHeader = testInfo.project.name === 'chromium-mobile';
 
       if (exercisesMobileHeader) {
@@ -111,7 +116,7 @@ test.describe('localized web routes', () => {
 
   test('every supported locale has distinct home copy', () => {
     const heroCopy = SUPPORTED_LOCALES.map((locale) => {
-      const i18n = createI18n(locale);
+      const i18n = i18nFor(locale);
       return `${i18n.t('home.heroTitle')} ${i18n.t('home.heroAccent')}`;
     });
 
@@ -125,7 +130,7 @@ test.describe('localized web routes', () => {
     await expect(page).toHaveURL(/\/ja\/practice\?mode=review#practice-card$/);
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
-    await expect(page.getByRole('heading', { name: createI18n('ja').t('practice.title') })).toBeVisible();
+    await expect(page.getByRole('heading', { name: i18nFor('ja').t('practice.title') })).toBeVisible();
 
     const preference = (await context.cookies()).find((cookie) => cookie.name === 'girapphe_locale');
     expect(preference?.value).toBe('ja');

@@ -25,13 +25,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.4
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: 22
-
-      - name: Setup pnpm
-        run: corepack enable && corepack prepare pnpm@9.15.4 --activate
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -50,6 +54,7 @@ jobs:
         run: pnpm --filter @stem-brain/mobile build
 
       - name: Build Cloudflare Bundle
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true
         run: pnpm build:cf && pnpm check:worker-size
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci_build_placeholder_1234567890
@@ -64,13 +69,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.4
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: 22
-
-      - name: Setup pnpm
-        run: corepack enable && corepack prepare pnpm@9.15.4 --activate
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Resolve Cloudflare preview URL
         env:
@@ -163,6 +172,7 @@ jobs:
             fi
           done
           pnpm build:cf
+          node ../../scripts/check-worker-size.mjs
           # `versions upload` creates the PR alias but does not activate non-versioned
           # Worker settings such as Preview URLs on an existing Worker.
           pnpm exec wrangler deploy --env preview --secrets-file "$secrets_file"
@@ -200,7 +210,7 @@ jobs:
 
       - name: Upload browser test artifacts
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: playwright-preview-pr-${{ github.event.number }}
           path: |
@@ -219,13 +229,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.4
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: 22
-
-      - name: Setup pnpm
-        run: corepack enable && corepack prepare pnpm@9.15.4 --activate
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -362,6 +376,7 @@ jobs:
         working-directory: apps/web
         run: |
           pnpm build:cf
+          node ../../scripts/check-worker-size.mjs
           pnpm exec wrangler deploy --env prod .open-next/worker.js
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}

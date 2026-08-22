@@ -1,4 +1,4 @@
-import { getAllCardsWithStatus, getKnowledgeMapEdges } from '@/actions/card-actions';
+import { getKnowledgeMapCardPage, getKnowledgeMapEdges } from '@/actions/card-actions';
 import KnowledgeMap from '@/components/knowledge-map';
 import Navbar from '@/components/navbar';
 import { getCurrentActor } from '@/lib/auth';
@@ -12,8 +12,8 @@ export default async function KnowledgePage() {
   // Server component doesn't get searchParams by default; keep this page stable and let the
   // client component control query params by navigating to the same route.
   const [actor, locale] = await Promise.all([getCurrentActor(), getServerLocale()]);
-  const [cards, personalItems, publicEdges, privateGraph, graphLinkTargets] = await Promise.all([
-    getAllCardsWithStatus({ locale }),
+  const [cardPage, personalItems, publicEdges, privateGraph, graphLinkTargets] = await Promise.all([
+    getKnowledgeMapCardPage({ locale }),
     getUserKnowledgeItems(),
     getKnowledgeMapEdges(),
     actor.isGuest ? Promise.resolve(null) : getPrivateKnowledgeGraph(),
@@ -29,7 +29,8 @@ export default async function KnowledgePage() {
       <div className="flex-grow">
         <div className="mx-auto flex h-full w-full max-w-6xl">
           <KnowledgeMap
-          initialCards={cards}
+          initialCards={cardPage.cards}
+          initialHasMoreCards={cardPage.hasMore}
           personalItems={personalMapItems}
           publicEdges={publicEdges}
           privateGraph={actor.isGuest ? null : privateGraph}

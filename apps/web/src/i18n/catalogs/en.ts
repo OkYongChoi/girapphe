@@ -48,7 +48,6 @@ export const EN_MESSAGES = {
   "nav.dashboard": "Dashboard",
   "nav.myNotes": "My Notes",
   "nav.ranking": "Ranking",
-  "nav.adminOps": "Monitoring Ops",
   "nav.login": "Log in",
   "nav.signup": "Sign up",
   "nav.logout": "Log out",

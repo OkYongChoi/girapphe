@@ -4,7 +4,7 @@ import {
   type Locale,
   type LocaleDirection,
 } from '@stem-brain/shared';
-import { MESSAGE_CATALOGS, type MessageCatalog, type MessageKey, type MessageValue } from './messages';
+import type { MessageCatalog, MessageKey, MessageValue } from './messages';
 
 export type TranslationPrimitive = string | number;
 export type TranslationValues = Record<string, TranslationPrimitive>;
@@ -52,10 +52,13 @@ function interpolate(
   });
 }
 
-export function createI18n(locale: Locale = DEFAULT_LOCALE): I18n {
-  const messages = MESSAGE_CATALOGS[locale] ?? MESSAGE_CATALOGS[DEFAULT_LOCALE];
+export function createI18n(
+  locale: Locale = DEFAULT_LOCALE,
+  messages: MessageCatalog,
+): I18n {
   const t: Translate = (key, values) => {
-    const message = messages[key] ?? MESSAGE_CATALOGS[DEFAULT_LOCALE][key];
+    const message = messages[key];
+    if (!message) return key;
     return interpolate(locale, getTemplate(locale, message, values), values);
   };
 
