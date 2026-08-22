@@ -68,3 +68,30 @@ export function groupConceptCards<T extends GroupableConceptCard>(
     cards: sortConceptCards(groupCards, sort),
   })).sort((a, b) => compareGroupKeys(a.key, b.key));
 }
+
+export function limitConceptCardGroups<T extends GroupableConceptCard>(
+  groups: readonly ConceptCardGroup<T>[],
+  limit: number,
+): ConceptCardGroup<T>[] {
+  const boundedLimit = Math.max(0, Math.trunc(limit));
+  if (boundedLimit === 0) return [];
+
+  const limited = groups.map(({ key }) => ({ key, cards: [] as T[] }));
+  let count = 0;
+  let row = 0;
+
+  while (count < boundedLimit) {
+    let added = false;
+    for (let index = 0; index < groups.length && count < boundedLimit; index += 1) {
+      const card = groups[index]?.cards[row];
+      if (!card) continue;
+      limited[index]?.cards.push(card);
+      count += 1;
+      added = true;
+    }
+    if (!added) break;
+    row += 1;
+  }
+
+  return limited.filter((group) => group.cards.length > 0);
+}

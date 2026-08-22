@@ -4,6 +4,7 @@ import {
   FLAT_CONCEPT_GROUP_KEY,
   UNTAGGED_CONCEPT_GROUP_KEY,
   groupConceptCards,
+  limitConceptCardGroups,
 } from './knowledge-map-grouping';
 
 type TestCard = {
@@ -96,6 +97,22 @@ test('returns one sorted flat group when grouping is disabled', () => {
     key: FLAT_CONCEPT_GROUP_KEY,
     cards: [],
   }]);
+});
+
+test('limits grouped cards round-robin so early groups cannot monopolize initial rendering', () => {
+  const groups = groupConceptCards([
+    { id: 'a-1', title: 'A1', domain: 'a' },
+    { id: 'a-2', title: 'A2', domain: 'a' },
+    { id: 'a-3', title: 'A3', domain: 'a' },
+    { id: 'b-1', title: 'B1', domain: 'b' },
+    { id: 'b-2', title: 'B2', domain: 'b' },
+    { id: 'c-1', title: 'C1', domain: 'c' },
+  ], 'domain', 'title');
+
+  assert.deepEqual(
+    limitConceptCardGroups(groups, 4).map((group) => [group.key, group.cards.map((entry) => entry.id)]),
+    [['a', ['a-1', 'a-2']], ['b', ['b-1']], ['c', ['c-1']]],
+  );
 });
 
 test('does not mutate the input array or nested taxonomy arrays', () => {
