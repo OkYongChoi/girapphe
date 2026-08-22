@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from 'react';
-import { getAllCardsWithStatus, type KnowledgeCard, type CardStatus, type KnowledgeMapEdge } from '@/actions/card-actions';
+import {
+  getAllCardsWithStatus,
+  getKnowledgeMapCardPage,
+  type KnowledgeCard,
+  type CardStatus,
+  type KnowledgeMapEdge,
+} from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
 import type { KnowledgeGraphEdgeView } from './knowledge-graph-3d';
 import KnowledgeMapWebMcpRegistration from './knowledge-map-webmcp-registration';
@@ -59,6 +65,7 @@ type EditableCardValues = {
 
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
+  initialHasMoreCards?: boolean;
   initialView?: 'grid' | 'graph';
   personalItems?: KnowledgeMapPersonalItem[];
   publicEdges?: KnowledgeMapEdge[];
@@ -105,6 +112,7 @@ function fallbackEndpointLabel(id: string) {
 
 export default function KnowledgeMap({
   initialCards,
+  initialHasMoreCards = false,
   initialView = 'graph',
   personalItems = [],
   publicEdges = [],
@@ -113,7 +121,9 @@ export default function KnowledgeMap({
   enableWebMcp = false,
   locale,
 }: Props) {
-  const baseCards = initialCards;
+  const [baseCards, setBaseCards] = useState(initialCards);
+  const [hasMoreCards, setHasMoreCards] = useState(initialHasMoreCards);
+  const [loadingMoreCards, setLoadingMoreCards] = useState(false);
   const [currentPersonalItems, setCurrentPersonalItems] = useState(personalItems);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
@@ -303,6 +313,28 @@ export default function KnowledgeMap({
       setGeneratedError(t('knowledge.generatedError'));
     } finally {
       setLoadingGenerated(false);
+    }
+  };
+
+  const loadMoreCards = async () => {
+    const nextVisibleLimit = visibleCardLimit + INITIAL_VISIBLE_CONCEPT_CARDS;
+    if (nextVisibleLimit <= baseCards.length || !hasMoreCards) {
+      setVisibleCardLimit(nextVisibleLimit);
+      return;
+    }
+
+    setLoadingMoreCards(true);
+    try {
+      const nextPage = await getKnowledgeMapCardPage({
+        locale,
+        offset: baseCards.length,
+        limit: INITIAL_VISIBLE_CONCEPT_CARDS,
+      });
+      setBaseCards((current) => [...current, ...nextPage.cards]);
+      setHasMoreCards(nextPage.hasMore);
+      setVisibleCardLimit(nextVisibleLimit);
+    } finally {
+      setLoadingMoreCards(false);
     }
   };
 
@@ -620,14 +652,15 @@ export default function KnowledgeMap({
               </div>
             )}
 
-            {filteredCards.length > visibleCardLimit ? (
+            {filteredCards.length > visibleCardLimit || hasMoreCards ? (
               <div className="mt-10 flex justify-center">
                 <button
                   type="button"
-                  onClick={() => setVisibleCardLimit((current) => current + INITIAL_VISIBLE_CONCEPT_CARDS)}
-                  className="min-h-11 rounded-md border bg-white px-5 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  onClick={() => void loadMoreCards()}
+                  disabled={loadingMoreCards}
+                  className="min-h-11 rounded-md border bg-white px-5 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-60"
                 >
-                  {t('knowledge.loadMore')}
+                  {loadingMoreCards ? t('common.loading') : t('knowledge.loadMore')}
                 </button>
               </div>
             ) : null}
