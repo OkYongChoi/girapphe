@@ -3,7 +3,7 @@ import HomeDomainProgress, { type HomeDomainProgressRow } from '@/components/hom
 import HomeGraphScene from '@/components/home-graph-scene';
 import { getCurrentUser } from '@/lib/auth';
 import { getUserCardDomainProgress, getUserStats, type UserCardDomainProgress } from '@/actions/card-actions';
-import { getUserKnowledgeItems } from '@/actions/user-knowledge-actions';
+import { getUserKnowledgeOverview } from '@/actions/user-knowledge-actions';
 import GuestStartButton from '@/components/guest-start-button';
 import { getDbGraphDataForUser } from '@/lib/knowledge-graph-db';
 import type { ForceGraphData } from '@stem-brain/graph-engine';
@@ -48,18 +48,18 @@ const HOME_DEMO_GRAPH_STATS = {
 export default async function HomePage() {
   const { t, formatNumber, locale } = await getServerI18n();
   const user = await getCurrentUser();
-  const [userStats, userKnowledgeItems, domainProgress, userGraphData] = user
+  const [userStats, userKnowledge, domainProgress, userGraphData] = user
     ? await Promise.all([
         getUserStats(),
-        getUserKnowledgeItems(),
+        getUserKnowledgeOverview(),
         getUserCardDomainProgress(locale),
         getHomeUserGraphData(user.id, locale),
       ])
-    : [null, [], [] as UserCardDomainProgress[], null];
+    : [null, { count: 0, graphNotes: [] }, [] as UserCardDomainProgress[], null];
   const sceneStats = {
     explainable: userStats?.explainable ?? HOME_FALLBACK_STATS.explainable,
     review: userStats?.unclear ?? HOME_FALLBACK_STATS.review,
-    notes: user ? userKnowledgeItems.length : HOME_FALLBACK_STATS.notes,
+    notes: user ? userKnowledge.count : HOME_FALLBACK_STATS.notes,
   };
   const homeDomainProgress = buildHomeDomainProgress(domainProgress, t, locale);
   const isPersonalized = Boolean(user);
@@ -234,7 +234,7 @@ export default async function HomePage() {
               unclear={sceneStats.review}
               notes={sceneStats.notes}
               personalizedGraphData={userGraphData}
-              personalizedNotes={userKnowledgeItems.map(({ id, title, topic }) => ({ id, title, topic }))}
+              personalizedNotes={userKnowledge.graphNotes}
             />
           </div>
         </div>
@@ -245,7 +245,7 @@ export default async function HomePage() {
 
 async function getHomeUserGraphData(userId: string, locale: Locale): Promise<ForceGraphData | null> {
   try {
-    const graphData = await getDbGraphDataForUser(userId);
+    const graphData = await getDbGraphDataForUser(userId, { maxNodes: 120 });
     return {
       ...graphData,
       nodes: await localizeGraphNodes(graphData.nodes, locale, { generateMissing: false }),

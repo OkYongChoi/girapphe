@@ -46,9 +46,10 @@ test.describe('browser smoke', () => {
     const retry = page.getByRole('link', { name: 'Try again' });
     await expect(retry).toBeVisible();
     await Promise.all([
-      page.waitForURL(/\/en\/practice\?error-recovery=1$/),
+      page.waitForEvent('framenavigated'),
       retry.click(),
     ]);
+    await expect(page).toHaveURL(/\/en\/practice\?error-recovery=1$/);
 
     await page.setContent(errorRecoveryMarkup);
     const returnHome = page.getByRole('link', { name: 'Return home' });

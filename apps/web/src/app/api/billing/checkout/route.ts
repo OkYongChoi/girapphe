@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireCurrentUser } from '@/lib/auth';
+import { requireCurrentUserProfile } from '@/lib/auth';
 import { hasAdFreeEntitlement, type BillingPlan } from '@/lib/billing/database';
 import {
   BillingConfigurationError,
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
   if (!requestHasTrustedOrigin(request)) {
     return NextResponse.json({ error: 'Invalid request origin.' }, { status: 403 });
   }
-  const user = await requireCurrentUser();
+  const user = await requireCurrentUserProfile();
   const planBody = await readPlan(request);
   if (!planBody.ok) {
     if (planBody.reason === 'too_large') {

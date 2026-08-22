@@ -253,7 +253,10 @@ async function claimQuizSubmission(userId: string): Promise<void> {
   if (rows.length === 0) throw new QuizRateLimitError();
 }
 
-export async function getDbGraphDataForUser(userId: string): Promise<ForceGraphData> {
+export async function getDbGraphDataForUser(
+  userId: string,
+  options?: { maxNodes?: number },
+): Promise<ForceGraphData> {
   const [nodes, edges, states] = await Promise.all([
     getGraphNodes(),
     getGraphEdges(),
@@ -289,9 +292,32 @@ export async function getDbGraphDataForUser(userId: string): Promise<ForceGraphD
     };
   });
 
+  const maxNodes = options?.maxNodes;
+  if (!maxNodes || maxNodes >= nodesWithKnowledge.length) {
+    return { nodes: nodesWithKnowledge, links: edges };
+  }
+
+  const degree = new Map<string, number>();
+  for (const edge of edges) {
+    degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
+    degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
+  }
+  const limitedNodes = [...nodesWithKnowledge]
+    .sort((left, right) => {
+      const knowledgeDelta = right.knowledge - left.knowledge;
+      if (knowledgeDelta !== 0) return knowledgeDelta;
+      const confidenceDelta = right.confidence - left.confidence;
+      if (confidenceDelta !== 0) return confidenceDelta;
+      const degreeDelta = (degree.get(right.id) ?? 0) - (degree.get(left.id) ?? 0);
+      if (degreeDelta !== 0) return degreeDelta;
+      return left.id.localeCompare(right.id);
+    })
+    .slice(0, Math.max(1, maxNodes));
+  const nodeIds = new Set(limitedNodes.map((node) => node.id));
+
   return {
-    nodes: nodesWithKnowledge,
-    links: edges,
+    nodes: limitedNodes,
+    links: edges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)),
   };
 }
 

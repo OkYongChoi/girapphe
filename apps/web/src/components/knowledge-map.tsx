@@ -109,10 +109,9 @@ export default function KnowledgeMap({
   privateGraph = null,
   graphLinkTargets = [],
   enableWebMcp = false,
-  isGuest = false,
   locale,
 }: Props) {
-  const [baseCards, setBaseCards] = useState(initialCards);
+  const baseCards = initialCards;
   const [currentPersonalItems, setCurrentPersonalItems] = useState(personalItems);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
@@ -131,24 +130,6 @@ export default function KnowledgeMap({
   useEffect(() => {
     setCurrentPersonalItems(personalItems);
   }, [personalItems]);
-
-  useEffect(() => {
-    if (isGuest) return;
-
-    let active = true;
-
-    getAllCardsWithStatus({ locale })
-      .then((freshCards) => {
-        if (active) setBaseCards(freshCards);
-      })
-      .catch(() => {
-        // Keep server-rendered cards if the refresh fails.
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [isGuest, locale]);
 
   const personalItemById = useMemo(
     () => new Map(currentPersonalItems.map((item) => [item.id, item])),

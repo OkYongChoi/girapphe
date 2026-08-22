@@ -19,18 +19,29 @@ export type CurrentActor = AuthUser & {
 export const getCurrentUser = cache(async function getCurrentUser(): Promise<AuthUser | null> {
   if (!hasValidClerkConfig()) return null;
 
-  const { userId } = await auth();
+  const { userId, sessionClaims } = await auth();
   if (!userId) return null;
 
+  const claimedEmail = typeof (sessionClaims as Record<string, unknown> | null)?.email === 'string'
+    ? String((sessionClaims as Record<string, unknown>).email)
+    : '';
+
+  return { id: userId, email: claimedEmail };
+});
+
+export const getCurrentUserProfile = cache(async function getCurrentUserProfile(): Promise<AuthUser | null> {
+  const authenticated = await getCurrentUser();
+  if (!authenticated) return null;
+
   const user = await currentUser();
-  if (!user) return null;
+  if (!user) return authenticated;
 
   const email =
     user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId)?.emailAddress ??
     user.emailAddresses[0]?.emailAddress ??
     '';
 
-  return { id: userId, email };
+  return { id: authenticated.id, email };
 });
 
 export const getCurrentActor = cache(async function getCurrentActor(): Promise<CurrentActor> {
@@ -53,6 +64,12 @@ export async function requireCurrentActor(): Promise<CurrentActor> {
 
 export async function requireCurrentUser(): Promise<AuthUser> {
   const user = await getCurrentUser();
+  if (!user) redirect(localizePathname('/login', await getServerLocale()));
+  return user;
+}
+
+export async function requireCurrentUserProfile(): Promise<AuthUser> {
+  const user = await getCurrentUserProfile();
   if (!user) redirect(localizePathname('/login', await getServerLocale()));
   return user;
 }

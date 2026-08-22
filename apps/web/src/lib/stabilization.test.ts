@@ -15,6 +15,7 @@ import { escapeGraphTooltipText, getPersonalizedNoteGraphAdditions } from './hom
 import {
   QuizRateLimitError,
   UnknownGraphNodeError,
+  getDbGraphDataForUser,
   submitDbQuizResult,
 } from './knowledge-graph-db';
 import {
@@ -146,6 +147,22 @@ test('home graph tooltips escape stored note titles before the non-React tooltip
   assert.equal(escaped, '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;&#39;');
   assert.equal(escaped.includes('<'), false);
   assert.equal(escaped.includes('>'), false);
+});
+
+test('the home graph sample stays bounded and keeps only valid link endpoints', async () => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+
+  try {
+    const graph = await getDbGraphDataForUser('home-graph-test-user', { maxNodes: 120 });
+    const nodeIds = new Set(graph.nodes.map((node) => node.id));
+
+    assert.equal(graph.nodes.length, 120);
+    assert.ok(graph.links.every((link) => nodeIds.has(link.source) && nodeIds.has(link.target)));
+  } finally {
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  }
 });
 
 test('the memory quiz path rejects unknown graph node IDs', async () => {

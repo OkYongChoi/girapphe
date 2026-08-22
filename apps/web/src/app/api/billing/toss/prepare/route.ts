@@ -1,4 +1,4 @@
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUserProfile } from '@/lib/auth';
 import { prepareTossBilling } from '@/lib/billing/toss-subscriptions';
 import {
   isTossBillingConfigured,
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       { status: 503, headers: { 'Cache-Control': 'no-store' } },
     );
   }
-  const user = await getCurrentUser();
+  const user = await getCurrentUserProfile();
   if (!user) return Response.json({ error: 'authentication_required' }, { status: 401 });
   if (!process.env.DATABASE_URL) return Response.json({ error: 'billing_unavailable' }, { status: 503 });
 

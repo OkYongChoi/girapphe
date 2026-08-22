@@ -1,10 +1,6 @@
-import { ClerkProvider } from '@clerk/nextjs';
 import type { Metadata } from 'next';
-import 'katex/dist/katex.min.css';
 import './globals.css';
-import { hasValidClerkConfig } from '@/lib/clerk-env';
 import { I18nProvider } from '@/i18n/client';
-import { getClerkLocalization } from '@/i18n/clerk';
 import { getServerI18n } from '@/i18n/server';
 import { METADATA_COPY } from '@/i18n/metadata-copy';
 import {
@@ -73,7 +69,6 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const useClerk = hasValidClerkConfig();
   const i18n = await getServerI18n();
   const webMcpOriginTrialToken = process.env.NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN?.trim();
   const body = (
@@ -84,18 +79,12 @@ export default async function RootLayout({
         </head>
       ) : null}
       <body className="antialiased" suppressHydrationWarning>
-        <I18nProvider locale={i18n.locale}>{children}</I18nProvider>
+        <I18nProvider locale={i18n.locale} messages={i18n.messages}>
+          {children}
+        </I18nProvider>
       </body>
     </html>
   );
 
-  if (!useClerk) {
-    return body;
-  }
-
-  return (
-    <ClerkProvider localization={getClerkLocalization(i18n.locale)}>
-      {body}
-    </ClerkProvider>
-  );
+  return body;
 }

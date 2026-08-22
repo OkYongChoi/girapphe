@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUserProfile } from '@/lib/auth';
 import {
   activateTossBilling,
   claimTossBillingSession,
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   if (!isTossBillingConfigured()) {
     return redirectToSubscription(request, { error: 'not_configured' });
   }
-  const user = await getCurrentUser();
+  const user = await getCurrentUserProfile();
   if (!user) return redirectToSubscription(request, { error: 'authentication_required' });
   if (!process.env.DATABASE_URL) return redirectToSubscription(request, { error: 'not_configured' });
 

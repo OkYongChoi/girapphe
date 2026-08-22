@@ -182,6 +182,8 @@ html {
 }
 
 .home-graph-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 900px;
   isolation: isolate;
   view-transition-name: home-graph;
 }

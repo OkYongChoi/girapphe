@@ -234,6 +234,7 @@ export default function HomeGraphScene({
   const [activeDemoGroup, setActiveDemoGroup] = useState<DemoGroup>('biology');
   const [activeCaseKey, setActiveCaseKey] = useState<LearningCaseKey>('explore');
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [shouldRenderGraph, setShouldRenderGraph] = useState(false);
   const activeCase = LEARNING_CASES[activeCaseKey];
   const activeStatusGroup = activeCase.activeGroup;
 
@@ -250,6 +251,24 @@ export default function HomeGraphScene({
     const element = graphContainerRef.current;
     if (!element) return;
 
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        setShouldRenderGraph(true);
+        visibilityObserver.disconnect();
+      },
+      { rootMargin: '100px' },
+    );
+    visibilityObserver.observe(element);
+
+    return () => visibilityObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!shouldRenderGraph) return;
+    const element = graphContainerRef.current;
+    if (!element) return;
+
     const resize = () => {
       const rect = element.getBoundingClientRect();
       setDimensions({
@@ -262,7 +281,7 @@ export default function HomeGraphScene({
     const observer = new ResizeObserver(resize);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [shouldRenderGraph]);
 
   useEffect(() => {
     if (!demo || prefersReducedMotion) return;
@@ -512,8 +531,9 @@ export default function HomeGraphScene({
       <div className="absolute inset-0 bg-[#030712]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--pointer-x)_var(--pointer-y),rgba(255,255,255,0.04),transparent_18rem)] transition-[background] duration-300" />
       <div ref={graphContainerRef} aria-hidden="true" className="home-graph-canvas pointer-events-auto absolute inset-y-0 left-1/2 w-[120%] -translate-x-1/2 md:w-[92%] lg:w-[82%]">
-        <GraphErrorBoundary>
-          <ForceGraph3D
+        {shouldRenderGraph ? (
+          <GraphErrorBoundary>
+            <ForceGraph3D
             ref={graphRef}
             graphData={graphData}
             width={dimensions.width}
@@ -538,13 +558,16 @@ export default function HomeGraphScene({
             d3AlphaDecay={0.015}
             d3VelocityDecay={0.24}
             warmupTicks={90}
-            cooldownTicks={Infinity}
+            cooldownTicks={180}
             onEngineStop={() => {
               enableOrbit();
               graphRef.current?.zoomToFit?.(650, 42);
             }}
-          />
-        </GraphErrorBoundary>
+            />
+          </GraphErrorBoundary>
+        ) : (
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(34,211,238,0.14),transparent_30%),linear-gradient(135deg,#020617,#0f172a)]" />
+        )}
       </div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,transparent_0%,rgba(2,6,23,0.08)_58%,rgba(2,6,23,0.5)_100%)]" />
       <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950 to-transparent" />

@@ -86,25 +86,41 @@ export async function batchUpdateKnowledge(
     if (!process.env.DATABASE_URL) {
       throw new Error('DATABASE_URL is required for graph persistence.');
     }
-    for (const { nodeId, knowledge, confidence } of updates) {
-      await pool.query(
-        `
-        INSERT INTO user_knowledge_states (user_id, node_id, knowledge_state, confidence, last_updated, first_known_at)
-        VALUES ($1, $2, $3, $4, NOW(), CASE WHEN $3 = 1 THEN NOW() ELSE NULL END)
-        ON CONFLICT (user_id, node_id)
-        DO UPDATE SET
-          knowledge_state = EXCLUDED.knowledge_state,
-          confidence = EXCLUDED.confidence,
-          last_updated = NOW(),
-          first_known_at = CASE
-            WHEN EXCLUDED.knowledge_state = 1
-              THEN COALESCE(user_knowledge_states.first_known_at, NOW())
-            ELSE user_knowledge_states.first_known_at
-          END
-        `,
-        [userId, nodeId, knowledge >= 0.75 ? 1 : knowledge >= 0.25 ? 0.5 : 0, confidence ?? 0.5]
-      );
-    }
+    if (updates.length === 0) return { success: true, count: 0 };
+    const normalizedUpdates = [...new Map(updates.map((update) => [update.nodeId, update])).values()];
+
+    await pool.query(
+      `
+      INSERT INTO user_knowledge_states (
+        user_id, node_id, knowledge_state, confidence, last_updated, first_known_at
+      )
+      SELECT
+        $1,
+        input.node_id,
+        CASE WHEN input.knowledge >= 0.75 THEN 1 WHEN input.knowledge >= 0.25 THEN 0.5 ELSE 0 END,
+        input.confidence,
+        NOW(),
+        CASE WHEN input.knowledge >= 0.75 THEN NOW() ELSE NULL END
+      FROM UNNEST($2::text[], $3::double precision[], $4::double precision[])
+        AS input(node_id, knowledge, confidence)
+      ON CONFLICT (user_id, node_id)
+      DO UPDATE SET
+        knowledge_state = EXCLUDED.knowledge_state,
+        confidence = EXCLUDED.confidence,
+        last_updated = NOW(),
+        first_known_at = CASE
+          WHEN EXCLUDED.knowledge_state = 1
+            THEN COALESCE(user_knowledge_states.first_known_at, NOW())
+          ELSE user_knowledge_states.first_known_at
+        END
+      `,
+      [
+        userId,
+        normalizedUpdates.map(({ nodeId }) => nodeId),
+        normalizedUpdates.map(({ knowledge }) => knowledge),
+        normalizedUpdates.map(({ confidence }) => confidence ?? 0.5),
+      ],
+    );
     revalidatePath('/knowledge');
 
     return { success: true, count: updates.length };
