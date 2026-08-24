@@ -67,11 +67,12 @@ export default async function middleware(request: NextRequest, event: NextFetchE
   }
 
   const pathname = request.nextUrl.pathname;
+  const isInternalRewrite = request.headers.get('x-girapphe-internal-rewrite') === '1';
   const localeIndependent = isLocaleIndependentPath(pathname);
   const pathLocale = localeIndependent ? null : getLocaleFromPathname(pathname);
   const locale = pathLocale ?? getRequestedLocale(request);
 
-  if (!localeIndependent && !pathLocale) {
+  if (!localeIndependent && !pathLocale && !isInternalRewrite) {
     const url = request.nextUrl.clone();
     url.pathname = localizePathname(pathname, locale);
     const response = ensureLocaleCookie(request, NextResponse.redirect(url, 307), locale);
@@ -98,7 +99,9 @@ export default async function middleware(request: NextRequest, event: NextFetchE
     }
     const url = request.nextUrl.clone();
     url.pathname = internalPathname;
-    return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
+    const rewriteHeaders = new Headers(requestHeaders);
+    rewriteHeaders.set('x-girapphe-internal-rewrite', '1');
+    return NextResponse.rewrite(url, { request: { headers: rewriteHeaders } });
   };
 
   if (!hasValidClerkConfig()) {

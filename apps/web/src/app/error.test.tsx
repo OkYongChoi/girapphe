@@ -8,7 +8,7 @@ import GlobalError from './error';
 test('renders recovery controls that work without client-side navigation', () => {
   const markup = renderToStaticMarkup(
     <I18nProvider locale="en" messages={MESSAGE_CATALOGS.en}>
-      <GlobalError error={new Error('test error')} />
+      <GlobalError error={new Error('test error')} reset={() => {}} />
     </I18nProvider>
   );
 
