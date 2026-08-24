@@ -14,8 +14,6 @@ export default function GlobalError({
   const { locale, t } = useI18n();
   // Keep the anchor usable before hydration, while the click handler lets the
   // App Router recover the failed segment without a full document navigation.
-  const retryHref = typeof window === 'undefined' ? '' : window.location.href;
-
   useEffect(() => {
     // ChunkLoadError occurs when a new deployment invalidates cached JS chunks.
     // Automatically reload the page to fetch the latest assets.
@@ -37,7 +35,7 @@ export default function GlobalError({
       <p className="max-w-md text-sm text-slate-600">{t('errors.body')}</p>
       <div className="flex flex-wrap justify-center gap-3">
         <a
-          href={retryHref}
+          href=""
           onClick={(event) => {
             event.preventDefault();
             reset();
