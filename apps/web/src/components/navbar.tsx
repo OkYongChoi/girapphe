@@ -2,6 +2,7 @@ import { logoutAction } from '@/actions/auth-actions';
 import { getCurrentUser, isAdminUser, type AuthUser } from '@/lib/auth';
 import NavLinks from '@/components/nav-links';
 import BrandLogo from '@/components/brand-logo';
+import LogoutButton from '@/components/logout-button';
 import LanguageSwitcher from '@/components/language-switcher';
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
