@@ -56,6 +56,7 @@ Use in a Girapphe checkout when the requested outcome includes a PR, merge, depl
    ```
 
 6. Monitor the separate main Cloudflare Workers production workflow to `completed/success`; then perform a real production interaction/smoke check. For touch-target claims, measure the rendered desktop/mobile controls rather than inferring from CSS or ARIA.
+   Select the production run by revision, not recency alone: require its `headSha` to equal the merge commit, or prove with `git merge-base --is-ancestor <merge-commit> <run-head-sha>` that a later deployed main revision contains it.
 
 ## Efficiency plan
 
@@ -78,5 +79,5 @@ Use in a Girapphe checkout when the requested outcome includes a PR, merge, depl
 - Final local checks and `git diff --check` passed for the affected scope.
 - Required PR reviews/conversations and remote Quality Checks are successful.
 - Every requested PR/cycle is merged; each merge commit is an ancestor of `origin/main`.
-- The main Cloudflare Workers production run is `completed/success`.
+- The main Cloudflare Workers production run is `completed/success`, and its `headSha` equals or contains the merge commit.
 - A real deployed interaction/smoke test supports any user-visible completion claim.
