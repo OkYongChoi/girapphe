@@ -1,4 +1,4 @@
-import { getKnowledgeMapCardPage, getKnowledgeMapEdges } from '@/actions/card-actions';
+import { getKnowledgeMapCardPage } from '@/actions/card-actions';
 import KnowledgeMap from '@/components/knowledge-map';
 import Navbar from '@/components/navbar';
 import { getCurrentActor } from '@/lib/auth';
@@ -10,10 +10,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function GridPage() {
   const [actor, locale] = await Promise.all([getCurrentActor(), getServerLocale()]);
-  const [cardPage, personalItems, publicEdges, privateGraph, graphLinkTargets] = await Promise.all([
+  const [cardPage, personalItems, privateGraph, graphLinkTargets] = await Promise.all([
     getKnowledgeMapCardPage({ locale }),
     getUserKnowledgeItems(),
-    getKnowledgeMapEdges(),
     actor.isGuest ? Promise.resolve(null) : getPrivateKnowledgeGraph(),
     actor.isGuest ? Promise.resolve([]) : getKnowledgeLinkTargets(),
   ]);
@@ -30,7 +29,6 @@ export default async function GridPage() {
           initialHasMoreCards={cardPage.hasMore}
           initialView="grid"
           personalItems={personalMapItems}
-          publicEdges={publicEdges}
           privateGraph={actor.isGuest ? null : privateGraph}
           graphLinkTargets={graphLinkTargets}
           isGuest={actor.isGuest}

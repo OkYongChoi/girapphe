@@ -13,6 +13,7 @@ import { getDomainColor } from '@stem-brain/graph-engine';
 import { deleteKnowledgeItem } from '@/actions/user-knowledge-actions';
 import { useI18n } from '@/i18n/client';
 import LanguageSwitcher from '@/components/language-switcher';
+import type { KnowledgeGraphAccess } from '@/lib/knowledge-graph-access';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
@@ -35,6 +36,7 @@ export type KnowledgeGraphEdgeView = {
 };
 
 type Props = {
+  access: KnowledgeGraphAccess;
   cards: GraphCard[];
   edges?: KnowledgeGraphEdgeView[];
   onClose?: () => void;
@@ -83,7 +85,7 @@ function getCardDomains(card: GraphCard) {
   return card.domains && card.domains.length > 0 ? card.domains : [card.domain];
 }
 
-export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) {
+export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }: Props) {
   const router = useRouter();
   const { t } = useI18n();
   const [isClient, setIsClient] = useState(false);
@@ -234,6 +236,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
 
     return { nodes, links };
   }, [colorMode, edges, filteredCards, t]);
+  const isLargeGraph = graphData.nodes.length > 240;
 
   const selectedRelationships = useMemo(() => {
     if (!selectedNode || selectedNode.group === 'domain') return [];
@@ -349,7 +352,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
         nodeVal="val"
         nodeColor="color"
         nodeOpacity={0.9}
-        nodeResolution={16}
+        nodeResolution={isLargeGraph ? 8 : 16}
         linkColor="color"
         linkLabel={(link: any) => {
           if (!link.type) return t('graph.domainHub');
@@ -358,7 +361,7 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
         }}
         linkOpacity={0.58}
         linkWidth={(link: any) => link.width ?? 0.5}
-        linkDirectionalParticles={(link: any) => link.particles ?? 0}
+        linkDirectionalParticles={(link: any) => (isLargeGraph ? 0 : link.particles ?? 0)}
         linkDirectionalParticleWidth={0.7}
         linkDirectionalParticleSpeed={0.003}
         linkDirectionalArrowLength={(link: any) => link.arrowLength ?? 0}
@@ -370,7 +373,8 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
         onBackgroundClick={() => setSelectedNode(null)}
         d3AlphaDecay={0.02}
         d3VelocityDecay={0.3}
-        warmupTicks={50}
+        warmupTicks={isLargeGraph ? 30 : 50}
+        cooldownTicks={isLargeGraph ? 120 : undefined}
       />
 
       {/* Top bar */}
@@ -391,6 +395,25 @@ export default function KnowledgeGraph3D({ cards, edges = [], onClose }: Props) 
                   domains: visibleDomainList.length,
                 })}
               </p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                <span
+                  data-testid="graph-access-summary"
+                  className={access.level === 'full' ? 'font-semibold text-emerald-300' : 'text-amber-200'}
+                >
+                  {t(access.level === 'full' ? 'graph.fullScope' : 'graph.freeScope', {
+                    count: access.publicCardCount,
+                  })}
+                </span>
+                {access.level === 'free' ? (
+                  <Link
+                    href="/subscription"
+                    onClick={(event) => event.stopPropagation()}
+                    className="font-semibold text-cyan-300 underline decoration-cyan-300/50 underline-offset-2 hover:text-cyan-200"
+                  >
+                    {t('graph.unlockFull')}
+                  </Link>
+                ) : null}
+              </div>
             </div>
             <button
               type="button"

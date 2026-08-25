@@ -56,17 +56,21 @@ export default async function SubscriptionPage(props: {
       <Navbar user={user} />
       <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6">
         <div className="max-w-2xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-700">Girapphe Ad-free</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Keep every learning feature. Remove the ads.</h1>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-700">Girapphe Plus</p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">See the full public knowledge map. Remove the ads.</h1>
           <p className="mt-4 text-base leading-7 text-slate-600">
-            Card creation, review, and your knowledge graph remain free. A subscription only removes the
-            sponsored card shown after every five completed card actions.
+            Your concepts, review state, and private knowledge graph remain free. Plus unlocks the full public
+            knowledge map and removes the sponsored card shown after every five completed card actions.
           </p>
+          <ul className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+            <li className="rounded-xl border border-slate-200 bg-white px-4 py-3"><strong className="text-slate-900">Free:</strong> all private concepts and a representative 144-concept public map.</li>
+            <li className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3"><strong className="text-blue-950">Plus:</strong> the full public map and no sponsored practice cards.</li>
+          </ul>
         </div>
 
         {checkoutState === 'returned' && (
           <div role="status" className="mt-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-            Checkout returned successfully. Ad-free access appears after Stripe confirms the subscription by webhook;
+            Checkout returned successfully. Girapphe Plus access appears after Stripe confirms the subscription by webhook;
             this page never grants access from the redirect alone.
           </div>
         )}
@@ -77,7 +81,7 @@ export default async function SubscriptionPage(props: {
         )}
         {checkoutState === 'toss_returned' && (
           <div role="status" className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-            Toss card authorization was verified and ad-free access is active.
+            Toss card authorization was verified and Girapphe Plus is active.
           </div>
         )}
         {checkoutState === 'toss_pending' && (
@@ -106,7 +110,7 @@ export default async function SubscriptionPage(props: {
             <div>
               <h2 id="current-plan-heading" className="text-lg font-bold">Current access</h2>
               <p className="mt-1 text-sm text-slate-600">
-                {isAdFree ? 'Ad-free is active.' : 'Free access with a sponsored card every five completed actions.'}
+                {isAdFree ? 'Girapphe Plus is active: full public map and ad-free practice.' : 'Free access: a 144-concept public map and a sponsored card every five completed actions.'}
               </p>
               {subscription && (
                 <p className="mt-2 text-xs text-slate-500">
@@ -121,7 +125,7 @@ export default async function SubscriptionPage(props: {
               )}
             </div>
             <span className={`rounded-full px-3 py-1 text-xs font-bold ${isAdFree ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
-              {isAdFree ? 'AD-FREE' : 'FREE'}
+              {isAdFree ? 'PLUS' : 'FREE'}
             </span>
           </div>
           {stripeCustomerId && subscription?.provider === 'stripe' && (
@@ -183,7 +187,7 @@ export default async function SubscriptionPage(props: {
                 <h3 className="text-lg font-bold">Korean domestic card · Toss Payments</h3>
                 <p className="mt-1 text-sm text-slate-600">Automatic billing is available only after the merchant contract and supported-card checks.</p>
               </div>
-              <p className="text-xs text-slate-500">KRW pricing · same ad-free entitlement</p>
+              <p className="text-xs text-slate-500">KRW pricing · same Girapphe Plus access</p>
             </div>
             {tossConfigured && tossMonthlyAmount !== null && tossAnnualAmount !== null ? (
               <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -217,6 +221,7 @@ export default async function SubscriptionPage(props: {
         </section>
 
         <div className="mt-8 flex flex-wrap gap-3 text-sm">
+          <Link href="/knowledge" className="font-semibold text-blue-700 underline underline-offset-4">Explore Knowledge Map</Link>
           <Link href="/practice" className="font-semibold text-blue-700 underline underline-offset-4">Return to practice</Link>
           <Link href="/" className="font-semibold text-slate-600 underline underline-offset-4">Home</Link>
         </div>
