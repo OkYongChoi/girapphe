@@ -29,7 +29,12 @@ function pngSize(relativePath: string) {
   assert.ok(existsSync(path), `${relativePath} must exist.`);
   const bytes = readFileSync(path);
   assert.equal(bytes.subarray(1, 4).toString('ascii'), 'PNG', `${relativePath} must be a PNG.`);
-  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  const colorType = bytes.readUInt8(25);
+  return {
+    width: bytes.readUInt32BE(16),
+    height: bytes.readUInt32BE(20),
+    hasAlphaChannel: colorType === 4 || colorType === 6,
+  };
 }
 
 function withProductionEnvironment<T>(operation: () => T): T {
@@ -70,8 +75,15 @@ assert.equal(appJson.expo.slug, 'girapphe');
 assert.equal(appJson.expo.scheme, 'girapphe');
 assert.equal(appJson.expo.ios?.bundleIdentifier, 'com.girapphe.app');
 assert.equal(appJson.expo.android?.package, 'com.girapphe.app');
-assert.deepEqual(pngSize(appJson.expo.icon ?? ''), { width: 1024, height: 1024 });
-assert.deepEqual(pngSize(appJson.expo.android?.adaptiveIcon?.foregroundImage ?? ''), { width: 1024, height: 1024 });
+assert.deepEqual(
+  pngSize(appJson.expo.icon ?? ''),
+  { width: 1024, height: 1024, hasAlphaChannel: false },
+  'The iOS app icon must be a 1024x1024 PNG without an alpha channel.',
+);
+assert.deepEqual(
+  pngSize(appJson.expo.android?.adaptiveIcon?.foregroundImage ?? ''),
+  { width: 1024, height: 1024, hasAlphaChannel: true },
+);
 const splashPlugin = appJson.expo.plugins?.find(
   (plugin): plugin is [string, Record<string, unknown>] => Array.isArray(plugin) && plugin[0] === 'expo-splash-screen',
 );

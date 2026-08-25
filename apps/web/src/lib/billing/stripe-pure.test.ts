@@ -10,7 +10,7 @@ import {
   STRIPE_PROVIDER_TIMEOUT_MS,
 } from './stripe';
 
-test('account deletion cancels only Girapphe Stripe subscriptions', async (context) => {
+test('account deletion cancels current and retired Girapphe Stripe subscriptions', async (context) => {
   const originalQuery = db.query;
   const originalFetch = globalThis.fetch;
   const previous = new Map([
@@ -28,7 +28,15 @@ test('account deletion cancels only Girapphe Stripe subscriptions', async (conte
   process.env.STRIPE_SECRET_KEY = 'sk_test_account_deletion';
   process.env.STRIPE_PRICE_AD_FREE_MONTHLY = 'price_girapphe_monthly';
   process.env.STRIPE_PRICE_AD_FREE_ANNUAL = 'price_girapphe_annual';
-  db.query = (async () => ({ rows: [{ stripe_customer_id: 'cus_delete' }] })) as typeof db.query;
+  db.query = (async (text: string) => {
+    if (text.includes('SELECT stripe_customer_id')) {
+      return { rows: [{ stripe_customer_id: 'cus_delete' }] };
+    }
+    if (text.includes('FROM billing_subscriptions')) {
+      return { rows: [{ provider_subscription_id: 'sub_retired' }] };
+    }
+    return { rows: [] };
+  }) as typeof db.query;
 
   const requests: Array<{ url: string; method: string }> = [];
   globalThis.fetch = (async (input, init) => {
@@ -38,6 +46,13 @@ test('account deletion cancels only Girapphe Stripe subscriptions', async (conte
       return Response.json({
         data: [
           { id: 'sub_girapphe', status: 'active', items: { data: [{ price: { id: 'price_girapphe_monthly' } }] } },
+          { id: 'sub_retired', status: 'past_due', items: { data: [{ price: { id: 'price_retired' } }] } },
+          {
+            id: 'sub_metadata',
+            status: 'trialing',
+            metadata: { user_id: 'user_delete', entitlement: 'ad_free' },
+            items: { data: [{ price: { id: 'price_rotated' } }] },
+          },
           { id: 'sub_other', status: 'active', items: { data: [{ price: { id: 'price_other' } }] } },
           { id: 'sub_old', status: 'canceled', items: { data: [{ price: { id: 'price_girapphe_annual' } }] } },
         ],
@@ -46,9 +61,13 @@ test('account deletion cancels only Girapphe Stripe subscriptions', async (conte
     return Response.json({ id: 'sub_girapphe', status: 'canceled' });
   }) as typeof fetch;
 
-  assert.equal(await cancelStripeSubscriptionsForAccountDeletion('user_delete'), 1);
-  assert.equal(requests.filter(({ method }) => method === 'DELETE').length, 1);
-  assert.match(requests.find(({ method }) => method === 'DELETE')?.url ?? '', /subscriptions\/sub_girapphe$/);
+  assert.equal(await cancelStripeSubscriptionsForAccountDeletion('user_delete'), 3);
+  const deletedUrls = requests.filter(({ method }) => method === 'DELETE').map(({ url }) => url);
+  assert.equal(deletedUrls.length, 3);
+  assert.ok(deletedUrls.some((url) => /subscriptions\/sub_girapphe$/.test(url)));
+  assert.ok(deletedUrls.some((url) => /subscriptions\/sub_retired$/.test(url)));
+  assert.ok(deletedUrls.some((url) => /subscriptions\/sub_metadata$/.test(url)));
+  assert.ok(deletedUrls.every((url) => !/subscriptions\/sub_other$/.test(url)));
 });
 
 const STRIPE_CONFIGURATION_KEYS = [

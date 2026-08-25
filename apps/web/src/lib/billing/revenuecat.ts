@@ -17,7 +17,7 @@ export async function deleteRevenueCatCustomer(
   requestTimeoutMs = REVENUECAT_REQUEST_TIMEOUT_MS,
 ): Promise<boolean> {
   const apiKey = process.env.REVENUECAT_SECRET_API_KEY?.trim();
-  if (!apiKey) return false;
+  if (!apiKey) throw new Error('REVENUECAT_SECRET_API_KEY is not configured.');
 
   const controller = new AbortController();
   const timeoutId = setTimeout(

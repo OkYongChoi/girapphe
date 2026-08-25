@@ -49,7 +49,6 @@ async function cancelRenewingWebBilling(userId: string) {
 }
 
 async function deleteProcessorCustomerData(userId: string) {
-  if (!process.env.REVENUECAT_SECRET_API_KEY?.trim()) return false;
   try {
     return await deleteRevenueCatCustomer(userId);
   } catch (cause) {

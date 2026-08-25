@@ -7,6 +7,7 @@ import {
   findUserIdByStripeCustomer,
   hasBlockingSubscription,
   getStripeCustomerId,
+  getStripeSubscriptionIds,
   releaseTrialClaim,
   releaseWebhookEvent,
   saveStripeCustomer,
@@ -366,6 +367,7 @@ export async function cancelStripeSubscriptionsForAccountDeletion(userId: string
   const monthlyPriceId = requiredSecret('STRIPE_PRICE_AD_FREE_MONTHLY');
   const annualPriceId = requiredSecret('STRIPE_PRICE_AD_FREE_ANNUAL');
   const appPriceIds = new Set([monthlyPriceId, annualPriceId]);
+  const storedSubscriptionIds = await getStripeSubscriptionIds(userId);
   const subscriptions = await stripeGet<JsonObject>('subscriptions', new URLSearchParams({
     customer: customerId,
     status: 'all',
@@ -377,11 +379,23 @@ export async function cancelStripeSubscriptionsForAccountDeletion(userId: string
     if (!isObject(candidate)) return false;
     const id = stringValue(candidate.id);
     const status = stringValue(candidate.status);
+    const metadata = metadataOf(candidate.metadata);
+    const isOwnedGirappheSubscription = Boolean(
+      id
+      && (
+        storedSubscriptionIds.has(id)
+        || (
+          metadata.user_id === userId
+          && metadata.entitlement === AD_FREE_ENTITLEMENT
+        )
+        || appPriceIds.has(subscriptionPriceId(candidate) ?? '')
+      )
+    );
     return Boolean(
       id
       && status
       && !['canceled', 'incomplete_expired'].includes(status)
-      && appPriceIds.has(subscriptionPriceId(candidate) ?? ''),
+      && isOwnedGirappheSubscription,
     );
   });
 
