@@ -7,6 +7,7 @@ import {
   findUserIdByStripeCustomer,
   hasBlockingSubscription,
   getStripeCustomerId,
+  getStripeSubscriptionIds,
   releaseTrialClaim,
   releaseWebhookEvent,
   saveStripeCustomer,
@@ -151,6 +152,16 @@ async function stripeRequest<T extends JsonObject>(
     headers,
     body,
     cache: 'no-store',
+  });
+}
+
+async function stripeDelete<T extends JsonObject>(path: string): Promise<T> {
+  return stripeFetch<T>(`https://api.stripe.com/v1/${path}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${requiredSecret('STRIPE_SECRET_KEY')}`,
+      'Stripe-Version': STRIPE_API_VERSION,
+    },
   });
 }
 
@@ -347,6 +358,51 @@ export async function createStripePortal(input: { userId: string; requestUrl: st
   const url = stringValue(session.url);
   if (!url) throw new Error('Stripe did not return a Customer Portal URL.');
   return url;
+}
+
+export async function cancelStripeSubscriptionsForAccountDeletion(userId: string) {
+  const customerId = await getStripeCustomerId(userId);
+  if (!customerId) return 0;
+
+  const monthlyPriceId = requiredSecret('STRIPE_PRICE_AD_FREE_MONTHLY');
+  const annualPriceId = requiredSecret('STRIPE_PRICE_AD_FREE_ANNUAL');
+  const appPriceIds = new Set([monthlyPriceId, annualPriceId]);
+  const storedSubscriptionIds = await getStripeSubscriptionIds(userId);
+  const subscriptions = await stripeGet<JsonObject>('subscriptions', new URLSearchParams({
+    customer: customerId,
+    status: 'all',
+    limit: '100',
+  }));
+  if (!Array.isArray(subscriptions.data)) return 0;
+
+  const cancellable = subscriptions.data.filter((candidate): candidate is JsonObject => {
+    if (!isObject(candidate)) return false;
+    const id = stringValue(candidate.id);
+    const status = stringValue(candidate.status);
+    const metadata = metadataOf(candidate.metadata);
+    const isOwnedGirappheSubscription = Boolean(
+      id
+      && (
+        storedSubscriptionIds.has(id)
+        || (
+          metadata.user_id === userId
+          && metadata.entitlement === AD_FREE_ENTITLEMENT
+        )
+        || appPriceIds.has(subscriptionPriceId(candidate) ?? '')
+      )
+    );
+    return Boolean(
+      id
+      && status
+      && !['canceled', 'incomplete_expired'].includes(status)
+      && isOwnedGirappheSubscription,
+    );
+  });
+
+  for (const subscription of cancellable) {
+    await stripeDelete(`subscriptions/${encodeURIComponent(stringValue(subscription.id)!)}`);
+  }
+  return cancellable.length;
 }
 
 export function parseStripeEvent(payload: unknown): StripeEvent | null {

@@ -153,6 +153,19 @@ export async function getStripeCustomerId(userId: string): Promise<string | null
   return result.rows[0]?.stripe_customer_id ?? null;
 }
 
+export async function getStripeSubscriptionIds(userId: string): Promise<Set<string>> {
+  if (!databaseAvailable()) return new Set();
+  const result = await pool.query<{ provider_subscription_id: string }>(
+    `SELECT provider_subscription_id
+     FROM billing_subscriptions
+     WHERE user_id = $1
+       AND provider = 'stripe'
+       AND entitlement = $2`,
+    [userId, AD_FREE_ENTITLEMENT],
+  );
+  return new Set(result.rows.map((row) => row.provider_subscription_id));
+}
+
 export async function claimStripePortalRateSlot(userId: string): Promise<boolean> {
   const result = await pool.query<{ user_id: string }>(
     `UPDATE billing_customers

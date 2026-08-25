@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   canonicalRevenueCatSubscriptionId,
+  deleteRevenueCatCustomer,
   isRevenueCatEventInScope,
   parseRevenueCatEvent,
   planFromRevenueCatProductId,
@@ -11,6 +12,43 @@ import {
   verifyRevenueCatTransferDestination,
   type RevenueCatEvent,
 } from './revenuecat';
+
+test('deletes RevenueCat customer data with the server-side secret key', async (context) => {
+  const previousKey = process.env.REVENUECAT_SECRET_API_KEY;
+  const originalFetch = globalThis.fetch;
+  context.after(() => {
+    if (previousKey === undefined) delete process.env.REVENUECAT_SECRET_API_KEY;
+    else process.env.REVENUECAT_SECRET_API_KEY = previousKey;
+    globalThis.fetch = originalFetch;
+  });
+  process.env.REVENUECAT_SECRET_API_KEY = 'sk_test_customer_deletion';
+
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input, init) => {
+    requests.push({ url: String(input), init });
+    return Response.json({ deleted: true });
+  }) as typeof fetch;
+
+  assert.equal(await deleteRevenueCatCustomer('user_delete/with space'), true);
+  assert.equal(requests[0]?.url, 'https://api.revenuecat.com/v1/subscribers/user_delete%2Fwith%20space');
+  assert.equal(requests[0]?.init?.method, 'DELETE');
+  assert.equal((requests[0]?.init?.headers as Record<string, string>).Authorization, 'Bearer sk_test_customer_deletion');
+  assert.ok(requests[0]?.init?.signal);
+});
+
+test('fails closed when RevenueCat customer deletion is not configured', async (context) => {
+  const previousKey = process.env.REVENUECAT_SECRET_API_KEY;
+  context.after(() => {
+    if (previousKey === undefined) delete process.env.REVENUECAT_SECRET_API_KEY;
+    else process.env.REVENUECAT_SECRET_API_KEY = previousKey;
+  });
+  delete process.env.REVENUECAT_SECRET_API_KEY;
+
+  await assert.rejects(
+    deleteRevenueCatCustomer('user_delete'),
+    /REVENUECAT_SECRET_API_KEY is not configured/,
+  );
+});
 
 function revenueCatEvent(
   type: string,

@@ -1,4 +1,4 @@
-# Personal STEM Brain - AI/CS Knowledge Graph MVP
+# Girapphe - Personal Knowledge Graph
 
 This project implements an AI/CS knowledge graph MVP with:
 - 200-400 core-node taxonomy target
@@ -25,6 +25,7 @@ This project implements an AI/CS knowledge graph MVP with:
 - Tech stack: `docs/tech-stack.md`
 - Architecture overview: `docs/architecture/overview.md`
 - Mobile app architecture: `docs/apps/mobile.md`
+- Mobile store release checklist: `docs/apps/store-release.md`
 - API spec: `docs/reference/api-spec.md`
 - WebMCP browser tools: `docs/reference/webmcp.md`
 - Data model: `docs/reference/data-model.md`

@@ -40,7 +40,7 @@ export const ZH_CN_MESSAGES = {
   "nav.main": "主导航",
   "nav.siteHeader": "站点标题",
   "nav.skipToContent": "跳至主要内容",
-  "nav.homeLabel": "STEMBrain — 返回首页",
+  "nav.homeLabel": "Girapphe — 返回首页",
   "nav.practice": "练习",
   "nav.reviewQueue": "复习队列",
   "nav.knowledgeMap": "知识地图",
@@ -81,7 +81,7 @@ export const ZH_CN_MESSAGES = {
     "one": "笔记",
     "other": "笔记"
   },
-  "home.learningLoopAria": "STEMBrain 如何将练习转化为知识图谱",
+  "home.learningLoopAria": "Girapphe 如何将练习转化为知识图谱",
   "home.loop1Title": "练习一个概念",
   "home.loop1Copy": "简短、重点突出的卡片让下一步清晰可见。",
   "home.loop2Title": "记录薄弱点",

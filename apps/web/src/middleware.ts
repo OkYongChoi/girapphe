@@ -13,6 +13,10 @@ import {
   type Locale,
 } from '@stem-brain/shared';
 
+// Next 16 deprecates this filename, but `proxy.ts` always uses the Node.js
+// runtime and OpenNext Cloudflare 1.20 rejects Node middleware. Keep this Edge
+// convention until the adapter supports the replacement runtime.
+
 function isLocaleIndependentPath(pathname: string) {
   return pathname.startsWith('/api/')
     || pathname === '/api'

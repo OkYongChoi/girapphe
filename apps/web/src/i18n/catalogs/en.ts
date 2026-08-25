@@ -40,7 +40,7 @@ export const EN_MESSAGES = {
   "nav.main": "Main navigation",
   "nav.siteHeader": "Site header",
   "nav.skipToContent": "Skip to main content",
-  "nav.homeLabel": "STEMBrain — go to home",
+  "nav.homeLabel": "Girapphe — go to home",
   "nav.practice": "Practice",
   "nav.reviewQueue": "Review Queue",
   "nav.knowledgeMap": "Knowledge Map",
@@ -81,7 +81,7 @@ export const EN_MESSAGES = {
     "one": "Note",
     "other": "Notes"
   },
-  "home.learningLoopAria": "How STEMBrain turns practice into a knowledge graph",
+  "home.learningLoopAria": "How Girapphe turns practice into a knowledge graph",
   "home.loop1Title": "Practice one idea",
   "home.loop1Copy": "Short, focused cards keep the next step clear.",
   "home.loop2Title": "Save the weak spots",

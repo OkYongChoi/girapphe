@@ -389,7 +389,7 @@ export default function HomeGraphScene({
       const nodes: any[] = [
         {
           id: 'stem-brain',
-          name: 'STEMBrain',
+          name: 'Girapphe',
           group: 'center',
           val: 20,
           color: '#f8fafc',
@@ -439,7 +439,7 @@ export default function HomeGraphScene({
     const nodes: any[] = [
       {
         id: 'stem-brain',
-        name: 'STEMBrain',
+        name: 'Girapphe',
         group: 'center',
         val: activeCaseKey === 'mastery' ? 21 : 18,
         color: '#f8fafc',

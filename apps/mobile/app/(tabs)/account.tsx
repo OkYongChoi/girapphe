@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { mobileApi } from '@/api';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
 import { useSubscription } from '@/subscriptions';
@@ -11,7 +12,13 @@ export default function AccountScreen() {
   const subscription = useSubscription();
   const { direction, formatNumber, t } = useI18n();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deletionError, setDeletionError] = useState<string | null>(null);
   const [privacyNotice, setPrivacyNotice] = useState<string | null>(null);
+  const supportUrl = process.env.EXPO_PUBLIC_SUPPORT_URL?.trim() || 'https://www.girapphe.com/support';
+  const termsUrl = process.env.EXPO_PUBLIC_TERMS_URL?.trim() || 'https://www.girapphe.com/terms';
+  const privacyUrl = process.env.EXPO_PUBLIC_PRIVACY_URL?.trim() || 'https://www.girapphe.com/privacy';
+  const deletionUrl = process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL?.trim() || 'https://www.girapphe.com/account/delete';
 
   async function signOut() {
     if (isSigningOut) return;
@@ -31,6 +38,32 @@ export default function AccountScreen() {
     } catch {
       setPrivacyNotice(t('account.adPrivacyUnavailable'));
     }
+  }
+
+  async function deleteAccount() {
+    if (isDeleting) return;
+    setIsDeleting(true);
+    setDeletionError(null);
+    try {
+      await mobileApi.deleteAccount();
+      await auth.signOut().catch(() => undefined);
+      router.replace('/');
+    } catch {
+      setDeletionError(t('account.deleteError'));
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  function confirmAccountDeletion() {
+    Alert.alert(
+      t('account.deleteTitle'),
+      t('account.deleteBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('account.deleteConfirm'), style: 'destructive', onPress: () => void deleteAccount() },
+      ],
+    );
   }
 
   return (
@@ -83,6 +116,13 @@ export default function AccountScreen() {
             <PrimaryButton label={subscription.isAdFree ? t('account.manageSubscription') : t('account.seePlans')} onPress={() => router.push('/subscription')} />
             <SecondaryButton label={t('account.refreshPurchase')} onPress={() => void subscription.refresh()} />
             <SecondaryButton label={isSigningOut ? t('account.signingOut') : t('auth.signOut')} disabled={isSigningOut} onPress={() => void signOut()} />
+            <DangerButton
+              label={isDeleting ? t('account.deleting') : t('account.deleteAccount')}
+              disabled={isDeleting}
+              onPress={confirmAccountDeletion}
+            />
+            {deletionError ? <Text accessibilityLiveRegion="polite" style={styles.deletionError}>{deletionError}</Text> : null}
+            {deletionError ? <SecondaryButton label={t('account.openDeletionWeb')} onPress={() => void Linking.openURL(deletionUrl)} /> : null}
           </>
         )}
 
@@ -96,6 +136,14 @@ export default function AccountScreen() {
 
         <SecondaryButton label={t('account.adPrivacyChoices')} onPress={() => void openAdPrivacyChoices()} />
         {privacyNotice ? <Text style={styles.privacyNotice}>{privacyNotice}</Text> : null}
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>{t('account.legal')}</Text>
+          <Text style={styles.sectionBody}>{t('account.legalBody')}</Text>
+          <SecondaryButton label={t('account.support')} onPress={() => void Linking.openURL(supportUrl)} />
+          <SecondaryButton label={t('account.terms')} onPress={() => void Linking.openURL(termsUrl)} />
+          <SecondaryButton label={t('account.privacy')} onPress={() => void Linking.openURL(privacyUrl)} />
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -132,6 +180,20 @@ function SecondaryButton({ label, onPress, disabled = false }: { label: string; 
   );
 }
 
+function DangerButton({ label, onPress, disabled = false }: { label: string; onPress: () => void; disabled?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed, disabled && styles.disabled]}
+    >
+      <Text style={styles.dangerButtonText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#f7f8fb' },
   content: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 36 },
@@ -158,6 +220,9 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '900' },
   secondaryButton: { minHeight: 50, borderRadius: 8, borderWidth: 1, borderColor: '#cbd3df', backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center', marginTop: 10 },
   secondaryButtonText: { color: '#111827', fontSize: 15, fontWeight: '800' },
+  dangerButton: { minHeight: 50, borderRadius: 8, borderWidth: 1, borderColor: '#f1a5a5', backgroundColor: '#fff7f7', alignItems: 'center', justifyContent: 'center', marginTop: 18 },
+  dangerButtonText: { color: '#a51d1d', fontSize: 15, fontWeight: '900' },
+  deletionError: { color: '#b42318', fontSize: 13, fontWeight: '700', lineHeight: 19, marginTop: 10 },
   disabled: { opacity: 0.55 },
   privacyNotice: { color: '#607080', fontSize: 12, lineHeight: 18, marginTop: 8 },
   pressed: { opacity: 0.72 },

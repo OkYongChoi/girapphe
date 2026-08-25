@@ -107,7 +107,7 @@ export default function HomeScreen() {
           <View>
             <View style={styles.header}>
               <View>
-                <Text style={styles.kicker}>stem-brain</Text>
+                <Text style={styles.kicker}>Girapphe</Text>
                 <Text style={styles.title}>{t('home.title')}</Text>
               </View>
               <View style={styles.headerActions}>

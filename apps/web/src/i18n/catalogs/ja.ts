@@ -40,7 +40,7 @@ export const JA_MESSAGES = {
   "nav.main": "メインナビゲーション",
   "nav.siteHeader": "サイトヘッダー",
   "nav.skipToContent": "メインコンテンツへ移動",
-  "nav.homeLabel": "STEMBrain — ホームへ",
+  "nav.homeLabel": "Girapphe — ホームへ",
   "nav.practice": "練習",
   "nav.reviewQueue": "復習キュー",
   "nav.knowledgeMap": "知識マップ",

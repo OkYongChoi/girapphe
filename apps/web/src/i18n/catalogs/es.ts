@@ -40,7 +40,7 @@ export const ES_MESSAGES = {
   "nav.main": "Navegación principal",
   "nav.siteHeader": "Cabecera del sitio",
   "nav.skipToContent": "Ir al contenido principal",
-  "nav.homeLabel": "STEMBrain — ir al inicio",
+  "nav.homeLabel": "Girapphe — ir al inicio",
   "nav.practice": "Práctica",
   "nav.reviewQueue": "Cola de repaso",
   "nav.knowledgeMap": "Mapa de conocimiento",
@@ -81,7 +81,7 @@ export const ES_MESSAGES = {
     "one": "Nota",
     "other": "Notas"
   },
-  "home.learningLoopAria": "Cómo STEMBrain convierte la práctica en un grafo de conocimiento",
+  "home.learningLoopAria": "Cómo Girapphe convierte la práctica en un grafo de conocimiento",
   "home.loop1Title": "Practica una idea",
   "home.loop1Copy": "Las tarjetas breves y específicas mantienen claro el siguiente paso.",
   "home.loop2Title": "Guarda los puntos débiles",

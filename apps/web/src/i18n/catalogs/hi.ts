@@ -40,7 +40,7 @@ export const HI_MESSAGES = {
   "nav.main": "मुख्य नेविगेशन",
   "nav.siteHeader": "साइट शीर्षलेख",
   "nav.skipToContent": "मुख्य सामग्री पर जाएँ",
-  "nav.homeLabel": "STEMBrain — मुखपृष्ठ पर जाएँ",
+  "nav.homeLabel": "Girapphe — मुखपृष्ठ पर जाएँ",
   "nav.practice": "अभ्यास",
   "nav.reviewQueue": "समीक्षा सूची",
   "nav.knowledgeMap": "ज्ञान मानचित्र",
@@ -81,7 +81,7 @@ export const HI_MESSAGES = {
     "one": "नोट",
     "other": "नोट्स"
   },
-  "home.learningLoopAria": "STEMBrain अभ्यास को ज्ञान ग्राफ़ में कैसे बदलता है",
+  "home.learningLoopAria": "Girapphe अभ्यास को ज्ञान ग्राफ़ में कैसे बदलता है",
   "home.loop1Title": "एक विचार का अभ्यास करें",
   "home.loop1Copy": "छोटे और केंद्रित कार्ड अगला कदम स्पष्ट रखते हैं।",
   "home.loop2Title": "कमज़ोर हिस्से सहेजें",

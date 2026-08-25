@@ -12,6 +12,41 @@ type JsonObject = Record<string, unknown>;
 
 export const REVENUECAT_REQUEST_TIMEOUT_MS = 10_000;
 
+export async function deleteRevenueCatCustomer(
+  userId: string,
+  requestTimeoutMs = REVENUECAT_REQUEST_TIMEOUT_MS,
+): Promise<boolean> {
+  const apiKey = process.env.REVENUECAT_SECRET_API_KEY?.trim();
+  if (!apiKey) throw new Error('REVENUECAT_SECRET_API_KEY is not configured.');
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(new Error('RevenueCat customer deletion timed out.')),
+    requestTimeoutMs,
+  );
+  try {
+    const response = await fetch(
+      `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`,
+      {
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        cache: 'no-store',
+        signal: controller.signal,
+      },
+    );
+    if (response.status === 404) return true;
+    if (!response.ok) {
+      throw new Error(`RevenueCat customer deletion failed with status ${response.status}.`);
+    }
+    return true;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export type RevenueCatEvent = {
   id: string;
   type: string;

@@ -25,6 +25,14 @@ function requireProductionUrl(name: string): void {
   }
 }
 
+function requireCanonicalProductionUrl(name: string, pathname: string): void {
+  requireProductionUrl(name);
+  const value = clean(process.env[name]);
+  if (value !== `https://www.girapphe.com${pathname}`) {
+    throw new Error(`Production ${name} must be exactly https://www.girapphe.com${pathname}.`);
+  }
+}
+
 function requireProductionPattern(name: string, pattern: RegExp, description: string): string {
   const value = clean(process.env[name]);
   if (!value || !pattern.test(value)) {
@@ -137,8 +145,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     if (clean(process.env.EXPO_PUBLIC_APP_BASE_URL) !== 'https://www.girapphe.com') {
       throw new Error('Production EXPO_PUBLIC_APP_BASE_URL must be exactly https://www.girapphe.com.');
     }
-    requireProductionUrl('EXPO_PUBLIC_TERMS_URL');
-    requireProductionUrl('EXPO_PUBLIC_PRIVACY_URL');
+    requireCanonicalProductionUrl('EXPO_PUBLIC_TERMS_URL', '/terms');
+    requireCanonicalProductionUrl('EXPO_PUBLIC_PRIVACY_URL', '/privacy');
+    requireCanonicalProductionUrl('EXPO_PUBLIC_SUPPORT_URL', '/support');
+    requireCanonicalProductionUrl('EXPO_PUBLIC_ACCOUNT_DELETION_URL', '/account/delete');
   }
   const adMobPlugin: ExpoPlugin | null = iosAppId || androidAppId
     ? [
@@ -147,8 +157,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           ...(iosAppId ? { iosAppId } : {}),
           ...(androidAppId ? { androidAppId } : {}),
           delayAppMeasurementInit: true,
-          userTrackingUsageDescription:
-            'This identifier may be used to deliver and measure ads when you allow tracking.',
         },
       ]
     : null;

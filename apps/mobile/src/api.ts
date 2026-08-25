@@ -131,6 +131,7 @@ function withLocale(path: string): string {
 }
 
 export const mobileApi = {
+  deleteAccount: () => request<{ deleted: true }>('/api/account', { method: 'DELETE' }),
   content: (ids: string[]) => {
     const boundedIds = [...new Set(ids)].slice(0, 12);
     const query = boundedIds.map((id) => encodeURIComponent(id)).join(',');

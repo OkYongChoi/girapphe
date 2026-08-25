@@ -318,7 +318,7 @@ test.describe('browser smoke', () => {
     }
 
     await page.goto('/grid');
-    const homeLink = page.getByRole('link', { name: 'STEMBrain — go to home' });
+    const homeLink = page.getByRole('link', { name: 'Girapphe — go to home' });
     const brandWordmark = page.getByTestId('brand-wordmark');
     await expect(homeLink.locator('svg')).toBeVisible();
     await expect(brandWordmark).toBeVisible();
