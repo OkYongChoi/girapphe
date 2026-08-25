@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useReverification } from '@clerk/expo';
 import { useRouter } from 'expo-router';
 import { Alert, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { mobileApi } from '@/api';
@@ -15,6 +16,7 @@ export default function AccountScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletionError, setDeletionError] = useState<string | null>(null);
   const [privacyNotice, setPrivacyNotice] = useState<string | null>(null);
+  const deleteAccountWithReverification = useReverification(mobileApi.deleteAccount);
   const supportUrl = process.env.EXPO_PUBLIC_SUPPORT_URL?.trim() || 'https://www.girapphe.com/support';
   const termsUrl = process.env.EXPO_PUBLIC_TERMS_URL?.trim() || 'https://www.girapphe.com/terms';
   const privacyUrl = process.env.EXPO_PUBLIC_PRIVACY_URL?.trim() || 'https://www.girapphe.com/privacy';
@@ -45,7 +47,8 @@ export default function AccountScreen() {
     setIsDeleting(true);
     setDeletionError(null);
     try {
-      await mobileApi.deleteAccount();
+      const result = await deleteAccountWithReverification() as unknown as { deleted?: boolean };
+      if (!result?.deleted) throw new Error('deletion_failed');
       await auth.signOut().catch(() => undefined);
       router.replace('/');
     } catch {

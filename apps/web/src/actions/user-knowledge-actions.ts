@@ -289,9 +289,8 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   if (user.isGuest) await claimDatabaseGuestWrite(await getGuestRateScope(user.id));
   const itemId = randomUUID();
   const nodeId = randomUUID();
-  const result = await pool.query<{ id: string }>(
-    requestId
-      ? `WITH claimed AS (
+  const insertQuery = requestId
+    ? `WITH claimed AS (
            INSERT INTO user_knowledge_create_requests (user_id, request_id) VALUES ($1, $2)
            ON CONFLICT DO NOTHING RETURNING 1
          ), inserted_item AS (
@@ -310,7 +309,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
            SELECT $7, user_id, id, title, topic, 'manual' FROM inserted_item WHERE $10::boolean
            RETURNING knowledge_item_id
          ) SELECT id FROM inserted_item`
-      : `WITH inserted_item AS (
+    : `WITH inserted_item AS (
            INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags, purge_at)
            SELECT $3, $1, $4, $9, $5, $6, $8::jsonb,
              CASE WHEN $11::boolean THEN NOW() + ($12::int * INTERVAL '1 day') ELSE NULL END
@@ -325,23 +324,31 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
            INSERT INTO user_graph_nodes (id, user_id, knowledge_item_id, label, topic, origin)
            SELECT $7, user_id, id, title, topic, 'manual' FROM inserted_item WHERE $10::boolean
            RETURNING knowledge_item_id
-         ) SELECT id FROM inserted_item`,
-    [
-      user.id,
-      requestId || null,
-      itemId,
-      title,
-      content,
-      topic,
-      nodeId,
-      JSON.stringify(tags),
-      summary,
-      syncGraph,
-      user.isGuest,
-      GUEST_KNOWLEDGE_RETENTION_DAYS,
-      GUEST_KNOWLEDGE_ITEM_LIMIT,
-    ]
-  );
+         ) SELECT id FROM inserted_item`;
+  const insertParams = [
+    user.id,
+    requestId || null,
+    itemId,
+    title,
+    content,
+    topic,
+    nodeId,
+    JSON.stringify(tags),
+    summary,
+    syncGraph,
+    user.isGuest,
+    GUEST_KNOWLEDGE_RETENTION_DAYS,
+    GUEST_KNOWLEDGE_ITEM_LIMIT,
+  ];
+  const result = user.isGuest
+    ? (await pool.transaction<{ id: string }>([
+        {
+          text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
+          params: [`guest-knowledge:${user.id}`],
+        },
+        { text: insertQuery, params: insertParams },
+      ]))[1]
+    : await pool.query<{ id: string }>(insertQuery, insertParams);
   if (user.isGuest && !result.rows[0]) {
     const count = await pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM user_knowledge_items
@@ -477,13 +484,29 @@ export async function restoreKnowledgeItem(formData: FormData): Promise<void> {
   if (!id) return;
 
   if (!process.env.DATABASE_URL) {
-    restoreMemoryKnowledgeItemForUser(user.id, id, { syncGraph });
+    if (user.isGuest) {
+      purgeMemoryKnowledgeItemsForUser(user.id);
+      const activeCount = getMemoryKnowledgeItemsForUser(user.id).filter((item) => !item.deleted_at).length;
+      if (activeCount >= GUEST_KNOWLEDGE_ITEM_LIMIT) throw new Error('guest_knowledge_item_limit');
+    }
+    restoreMemoryKnowledgeItemForUser(user.id, id, {
+      syncGraph,
+      retentionDays: user.isGuest ? GUEST_KNOWLEDGE_RETENTION_DAYS : undefined,
+    });
   } else {
     await ensureSchema();
-    await pool.query(
+    const restoreQuery =
       `WITH restored_item AS (
-         UPDATE user_knowledge_items SET deleted_at = NULL, purge_at = NULL, updated_at = NOW()
+         UPDATE user_knowledge_items SET deleted_at = NULL,
+           purge_at = CASE WHEN $4::boolean THEN created_at + ($6::int * INTERVAL '1 day') ELSE NULL END,
+           updated_at = NOW()
          WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL AND purge_at > NOW()
+           AND (NOT $4::boolean OR created_at + ($6::int * INTERVAL '1 day') > NOW())
+           AND (NOT $4::boolean OR (
+             SELECT COUNT(*) FROM user_knowledge_items
+             WHERE user_id = $2 AND deleted_at IS NULL
+               AND (purge_at IS NULL OR purge_at > NOW())
+           ) < $5)
          RETURNING id, title, topic
        ), restored_nodes AS (
          UPDATE user_graph_nodes n SET deleted_at = NULL, purge_at = NULL, label = i.title, topic = i.topic, updated_at = NOW()
@@ -497,9 +520,26 @@ export async function restoreKnowledgeItem(formData: FormData): Promise<void> {
          ))
          AND (e.target_private_node_id IS NULL OR EXISTS (
            SELECT 1 FROM user_graph_nodes n WHERE n.id = e.target_private_node_id AND n.user_id = $2 AND n.deleted_at IS NULL
-         ))`,
-      [id, user.id, syncGraph]
-    );
+         ))`;
+    const restoreParams = [
+      id,
+      user.id,
+      syncGraph,
+      user.isGuest,
+      GUEST_KNOWLEDGE_ITEM_LIMIT,
+      GUEST_KNOWLEDGE_RETENTION_DAYS,
+    ];
+    if (user.isGuest) {
+      await pool.transaction([
+        {
+          text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
+          params: [`guest-knowledge:${user.id}`],
+        },
+        { text: restoreQuery, params: restoreParams },
+      ]);
+    } else {
+      await pool.query(restoreQuery, restoreParams);
+    }
   }
 
   revalidatePath('/my-knowledge');

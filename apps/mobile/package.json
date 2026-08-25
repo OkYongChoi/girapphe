@@ -10,7 +10,7 @@
     "build": "pnpm run build:ios && pnpm run build:android",
     "build:ios": "node scripts/export-release-bundle.mjs ios",
     "build:android": "node scripts/export-release-bundle.mjs android",
-    "test": "tsx --test src/subscription-purchase-guard.test.ts src/browse-concepts.test.ts",
+    "test": "tsx --test src/*.test.ts",
     "release:check": "tsx scripts/check-release-config.ts",
     "release:check:linked": "tsx scripts/check-release-config.ts --require-eas-project",
     "release:doctor": "pnpm dlx expo-doctor@1.20.3",
