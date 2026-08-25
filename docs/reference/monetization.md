@@ -1,15 +1,22 @@
-# Ads, subscriptions, and `ad_free`
+# Girapphe Plus, ads, and `ad_free`
 
 ## Product contract
 
-- Learning, conversation-card creation, review, and the knowledge graph remain free.
+- Learning, conversation-card creation, review, every owner-created private concept, and every
+  owner-created private relationship remain free.
+- The free web Knowledge Map includes a representative, domain-balanced sample of up to 144
+  public concepts. Concepts remains searchable and progressively pageable independently of that
+  graph sample.
 - A free practice session inserts one clearly labeled sponsored card after every five
   successful forward actions. Rating and Skip count; reveal, Back, Undo, and opening a
   topic do not.
-- An active `ad_free` entitlement prevents the web or mobile ad component from mounting.
-- Monthly and annual subscriptions remove ads only. Web list prices are USD 1/month and
-  USD 10/year; the first eligible Clerk account starting Stripe or Toss web billing receives
-  one shared 14-day trial.
+- An active `ad_free` entitlement is the backwards-compatible provider and database identifier
+  for Girapphe Plus. It prevents the web or mobile ad component from mounting and unlocks the
+  full public web Knowledge Map. Existing subscribers therefore receive the expanded benefit
+  without a migration or repurchase.
+- Monthly and annual subscriptions unlock the full public web Knowledge Map and remove ads.
+  Web list prices are USD 1/month and USD 10/year; the first eligible Clerk account starting
+  Stripe or Toss web billing receives one shared 14-day trial.
 - A provider redirect, purchase-sheet close, or app-authored assertion never grants access.
   The server authorizes from reconciled `billing_subscriptions`; mobile may additionally honor
   RevenueCat's SDK-verified `CustomerInfo` for the signed-in Clerk App User ID while its signed

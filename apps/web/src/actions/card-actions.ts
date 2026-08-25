@@ -33,6 +33,12 @@ import {
   type ContentLocale,
   type TranslationResolutionStatus,
 } from '@/lib/content-localization';
+import { hasAdFreeEntitlement } from '@/lib/billing/database';
+import {
+  FREE_PUBLIC_GRAPH_CARD_LIMIT,
+  selectBalancedGraphCards,
+  type KnowledgeGraphAccess,
+} from '@/lib/knowledge-graph-access';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -71,6 +77,12 @@ export type KnowledgeMapEdge = {
   type: EdgeType;
   weight: number;
   visibility: 'public';
+};
+
+export type KnowledgeGraphSnapshot = {
+  cards: Array<KnowledgeCard & { status: CardStatus | null }>;
+  edges: KnowledgeMapEdge[];
+  access: KnowledgeGraphAccess;
 };
 
 export type CardStatus = 'known' | 'saved';
@@ -124,7 +136,7 @@ const TARGET_CARD_COUNT = getCardPoolSize();
 
 const DEFAULT_KNOWLEDGE_CARD_LIMIT = 600;
 const MAX_KNOWLEDGE_CARD_LIMIT = 5000;
-const GUEST_KNOWLEDGE_MAP_CARD_LIMIT = 144;
+const GUEST_KNOWLEDGE_MAP_CARD_LIMIT = FREE_PUBLIC_GRAPH_CARD_LIMIT;
 function getKnowledgeCardLimit(): number {
   const raw = process.env.KNOWLEDGE_CARD_LIMIT;
   if (!raw) return DEFAULT_KNOWLEDGE_CARD_LIMIT;
@@ -503,33 +515,10 @@ function limitCardsForGuestKnowledgeMap<T extends { id: string; domain?: string 
   isGuest: boolean
 ) {
   if (!isGuest) return cards;
-
-  const buckets = new Map<string, T[]>();
-  for (const card of cards.filter((candidate) => !isExcludedFromKnowledgeMap(candidate.id))) {
-    const key = normalizeDomainKey(card.domain ?? 'other');
-    const bucket = buckets.get(key) ?? [];
-    bucket.push(card);
-    buckets.set(key, bucket);
-  }
-
-  const result: T[] = [];
-  const domainKeys = [...buckets.keys()].sort();
-  while (result.length < GUEST_KNOWLEDGE_MAP_CARD_LIMIT && domainKeys.length > 0) {
-    for (const key of [...domainKeys]) {
-      const bucket = buckets.get(key);
-      const next = bucket?.shift();
-      if (next) {
-        result.push(next);
-        if (result.length >= GUEST_KNOWLEDGE_MAP_CARD_LIMIT) break;
-      }
-      if (!bucket || bucket.length === 0) {
-        const index = domainKeys.indexOf(key);
-        if (index >= 0) domainKeys.splice(index, 1);
-      }
-    }
-  }
-
-  return result;
+  return selectBalancedGraphCards(
+    cards.filter((candidate) => !isExcludedFromKnowledgeMap(candidate.id)),
+    GUEST_KNOWLEDGE_MAP_CARD_LIMIT,
+  );
 }
 
 for (const edge of GRAPH_EDGES) {
@@ -1526,6 +1515,7 @@ type GetAllCardsWithStatusOptions = {
   maxTranslationGenerations?: number;
   knowledgeMapLimit?: number;
   knowledgeMapOffset?: number;
+  knowledgeGraphLimit?: number;
 };
 
 function getKnowledgeMapWindow(options?: GetAllCardsWithStatusOptions) {
@@ -1536,11 +1526,17 @@ function getKnowledgeMapWindow(options?: GetAllCardsWithStatusOptions) {
   };
 }
 
+function getKnowledgeGraphLimit(options?: GetAllCardsWithStatusOptions) {
+  if (options?.knowledgeGraphLimit === undefined) return null;
+  return Math.max(1, Math.min(Math.trunc(options.knowledgeGraphLimit), MAX_KNOWLEDGE_CARD_LIMIT));
+}
+
 async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOptions) {
   const user = await requireCurrentActor();
   const includeGenerated = options?.includeGenerated ?? false;
   const generatedLimit = Math.max(0, Math.min(options?.generatedLimit ?? DRILL_GENERATION_BATCH, 5000));
   const knowledgeMapWindow = getKnowledgeMapWindow(options);
+  const knowledgeGraphLimit = getKnowledgeGraphLimit(options);
 
   if (user.isGuest || !process.env.DATABASE_URL) {
     const sourceCards = limitCardsForGuestKnowledgeMap(await getMockCards(), user.isGuest);
@@ -1555,9 +1551,12 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
         ]
       : cards;
 
-    const windowed = knowledgeMapWindow
-      ? limited.slice(knowledgeMapWindow.offset, knowledgeMapWindow.offset + knowledgeMapWindow.limit)
+    const graphScoped = knowledgeGraphLimit
+      ? selectBalancedGraphCards(limited, knowledgeGraphLimit)
       : limited;
+    const windowed = knowledgeMapWindow
+      ? graphScoped.slice(knowledgeMapWindow.offset, knowledgeMapWindow.offset + knowledgeMapWindow.limit)
+      : graphScoped;
     return windowed.map((c, index) => ({
       ...withCardDomains(c),
       status: user.isGuest ? getMockCardStatus(index + (knowledgeMapWindow?.offset ?? 0)) : null,
@@ -1568,7 +1567,7 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
     await ensureCardSchema();
 
     if (!includeGenerated) {
-      const query = `
+      const standardQuery = `
         SELECT kc.*, ucs.status, ucs.knowledge_state, ucs.progress_state
         FROM knowledge_cards kc
         LEFT JOIN user_card_states ucs
@@ -1589,9 +1588,43 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
         ${knowledgeMapWindow ? 'LIMIT $2 OFFSET $3' : ''};
       `;
 
+      const balancedGraphQuery = `
+        WITH ranked_cards AS (
+          SELECT
+            kc.*,
+            ucs.status,
+            ucs.knowledge_state,
+            ucs.progress_state,
+            ROW_NUMBER() OVER (
+              PARTITION BY COALESCE(NULLIF(TRIM(kc.domain), ''), 'other')
+              ORDER BY
+                CASE kc.level
+                  WHEN 'memorize' THEN 1
+                  WHEN 'understand' THEN 2
+                  WHEN 'connect' THEN 3
+                  WHEN 'apply' THEN 4
+                  ELSE 99
+                END,
+                kc.title
+            ) AS graph_domain_rank
+          FROM knowledge_cards kc
+          LEFT JOIN user_card_states ucs
+            ON kc.id = ucs.card_id AND ucs.user_id = $1
+          WHERE kc.id NOT LIKE 'drill_%'
+            AND kc.id NOT LIKE 'graph_adv_%'
+            AND kc.title NOT ILIKE 'Sponsored Content %'
+        )
+        SELECT *
+        FROM ranked_cards
+        ORDER BY graph_domain_rank, domain, title
+        LIMIT $2;
+      `;
+
       const res = await pool.query(
-        query,
-        knowledgeMapWindow
+        knowledgeGraphLimit ? balancedGraphQuery : standardQuery,
+        knowledgeGraphLimit
+          ? [user.id, knowledgeGraphLimit]
+          : knowledgeMapWindow
           ? [user.id, knowledgeMapWindow.limit, knowledgeMapWindow.offset]
           : [user.id],
       );
@@ -1666,9 +1699,12 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
           ...cards.filter((c) => c.id.startsWith('drill_')).slice(0, generatedLimit),
         ]
       : cards;
-    const windowed = knowledgeMapWindow
-      ? limited.slice(knowledgeMapWindow.offset, knowledgeMapWindow.offset + knowledgeMapWindow.limit)
+    const graphScoped = knowledgeGraphLimit
+      ? selectBalancedGraphCards(limited, knowledgeGraphLimit)
       : limited;
+    const windowed = knowledgeMapWindow
+      ? graphScoped.slice(knowledgeMapWindow.offset, knowledgeMapWindow.offset + knowledgeMapWindow.limit)
+      : graphScoped;
     return windowed.map((c, index) => ({
       ...withCardDomains(c),
       status: user.isGuest
@@ -1710,6 +1746,34 @@ export async function getKnowledgeMapCardPage({
   return {
     cards: cards.slice(0, boundedLimit),
     hasMore: cards.length > boundedLimit,
+  };
+}
+
+export async function getKnowledgeGraphSnapshot({
+  locale,
+}: {
+  locale: string;
+}): Promise<KnowledgeGraphSnapshot> {
+  const actor = await requireCurrentActor();
+  const hasFullAccess = actor.isGuest
+    ? false
+    : await hasAdFreeEntitlement(actor.id);
+  const [cards, edges] = await Promise.all([
+    getAllCardsWithStatus({
+      locale,
+      knowledgeGraphLimit: hasFullAccess ? undefined : FREE_PUBLIC_GRAPH_CARD_LIMIT,
+    }),
+    getKnowledgeMapEdges(),
+  ]);
+
+  return {
+    cards,
+    edges,
+    access: {
+      level: hasFullAccess ? 'full' : 'free',
+      publicCardLimit: hasFullAccess ? null : FREE_PUBLIC_GRAPH_CARD_LIMIT,
+      publicCardCount: cards.length,
+    },
   };
 }
 

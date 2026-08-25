@@ -105,7 +105,7 @@ export default function PracticeAdCard({
       ) : (
         <div className="my-5 flex flex-1 flex-col justify-between rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 text-white">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Girapphe Ad-free</p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Girapphe Plus</p>
             <h2 className="mt-4 text-3xl font-black leading-tight">{t('ads.title')}</h2>
             <p className="mt-4 text-sm leading-6 text-slate-300">
               {t('ads.body')}

@@ -266,6 +266,8 @@ test.describe('browser smoke', () => {
 
     await page.goto('/knowledge');
     await expect(page.getByRole('heading', { name: 'Knowledge Graph' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('graph-access-summary')).toContainText('Free map');
+    await expect(page.getByRole('link', { name: 'Unlock full public map' })).toHaveAttribute('href', '/subscription');
 
     const canvas = page.locator('canvas').first();
     await expect(canvas).toBeAttached({ timeout: 20_000 });

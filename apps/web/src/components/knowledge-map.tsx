@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from 'react';
 import {
   getAllCardsWithStatus,
+  getKnowledgeGraphSnapshot,
   getKnowledgeMapCardPage,
   type KnowledgeCard,
   type CardStatus,
-  type KnowledgeMapEdge,
+  type KnowledgeGraphSnapshot,
 } from '@/actions/card-actions';
 import KnowledgeGraph3D from './knowledge-graph-3d';
 import type { KnowledgeGraphEdgeView } from './knowledge-graph-3d';
@@ -66,9 +67,9 @@ type EditableCardValues = {
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
   initialHasMoreCards?: boolean;
+  initialGraphSnapshot?: KnowledgeGraphSnapshot | null;
   initialView?: 'grid' | 'graph';
   personalItems?: KnowledgeMapPersonalItem[];
-  publicEdges?: KnowledgeMapEdge[];
   privateGraph?: {
     nodes?: unknown[];
     edges?: unknown[];
@@ -81,6 +82,7 @@ type Props = {
 
 const EDGE_TYPES = new Set(['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to']);
 const INITIAL_VISIBLE_CONCEPT_CARDS = 24;
+const EMPTY_GRAPH_CARDS: MapCard[] = [];
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -113,9 +115,9 @@ function fallbackEndpointLabel(id: string) {
 export default function KnowledgeMap({
   initialCards,
   initialHasMoreCards = false,
+  initialGraphSnapshot = null,
   initialView = 'graph',
   personalItems = [],
-  publicEdges = [],
   privateGraph = null,
   graphLinkTargets = [],
   enableWebMcp = false,
@@ -124,6 +126,9 @@ export default function KnowledgeMap({
   const [baseCards, setBaseCards] = useState(initialCards);
   const [hasMoreCards, setHasMoreCards] = useState(initialHasMoreCards);
   const [loadingMoreCards, setLoadingMoreCards] = useState(false);
+  const [graphSnapshot, setGraphSnapshot] = useState(initialGraphSnapshot);
+  const [graphError, setGraphError] = useState<string | null>(null);
+  const [isOpeningGraph, startOpeningGraph] = useTransition();
   const [currentPersonalItems, setCurrentPersonalItems] = useState(personalItems);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
@@ -217,8 +222,9 @@ export default function KnowledgeMap({
     [baseCards, generatedCards, includeGenerated]
   );
   const cards = useMemo<MapCard[]>(() => [...publicCards, ...personalCards], [publicCards, personalCards]);
+  const graphPublicCards = graphSnapshot?.cards ?? EMPTY_GRAPH_CARDS;
   const graphEdges = useMemo<KnowledgeGraphEdgeView[]>(() => {
-    const canonicalEdges: KnowledgeGraphEdgeView[] = publicEdges.map((edge) => ({
+    const canonicalEdges: KnowledgeGraphEdgeView[] = (graphSnapshot?.edges ?? []).map((edge) => ({
       id: edge.id,
       source: edge.source,
       target: edge.target,
@@ -244,11 +250,12 @@ export default function KnowledgeMap({
       }];
     });
     return [...canonicalEdges, ...privateEdges];
-  }, [privateGraph?.edges, publicEdges]);
+  }, [graphSnapshot?.edges, privateGraph?.edges]);
   const graphCards = useMemo<MapCard[]>(() => {
-    const visibleIds = new Set(cards.map((card) => card.id));
+    const graphBaseCards: MapCard[] = [...graphPublicCards, ...personalCards];
+    const visibleIds = new Set(graphBaseCards.map((card) => card.id));
     const targetById = new Map(graphLinkTargets.map((target) => [target.id, target]));
-    // Public card limits remain intentional (especially for guests). Only
+    // Public card limits remain intentional for free maps. Only
     // private overlays may add lightweight endpoints that are required to keep
     // an owner-authored relationship visible.
     const endpointIds = new Set(graphEdges
@@ -279,8 +286,8 @@ export default function KnowledgeMap({
       });
     }
 
-    return [...cards, ...endpointCards];
-  }, [cards, graphEdges, graphLinkTargets, t]);
+    return [...graphBaseCards, ...endpointCards];
+  }, [graphEdges, graphLinkTargets, graphPublicCards, personalCards, t]);
 
   // Cards can live in multiple taxonomy domains.
   const domains = useMemo(
@@ -336,6 +343,24 @@ export default function KnowledgeMap({
     } finally {
       setLoadingMoreCards(false);
     }
+  };
+
+  const openGraphView = () => {
+    setGraphError(null);
+    if (graphSnapshot) {
+      setViewMode('graph');
+      return;
+    }
+
+    startOpeningGraph(async () => {
+      try {
+        const snapshot = await getKnowledgeGraphSnapshot({ locale });
+        setGraphSnapshot(snapshot);
+        setViewMode('graph');
+      } catch {
+        setGraphError(t('knowledge.graphLoadError'));
+      }
+    });
   };
 
   const applyWebMcpFilters = useCallback((nextFilters: KnowledgeSearchFilters) => {
@@ -404,8 +429,13 @@ export default function KnowledgeMap({
           onApplyFilters={applyWebMcpFilters}
         />
       ) : null}
-      {viewMode === 'graph' ? (
-        <KnowledgeGraph3D cards={graphCards} edges={graphEdges} onClose={() => setViewMode('grid')} />
+      {viewMode === 'graph' && graphSnapshot ? (
+        <KnowledgeGraph3D
+          access={graphSnapshot.access}
+          cards={graphCards}
+          edges={graphEdges}
+          onClose={() => setViewMode('grid')}
+        />
       ) : (
         <div className="w-full max-w-6xl mx-auto p-6">
           <div className="mb-8 flex flex-col gap-4 justify-between items-center xl:flex-row">
@@ -429,10 +459,11 @@ export default function KnowledgeMap({
             <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:flex-nowrap">
               <button
                 type="button"
-                onClick={() => setViewMode('graph')}
-                className="min-h-11 rounded bg-blue-600 px-4 py-2 font-medium text-white shadow transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                onClick={openGraphView}
+                disabled={isOpeningGraph}
+                className="min-h-11 rounded bg-blue-600 px-4 py-2 font-medium text-white shadow transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
               >
-                {t('knowledge.graphView')}
+                {isOpeningGraph ? t('knowledge.loadingGraph') : t('knowledge.graphView')}
               </button>
 
               <div className="min-w-[12rem] flex-1 xl:w-60 xl:flex-none">
@@ -589,6 +620,12 @@ export default function KnowledgeMap({
           {generatedError ? (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
               {generatedError}
+            </div>
+          ) : null}
+
+          {graphError ? (
+            <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {graphError}
             </div>
           ) : null}
 
