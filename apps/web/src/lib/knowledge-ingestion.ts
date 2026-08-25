@@ -314,9 +314,7 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
 
 export async function ensureKnowledgeIngestionSchema(): Promise<void> {
   if (!process.env.DATABASE_URL) return;
-  // Production requests must use the checked-in migration. The isolated PR
-  // preview database deliberately keeps its existing authenticated bootstrap
-  // behavior because preview deployments do not apply unmerged migrations.
+  // Deployed requests must use the checked-in migrations applied by CI.
   // MCP bearer authentication itself never calls this function, so invalid
   // token traffic cannot amplify DDL round trips on a cold Worker isolate.
   if (!canRunRuntimeSchemaBootstrap()) return;

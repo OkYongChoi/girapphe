@@ -1,11 +1,11 @@
 type SchemaBootstrapEnvironment = { NODE_ENV?: string; APP_ENV?: string };
 
 /**
- * Preview Workers use isolated databases without CI migrations. Production
- * must rely on the migration job so requests never spend subrequests on DDL.
+ * Deployed Workers rely on CI migrations so requests never spend their
+ * resource budget on schema DDL. Local development retains a bootstrap path.
  */
 export function canRunRuntimeSchemaBootstrap(
   env: SchemaBootstrapEnvironment = process.env,
 ): boolean {
-  return env.NODE_ENV !== 'production' || env.APP_ENV === 'preview';
+  return env.NODE_ENV !== 'production';
 }

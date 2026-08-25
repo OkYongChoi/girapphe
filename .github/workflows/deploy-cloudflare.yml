@@ -128,6 +128,12 @@ jobs:
           TOSS_ANNUAL_AMOUNT_KRW: ${{ secrets.TOSS_ANNUAL_AMOUNT_KRW_PREVIEW }}
           TOSS_BILLING_CRON_TOKEN: ${{ secrets.TOSS_BILLING_CRON_TOKEN_PREVIEW }}
 
+      - name: Run preview Drizzle migrations
+        working-directory: apps/web
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
+
       - name: Deploy preview Worker settings and upload PR version
         working-directory: apps/web
         env:
