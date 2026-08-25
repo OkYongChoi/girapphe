@@ -86,6 +86,9 @@ async function purgePrivateProductData(userId: string) {
            AND (SELECT COUNT(*) FROM deleted_graph_nodes) >= 0
          RETURNING id
        ),
+       deleted_create_requests AS (
+         DELETE FROM user_knowledge_create_requests WHERE user_id = $1 RETURNING request_id
+       ),
        deleted_drafts AS (
          DELETE FROM knowledge_card_drafts
          WHERE user_id = $1
@@ -118,6 +121,7 @@ async function purgePrivateProductData(userId: string) {
        )
      SELECT
        (SELECT COUNT(*) FROM deleted_items) AS deleted_items,
+       (SELECT COUNT(*) FROM deleted_create_requests) AS deleted_create_requests,
        (SELECT COUNT(*) FROM deleted_batches) AS deleted_batches,
        (SELECT COUNT(*) FROM deleted_tokens) AS deleted_tokens,
        (SELECT COUNT(*) FROM deleted_evidence) AS deleted_evidence,

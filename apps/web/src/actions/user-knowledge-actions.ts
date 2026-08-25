@@ -2,8 +2,16 @@
 
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
+import { headers } from 'next/headers';
 import pool from '@/lib/db';
 import { requireCurrentActor } from '@/lib/auth';
+import {
+  GUEST_KNOWLEDGE_ITEM_LIMIT,
+  GUEST_KNOWLEDGE_RETENTION_DAYS,
+  GUEST_KNOWLEDGE_WRITES_PER_HOUR,
+  getGuestKnowledgeRateScope,
+  normalizeKnowledgeRequestId,
+} from '@/lib/guest-knowledge-admission';
 import { PERSONAL_CARD_RETENTION_DAYS } from '@/lib/personal-knowledge';
 import { canRunRuntimeSchemaBootstrap } from '@/lib/schema-bootstrap';
 import {
@@ -44,6 +52,48 @@ export type UserKnowledgeOverview = {
 };
 
 let schemaReady = false;
+const memoryGuestWriteWindows = new Map<string, { startedAt: number; count: number }>();
+
+async function getGuestRateScope(userId: string) {
+  const requestHeaders = await headers();
+  return getGuestKnowledgeRateScope(userId, requestHeaders.get('cf-connecting-ip'));
+}
+
+function claimMemoryGuestWrite(scopeKey: string) {
+  const now = Date.now();
+  const existing = memoryGuestWriteWindows.get(scopeKey);
+  if (!existing || now - existing.startedAt >= 60 * 60 * 1000) {
+    memoryGuestWriteWindows.set(scopeKey, { startedAt: now, count: 1 });
+    return;
+  }
+  if (existing.count >= GUEST_KNOWLEDGE_WRITES_PER_HOUR) {
+    throw new Error('guest_knowledge_rate_limited');
+  }
+  existing.count += 1;
+}
+
+async function claimDatabaseGuestWrite(scopeKey: string) {
+  const result = await pool.query<{ scope_key: string }>(
+    `INSERT INTO guest_knowledge_write_limits (scope_key, window_started_at, request_count, updated_at)
+     VALUES ($1, NOW(), 1, NOW())
+     ON CONFLICT (scope_key)
+     DO UPDATE SET
+       window_started_at = CASE
+         WHEN guest_knowledge_write_limits.window_started_at <= NOW() - INTERVAL '1 hour' THEN NOW()
+         ELSE guest_knowledge_write_limits.window_started_at
+       END,
+       request_count = CASE
+         WHEN guest_knowledge_write_limits.window_started_at <= NOW() - INTERVAL '1 hour' THEN 1
+         ELSE guest_knowledge_write_limits.request_count + 1
+       END,
+       updated_at = NOW()
+     WHERE guest_knowledge_write_limits.window_started_at <= NOW() - INTERVAL '1 hour'
+        OR guest_knowledge_write_limits.request_count < $2
+     RETURNING scope_key`,
+    [scopeKey, GUEST_KNOWLEDGE_WRITES_PER_HOUR],
+  );
+  if (result.rows.length === 0) throw new Error('guest_knowledge_rate_limited');
+}
 
 async function ensureSchema() {
   if (!process.env.DATABASE_URL || schemaReady) return;
@@ -102,6 +152,25 @@ async function ensureSchema() {
     );
   `);
 
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_user_knowledge_create_requests_created
+    ON user_knowledge_create_requests(created_at);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS guest_knowledge_write_limits (
+      scope_key TEXT PRIMARY KEY,
+      window_started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+      request_count INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_guest_knowledge_write_limits_updated
+    ON guest_knowledge_write_limits(updated_at);
+  `);
+
   await ensureKnowledgeIngestionSchema();
 
   schemaReady = true;
@@ -129,10 +198,13 @@ export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
       SELECT provider, batch_id FROM knowledge_card_sources s
       WHERE s.knowledge_item_id = i.id AND s.user_id = i.user_id ORDER BY s.created_at DESC LIMIT 1
     ) s ON TRUE
-    WHERE i.user_id = $1 AND i.deleted_at IS NULL
-    ORDER BY i.created_at DESC;
+    WHERE i.user_id = $1
+      AND i.deleted_at IS NULL
+      AND (i.purge_at IS NULL OR i.purge_at > NOW())
+    ORDER BY i.created_at DESC
+    ${user.isGuest ? 'LIMIT $2' : ''};
     `,
-    [user.id]
+    user.isGuest ? [user.id, GUEST_KNOWLEDGE_ITEM_LIMIT] : [user.id]
   );
 
   return result.rows;
@@ -179,7 +251,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   const content = sanitizeKnowledgeContent(String(formData.get('content') ?? ''));
   const topic = normalizeKnowledgeTopic(String(formData.get('topic') ?? ''));
   const tags = sanitizeKnowledgeTags(String(formData.get('tags') ?? '').split(','));
-  const requestId = String(formData.get('request_id') ?? '').trim();
+  const requestId = normalizeKnowledgeRequestId(formData.get('request_id'));
   const relatedNodeId = String(formData.get('related_node_id') ?? '').trim();
   const relationType = String(formData.get('relation_type') ?? 'related');
   const relationDirection = String(formData.get('relation_direction') ?? formData.get('direction') ?? '') === 'incoming' ? 'incoming' : 'outgoing';
@@ -189,8 +261,17 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   }
 
   if (!process.env.DATABASE_URL) {
+    if (user.isGuest) {
+      claimMemoryGuestWrite(await getGuestRateScope(user.id));
+      purgeMemoryKnowledgeItemsForUser(user.id);
+      const activeCount = getMemoryKnowledgeItemsForUser(user.id).filter((item) => !item.deleted_at).length;
+      if (activeCount >= GUEST_KNOWLEDGE_ITEM_LIMIT) throw new Error('guest_knowledge_item_limit');
+    }
     if (requestId && hasMemoryCreateRequest(user.id, requestId)) return;
     const item = createMemoryKnowledgeItemForUser(user.id, { title, summary, content, topic, tags }, { syncGraph });
+    if (user.isGuest) {
+      item.purge_at = new Date(Date.now() + GUEST_KNOWLEDGE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    }
     if (syncGraph && relatedNodeId) {
       await createPrivateKnowledgeEdgeForUser(user.id, `personal:${item.id}`, relatedNodeId,
         ['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to'].includes(relationType)
@@ -205,6 +286,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   }
 
   await ensureSchema();
+  if (user.isGuest) await claimDatabaseGuestWrite(await getGuestRateScope(user.id));
   const itemId = randomUUID();
   const nodeId = randomUUID();
   const result = await pool.query<{ id: string }>(
@@ -213,8 +295,15 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
            INSERT INTO user_knowledge_create_requests (user_id, request_id) VALUES ($1, $2)
            ON CONFLICT DO NOTHING RETURNING 1
          ), inserted_item AS (
-           INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags)
-           SELECT $3, $1, $4, $9, $5, $6, $8::jsonb WHERE EXISTS (SELECT 1 FROM claimed)
+           INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags, purge_at)
+           SELECT $3, $1, $4, $9, $5, $6, $8::jsonb,
+             CASE WHEN $11::boolean THEN NOW() + ($12::int * INTERVAL '1 day') ELSE NULL END
+           WHERE EXISTS (SELECT 1 FROM claimed)
+             AND (NOT $11::boolean OR (
+               SELECT COUNT(*) FROM user_knowledge_items
+               WHERE user_id = $1 AND deleted_at IS NULL
+                 AND (purge_at IS NULL OR purge_at > NOW())
+             ) < $13)
            RETURNING id, user_id, title, topic
          ), inserted_node AS (
            INSERT INTO user_graph_nodes (id, user_id, knowledge_item_id, label, topic, origin)
@@ -222,16 +311,48 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
            RETURNING knowledge_item_id
          ) SELECT id FROM inserted_item`
       : `WITH inserted_item AS (
-           INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags)
-           SELECT $3, $1, $4, $9, $5, $6, $8::jsonb WHERE $2::text IS NULL
+           INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags, purge_at)
+           SELECT $3, $1, $4, $9, $5, $6, $8::jsonb,
+             CASE WHEN $11::boolean THEN NOW() + ($12::int * INTERVAL '1 day') ELSE NULL END
+           WHERE $2::text IS NULL
+             AND (NOT $11::boolean OR (
+               SELECT COUNT(*) FROM user_knowledge_items
+               WHERE user_id = $1 AND deleted_at IS NULL
+                 AND (purge_at IS NULL OR purge_at > NOW())
+             ) < $13)
            RETURNING id, user_id, title, topic
          ), inserted_node AS (
            INSERT INTO user_graph_nodes (id, user_id, knowledge_item_id, label, topic, origin)
            SELECT $7, user_id, id, title, topic, 'manual' FROM inserted_item WHERE $10::boolean
            RETURNING knowledge_item_id
          ) SELECT id FROM inserted_item`,
-    [user.id, requestId || null, itemId, title, content, topic, nodeId, JSON.stringify(tags), summary, syncGraph]
+    [
+      user.id,
+      requestId || null,
+      itemId,
+      title,
+      content,
+      topic,
+      nodeId,
+      JSON.stringify(tags),
+      summary,
+      syncGraph,
+      user.isGuest,
+      GUEST_KNOWLEDGE_RETENTION_DAYS,
+      GUEST_KNOWLEDGE_ITEM_LIMIT,
+    ]
   );
+  if (user.isGuest && !result.rows[0]) {
+    const count = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM user_knowledge_items
+       WHERE user_id = $1 AND deleted_at IS NULL
+         AND (purge_at IS NULL OR purge_at > NOW())`,
+      [user.id],
+    );
+    if (Number.parseInt(count.rows[0]?.count ?? '0', 10) >= GUEST_KNOWLEDGE_ITEM_LIMIT) {
+      throw new Error('guest_knowledge_item_limit');
+    }
+  }
   if (result.rows[0] && syncGraph && relatedNodeId) {
     const validRelation = ['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to'].includes(relationType)
       ? relationType as 'prerequisite' | 'related' | 'generalizes' | 'derived_from' | 'equivalent_to'

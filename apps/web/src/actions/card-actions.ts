@@ -2,7 +2,7 @@
 
 import pool from '@/lib/db';
 import { revalidatePath } from 'next/cache';
-import { requireCurrentActor } from '@/lib/auth';
+import { getCurrentUser, requireCurrentActor } from '@/lib/auth';
 import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 import { GRAPH_EDGES } from '@stem-brain/graph-engine';
 import { GRAPH_NODES } from '@stem-brain/graph-engine';
@@ -39,6 +39,7 @@ import {
   selectBalancedGraphCards,
   type KnowledgeGraphAccess,
 } from '@/lib/knowledge-graph-access';
+import { toPublicLeaderboardParticipantId } from '@/lib/leaderboard';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -1511,8 +1512,6 @@ type GetAllCardsWithStatusOptions = {
   includeGenerated?: boolean;
   generatedLimit?: number;
   locale?: string;
-  generateTranslations?: boolean;
-  maxTranslationGenerations?: number;
   knowledgeMapLimit?: number;
   knowledgeMapOffset?: number;
   knowledgeGraphLimit?: number;
@@ -1720,9 +1719,7 @@ export async function getAllCardsWithStatus(options?: GetAllCardsWithStatusOptio
     .map(withCardUpdatedAt);
   if (!options?.locale) return cards;
   return localizeKnowledgeCards(cards, options.locale, {
-    generateMissing: options.generateTranslations ?? false,
-    maxGenerations: options.maxTranslationGenerations ?? 0,
-    maxRelatedGenerations: Math.min(8, Math.max(0, options.maxTranslationGenerations ?? 0) * 4),
+    generateMissing: false,
   });
 }
 
@@ -1804,7 +1801,8 @@ export async function resetUserCardProgress() {
 }
 
 export type CardLeaderboardEntry = {
-  userId: string;
+  participantId: string;
+  isCurrentUser: boolean;
   explainable: number;
   avgScore: number;
 };
@@ -1823,7 +1821,7 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
   }
 
   try {
-    await ensureCardSchema();
+    const [, currentUser] = await Promise.all([ensureCardSchema(), getCurrentUser()]);
 
     // Private conversation cards are intentionally excluded from global ranking.
     const query = `
@@ -1846,7 +1844,8 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
       const known = parseInt(row.known_count, 10);
       const total = parseInt(row.total_count, 10);
       return {
-        userId: row.user_id,
+        participantId: toPublicLeaderboardParticipantId(row.user_id),
+        isCurrentUser: row.user_id === currentUser?.id,
         explainable: known,
         avgScore: total > 0 ? known / total : 0,
       };

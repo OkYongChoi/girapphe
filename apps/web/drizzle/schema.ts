@@ -180,6 +180,24 @@ export const userKnowledgeItems = pgTable("user_knowledge_items", {
   index("idx_user_knowledge_items_purge_at").on(t.purgeAt).where(sql`${t.purgeAt} IS NOT NULL`),
 ]);
 
+export const guestKnowledgeWriteLimits = pgTable("guest_knowledge_write_limits", {
+  scopeKey: text("scope_key").primaryKey(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull().defaultNow(),
+  requestCount: integer("request_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("idx_guest_knowledge_write_limits_updated").on(t.updatedAt),
+]);
+
+export const userKnowledgeCreateRequests = pgTable("user_knowledge_create_requests", {
+  userId: text("user_id").notNull(),
+  requestId: text("request_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.requestId] }),
+  index("idx_user_knowledge_create_requests_created").on(t.createdAt),
+]);
+
 export const userPrivateCardStates = pgTable("user_private_card_states", {
   userId: text("user_id").notNull(),
   knowledgeItemId: text("knowledge_item_id").notNull(),
