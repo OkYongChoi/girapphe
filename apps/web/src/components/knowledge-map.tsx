@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from 'react';
 import {
   getAllCardsWithStatus,
@@ -9,7 +10,6 @@ import {
   type CardStatus,
   type KnowledgeGraphSnapshot,
 } from '@/actions/card-actions';
-import KnowledgeGraph3D from './knowledge-graph-3d';
 import type { KnowledgeGraphEdgeView } from './knowledge-graph-3d';
 import KnowledgeMapWebMcpRegistration from './knowledge-map-webmcp-registration';
 import {
@@ -41,6 +41,15 @@ import {
 } from '@/lib/knowledge-map-grouping';
 import type { Locale } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
+
+const KnowledgeGraph3D = dynamic(() => import('./knowledge-graph-3d'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex min-h-[32rem] items-center justify-center text-gray-400" aria-hidden="true">
+      <span className="animate-pulse text-2xl">•••</span>
+    </div>
+  ),
+});
 
 type MapCard = KnowledgeCard & {
   status: CardStatus | null;

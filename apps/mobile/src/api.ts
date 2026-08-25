@@ -75,7 +75,7 @@ function getBaseUrl() {
   return apiBaseUrl;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function authenticatedFetch(path: string, init?: RequestInit): Promise<Response> {
   const locale = getActiveLocale();
   let token: string | null | undefined;
   try {
@@ -101,6 +101,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new Error(translate(locale, 'api.networkFailed'));
   }
+  return response;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const locale = getActiveLocale();
+  const response = await authenticatedFetch(path, init);
   const payload = await response.json().catch(() => ({})) as T;
   if (!response.ok) throw new Error(translate(locale, 'api.requestFailed', { status: new Intl.NumberFormat(locale).format(response.status) }));
   return payload;
@@ -131,7 +137,7 @@ function withLocale(path: string): string {
 }
 
 export const mobileApi = {
-  deleteAccount: () => request<{ deleted: true }>('/api/account', { method: 'DELETE' }),
+  deleteAccount: () => authenticatedFetch('/api/account', { method: 'DELETE' }),
   content: (ids: string[]) => {
     const boundedIds = [...new Set(ids)].slice(0, 12);
     const query = boundedIds.map((id) => encodeURIComponent(id)).join(',');

@@ -10,6 +10,7 @@ function getSql(): ReturnType<typeof neon> {
 }
 
 type QueryResult<T> = { rows: T[] };
+type TransactionQuery = { text: string; params?: unknown[] };
 
 async function query<T = Record<string, unknown>>(
   text: string,
@@ -20,6 +21,16 @@ async function query<T = Record<string, unknown>>(
   return { rows };
 }
 
-const db = { query };
+async function transaction<T = Record<string, unknown>>(
+  queries: TransactionQuery[],
+): Promise<QueryResult<T>[]> {
+  const sql = getSql();
+  const rowSets = await sql.transaction(
+    queries.map(({ text, params }) => sql.query(text, params ?? [])),
+  );
+  return rowSets.map((rows) => ({ rows: rows as T[] }));
+}
+
+const db = { query, transaction };
 
 export default db;

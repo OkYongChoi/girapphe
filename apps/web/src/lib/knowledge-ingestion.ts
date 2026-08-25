@@ -314,9 +314,7 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
 
 export async function ensureKnowledgeIngestionSchema(): Promise<void> {
   if (!process.env.DATABASE_URL) return;
-  // Production requests must use the checked-in migration. The isolated PR
-  // preview database deliberately keeps its existing authenticated bootstrap
-  // behavior because preview deployments do not apply unmerged migrations.
+  // Deployed requests use checked-in schema updates applied by CI.
   // MCP bearer authentication itself never calls this function, so invalid
   // token traffic cannot amplify DDL round trips on a cold Worker isolate.
   if (!canRunRuntimeSchemaBootstrap()) return;
@@ -1146,13 +1144,17 @@ export function softDeleteMemoryKnowledgeItemForUser(
 export function restoreMemoryKnowledgeItemForUser(
   userId: string,
   itemId: string,
-  options: { syncGraph?: boolean } = {}
+  options: { syncGraph?: boolean; retentionDays?: number } = {}
 ): void {
   const now = new Date().toISOString();
   let restored: MemoryKnowledgeItem | null = null;
   memoryKnowledgeItems.set(userId, (memoryKnowledgeItems.get(userId) ?? []).map((item) => {
     if (item.id !== itemId || !item.deleted_at || (item.purge_at && new Date(item.purge_at).getTime() <= Date.now())) return item;
-    restored = { ...item, deleted_at: null, purge_at: null, updated_at: now };
+    const retentionPurgeAt = options.retentionDays === undefined
+      ? null
+      : new Date(new Date(item.created_at).getTime() + options.retentionDays * 86_400_000).toISOString();
+    if (retentionPurgeAt && new Date(retentionPurgeAt).getTime() <= Date.now()) return item;
+    restored = { ...item, deleted_at: null, purge_at: retentionPurgeAt, updated_at: now };
     return restored;
   }));
   if (restored && options.syncGraph !== false) {

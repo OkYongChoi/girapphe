@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" eyebrow="Your data, under your control" updated="August 24, 2026">
+    <LegalPage title="Privacy Policy" eyebrow="Your data, under your control" updated="August 25, 2026">
       <section>
         <h2>1. Scope</h2>
         <p>
@@ -57,6 +57,10 @@ export default function PrivacyPage() {
           deletion after 14 days unless you restore it. When you delete your account, Girapphe deletes your authentication record,
           private notes, drafts, tokens, graph data, ratings, and progress. Limited billing, fraud-prevention, security, or tax records
           may be retained where reasonably necessary or legally required, without keeping your live Girapphe account.
+        </p>
+        <p>
+          Notes created while signed out are tied to the guest session and are automatically deleted after 90 days. Sign in before
+          relying on longer-lived, account-controlled private knowledge.
         </p>
         <p>
           Deleting a Girapphe account does not itself cancel an App Store or Google Play subscription. Cancel store renewal before

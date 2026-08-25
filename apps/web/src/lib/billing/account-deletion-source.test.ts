@@ -10,6 +10,7 @@ test('account deletion covers every owner-scoped private product table', () => {
     'user_private_card_states',
     'user_graph_nodes',
     'user_knowledge_items',
+    'user_knowledge_create_requests',
     'knowledge_card_drafts',
     'knowledge_ingestion_batches',
     'mcp_access_tokens',
@@ -28,4 +29,14 @@ test('account deletion covers every owner-scoped private product table', () => {
   assert.match(source, /deleteRevenueCatCustomer/);
   assert.doesNotMatch(source, /REVENUECAT_SECRET_API_KEY[^\n]*return false/);
   assert.match(source, /client\.users\.deleteUser\(userId\)/);
+});
+
+test('account deletion requires strict Clerk reverification on server and client', () => {
+  const route = readFileSync(new URL('../../app/api/account/route.ts', import.meta.url), 'utf8');
+  const panel = readFileSync(new URL('../../components/account-deletion-panel.tsx', import.meta.url), 'utf8');
+
+  assert.match(route, /has\(\{ reverification: 'strict' \}\)/);
+  assert.match(route, /reverificationErrorResponse\('strict'\)/);
+  assert.match(panel, /useReverification\(requestAccountDeletion\)/);
+  assert.match(panel, /isReverificationCancelledError/);
 });

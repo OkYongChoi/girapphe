@@ -1,5 +1,4 @@
 import Navbar from '@/components/navbar';
-import { getCurrentUser } from '@/lib/auth';
 import { getCardLeaderboard } from '@/actions/card-actions';
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
@@ -8,15 +7,11 @@ export const dynamic = 'force-dynamic';
 
 const MEDALS: Record<number, string> = { 0: '🥇', 1: '🥈', 2: '🥉' };
 
-function truncateUserId(userId: string): string {
-  return `user-${userId.slice(-6)}`;
-}
-
 export default async function RankingPage() {
-  const { t, formatNumber } = await getServerI18n();
-  const user = await getCurrentUser();
-
-  const rows = await getCardLeaderboard();
+  const [{ t, formatNumber }, rows] = await Promise.all([
+    getServerI18n(),
+    getCardLeaderboard(),
+  ]);
 
   return (
     <main id="main-content" className="min-h-screen bg-gray-50">
@@ -65,26 +60,25 @@ export default async function RankingPage() {
                 </tr>
               ) : (
                 rows.map((row, index) => {
-                  const isCurrentUser = row.userId === user?.id;
                   return (
                     <tr
-                      key={row.userId}
-                      className={`border-t ${isCurrentUser ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
-                      aria-current={isCurrentUser ? 'true' : undefined}
+                      key={row.participantId}
+                      className={`border-t ${row.isCurrentUser ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                      aria-current={row.isCurrentUser ? 'true' : undefined}
                     >
                       <td className="px-4 py-3 font-semibold text-gray-700">
                         <span aria-hidden="true">{MEDALS[index] ?? ''} </span>
                         #{formatNumber(index + 1)}
                       </td>
                       <td className="px-4 py-3">
-                        {isCurrentUser ? (
+                        {row.isCurrentUser ? (
                           <span className="font-semibold text-blue-700">
                             {t('ranking.you')}
                             <span className="sr-only"> {t('ranking.yourRank')}</span>
                           </span>
                         ) : (
                           <span className="font-mono text-xs text-gray-700">
-                            {truncateUserId(row.userId)}
+                            user-{row.participantId}
                           </span>
                         )}
                       </td>

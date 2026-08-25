@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { GRAPH_NODES } from '@stem-brain/graph-engine';
 import { CARD_CONTENT } from '@stem-brain/graph-engine/card-content';
@@ -12,6 +13,26 @@ import {
   splitContentForTranslation,
 } from './content-translation-guards';
 import { normalizeKnowledgeTopic } from './topic-normalization';
+
+test('public card reads cannot request AI translation generation', () => {
+  const source = readFileSync(new URL('../actions/card-actions.ts', import.meta.url), 'utf8');
+  const publicRead = source.slice(
+    source.indexOf('type GetAllCardsWithStatusOptions'),
+    source.indexOf('export async function getKnowledgeMapCardPage'),
+  );
+  assert.doesNotMatch(publicRead, /generateTranslations|maxTranslationGenerations/);
+  assert.match(publicRead, /generateMissing: false/);
+});
+
+test('public home and guest graph reads avoid eager full-catalog server work', () => {
+  const homeSource = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
+  const cardActionsSource = readFileSync(new URL('../actions/card-actions.ts', import.meta.url), 'utf8');
+
+  assert.match(homeSource, /import\('\@\/lib\/home-personalization'\)/);
+  assert.doesNotMatch(homeSource, /import \{[^}]*getUserStats[^}]*\} from '\@\/actions\/card-actions'/);
+  assert.match(cardActionsSource, /function getGuestMockCards\(\)/);
+  assert.match(cardActionsSource, /return isGuest \? getGuestMockCards\(\) : getMockCards\(\)/);
+});
 
 test('normalizes only supported content locales', () => {
   assert.equal(parseContentLocale('ja-JP'), 'ja');

@@ -1,11 +1,18 @@
 'use client';
 
+import { useReverification } from '@clerk/nextjs';
+import { isReverificationCancelledError } from '@clerk/nextjs/errors';
 import { useState } from 'react';
+
+async function requestAccountDeletion() {
+  return fetch('/api/account', { method: 'DELETE' });
+}
 
 export function AccountDeletionPanel({ email }: { email: string }) {
   const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const deleteAccountWithReverification = useReverification(requestAccountDeletion);
   const canDelete = confirmation === 'DELETE' && !busy;
 
   async function deleteAccount() {
@@ -13,11 +20,13 @@ export function AccountDeletionPanel({ email }: { email: string }) {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch('/api/account', { method: 'DELETE' });
-      if (!response.ok) throw new Error('deletion_failed');
+      const result = await deleteAccountWithReverification() as { deleted?: boolean };
+      if (!result?.deleted) throw new Error('deletion_failed');
       window.location.assign('/');
-    } catch {
-      setError('The account could not be deleted safely. Retry, or contact support if the problem continues.');
+    } catch (caught) {
+      setError(isReverificationCancelledError(caught)
+        ? 'Account deletion was cancelled. Your account and data were not changed.'
+        : 'The account could not be deleted safely. Retry, or contact support if the problem continues.');
       setBusy(false);
     }
   }

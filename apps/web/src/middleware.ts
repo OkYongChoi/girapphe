@@ -1,7 +1,7 @@
 import { clerkMiddleware } from '@clerk/nextjs/server';
 import { NextResponse, type NextRequest, type NextFetchEvent } from 'next/server';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
-import { GUEST_ID_COOKIE } from '@/lib/guest';
+import { GUEST_ID_COOKIE, isServerIssuedGuestId } from '@/lib/guest';
 import {
   DEFAULT_LOCALE,
   LOCALE_COOKIE_NAME,
@@ -27,7 +27,7 @@ function isLocaleIndependentPath(pathname: string) {
 
 function ensureGuestCookie(request: NextRequest, response: NextResponse) {
   const existing = request.cookies.get(GUEST_ID_COOKIE)?.value;
-  if (existing?.startsWith('guest_')) return response;
+  if (isServerIssuedGuestId(existing)) return response;
 
   const guestId = `guest_${crypto.randomUUID()}`;
   request.cookies.set(GUEST_ID_COOKIE, guestId);

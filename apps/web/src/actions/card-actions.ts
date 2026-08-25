@@ -2,7 +2,7 @@
 
 import pool from '@/lib/db';
 import { revalidatePath } from 'next/cache';
-import { requireCurrentActor } from '@/lib/auth';
+import { getCurrentUser, requireCurrentActor } from '@/lib/auth';
 import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 import { GRAPH_EDGES } from '@stem-brain/graph-engine';
 import { GRAPH_NODES } from '@stem-brain/graph-engine';
@@ -39,6 +39,7 @@ import {
   selectBalancedGraphCards,
   type KnowledgeGraphAccess,
 } from '@/lib/knowledge-graph-access';
+import { toPublicLeaderboardParticipantId } from '@/lib/leaderboard';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -296,10 +297,17 @@ function hasSubstantiveContent(content: { summary: string; explanation: string }
   return summary.length >= 20 && explanation.length >= 80;
 }
 
-function buildCoreGraphCards(cardContent: StaticCardContent): KnowledgeCard[] {
-  return GRAPH_NODES
+const CORE_GRAPH_NODES = GRAPH_NODES
   .filter((node) => node.level > 0 && !META_NODE_IDS.has(node.id))
-  .slice(0, KNOWLEDGE_CARD_LIMIT)
+  .slice(0, KNOWLEDGE_CARD_LIMIT);
+
+const GUEST_PRACTICE_NODES = CORE_GRAPH_NODES.slice(0, GUEST_PRACTICE_CARD_LIMIT);
+
+function buildCoreGraphCards(
+  cardContent: StaticCardContent,
+  nodes: readonly (typeof GRAPH_NODES)[number][] = CORE_GRAPH_NODES,
+): KnowledgeCard[] {
+  return nodes
   .map<KnowledgeCard | null>((node) => {
     const content = cardContent[node.id];
     if (!hasSubstantiveContent(content)) return null;
@@ -325,6 +333,30 @@ function buildCoreGraphCards(cardContent: StaticCardContent): KnowledgeCard[] {
     };
   })
   .filter((card): card is KnowledgeCard => Boolean(card));
+}
+
+function buildGuestMockCards(cardContent: StaticCardContent): KnowledgeCard[] {
+  const eligibleNodes = CORE_GRAPH_NODES.filter((node) => hasSubstantiveContent(cardContent[node.id]));
+  const balancedKnowledgeNodes = selectBalancedGraphCards(
+    eligibleNodes.map((node) => ({
+      id: node.id,
+      domain: getPrimaryCardDomain(getCardDomainsForNode(node)),
+      node,
+    })),
+    GUEST_KNOWLEDGE_MAP_CARD_LIMIT,
+  ).map(({ node }) => node);
+  const selectedNodeIds = new Set(
+    [...GUEST_PRACTICE_NODES, ...balancedKnowledgeNodes].map((node) => node.id),
+  );
+  const orderedNodes = [
+    ...balancedKnowledgeNodes,
+    ...GUEST_PRACTICE_NODES.filter((node) => !balancedKnowledgeNodes.some((candidate) => candidate.id === node.id)),
+  ].filter((node, index, nodes) => (
+    selectedNodeIds.has(node.id)
+    && nodes.findIndex((candidate) => candidate.id === node.id) === index
+  ));
+
+  return buildCoreGraphCards(cardContent, orderedNodes);
 }
 
 const DRILL_ELIGIBLE_NODES = [...GRAPH_NODES]
@@ -424,6 +456,7 @@ function generateDrillCards(
 }
 
 let mockCardsPromise: Promise<KnowledgeCard[]> | null = null;
+let guestMockCardsPromise: Promise<KnowledgeCard[]> | null = null;
 
 async function getMockCards(): Promise<KnowledgeCard[]> {
   if (!mockCardsPromise) {
@@ -434,11 +467,23 @@ async function getMockCards(): Promise<KnowledgeCard[]> {
   return mockCardsPromise;
 }
 
+async function getGuestMockCards(): Promise<KnowledgeCard[]> {
+  if (!guestMockCardsPromise) {
+    guestMockCardsPromise = getStaticCardContent().then(buildGuestMockCards);
+  }
+  return guestMockCardsPromise;
+}
+
+function getMockCardsForActor(isGuest: boolean): Promise<KnowledgeCard[]> {
+  return isGuest ? getGuestMockCards() : getMockCards();
+}
+
 const GUEST_CARD_IDS = new Set(
-  GRAPH_NODES
-    .filter((node) => node.level > 0 && !META_NODE_IDS.has(node.id))
-    .slice(0, GUEST_PRACTICE_CARD_LIMIT)
+  GUEST_PRACTICE_NODES
     .map((node) => `graph_${node.id}`),
+);
+const GUEST_CARD_ORDER = new Map(
+  [...GUEST_CARD_IDS].map((cardId, index) => [cardId, index]),
 );
 
 const NODE_BY_ID = new Map(GRAPH_NODES.map((node) => [node.id, node]));
@@ -507,7 +552,9 @@ function withRelatedConcepts<T extends { id: string; related_concepts?: string[]
 
 function limitCardsForGuest<T extends { id: string }>(cards: T[], isGuest: boolean) {
   if (!isGuest) return cards;
-  return cards.filter((card) => GUEST_CARD_IDS.has(card.id));
+  return cards
+    .filter((card) => GUEST_CARD_IDS.has(card.id))
+    .sort((a, b) => (GUEST_CARD_ORDER.get(a.id) ?? 0) - (GUEST_CARD_ORDER.get(b.id) ?? 0));
 }
 
 function limitCardsForGuestKnowledgeMap<T extends { id: string; domain?: string | null }>(
@@ -993,7 +1040,7 @@ async function getNextCardSource(mode: 'new' | 'review' = 'new', excludeIds?: st
   const excluded = new Set(excludeIds ?? []);
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    const mockRows: CardWithStatusRow[] = limitCardsForGuest(await getMockCards(), user.isGuest)
+    const mockRows: CardWithStatusRow[] = limitCardsForGuest(await getMockCardsForActor(user.isGuest), user.isGuest)
       .map((card, index) => ({
         ...card,
         status: getMockCardStatus(index),
@@ -1103,7 +1150,7 @@ async function getNextCardSource(mode: 'new' | 'review' = 'new', excludeIds?: st
     return null;
   } catch (error) {
     console.error('Error in getNextCard:', error);
-    const mockRows: CardWithStatusRow[] = limitCardsForGuest(await getMockCards(), user.isGuest)
+    const mockRows: CardWithStatusRow[] = limitCardsForGuest(await getMockCardsForActor(user.isGuest), user.isGuest)
       .map((card, index) => ({
         ...card,
         status: getMockCardStatus(index),
@@ -1360,7 +1407,7 @@ async function getSavedCardsSource() {
   const user = await requireCurrentActor();
 
   if (!process.env.DATABASE_URL) {
-    return limitCardsForGuest(await getMockCards(), user.isGuest)
+    return limitCardsForGuest(await getMockCardsForActor(user.isGuest), user.isGuest)
       .map((card, index) => ({ card, status: getMockCardStatus(index) }))
       .filter((entry) => entry.status === 'saved')
       .map(({ card }) => ({
@@ -1472,7 +1519,7 @@ export async function getUserStats() {
   const user = await requireCurrentActor();
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    return getMockPracticeStats(limitCardsForGuest(await getMockCards(), user.isGuest).length);
+    return getMockPracticeStats(limitCardsForGuest(await getMockCardsForActor(user.isGuest), user.isGuest).length);
   }
 
   try {
@@ -1511,8 +1558,6 @@ type GetAllCardsWithStatusOptions = {
   includeGenerated?: boolean;
   generatedLimit?: number;
   locale?: string;
-  generateTranslations?: boolean;
-  maxTranslationGenerations?: number;
   knowledgeMapLimit?: number;
   knowledgeMapOffset?: number;
   knowledgeGraphLimit?: number;
@@ -1539,7 +1584,10 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
   const knowledgeGraphLimit = getKnowledgeGraphLimit(options);
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    const sourceCards = limitCardsForGuestKnowledgeMap(await getMockCards(), user.isGuest);
+    const sourceCards = limitCardsForGuestKnowledgeMap(
+      await getMockCardsForActor(user.isGuest),
+      user.isGuest,
+    );
     const cards = includeGenerated
       ? sourceCards
       : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));
@@ -1689,7 +1737,10 @@ async function getAllCardsWithStatusSource(options?: GetAllCardsWithStatusOption
       .map((row) => withCardDomains(withRelatedConcepts(row)));
   } catch (error) {
     console.error('Error in getAllCardsWithStatus:', error);
-    const sourceCards = limitCardsForGuestKnowledgeMap(await getMockCards(), user.isGuest);
+    const sourceCards = limitCardsForGuestKnowledgeMap(
+      await getMockCardsForActor(user.isGuest),
+      user.isGuest,
+    );
     const cards = includeGenerated
       ? sourceCards
       : sourceCards.filter((c) => !isExcludedFromKnowledgeMap(c.id));
@@ -1720,9 +1771,7 @@ export async function getAllCardsWithStatus(options?: GetAllCardsWithStatusOptio
     .map(withCardUpdatedAt);
   if (!options?.locale) return cards;
   return localizeKnowledgeCards(cards, options.locale, {
-    generateMissing: options.generateTranslations ?? false,
-    maxGenerations: options.maxTranslationGenerations ?? 0,
-    maxRelatedGenerations: Math.min(8, Math.max(0, options.maxTranslationGenerations ?? 0) * 4),
+    generateMissing: false,
   });
 }
 
@@ -1804,7 +1853,8 @@ export async function resetUserCardProgress() {
 }
 
 export type CardLeaderboardEntry = {
-  userId: string;
+  participantId: string;
+  isCurrentUser: boolean;
   explainable: number;
   avgScore: number;
 };
@@ -1823,7 +1873,7 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
   }
 
   try {
-    await ensureCardSchema();
+    const [, currentUser] = await Promise.all([ensureCardSchema(), getCurrentUser()]);
 
     // Private conversation cards are intentionally excluded from global ranking.
     const query = `
@@ -1846,7 +1896,8 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
       const known = parseInt(row.known_count, 10);
       const total = parseInt(row.total_count, 10);
       return {
-        userId: row.user_id,
+        participantId: toPublicLeaderboardParticipantId(row.user_id),
+        isCurrentUser: row.user_id === currentUser?.id,
         explainable: known,
         avgScore: total > 0 ? known / total : 0,
       };

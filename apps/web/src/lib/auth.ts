@@ -3,7 +3,7 @@ import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
-import { GUEST_ID_COOKIE } from '@/lib/guest';
+import { GUEST_ID_COOKIE, isServerIssuedGuestId } from '@/lib/guest';
 import { getServerLocale } from '@/i18n/server';
 import { localizePathname } from '@stem-brain/shared';
 
@@ -52,7 +52,7 @@ export const getCurrentActor = cache(async function getCurrentActor(): Promise<C
   const guestId = cookieStore.get(GUEST_ID_COOKIE)?.value;
 
   return {
-    id: guestId?.startsWith('guest_') ? guestId : 'guest_anonymous',
+    id: isServerIssuedGuestId(guestId) ? guestId : 'guest_anonymous',
     email: 'Guest',
     isGuest: true,
   };

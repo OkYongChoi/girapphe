@@ -64,6 +64,21 @@ test.describe('browser smoke', () => {
   test('health endpoint responds', async ({ request }) => {
     const response = await request.get('/api/health');
     expect(response.status()).toBe(200);
+    expect(response.headers()['strict-transport-security']).toContain('max-age=63072000');
+    expect(response.headers()['x-content-type-options']).toBe('nosniff');
+    expect(response.headers()['x-frame-options']).toBe('DENY');
+    expect(response.headers()['referrer-policy']).toBe('strict-origin-when-cross-origin');
+    expect(response.headers()['permissions-policy']).toContain('camera=()');
+    expect(response.headers()['x-powered-by']).toBeUndefined();
+  });
+
+  test('account deletion rejects unauthenticated callers', async ({ request }) => {
+    const response = await request.delete('/api/account');
+    expect(response.status()).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Sign in is required.',
+      code: 'AUTH_REQUIRED',
+    });
   });
 
   test('quiz mutation rejects unauthenticated callers', async ({ request }) => {
