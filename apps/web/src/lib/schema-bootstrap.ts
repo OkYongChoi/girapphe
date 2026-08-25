@@ -1,8 +1,8 @@
 type SchemaBootstrapEnvironment = { NODE_ENV?: string; APP_ENV?: string };
 
 /**
- * Deployed Workers rely on CI migrations so requests never spend their
- * resource budget on schema DDL. Local development retains a bootstrap path.
+ * Deployed Workers rely on CI schema preparation so requests never spend
+ * their resource budget on DDL. Local development retains a bootstrap path.
  */
 export function canRunRuntimeSchemaBootstrap(
   env: SchemaBootstrapEnvironment = process.env,

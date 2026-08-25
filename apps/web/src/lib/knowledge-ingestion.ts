@@ -314,7 +314,7 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
 
 export async function ensureKnowledgeIngestionSchema(): Promise<void> {
   if (!process.env.DATABASE_URL) return;
-  // Deployed requests must use the checked-in migrations applied by CI.
+  // Deployed requests use checked-in schema updates applied by CI.
   // MCP bearer authentication itself never calls this function, so invalid
   // token traffic cannot amplify DDL round trips on a cold Worker isolate.
   if (!canRunRuntimeSchemaBootstrap()) return;
