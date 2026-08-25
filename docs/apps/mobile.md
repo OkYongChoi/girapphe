@@ -48,7 +48,7 @@ Mobile feature code should be organized around user flows, not platform names:
 
 - Home: high-level map and featured topic entry points.
 - Browse: searchable and filterable topic discovery.
-- Practice: local card review using tri-state ratings.
+- Practice: guest/local fallback plus authenticated, server-synced review using tri-state ratings.
 - Topic detail: explanation plus prerequisite/dependent/related navigation.
 
 Do not create separate iOS-only or Android-only versions of these flows unless
@@ -56,12 +56,18 @@ the interaction model is genuinely platform-specific.
 
 ## Data Flow
 
-Current mobile mode is local-first:
+The app keeps public graph browsing and guest practice available locally, while authenticated
+notes, progress, review, ranking, private graph state, and subscriptions use the deployed API:
 
 ```text
 @stem-brain/graph-engine
     -> apps/mobile/src/knowledge.ts
-    -> Expo Router screens
+    -> Expo Router guest/public screens
+
+Clerk token cache (Expo SecureStore)
+    -> apps/mobile/src/api.ts
+    -> https://www.girapphe.com/api/mobile
+    -> owner-scoped Postgres data
 ```
 
 `apps/mobile/src/knowledge.ts` is the mobile adapter over graph-engine data. It
@@ -74,8 +80,7 @@ knowledge-state rules.
 The web app already exposes the server contract documented in
 `docs/reference/api-spec.md`.
 
-When mobile starts syncing user state with the backend, it should preserve this
-direction:
+Mobile synchronization preserves this direction:
 
 ```text
 Expo screen
@@ -84,13 +89,9 @@ Expo screen
     -> graph-engine-compatible response types
 ```
 
-Recommended next steps before adding networked mobile state:
-
-1. Add a small mobile API client in `apps/mobile/src/api/`.
-2. Move shared request/response types into `@stem-brain/shared` only when they
-   are used by more than one app target.
-3. Keep offline/local practice state explicit until backend auth and persistence
-   are wired for mobile.
+Shared request/response types should move into `@stem-brain/shared` only when they are used by
+more than one app target. Keep the guest/local fallback explicit; never silently present it as
+account-synced state.
 
 ## Platform Rules
 

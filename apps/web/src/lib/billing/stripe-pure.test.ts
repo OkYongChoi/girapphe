@@ -1,12 +1,55 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import db from '@/lib/db';
 import {
+  cancelStripeSubscriptionsForAccountDeletion,
   isStripeCheckoutConfigured,
   parseStripeEvent,
   processStripeEvent,
   requestHasTrustedOrigin,
   STRIPE_PROVIDER_TIMEOUT_MS,
 } from './stripe';
+
+test('account deletion cancels only Girapphe Stripe subscriptions', async (context) => {
+  const originalQuery = db.query;
+  const originalFetch = globalThis.fetch;
+  const previous = new Map([
+    ['DATABASE_URL', process.env.DATABASE_URL],
+    ['STRIPE_SECRET_KEY', process.env.STRIPE_SECRET_KEY],
+    ['STRIPE_PRICE_AD_FREE_MONTHLY', process.env.STRIPE_PRICE_AD_FREE_MONTHLY],
+    ['STRIPE_PRICE_AD_FREE_ANNUAL', process.env.STRIPE_PRICE_AD_FREE_ANNUAL],
+  ]);
+  context.after(() => {
+    db.query = originalQuery;
+    globalThis.fetch = originalFetch;
+    restoreEnvironment(previous);
+  });
+  process.env.DATABASE_URL = 'postgresql://test.invalid/girapphe';
+  process.env.STRIPE_SECRET_KEY = 'sk_test_account_deletion';
+  process.env.STRIPE_PRICE_AD_FREE_MONTHLY = 'price_girapphe_monthly';
+  process.env.STRIPE_PRICE_AD_FREE_ANNUAL = 'price_girapphe_annual';
+  db.query = (async () => ({ rows: [{ stripe_customer_id: 'cus_delete' }] })) as typeof db.query;
+
+  const requests: Array<{ url: string; method: string }> = [];
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input);
+    requests.push({ url, method: init?.method ?? 'GET' });
+    if (url.includes('/subscriptions?')) {
+      return Response.json({
+        data: [
+          { id: 'sub_girapphe', status: 'active', items: { data: [{ price: { id: 'price_girapphe_monthly' } }] } },
+          { id: 'sub_other', status: 'active', items: { data: [{ price: { id: 'price_other' } }] } },
+          { id: 'sub_old', status: 'canceled', items: { data: [{ price: { id: 'price_girapphe_annual' } }] } },
+        ],
+      });
+    }
+    return Response.json({ id: 'sub_girapphe', status: 'canceled' });
+  }) as typeof fetch;
+
+  assert.equal(await cancelStripeSubscriptionsForAccountDeletion('user_delete'), 1);
+  assert.equal(requests.filter(({ method }) => method === 'DELETE').length, 1);
+  assert.match(requests.find(({ method }) => method === 'DELETE')?.url ?? '', /subscriptions\/sub_girapphe$/);
+});
 
 const STRIPE_CONFIGURATION_KEYS = [
   'DATABASE_URL',

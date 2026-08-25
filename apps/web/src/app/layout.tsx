@@ -18,10 +18,10 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     metadataBase: new URL('https://www.girapphe.com'),
-    applicationName: 'STEMBrain',
+    applicationName: 'Girapphe',
     title: {
       default: copy.title,
-      template: '%s | STEMBrain',
+      template: '%s | Girapphe',
     },
     description: copy.description,
     alternates: getLocalizedAlternates(publicPathname),
@@ -39,7 +39,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title: copy.title,
       description: copy.description,
       url: publicPathname,
-      siteName: 'STEMBrain',
+      siteName: 'Girapphe',
       locale: OPEN_GRAPH_LOCALES[locale],
       alternateLocale: Object.values(OPEN_GRAPH_LOCALES).filter(
         (candidate) => candidate !== OPEN_GRAPH_LOCALES[locale],
@@ -72,7 +72,12 @@ export default async function RootLayout({
   const i18n = await getServerI18n();
   const webMcpOriginTrialToken = process.env.NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN?.trim();
   const body = (
-    <html lang={i18n.locale} dir={i18n.direction} suppressHydrationWarning>
+    <html
+      lang={i18n.locale}
+      dir={i18n.direction}
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+    >
       {webMcpOriginTrialToken ? (
         <head>
           <meta httpEquiv="origin-trial" content={webMcpOriginTrialToken} />

@@ -7,8 +7,8 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
   const locale = await getServerLocale();
 
   return {
-    name: 'STEMBrain',
-    short_name: 'STEMBrain',
+    name: 'Girapphe',
+    short_name: 'Girapphe',
     description: METADATA_COPY[locale].description,
     start_url: `/${locale}`,
     scope: '/',

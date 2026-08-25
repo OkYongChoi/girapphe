@@ -41,6 +41,8 @@ RevenueCat platform keys, both AdMob app/unit IDs, and final legal URLs are pres
 | `EXPO_PUBLIC_APP_BASE_URL` | Authenticated entitlement API and account links | Production is pinned to `https://www.girapphe.com` because the app sends its Clerk bearer token only to this origin. |
 | `EXPO_PUBLIC_TERMS_URL` | Store subscription paywall | Public, final Terms of Use HTTPS URL; required for production builds. |
 | `EXPO_PUBLIC_PRIVACY_URL` | Store subscription paywall | Public, final Privacy Policy HTTPS URL; required for production builds. |
+| `EXPO_PUBLIC_SUPPORT_URL` | Account support | Canonical public support page; production is pinned to `https://www.girapphe.com/support`. |
+| `EXPO_PUBLIC_ACCOUNT_DELETION_URL` | Store deletion disclosure and fallback | Direct verified web deletion path; production is pinned to `https://www.girapphe.com/account/delete`. |
 | `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` | Sign-in and account linking | Use the matching Clerk test/live instance for the EAS environment. |
 | `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | iOS purchases | RevenueCat public Apple SDK key. |
 | `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` | Android purchases | RevenueCat public Google SDK key. |
@@ -64,6 +66,9 @@ consent, request, or load failure shows the non-blocking Girapphe house/upgrade 
 3. Confirm the same Clerk user ID is used by the web account and mobile account.
 4. Test session persistence after terminating and reopening the app. Clerk's token cache uses
    Expo SecureStore and is omitted entirely when the publishable key is absent.
+5. Test Account → Delete account with a disposable user. Private product data and the Clerk
+   user must disappear, and the same credentials must no longer sign in. Keep the web deletion
+   URL functional for users who no longer have the app installed.
 
 Purchases are intentionally unavailable before sign-in. The app passes the Clerk `userId`
 as RevenueCat's App User ID; it never uses an email address or a hard-coded shared identifier.
@@ -126,5 +131,7 @@ and clicks. `Sponsored` attribution is always visible.
 - Activate `ad_free`: any visible ad card unmounts and later advances issue no NativeAd request.
 - Switch Clerk accounts and verify RevenueCat uses the newly signed-in Clerk user ID.
 - Restore on both store platforms and confirm `ad_free` updates without restarting the app.
+- Delete a disposable signed-in account from iOS and Android, then repeat from the direct web
+  deletion page. Confirm notes, drafts, progress, tokens, and Clerk identity are removed.
 - Run `pnpm --filter @stem-brain/mobile check` and both platform export/build checks after
   installing dependencies and regenerating the workspace lockfile in the owning release task.

@@ -40,7 +40,7 @@ export const AR_MESSAGES = {
   "nav.main": "التنقل الرئيسي",
   "nav.siteHeader": "رأس الموقع",
   "nav.skipToContent": "الانتقال إلى المحتوى الرئيسي",
-  "nav.homeLabel": "STEMBrain — الانتقال إلى الرئيسية",
+  "nav.homeLabel": "Girapphe — الانتقال إلى الرئيسية",
   "nav.practice": "التدريب",
   "nav.reviewQueue": "قائمة المراجعة",
   "nav.knowledgeMap": "خريطة المعرفة",
@@ -81,7 +81,7 @@ export const AR_MESSAGES = {
     "one": "ملاحظة",
     "other": "ملاحظات"
   },
-  "home.learningLoopAria": "كيف يحوّل STEMBrain التدريب إلى شبكة معرفة",
+  "home.learningLoopAria": "كيف يحوّل Girapphe التدريب إلى شبكة معرفة",
   "home.loop1Title": "تدرّب على فكرة واحدة",
   "home.loop1Copy": "تجعل البطاقات القصيرة والمركّزة الخطوة التالية واضحة.",
   "home.loop2Title": "احفظ نقاط الضعف",
