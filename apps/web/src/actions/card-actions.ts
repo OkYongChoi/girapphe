@@ -302,14 +302,6 @@ const CORE_GRAPH_NODES = GRAPH_NODES
   .slice(0, KNOWLEDGE_CARD_LIMIT);
 
 const GUEST_PRACTICE_NODES = CORE_GRAPH_NODES.slice(0, GUEST_PRACTICE_CARD_LIMIT);
-const GUEST_KNOWLEDGE_MAP_NODES = selectBalancedGraphCards(
-  CORE_GRAPH_NODES,
-  GUEST_KNOWLEDGE_MAP_CARD_LIMIT,
-);
-const GUEST_MOCK_NODE_IDS = new Set(
-  [...GUEST_PRACTICE_NODES, ...GUEST_KNOWLEDGE_MAP_NODES].map((node) => node.id),
-);
-const GUEST_MOCK_NODES = CORE_GRAPH_NODES.filter((node) => GUEST_MOCK_NODE_IDS.has(node.id));
 
 function buildCoreGraphCards(
   cardContent: StaticCardContent,
@@ -341,6 +333,30 @@ function buildCoreGraphCards(
     };
   })
   .filter((card): card is KnowledgeCard => Boolean(card));
+}
+
+function buildGuestMockCards(cardContent: StaticCardContent): KnowledgeCard[] {
+  const eligibleNodes = CORE_GRAPH_NODES.filter((node) => hasSubstantiveContent(cardContent[node.id]));
+  const balancedKnowledgeNodes = selectBalancedGraphCards(
+    eligibleNodes.map((node) => ({
+      id: node.id,
+      domain: getPrimaryCardDomain(getCardDomainsForNode(node)),
+      node,
+    })),
+    GUEST_KNOWLEDGE_MAP_CARD_LIMIT,
+  ).map(({ node }) => node);
+  const selectedNodeIds = new Set(
+    [...GUEST_PRACTICE_NODES, ...balancedKnowledgeNodes].map((node) => node.id),
+  );
+  const orderedNodes = [
+    ...balancedKnowledgeNodes,
+    ...GUEST_PRACTICE_NODES.filter((node) => !balancedKnowledgeNodes.some((candidate) => candidate.id === node.id)),
+  ].filter((node, index, nodes) => (
+    selectedNodeIds.has(node.id)
+    && nodes.findIndex((candidate) => candidate.id === node.id) === index
+  ));
+
+  return buildCoreGraphCards(cardContent, orderedNodes);
 }
 
 const DRILL_ELIGIBLE_NODES = [...GRAPH_NODES]
@@ -453,9 +469,7 @@ async function getMockCards(): Promise<KnowledgeCard[]> {
 
 async function getGuestMockCards(): Promise<KnowledgeCard[]> {
   if (!guestMockCardsPromise) {
-    guestMockCardsPromise = getStaticCardContent().then((content) =>
-      buildCoreGraphCards(content, GUEST_MOCK_NODES),
-    );
+    guestMockCardsPromise = getStaticCardContent().then(buildGuestMockCards);
   }
   return guestMockCardsPromise;
 }
@@ -467,6 +481,9 @@ function getMockCardsForActor(isGuest: boolean): Promise<KnowledgeCard[]> {
 const GUEST_CARD_IDS = new Set(
   GUEST_PRACTICE_NODES
     .map((node) => `graph_${node.id}`),
+);
+const GUEST_CARD_ORDER = new Map(
+  [...GUEST_CARD_IDS].map((cardId, index) => [cardId, index]),
 );
 
 const NODE_BY_ID = new Map(GRAPH_NODES.map((node) => [node.id, node]));
@@ -535,7 +552,9 @@ function withRelatedConcepts<T extends { id: string; related_concepts?: string[]
 
 function limitCardsForGuest<T extends { id: string }>(cards: T[], isGuest: boolean) {
   if (!isGuest) return cards;
-  return cards.filter((card) => GUEST_CARD_IDS.has(card.id));
+  return cards
+    .filter((card) => GUEST_CARD_IDS.has(card.id))
+    .sort((a, b) => (GUEST_CARD_ORDER.get(a.id) ?? 0) - (GUEST_CARD_ORDER.get(b.id) ?? 0));
 }
 
 function limitCardsForGuestKnowledgeMap<T extends { id: string; domain?: string | null }>(
