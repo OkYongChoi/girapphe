@@ -2,17 +2,13 @@ import Navbar from '@/components/navbar';
 import HomeDomainProgress, { type HomeDomainProgressRow } from '@/components/home-domain-progress';
 import HomeGraphScene from '@/components/home-graph-scene';
 import { getCurrentUser } from '@/lib/auth';
-import { getUserCardDomainProgress, getUserStats, type UserCardDomainProgress } from '@/actions/card-actions';
-import { getUserKnowledgeOverview } from '@/actions/user-knowledge-actions';
+import type { UserCardDomainProgress } from '@/actions/card-actions';
 import GuestStartButton from '@/components/guest-start-button';
-import { getDbGraphDataForUser } from '@/lib/knowledge-graph-db';
-import type { ForceGraphData } from '@stem-brain/graph-engine';
 import { getServerI18n } from '@/i18n/server';
 import { LocalizedLink } from '@/i18n/navigation';
 import type { MessageKey } from '@/i18n/messages';
 import type { Translate } from '@/i18n/core';
 import { localizeDomain, type Locale } from '@stem-brain/shared';
-import { localizeGraphNodes } from '@/lib/content-localization';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,14 +44,15 @@ const HOME_DEMO_GRAPH_STATS = {
 export default async function HomePage() {
   const { t, formatNumber, locale } = await getServerI18n();
   const user = await getCurrentUser();
-  const [userStats, userKnowledge, domainProgress, userGraphData] = user
-    ? await Promise.all([
-        getUserStats(),
-        getUserKnowledgeOverview(),
-        getUserCardDomainProgress(locale),
-        getHomeUserGraphData(user.id, locale),
-      ])
-    : [null, { count: 0, graphNotes: [] }, [] as UserCardDomainProgress[], null];
+  const personalization = user
+    ? await import('@/lib/home-personalization').then(({ getHomePersonalization }) =>
+        getHomePersonalization(user.id, locale)
+      )
+    : null;
+  const userStats = personalization?.userStats ?? null;
+  const userKnowledge = personalization?.userKnowledge ?? { count: 0, graphNotes: [] };
+  const domainProgress = personalization?.domainProgress ?? [];
+  const userGraphData = personalization?.userGraphData ?? null;
   const sceneStats = {
     explainable: userStats?.explainable ?? HOME_FALLBACK_STATS.explainable,
     review: userStats?.unclear ?? HOME_FALLBACK_STATS.review,
@@ -241,19 +238,6 @@ export default async function HomePage() {
       </section>
     </main>
   );
-}
-
-async function getHomeUserGraphData(userId: string, locale: Locale): Promise<ForceGraphData | null> {
-  try {
-    const graphData = await getDbGraphDataForUser(userId, { maxNodes: 120 });
-    return {
-      ...graphData,
-      nodes: await localizeGraphNodes(graphData.nodes, locale, { generateMissing: false }),
-    };
-  } catch (error) {
-    console.error('Error loading home user graph:', error);
-    return null;
-  }
 }
 
 function MiniMetric({ value, label }: { value: string; label: string }) {
