@@ -4847,11 +4847,15 @@ export async function recordKnowledgeReuseForUser(
     count: Math.max(0, Math.min(itemIds.length, Math.trunc(metadata.count ?? itemIds.length))),
   };
   if (!process.env.DATABASE_URL) {
+    purgeMemoryKnowledgeItemsForUser(userId);
+    const now = Date.now();
     const supersededIds = new Set((memoryItemSupersessions.get(userId) ?? [])
       .map((entry) => entry.superseded_item_id));
     const ownedActiveIds = new Set(getMemoryKnowledgeItemsForUser(userId)
       .filter((item) => itemIds.includes(item.id) && !item.deleted_at
-        && !item.archived_at && !supersededIds.has(item.id))
+        && !item.archived_at
+        && (!item.purge_at || new Date(item.purge_at).getTime() > now)
+        && !supersededIds.has(item.id))
       .map((item) => item.id));
     if (ownedActiveIds.size !== itemIds.length) return 0;
     for (const itemId of itemIds) {
@@ -4867,11 +4871,15 @@ export async function recordKnowledgeReuseForUser(
       params: [deriveMcpAccountAdvisoryLockKey(userId)],
     },
     {
-      text: `WITH eligible_items AS MATERIALIZED (
-       SELECT i.user_id, i.id
+      text: `WITH reuse_cutoff AS MATERIALIZED (
+       SELECT clock_timestamp() AS checked_at
+     ), eligible_items AS MATERIALIZED (
+       SELECT i.user_id, i.id, cutoff.checked_at AS reused_at
        FROM user_knowledge_items i
        JOIN unnest($2::text[]) requested(id) ON requested.id = i.id
+       CROSS JOIN reuse_cutoff cutoff
        WHERE i.user_id = $1 AND i.deleted_at IS NULL AND i.archived_at IS NULL
+         AND (i.purge_at IS NULL OR i.purge_at > cutoff.checked_at)
          AND NOT EXISTS (
            SELECT 1 FROM mcp_deleted_account_markers marker WHERE marker.scope_key = $4
          )
@@ -4883,9 +4891,9 @@ export async function recordKnowledgeReuseForUser(
        SELECT COUNT(*) AS eligible_count FROM eligible_items
      )
      INSERT INTO knowledge_item_activity
-       (id, user_id, knowledge_item_id, activity_type, metadata)
+       (id, user_id, knowledge_item_id, activity_type, metadata, created_at)
      SELECT md5(random()::text || clock_timestamp()::text || i.id), i.user_id, i.id,
-       'reused', $3::jsonb
+       'reused', $3::jsonb, i.reused_at
      FROM eligible_items i
      CROSS JOIN complete_selection selection
      WHERE selection.eligible_count = cardinality($2::text[])

@@ -140,6 +140,29 @@ test('reuse activity is all-or-nothing when one selected item becomes ineligible
   );
 });
 
+test('reuse activity rejects an expired selection without recording its active peers', async () => {
+  const userId = `user_expired_reuse_${crypto.randomUUID()}`;
+  const active = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Retained context',
+    content: 'This item remains inside retention.',
+    topic: 'retention race',
+  });
+  const expired = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Expired context',
+    content: 'This item expired after the context pack was read.',
+    topic: 'retention race',
+  });
+  expired.purge_at = new Date(Date.now() - 60_000).toISOString();
+
+  assert.equal(await recordKnowledgeReuseForUser(userId, [active.id, expired.id]), 0);
+  assert.equal(
+    getMemoryKnowledgeActivityForUser(userId, new Set([active.id]))
+      .filter((entry) => entry.activity_type === 'reused').length,
+    0,
+  );
+  assert.equal(getMemoryKnowledgeItemsForUser(userId).some((item) => item.id === expired.id), false);
+});
+
 test('creates an idempotent memory draft batch and preserves normalized tags', async () => {
   const userId = `user_ingestion_idempotency_${crypto.randomUUID()}`;
   const input = {
@@ -1721,7 +1744,15 @@ test('database MCP draft, token, and reuse writers lock then reject post-delete 
   assert.deepEqual(poolTransactions[0]!.options, { isolationLevel: 'ReadCommitted' });
   assert.deepEqual(poolTransactions[0]!.queries[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
   assert.match(poolTransactions[0]!.queries[1]!.text, /mcp_deleted_account_markers/);
-  assert.match(poolTransactions[0]!.queries[1]!.text, /WITH eligible_items AS MATERIALIZED/);
+  assert.match(poolTransactions[0]!.queries[1]!.text, /WITH reuse_cutoff AS MATERIALIZED/);
+  assert.match(poolTransactions[0]!.queries[1]!.text, /clock_timestamp\(\) AS checked_at/);
+  assert.match(poolTransactions[0]!.queries[1]!.text, /eligible_items AS MATERIALIZED/);
+  assert.match(
+    poolTransactions[0]!.queries[1]!.text,
+    /i\.purge_at IS NULL OR i\.purge_at > cutoff\.checked_at/,
+  );
+  assert.match(poolTransactions[0]!.queries[1]!.text, /metadata, created_at/);
+  assert.match(poolTransactions[0]!.queries[1]!.text, /\$3::jsonb, i\.reused_at/);
   assert.match(
     poolTransactions[0]!.queries[1]!.text,
     /selection\.eligible_count = cardinality\(\$2::text\[\]\)/,

@@ -212,6 +212,100 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
   }
 });
 
+test('PostgreSQL reuse validation rejects a selection that expires behind the account lock', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL reuse test',
+  timeout: 20_000,
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const imported = await import('../src/lib/knowledge-ingestion.ts');
+  const knowledge = imported.default ?? imported;
+  const { recordKnowledgeReuseForUser } = knowledge;
+  const lifecycleImported = await import('../src/lib/mcp-account-lifecycle.ts');
+  const lifecycle = lifecycleImported.default ?? lifecycleImported;
+  const { deriveMcpAccountAdvisoryLockKey } = lifecycle;
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const userId = `live-reuse-retention-${crypto.randomUUID()}`;
+  const activeItemId = `live-reuse-active-${crypto.randomUUID()}`;
+  const expiredItemId = `live-reuse-expired-${crypto.randomUUID()}`;
+  let blocker;
+  let blockerTransaction = false;
+  let reusePromise;
+
+  try {
+    await pool.query(
+      `INSERT INTO user_knowledge_items
+         (id, user_id, title, content, topic, summary, tags, version, dedupe_key, purge_at)
+       VALUES
+         ($1, $3, 'Retained reuse context', 'Still eligible', 'live-reuse-retention', '', '[]'::jsonb, 1, $4, NOW() + INTERVAL '1 day'),
+         ($2, $3, 'Expiring reuse context', 'Expires while final validation waits', 'live-reuse-retention', '', '[]'::jsonb, 1, $5, NOW() + INTERVAL '1 day')`,
+      [
+        activeItemId,
+        expiredItemId,
+        userId,
+        `live-reuse-active-${crypto.randomUUID()}`,
+        `live-reuse-expired-${crypto.randomUUID()}`,
+      ],
+    );
+
+    blocker = await pool.connect();
+    await blocker.query('BEGIN');
+    blockerTransaction = true;
+    await blocker.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      deriveMcpAccountAdvisoryLockKey(userId),
+    ]);
+    reusePromise = recordKnowledgeReuseForUser(userId, [activeItemId, expiredItemId]);
+    void reusePromise.catch(() => undefined);
+
+    let observedWaiter = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const waiting = await blocker.query(
+        `SELECT EXISTS (
+           SELECT 1 FROM pg_stat_activity activity
+           WHERE pg_backend_pid() = ANY(pg_blocking_pids(activity.pid))
+         ) AS waiting`,
+      );
+      if (waiting.rows[0]?.waiting) {
+        observedWaiter = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(observedWaiter, true, 'reuse transaction must wait behind the held account lock');
+
+    await blocker.query(
+      `UPDATE user_knowledge_items
+       SET purge_at = clock_timestamp() + INTERVAL '200 milliseconds'
+       WHERE id = $1 AND user_id = $2`,
+      [expiredItemId, userId],
+    );
+    await blocker.query('SELECT pg_sleep(0.35)');
+    await blocker.query('COMMIT');
+    blockerTransaction = false;
+
+    assert.equal(await reusePromise, 0);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM knowledge_item_activity
+       WHERE user_id = $1 AND activity_type = 'reused'`,
+      [userId],
+    )).rows[0]?.count, 0);
+
+    assert.equal(await recordKnowledgeReuseForUser(userId, [activeItemId]), 1);
+    assert.deepEqual((await pool.query(
+      `SELECT knowledge_item_id
+       FROM knowledge_item_activity
+       WHERE user_id = $1 AND activity_type = 'reused'`,
+      [userId],
+    )).rows, [{ knowledge_item_id: activeItemId }]);
+  } finally {
+    if (blockerTransaction) await blocker.query('ROLLBACK').catch(() => undefined);
+    blocker?.release();
+    if (reusePromise) await reusePromise.catch(() => undefined);
+    await pool.query('DELETE FROM user_knowledge_items WHERE user_id = $1', [userId]).catch(() => undefined);
+    await pool.end();
+  }
+});
+
 test('PostgreSQL Topic Hub relations expose only active private endpoints', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Topic Hub test',
 }, async () => {
