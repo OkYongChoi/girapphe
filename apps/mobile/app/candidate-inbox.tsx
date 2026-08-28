@@ -6,6 +6,7 @@ import { AuthRequired } from '@/components/auth-required';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
 import { mobileApi, type MobileCandidateBatch, type MobileCandidateDraft } from '@/api';
 import { useI18n } from '@/i18n';
+import { createCandidateInboxRequestGuard } from '@/candidate-inbox-requests';
 import { knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
 
 type InboxCopy = {
@@ -42,35 +43,44 @@ function CandidateInboxContent() {
   const [loading, setLoading] = useState(true);
   const [mutatingId, setMutatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [requestGuard] = useState(createCandidateInboxRequestGuard);
 
   const loadBatch = useCallback(async (batch: MobileCandidateBatch) => {
+    const request = requestGuard.begin();
     setSelectedBatch(batch);
     setLoading(true);
     setError(null);
     try {
       const result = await mobileApi.candidateBatch(batch.id);
+      if (!requestGuard.isLatest(request)) return;
       setSelectedBatch(result.batch);
       setDrafts(result.drafts);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t('api.networkFailed'));
+      if (requestGuard.isLatest(request)) {
+        setError(reason instanceof Error ? reason.message : t('api.networkFailed'));
+      }
     } finally {
-      setLoading(false);
+      if (requestGuard.isLatest(request)) setLoading(false);
     }
-  }, [t]);
+  }, [requestGuard, t]);
 
   const load = useCallback(async () => {
+    const request = requestGuard.begin();
     setLoading(true);
     setError(null);
     try {
       const next = (await mobileApi.candidateInbox()).batches;
+      if (!requestGuard.isLatest(request)) return;
       setBatches(next);
       if (next.length > 0) await loadBatch(next[0]!);
-      else { setSelectedBatch(null); setDrafts([]); }
+      else { setSelectedBatch(null); setDrafts([]); setLoading(false); }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t('api.networkFailed'));
-      setLoading(false);
+      if (requestGuard.isLatest(request)) {
+        setError(reason instanceof Error ? reason.message : t('api.networkFailed'));
+        setLoading(false);
+      }
     }
-  }, [loadBatch, t]);
+  }, [loadBatch, requestGuard, t]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
@@ -82,17 +92,25 @@ function CandidateInboxContent() {
       [
         { text: t('common.cancel'), style: 'cancel' },
         { text: destructive ? copy.ignore : copy.save, style: destructive ? 'destructive' : 'default', onPress: () => {
+          const request = requestGuard.begin();
           setMutatingId(draft.id);
           setError(null);
           void mobileApi.mutate({ action, batchId: draft.batch_id, draftId: draft.id, draftVersion: draft.version })
             .then(async () => {
+              if (!requestGuard.isLatest(request)) return;
               const refreshed = await mobileApi.candidateInbox();
+              if (!requestGuard.isLatest(request)) return;
               setBatches(refreshed.batches);
               const current = refreshed.batches.find((batch) => batch.id === draft.batch_id);
               if (current) await loadBatch(current);
-              else { setSelectedBatch(null); setDrafts([]); }
+              else { setSelectedBatch(null); setDrafts([]); setLoading(false); }
             })
-            .catch((reason) => setError(reason instanceof Error ? reason.message : t('api.networkFailed')))
+            .catch((reason) => {
+              if (requestGuard.isLatest(request)) {
+                setError(reason instanceof Error ? reason.message : t('api.networkFailed'));
+                setLoading(false);
+              }
+            })
             .finally(() => setMutatingId(null));
         } },
       ],

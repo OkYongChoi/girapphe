@@ -7,6 +7,7 @@ import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
 import { mobileApi, type MobileTopicHub } from '@/api';
 import { useI18n } from '@/i18n';
 import { knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
+import { eventTimelineDate } from '@/knowledge-topic';
 
 type TopicCopy = {
   back: string;
@@ -114,7 +115,7 @@ function TopicScreenContent() {
   const events = hub?.items.filter((item) => item.structured_content?.type === 'event') ?? [];
   const activity = [...(hub?.activity ?? [])].sort((left, right) => +new Date(right.created_at) - +new Date(left.created_at));
   const timeline = [
-    ...events.map((item) => ({ kind: 'event' as const, at: item.structured_content?.type === 'event' && item.structured_content.occurred_at ? item.structured_content.occurred_at : item.created_at, item })),
+    ...events.map((item) => ({ kind: 'event' as const, at: eventTimelineDate(item), item })),
     ...activity.map((entry) => ({ kind: 'activity' as const, at: entry.created_at, entry })),
   ].sort((left, right) => +new Date(right.at) - +new Date(left.at));
 

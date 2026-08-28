@@ -36,6 +36,9 @@ ALTER TABLE "knowledge_card_sources"
 ALTER TABLE "user_graph_edges"
   ALTER COLUMN "relation_origin" SET DEFAULT 'explicit_user';--> statement-breakpoint
 
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_user_knowledge_items_id_user_id"
+  ON "user_knowledge_items" ("id", "user_id");--> statement-breakpoint
+
 ALTER TABLE "user_knowledge_items"
   DROP CONSTRAINT IF EXISTS "user_knowledge_items_version_check",
   DROP CONSTRAINT IF EXISTS "user_knowledge_items_dedupe_key_check",

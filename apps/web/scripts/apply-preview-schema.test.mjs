@@ -11,7 +11,7 @@ test('preview schema update contains only bounded idempotent statements', async 
   const migrations = [
     ['0014_guest_knowledge_limits.sql', 5],
     ['0015_typed_knowledge_bundles.sql', 4],
-    ['0016_conversation_knowledge_hub.sql', 38],
+    ['0016_conversation_knowledge_hub.sql', 39],
   ];
   for (const [name, expectedCount] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -19,6 +19,24 @@ test('preview schema update contains only bounded idempotent statements', async 
     assert.equal(statements.length, expectedCount, name);
     for (const statement of statements) assert.doesNotThrow(() => assertSafePreviewStatement(statement));
   }
+});
+
+test('conversation hub migration restores owner-key uniqueness before composite foreign keys', async () => {
+  const sql = await readFile(new URL('../drizzle/migrations/0016_conversation_knowledge_hub.sql', import.meta.url), 'utf8');
+  const statements = parsePreviewMigration(sql);
+  const prerequisiteIndex = statements.findIndex((statement) => (
+    /^CREATE UNIQUE INDEX IF NOT EXISTS "idx_user_knowledge_items_id_user_id"/i.test(statement)
+  ));
+  const compositeForeignKeyIndexes = statements
+    .map((statement, index) => ({ statement, index }))
+    .filter(({ statement }) => (
+      /REFERENCES "user_knowledge_items"\("id", "user_id"\)/i.test(statement)
+    ))
+    .map(({ index }) => index);
+
+  assert.notEqual(prerequisiteIndex, -1);
+  assert.ok(compositeForeignKeyIndexes.length > 0);
+  assert.ok(compositeForeignKeyIndexes.every((index) => prerequisiteIndex < index));
 });
 
 test('preview schema update rejects destructive and unbounded SQL', () => {
