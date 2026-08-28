@@ -30,6 +30,7 @@ export {
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
   KNOWLEDGE_BUNDLE_TYPES,
   createEmptyKnowledgeBundleContent,
+  createKnowledgeBundleContentFromLegacy,
   isKnowledgeBundleType,
   projectKnowledgeBundleContent,
   type ClaimEvidenceBundleContent,

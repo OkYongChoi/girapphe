@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { KNOWLEDGE_BUNDLE_TYPES, projectKnowledgeBundleContent, type KnowledgeBundleContent } from '@stem-brain/shared';
+import {
+  KNOWLEDGE_BUNDLE_TYPES,
+  createKnowledgeBundleContentFromLegacy,
+  projectKnowledgeBundleContent,
+  type KnowledgeBundleContent,
+} from '@stem-brain/shared';
 import { parseKnowledgeBundleFields, projectKnowledgeBundle } from './knowledge-bundle-runtime';
 
 const contents: Record<(typeof KNOWLEDGE_BUNDLE_TYPES)[number], KnowledgeBundleContent> = {
@@ -32,6 +37,14 @@ test('produces deterministic compatibility projections without serializing empty
     assert.deepEqual(second, first);
     assert.equal(first.content.includes('undefined'), false);
     assert.equal(first.content.includes('[]'), false);
+  }
+});
+
+test('preserves a legacy note body when starting each explicit bundle conversion', () => {
+  const legacy = 'Original user-authored note body';
+  for (const type of KNOWLEDGE_BUNDLE_TYPES) {
+    const content = createKnowledgeBundleContentFromLegacy(type, legacy);
+    assert.match(projectKnowledgeBundleContent(content).content, new RegExp(legacy));
   }
 });
 

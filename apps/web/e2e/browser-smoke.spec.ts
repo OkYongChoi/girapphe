@@ -579,13 +579,42 @@ test.describe('browser smoke', () => {
     item = page.locator('details').filter({ hasText: title });
     await item.locator('summary').click();
     const itemEditor = item.getByRole('group', { name: 'Knowledge format' });
+    await expect(itemEditor).toHaveAttribute('aria-busy', 'false');
     await itemEditor.locator('input[name="central_question"]').fill('What makes a release verifiable?');
     await itemEditor.locator('textarea').first().fill('Ship with verifiable evidence.');
+    await expect(itemEditor.locator('input[name="structured_content"]')).toHaveValue(/Ship with verifiable evidence\./);
     await item.getByRole('button', { name: 'Save changes' }).click();
 
     item = page.locator('details').filter({ hasText: title });
     await expect(item.getByLabel('Structured knowledge').getByText('What makes a release verifiable?', { exact: true })).toBeVisible();
     await expect(item.getByLabel('Structured knowledge').getByText('Ship with verifiable evidence.', { exact: true })).toBeVisible();
+    await assertNoBrowserFailures();
+  });
+
+  test('explicit legacy-note conversion preserves the original body', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+    const title = `Legacy conversion ${Date.now()}`;
+    const legacyBody = 'Keep this user-authored body during conversion.';
+
+    await page.goto('/my-knowledge');
+    const createForm = page.getByRole('heading', { name: 'Add knowledge item' }).locator('..');
+    await page.locator('#new-title').fill(title);
+    await page.locator('#new-content').fill(legacyBody);
+    await createForm.getByRole('button', { name: 'Save item' }).click();
+
+    let item = page.locator('details').filter({ hasText: title });
+    await expect(item).toHaveCount(1);
+    await item.locator('summary').click();
+    const editor = item.getByRole('group', { name: 'Knowledge format' });
+    await editor.getByRole('combobox', { name: 'Format' }).selectOption('procedure');
+    await expect(editor.locator('textarea').first()).toHaveValue(legacyBody);
+    await editor.locator('input[name="central_question"]').fill('How is the original note retained?');
+    await item.getByRole('button', { name: 'Save changes' }).click();
+
+    item = page.locator('details').filter({ hasText: title });
+    const structuredView = item.getByLabel('Structured knowledge');
+    await expect(structuredView.getByText('Procedure', { exact: true })).toBeVisible();
+    await expect(structuredView.getByText(legacyBody, { exact: true })).toBeVisible();
     await assertNoBrowserFailures();
   });
 });

@@ -41,12 +41,11 @@ export const createKnowledgeBundleDraftsInputSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   const ids = new Set<string>();
   value.bundles.forEach((bundle, bundleIndex) => {
-    if (bundle.client_bundle_id) {
-      if (ids.has(bundle.client_bundle_id)) {
-        ctx.addIssue({ code: 'custom', path: ['bundles', bundleIndex, 'client_bundle_id'], message: 'client_bundle_id values must be unique.' });
-      }
-      ids.add(bundle.client_bundle_id);
+    const effectiveId = bundle.client_bundle_id ?? `card-${bundleIndex + 1}`;
+    if (ids.has(effectiveId)) {
+      ctx.addIssue({ code: 'custom', path: ['bundles', bundleIndex, 'client_bundle_id'], message: 'client_bundle_id values, including generated defaults, must be unique.' });
     }
+    ids.add(effectiveId);
     const tags = new Set<string>();
     bundle.tags?.forEach((tag, tagIndex) => {
       const key = tag.toLocaleLowerCase();
@@ -54,7 +53,7 @@ export const createKnowledgeBundleDraftsInputSchema = z.object({
       tags.add(key);
     });
     bundle.relations?.forEach((relation, relationIndex) => {
-      if (relation.target_kind === 'draft' && bundle.client_bundle_id === relation.target_id) {
+      if (relation.target_kind === 'draft' && effectiveId === relation.target_id) {
         ctx.addIssue({ code: 'custom', path: ['bundles', bundleIndex, 'relations', relationIndex, 'target_id'], message: 'A bundle cannot relate to itself.' });
       }
     });
@@ -72,8 +71,8 @@ export function toKnowledgeBundleDraftBatchInput(input: CreateKnowledgeBundleDra
     provider: input.provider,
     requestId: input.request_id,
     conversationRef: input.provenance.conversation_ref,
-    cards: input.bundles.map((bundle) => ({
-      clientCardId: bundle.client_bundle_id,
+    cards: input.bundles.map((bundle, bundleIndex) => ({
+      clientCardId: bundle.client_bundle_id ?? `card-${bundleIndex + 1}`,
       title: bundle.title,
       summary: bundle.summary,
       topic: bundle.topic,

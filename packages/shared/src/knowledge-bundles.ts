@@ -110,6 +110,29 @@ export function createEmptyKnowledgeBundleContent(type: KnowledgeBundleType): Kn
   }
 }
 
+/**
+ * Starts an explicit legacy-note conversion without dropping the user's original body.
+ * The body is placed in the first editable field for the selected bundle type so the
+ * user can review and reshape it before saving the conversion.
+ */
+export function createKnowledgeBundleContentFromLegacy(
+  type: KnowledgeBundleType,
+  legacyContent: string,
+): KnowledgeBundleContent {
+  const content = legacyContent.trim();
+  const empty = createEmptyKnowledgeBundleContent(type);
+  if (!content) return empty;
+
+  switch (empty.type) {
+    case 'concept': return { ...empty, definition: content };
+    case 'procedure': return { ...empty, goal: content };
+    case 'comparison': return { ...empty, targets: [content] };
+    case 'mechanism': return { ...empty, causes: [content] };
+    case 'structure': return { ...empty, purpose: content };
+    case 'claim_evidence': return { ...empty, claim: content };
+  }
+}
+
 function lines(title: string, values: string[]): string[] {
   return values.length > 0 ? [title, ...values.map((value) => `- ${value}`)] : [];
 }

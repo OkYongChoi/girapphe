@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   createEmptyKnowledgeBundleContent,
+  createKnowledgeBundleContentFromLegacy,
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
   KNOWLEDGE_BUNDLE_TYPES,
   type KnowledgeBundleContent,
@@ -15,6 +16,7 @@ type KnowledgeBundleEditorProps = {
   defaultType?: KnowledgeBundleType | null;
   defaultQuestion?: string | null;
   defaultContent?: KnowledgeBundleContent | null;
+  legacyContent?: string | null;
   allowQuickNote?: boolean;
 };
 
@@ -41,26 +43,34 @@ export default function KnowledgeBundleEditor({
   defaultType = null,
   defaultQuestion = '',
   defaultContent = null,
+  legacyContent = '',
   allowQuickNote = true,
 }: KnowledgeBundleEditorProps) {
   const { t } = useI18n();
+  const [hydrated, setHydrated] = useState(false);
   const [type, setType] = useState<KnowledgeBundleType | null>(defaultType);
   const [content, setContent] = useState<KnowledgeBundleContent | null>(
     defaultType ? defaultContent ?? createEmptyKnowledgeBundleContent(defaultType) : null,
   );
   const serialized = useMemo(() => content ? JSON.stringify(content) : '', [content]);
 
+  useEffect(() => setHydrated(true), []);
+
   function chooseType(next: string) {
     if (!next) { setType(null); setContent(null); return; }
     const selected = next as KnowledgeBundleType;
     setType(selected);
-    setContent((current) => current?.type === selected ? current : createEmptyKnowledgeBundleContent(selected));
+    setContent((current) => current?.type === selected
+      ? current
+      : type === null && legacyContent?.trim()
+        ? createKnowledgeBundleContentFromLegacy(selected, legacyContent)
+        : createEmptyKnowledgeBundleContent(selected));
   }
 
   function updateContent(next: KnowledgeBundleContent) { setContent(next); }
 
   return (
-    <fieldset className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3 md:col-span-2">
+    <fieldset aria-busy={!hydrated} className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3 md:col-span-2">
       <legend className="px-1 text-xs font-bold uppercase tracking-wide text-blue-800">{t('bundle.editorTitle')}</legend>
       <input type="hidden" name="bundle_mode_present" value="1" />
       <label className="grid gap-1 text-xs font-medium text-slate-700">

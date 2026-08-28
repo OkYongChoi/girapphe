@@ -480,6 +480,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                         defaultType={item.knowledge_type}
                         defaultQuestion={item.central_question}
                         defaultContent={item.structured_content}
+                        legacyContent={item.knowledge_type ? '' : item.content}
                       />
 
                       <div className="flex flex-col gap-1">

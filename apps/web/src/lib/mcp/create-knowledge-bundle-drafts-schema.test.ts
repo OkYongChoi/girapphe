@@ -54,6 +54,27 @@ test('rejects raw conversation fields, unknown nested fields, type mismatches, a
   assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse(duplicate).success, false);
 });
 
+test('reserves generated bundle ids during validation and mapping', () => {
+  const withoutId = { ...validInput.bundles[0], client_bundle_id: undefined };
+  const collision = {
+    ...validInput,
+    bundles: [withoutId, { ...validInput.bundles[0], client_bundle_id: 'card-1' }],
+  };
+  assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse(collision).success, false);
+
+  const parsed = createKnowledgeBundleDraftsInputSchema.parse({ ...validInput, bundles: [withoutId] });
+  assert.equal(toKnowledgeBundleDraftBatchInput(parsed).cards[0]?.clientCardId, 'card-1');
+
+  const selfRelation = {
+    ...validInput,
+    bundles: [{
+      ...withoutId,
+      relations: [{ target_kind: 'draft', target_id: 'card-1', type: 'related', direction: 'outgoing' }],
+    }],
+  };
+  assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse(selfRelation).success, false);
+});
+
 test('rejects oversized structured content before it reaches storage', () => {
   const largeSteps = Array.from({ length: 30 }, (_, index) => ({ title: `Step ${index}`, detail: '가'.repeat(4000) }));
   const oversized = {
