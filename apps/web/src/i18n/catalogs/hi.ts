@@ -1,8 +1,8 @@
 import type { MessageCatalog } from '../messages';
-import { EXTRA_MESSAGES } from './extended';
+import { EXTRA_HI_MESSAGES } from './extended/hi';
 
 export const HI_MESSAGES = {
-  ...EXTRA_MESSAGES.hi,
+  ...EXTRA_HI_MESSAGES,
   "locale.label": "भाषा",
   "locale.select": "भाषा चुनें",
   "locale.changed": "भाषा बदलकर {language} की गई",

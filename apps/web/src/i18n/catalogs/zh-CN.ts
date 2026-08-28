@@ -1,8 +1,8 @@
 import type { MessageCatalog } from '../messages';
-import { EXTRA_MESSAGES } from './extended';
+import { EXTRA_ZH_CN_MESSAGES } from './extended/zh-CN';
 
 export const ZH_CN_MESSAGES = {
-  ...EXTRA_MESSAGES['zh-CN'],
+  ...EXTRA_ZH_CN_MESSAGES,
   "locale.label": "语言",
   "locale.select": "选择语言",
   "locale.changed": "语言已切换为{language}",

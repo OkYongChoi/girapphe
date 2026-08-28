@@ -1,8 +1,8 @@
 import type { MessageCatalog } from '../messages';
-import { EXTRA_MESSAGES } from './extended';
+import { EXTRA_ES_MESSAGES } from './extended/es';
 
 export const ES_MESSAGES = {
-  ...EXTRA_MESSAGES.es,
+  ...EXTRA_ES_MESSAGES,
   "locale.label": "Idioma",
   "locale.select": "Elegir idioma",
   "locale.changed": "Idioma cambiado a {language}",

@@ -1,8 +1,8 @@
 import type { MessageCatalog } from '../messages';
-import { EXTRA_MESSAGES } from './extended';
+import { EXTRA_JA_MESSAGES } from './extended/ja';
 
 export const JA_MESSAGES = {
-  ...EXTRA_MESSAGES.ja,
+  ...EXTRA_JA_MESSAGES,
   "locale.label": "言語",
   "locale.select": "言語を選択",
   "locale.changed": "言語を{language}に変更しました",
