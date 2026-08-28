@@ -97,13 +97,29 @@ test('candidate inbox guards the list response before automatic batch selection'
   );
   assert.match(
     candidateInbox,
-    /mobileApi\.mutate\([\s\S]*?\.then\(async \(\) => \{\s*await load\(\);\s*\}\)/,
+    /mobileApi\.mutate<MobileCandidateResolutionResult>\([\s\S]*?\.then\(async \(result\) => \{\s*await load\(\);[\s\S]*?result\.skippedEdges/,
   );
+  assert.match(candidateInbox, /reason instanceof MobileApiRequestError[\s\S]*?CANDIDATE_DEPENDENCY_PENDING[\s\S]*?copy\.pendingDependency/);
+  assert.match(candidateInbox, /accessibilityLiveRegion="polite"[\s\S]*?styles\.noticeCard/);
   assert.match(candidateInbox, /pendingMutations\.current\.has\(draft\.id\)/);
   assert.match(
     candidateInbox,
     /setMutatingIds\(\(current\) => removePendingCandidate\(current, draft\.id\)\)/,
   );
+});
+
+test('mobile candidate resolution preserves structured error codes and event lifecycle metadata', () => {
+  const sourceDir = dirname(fileURLToPath(import.meta.url));
+  const mobileApi = readFileSync(join(sourceDir, 'api.ts'), 'utf8');
+  const mobileRoute = readFileSync(join(sourceDir, '../../web/src/app/api/mobile/route.ts'), 'utf8');
+
+  assert.match(mobileApi, /class MobileApiRequestError extends Error[\s\S]*?readApiErrorCode\(payload\)/);
+  assert.match(mobileRoute, /lifecycle_patch_semantics[\s\S]*?tri_state_v1/);
+  assert.match(
+    mobileRoute,
+    /structured_content\?\.type === 'event'[\s\S]*?new Date\(draft\.structured_content\.occurred_at\)[\s\S]*?!Number\.isNaN\(occurredAt\.getTime\(\)\)[\s\S]*?occurredAt\.toISOString\(\)/,
+  );
+  assert.match(mobileRoute, /result\.pendingDependency[\s\S]*?CANDIDATE_DEPENDENCY_PENDING/);
 });
 
 test('finishing one candidate action keeps every other candidate pending', () => {

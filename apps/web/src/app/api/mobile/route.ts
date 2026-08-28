@@ -340,8 +340,27 @@ export async function POST(request: NextRequest) {
     candidateForm.set('structured_content', draft.structured_content ? JSON.stringify(draft.structured_content) : '');
     candidateForm.set('bundle_schema_version', draft.bundle_schema_version ? String(draft.bundle_schema_version) : '');
     candidateForm.set('evidence_selectors_json', JSON.stringify(draft.proposed_evidence));
+    candidateForm.set('lifecycle_patch_semantics', 'tri_state_v1');
+    if (draft.structured_content?.type === 'event') {
+      const occurredAt = new Date(draft.structured_content.occurred_at);
+      if (!Number.isNaN(occurredAt.getTime())) {
+        candidateForm.set('observed_at', occurredAt.toISOString());
+      }
+    }
     const result = await resolveKnowledgeDraft(candidateForm);
-    return result.resolved ? NextResponse.json(result) : NextResponse.json({ ...result, error: 'The candidate changed before it was saved.' }, { status: 409 });
+    if (result.resolved) return NextResponse.json(result);
+    if (result.pendingDependency) {
+      return NextResponse.json({
+        ...result,
+        error: 'A related candidate must be approved first.',
+        code: 'CANDIDATE_DEPENDENCY_PENDING',
+      }, { status: 409 });
+    }
+    return NextResponse.json({
+      ...result,
+      error: 'The candidate changed before it was saved.',
+      code: 'CANDIDATE_STALE',
+    }, { status: 409 });
   }
 
   const id = stringField(body.id, 160);

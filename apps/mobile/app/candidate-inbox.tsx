@@ -4,7 +4,13 @@ import { ActivityIndicator, Alert, Linking, Pressable, SafeAreaView, ScrollView,
 import type { Locale } from '@stem-brain/shared';
 import { AuthRequired } from '@/components/auth-required';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
-import { mobileApi, type MobileCandidateBatch, type MobileCandidateDraft } from '@/api';
+import {
+  mobileApi,
+  MobileApiRequestError,
+  type MobileCandidateBatch,
+  type MobileCandidateDraft,
+  type MobileCandidateResolutionResult,
+} from '@/api';
 import { useI18n } from '@/i18n';
 import {
   addPendingCandidate,
@@ -17,16 +23,16 @@ import { knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
 type InboxCopy = {
   back: string; eyebrow: string; title: string; subtitle: string; boundary: string; batches: string; candidates: string;
   empty: string; openSource: string; save: string; ignore: string; saving: string; duplicate: string; webMerge: string; retry: string;
-  candidate: string; batchCount: string; ignoreConfirm: string; saveConfirm: string;
+  candidate: string; batchCount: string; ignoreConfirm: string; saveConfirm: string; pendingDependency: string; edgesSkipped: string;
 };
 
 const COPY: Record<Locale, InboxCopy> = {
-  en: { back: 'Back', eyebrow: 'Private review queue', title: 'Candidate Inbox', subtitle: 'Quickly save or ignore knowledge selected from a current conversation.', boundary: 'Only this explicitly sent batch is shown. Mobile quick review can save as new or ignore; use web review to compare, merge, or update.', batches: 'Pending batches', candidates: 'Candidates', empty: 'No candidates are waiting.', openSource: 'Open selected source', save: 'Save as new', ignore: 'Ignore', saving: 'Saving…', duplicate: 'possible duplicate', webMerge: 'Possible duplicate found. Use the web review for side-by-side merge or update.', retry: 'Try again', candidate: 'Candidate', batchCount: '{count} candidates', ignoreConfirm: 'Ignore “{title}”?', saveConfirm: 'Save “{title}” as a new confirmed item?' },
-  ja: { back: '戻る', eyebrow: '非公開レビューキュー', title: '候補受信箱', subtitle: '現在の会話から選んだナレッジを保存または無視します。', boundary: '明示的に送信したこのバッチだけを表示します。モバイルでは新規保存か無視、比較・統合・更新はWebで行います。', batches: '保留中のバッチ', candidates: '候補', empty: '待機中の候補はありません。', openSource: '選択元を開く', save: '新規保存', ignore: '無視', saving: '保存中…', duplicate: '重複候補', webMerge: '重複候補があります。比較・統合・更新はWebレビューを使用してください。', retry: '再試行', candidate: '候補', batchCount: '候補{count}件', ignoreConfirm: '「{title}」を無視しますか？', saveConfirm: '「{title}」を確認済みの新規項目として保存しますか？' },
-  'zh-CN': { back: '返回', eyebrow: '私密审核队列', title: '候选收件箱', subtitle: '快速保存或忽略当前对话中选出的知识。', boundary: '仅显示明确发送的当前批次。移动端可新建保存或忽略；比较、合并和更新请使用网页版。', batches: '待处理批次', candidates: '候选', empty: '没有待处理候选。', openSource: '打开所选来源', save: '另存为新项', ignore: '忽略', saving: '保存中…', duplicate: '可能重复', webMerge: '发现可能重复。请在网页版进行并排比较、合并或更新。', retry: '重试', candidate: '候选', batchCount: '{count} 个候选', ignoreConfirm: '忽略“{title}”吗？', saveConfirm: '将“{title}”另存为新的已确认项吗？' },
-  es: { back: 'Volver', eyebrow: 'Cola privada', title: 'Bandeja de candidatos', subtitle: 'Guarda o ignora conocimiento elegido en la conversación actual.', boundary: 'Solo se muestra este lote enviado explícitamente. En móvil puedes guardar como nuevo o ignorar; usa la web para comparar, fusionar o actualizar.', batches: 'Lotes pendientes', candidates: 'Candidatos', empty: 'No hay candidatos pendientes.', openSource: 'Abrir fuente elegida', save: 'Guardar como nuevo', ignore: 'Ignorar', saving: 'Guardando…', duplicate: 'posible duplicado', webMerge: 'Hay un posible duplicado. Usa la revisión web para comparar, fusionar o actualizar.', retry: 'Reintentar', candidate: 'Candidato', batchCount: '{count} candidatos', ignoreConfirm: '¿Ignorar «{title}»?', saveConfirm: '¿Guardar «{title}» como un nuevo elemento confirmado?' },
-  ar: { back: 'رجوع', eyebrow: 'قائمة مراجعة خاصة', title: 'صندوق المرشحات', subtitle: 'احفظ أو تجاهل المعرفة المختارة من المحادثة الحالية.', boundary: 'تظهر هذه الدفعة المرسلة صراحة فقط. على الهاتف يمكنك الحفظ كعنصر جديد أو التجاهل؛ استخدم الويب للمقارنة أو الدمج أو التحديث.', batches: 'دفعات معلقة', candidates: 'مرشحات', empty: 'لا توجد مرشحات معلقة.', openSource: 'فتح المصدر المختار', save: 'حفظ كجديد', ignore: 'تجاهل', saving: 'جارٍ الحفظ…', duplicate: 'تكرار محتمل', webMerge: 'يوجد تكرار محتمل. استخدم مراجعة الويب للمقارنة أو الدمج أو التحديث.', retry: 'إعادة المحاولة', candidate: 'مرشح', batchCount: '{count} مرشحات', ignoreConfirm: 'هل تريد تجاهل «{title}»؟', saveConfirm: 'هل تريد حفظ «{title}» كعنصر مؤكد جديد؟' },
-  hi: { back: 'वापस', eyebrow: 'निजी समीक्षा कतार', title: 'उम्मीदवार इनबॉक्स', subtitle: 'मौजूदा बातचीत से चुने ज्ञान को जल्दी सहेजें या अनदेखा करें।', boundary: 'केवल स्पष्ट रूप से भेजा गया यह बैच दिखता है। मोबाइल पर नया सहेजें या अनदेखा करें; तुलना, मर्ज या अपडेट के लिए वेब समीक्षा उपयोग करें।', batches: 'लंबित बैच', candidates: 'उम्मीदवार', empty: 'कोई उम्मीदवार प्रतीक्षा में नहीं है।', openSource: 'चुना स्रोत खोलें', save: 'नया सहेजें', ignore: 'अनदेखा करें', saving: 'सहेज रहे हैं…', duplicate: 'संभावित डुप्लिकेट', webMerge: 'संभावित डुप्लिकेट मिला। तुलना, मर्ज या अपडेट के लिए वेब समीक्षा उपयोग करें।', retry: 'फिर प्रयास करें', candidate: 'उम्मीदवार', batchCount: '{count} उम्मीदवार', ignoreConfirm: '“{title}” को अनदेखा करें?', saveConfirm: '“{title}” को नए पुष्ट आइटम के रूप में सहेजें?' },
+  en: { back: 'Back', eyebrow: 'Private review queue', title: 'Candidate Inbox', subtitle: 'Quickly save or ignore knowledge selected from a current conversation.', boundary: 'Only this explicitly sent batch is shown. Mobile quick review can save as new or ignore; use web review to compare, merge, or update.', batches: 'Pending batches', candidates: 'Candidates', empty: 'No candidates are waiting.', openSource: 'Open selected source', save: 'Save as new', ignore: 'Ignore', saving: 'Saving…', duplicate: 'possible duplicate', webMerge: 'Possible duplicate found. Use the web review for side-by-side merge or update.', retry: 'Try again', candidate: 'Candidate', batchCount: '{count} candidates', ignoreConfirm: 'Ignore “{title}”?', saveConfirm: 'Save “{title}” as a new confirmed item?', pendingDependency: 'Approve the related pending candidate first, or approve both together from the web batch review.', edgesSkipped: '{count} relationship suggestions were not saved because their targets were unavailable, duplicated, or would create an invalid cycle.' },
+  ja: { back: '戻る', eyebrow: '非公開レビューキュー', title: '候補受信箱', subtitle: '現在の会話から選んだナレッジを保存または無視します。', boundary: '明示的に送信したこのバッチだけを表示します。モバイルでは新規保存か無視、比較・統合・更新はWebで行います。', batches: '保留中のバッチ', candidates: '候補', empty: '待機中の候補はありません。', openSource: '選択元を開く', save: '新規保存', ignore: '無視', saving: '保存中…', duplicate: '重複候補', webMerge: '重複候補があります。比較・統合・更新はWebレビューを使用してください。', retry: '再試行', candidate: '候補', batchCount: '候補{count}件', ignoreConfirm: '「{title}」を無視しますか？', saveConfirm: '「{title}」を確認済みの新規項目として保存しますか？', pendingDependency: '関連する保留中の候補を先に承認するか、Webのバッチレビューから両方をまとめて承認してください。', edgesSkipped: '対象なし、重複、無効な循環のため{count}件の関係候補は保存されませんでした。' },
+  'zh-CN': { back: '返回', eyebrow: '私密审核队列', title: '候选收件箱', subtitle: '快速保存或忽略当前对话中选出的知识。', boundary: '仅显示明确发送的当前批次。移动端可新建保存或忽略；比较、合并和更新请使用网页版。', batches: '待处理批次', candidates: '候选', empty: '没有待处理候选。', openSource: '打开所选来源', save: '另存为新项', ignore: '忽略', saving: '保存中…', duplicate: '可能重复', webMerge: '发现可能重复。请在网页版进行并排比较、合并或更新。', retry: '重试', candidate: '候选', batchCount: '{count} 个候选', ignoreConfirm: '忽略“{title}”吗？', saveConfirm: '将“{title}”另存为新的已确认项吗？', pendingDependency: '请先批准相关的待处理候选，或在网页版批次审核中一起批准两者。', edgesSkipped: '因目标不可用、重复或会形成无效循环，{count} 条关系建议未保存。' },
+  es: { back: 'Volver', eyebrow: 'Cola privada', title: 'Bandeja de candidatos', subtitle: 'Guarda o ignora conocimiento elegido en la conversación actual.', boundary: 'Solo se muestra este lote enviado explícitamente. En móvil puedes guardar como nuevo o ignorar; usa la web para comparar, fusionar o actualizar.', batches: 'Lotes pendientes', candidates: 'Candidatos', empty: 'No hay candidatos pendientes.', openSource: 'Abrir fuente elegida', save: 'Guardar como nuevo', ignore: 'Ignorar', saving: 'Guardando…', duplicate: 'posible duplicado', webMerge: 'Hay un posible duplicado. Usa la revisión web para comparar, fusionar o actualizar.', retry: 'Reintentar', candidate: 'Candidato', batchCount: '{count} candidatos', ignoreConfirm: '¿Ignorar «{title}»?', saveConfirm: '¿Guardar «{title}» como un nuevo elemento confirmado?', pendingDependency: 'Aprueba primero el candidato relacionado pendiente o aprueba ambos juntos desde la revisión web del lote.', edgesSkipped: 'No se guardaron {count} relaciones porque sus destinos no estaban disponibles, estaban duplicados o crearían un ciclo no válido.' },
+  ar: { back: 'رجوع', eyebrow: 'قائمة مراجعة خاصة', title: 'صندوق المرشحات', subtitle: 'احفظ أو تجاهل المعرفة المختارة من المحادثة الحالية.', boundary: 'تظهر هذه الدفعة المرسلة صراحة فقط. على الهاتف يمكنك الحفظ كعنصر جديد أو التجاهل؛ استخدم الويب للمقارنة أو الدمج أو التحديث.', batches: 'دفعات معلقة', candidates: 'مرشحات', empty: 'لا توجد مرشحات معلقة.', openSource: 'فتح المصدر المختار', save: 'حفظ كجديد', ignore: 'تجاهل', saving: 'جارٍ الحفظ…', duplicate: 'تكرار محتمل', webMerge: 'يوجد تكرار محتمل. استخدم مراجعة الويب للمقارنة أو الدمج أو التحديث.', retry: 'إعادة المحاولة', candidate: 'مرشح', batchCount: '{count} مرشحات', ignoreConfirm: 'هل تريد تجاهل «{title}»؟', saveConfirm: 'هل تريد حفظ «{title}» كعنصر مؤكد جديد؟', pendingDependency: 'وافق أولاً على المرشح المرتبط المعلّق، أو وافق عليهما معًا من مراجعة الدفعة على الويب.', edgesSkipped: 'لم تُحفظ {count} علاقة لأن أهدافها غير متاحة أو مكررة أو تنشئ دورة غير صالحة.' },
+  hi: { back: 'वापस', eyebrow: 'निजी समीक्षा कतार', title: 'उम्मीदवार इनबॉक्स', subtitle: 'मौजूदा बातचीत से चुने ज्ञान को जल्दी सहेजें या अनदेखा करें।', boundary: 'केवल स्पष्ट रूप से भेजा गया यह बैच दिखता है। मोबाइल पर नया सहेजें या अनदेखा करें; तुलना, मर्ज या अपडेट के लिए वेब समीक्षा उपयोग करें।', batches: 'लंबित बैच', candidates: 'उम्मीदवार', empty: 'कोई उम्मीदवार प्रतीक्षा में नहीं है।', openSource: 'चुना स्रोत खोलें', save: 'नया सहेजें', ignore: 'अनदेखा करें', saving: 'सहेज रहे हैं…', duplicate: 'संभावित डुप्लिकेट', webMerge: 'संभावित डुप्लिकेट मिला। तुलना, मर्ज या अपडेट के लिए वेब समीक्षा उपयोग करें।', retry: 'फिर प्रयास करें', candidate: 'उम्मीदवार', batchCount: '{count} उम्मीदवार', ignoreConfirm: '“{title}” को अनदेखा करें?', saveConfirm: '“{title}” को नए पुष्ट आइटम के रूप में सहेजें?', pendingDependency: 'संबंधित लंबित उम्मीदवार को पहले स्वीकृत करें, या वेब बैच समीक्षा से दोनों को एक साथ स्वीकृत करें।', edgesSkipped: 'लक्ष्य अनुपलब्ध, दोहराव या अमान्य चक्र के कारण {count} संबंध सुझाव सहेजे नहीं गए।' },
 };
 
 function interpolate(template: string, values: Record<string, string | number>) {
@@ -40,7 +46,7 @@ function isHttpsUrl(value: string | null) {
 
 function CandidateInboxContent() {
   const router = useRouter();
-  const { direction, formatDate, locale, t } = useI18n();
+  const { direction, formatDate, formatNumber, locale, t } = useI18n();
   const copy = COPY[locale];
   const [batches, setBatches] = useState<MobileCandidateBatch[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<MobileCandidateBatch | null>(null);
@@ -48,6 +54,7 @@ function CandidateInboxContent() {
   const [loading, setLoading] = useState(true);
   const [mutatingIds, setMutatingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [requestGuard] = useState(createCandidateInboxRequestGuard);
   const pendingMutations = useRef(new Set<string>());
   const selectedBatchId = useRef<string | null>(null);
@@ -112,13 +119,27 @@ function CandidateInboxContent() {
           pendingMutations.current.add(draft.id);
           setMutatingIds((current) => addPendingCandidate(current, draft.id));
           setError(null);
-          void mobileApi.mutate({ action, batchId: draft.batch_id, draftId: draft.id, draftVersion: draft.version })
-            .then(async () => {
+          setNotice(null);
+          void mobileApi.mutate<MobileCandidateResolutionResult>({
+            action,
+            batchId: draft.batch_id,
+            draftId: draft.id,
+            draftVersion: draft.version,
+          })
+            .then(async (result) => {
               await load();
+              if (!destructive && (result.skippedEdges ?? 0) > 0) {
+                setNotice(interpolate(copy.edgesSkipped, {
+                  count: formatNumber(result.skippedEdges ?? 0),
+                }));
+              }
             })
             .catch((reason) => {
               if (selectedBatchId.current === draft.batch_id) {
-                setError(reason instanceof Error ? reason.message : t('api.networkFailed'));
+                setError(reason instanceof MobileApiRequestError
+                  && reason.code === 'CANDIDATE_DEPENDENCY_PENDING'
+                  ? copy.pendingDependency
+                  : reason instanceof Error ? reason.message : t('api.networkFailed'));
               }
             })
             .finally(() => {
@@ -140,6 +161,7 @@ function CandidateInboxContent() {
         <View style={styles.boundary}><Text style={styles.boundaryText}>{copy.boundary}</Text></View>
 
         {error ? <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.errorCard}><Text style={styles.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => void load()}><Text style={styles.retry}>{copy.retry}</Text></Pressable></View> : null}
+        {notice ? <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.noticeCard}><Text style={styles.notice}>{notice}</Text></View> : null}
         {loading ? <ActivityIndicator accessibilityLabel={t('common.loading')} color="#2563eb" size="large" /> : null}
 
         <Text accessibilityRole="header" style={styles.sectionTitle}>{copy.batches} · {batches.length}</Text>
@@ -225,5 +247,7 @@ const styles = StyleSheet.create({
   empty: { color: '#64748b', borderColor: '#cbd5e1', borderWidth: 1, borderStyle: 'dashed', borderRadius: 12, backgroundColor: '#fff', padding: 16 },
   errorCard: { borderColor: '#fecaca', borderWidth: 1, borderRadius: 12, backgroundColor: '#fef2f2', padding: 13, gap: 7 },
   error: { color: '#b91c1c', fontSize: 13 },
+  noticeCard: { borderColor: '#fcd34d', borderWidth: 1, borderRadius: 12, backgroundColor: '#fffbeb', padding: 13 },
+  notice: { color: '#78350f', fontSize: 13, lineHeight: 19, fontWeight: '700' },
   retry: { color: '#1d4ed8', fontWeight: '900' },
 });

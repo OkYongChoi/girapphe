@@ -211,6 +211,7 @@ export const EXTRA_EN_MESSAGES = {
   "resolution.ignoring": "Ignoring…",
   "resolution.ignoreConfirm": "Ignore this candidate? No canonical knowledge item will be created.",
   "resolution.changed": "This candidate or target changed in another session. Reload before resolving it.",
+  "resolution.pendingDependency": "Approve the related pending candidate first, or approve both together from the batch inbox.",
   "resolution.resolveError": "The candidate could not be resolved. Review the final fields and try again.",
   "resolution.ignoreChanged": "This candidate changed in another session. Reload before ignoring it.",
   "resolution.ignoreError": "The candidate could not be ignored.",

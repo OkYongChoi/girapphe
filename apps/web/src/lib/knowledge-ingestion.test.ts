@@ -11,11 +11,13 @@ import {
   createMemoryKnowledgeItemForUser,
   createPrivateKnowledgeEdgeForUser,
   getKnowledgeDraftBatchForUser,
+  getKnowledgeDraftResolutionContextForUser,
   getKnowledgeLinkTargetsForUser,
   getMemoryMcpCredentialRateLimitRecordCountForTesting,
   getMemoryKnowledgeEvidenceForUser,
   getMemoryKnowledgeActivityForUser,
   getMemoryPrivateKnowledgeEdgesForTesting,
+  getMemoryKnowledgeSourcesForUser,
   getMemoryKnowledgeItemsForUser,
   getPrivateKnowledgeGraphForUser,
   MCP_CONTEXT_READ_SCOPE,
@@ -232,6 +234,229 @@ test('reviewed create stores edited canonical content, a null target, and an exp
   assert.equal(resolved?.drafts[0]?.resolution_action, 'create');
   assert.equal(resolved?.drafts[0]?.target_knowledge_item_id, null);
   assert.deepEqual(getMemoryKnowledgeEvidenceForUser(userId), []);
+});
+
+for (const action of ['merge', 'update'] as const) {
+  test(`${action} preserves omitted target lifecycle timestamps at full precision`, async () => {
+    const userId = `user_lifecycle_preserve_${action}_${crypto.randomUUID()}`;
+    const target = createMemoryKnowledgeItemForUser(userId, {
+      title: 'Lifecycle target',
+      content: 'Original lifecycle content.',
+      topic: 'Lifecycle',
+      observedAt: '2026-08-01T01:02:03.456Z',
+      validFrom: '2026-08-02T02:03:04.567Z',
+      validTo: '2026-08-30T03:04:05.678Z',
+      reviewAt: '2026-09-01T04:05:06.789Z',
+    });
+    const created = await createKnowledgeDraftBatchForUser(userId, {
+      provider: 'chatgpt',
+      requestId: `lifecycle-preserve-${action}-${crypto.randomUUID()}`,
+      cards: [{ title: 'Lifecycle candidate', topic: 'Lifecycle' }],
+    });
+    const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+    const context = await getKnowledgeDraftResolutionContextForUser(userId, draft.id, target.id);
+    assert.deepEqual(context?.target && {
+      observedAt: context.target.observed_at,
+      validFrom: context.target.valid_from,
+      validTo: context.target.valid_to,
+      reviewAt: context.target.review_at,
+    }, {
+      observedAt: '2026-08-01T01:02:03.456Z',
+      validFrom: '2026-08-02T02:03:04.567Z',
+      validTo: '2026-08-30T03:04:05.678Z',
+      reviewAt: '2026-09-01T04:05:06.789Z',
+    });
+
+    const result = await resolveKnowledgeDraftForUser(userId, {
+      batchId: created.batchId,
+      draftId: draft.id,
+      expectedDraftVersion: draft.version,
+      action,
+      targetKnowledgeItemId: target.id,
+      expectedTargetVersion: target.version,
+      reviewed: {
+        title: 'Reviewed lifecycle target',
+        summary: '',
+        content: 'Reviewed without changing lifecycle dates.',
+        topic: 'Lifecycle',
+        tags: [],
+        knowledgeType: null,
+        centralQuestion: null,
+        structuredContent: null,
+        bundleSchemaVersion: null,
+      },
+    });
+    assert.equal(result.resolved, true);
+    const item = getMemoryKnowledgeItemsForUser(userId).find((candidate) => candidate.id === target.id);
+    assert.deepEqual(item && {
+      observedAt: item.observed_at,
+      validFrom: item.valid_from,
+      validTo: item.valid_to,
+      reviewAt: item.review_at,
+    }, {
+      observedAt: '2026-08-01T01:02:03.456Z',
+      validFrom: '2026-08-02T02:03:04.567Z',
+      validTo: '2026-08-30T03:04:05.678Z',
+      reviewAt: '2026-09-01T04:05:06.789Z',
+    });
+  });
+}
+
+test('lifecycle patches distinguish explicit clears and reject invalid inherited ranges before mutation', async () => {
+  const clearUserId = `user_lifecycle_clear_${crypto.randomUUID()}`;
+  const clearTarget = createMemoryKnowledgeItemForUser(clearUserId, {
+    title: 'Clearable lifecycle', content: 'Original.', topic: 'Lifecycle',
+    observedAt: '2026-08-01T01:02:03.456Z',
+    validFrom: '2026-08-02T02:03:04.567Z',
+    validTo: '2026-08-30T03:04:05.678Z',
+    reviewAt: '2026-09-01T04:05:06.789Z',
+  });
+  const clearBatch = await createKnowledgeDraftBatchForUser(clearUserId, {
+    provider: 'claude', requestId: `lifecycle-clear-${crypto.randomUUID()}`,
+    cards: [{ title: 'Clear lifecycle candidate', topic: 'Lifecycle' }],
+  });
+  const clearDraft = (await getKnowledgeDraftBatchForUser(clearUserId, clearBatch.batchId))!.drafts[0];
+  const clearResult = await resolveKnowledgeDraftForUser(clearUserId, {
+    batchId: clearBatch.batchId,
+    draftId: clearDraft.id,
+    expectedDraftVersion: clearDraft.version,
+    action: 'update',
+    targetKnowledgeItemId: clearTarget.id,
+    expectedTargetVersion: clearTarget.version,
+    reviewed: {
+      title: clearTarget.title, summary: '', content: 'Cleared selected dates.', topic: 'Lifecycle', tags: [],
+      knowledgeType: null, centralQuestion: null, structuredContent: null, bundleSchemaVersion: null,
+      observedAt: null,
+      validFrom: null,
+      reviewAt: null,
+    },
+  });
+  assert.equal(clearResult.resolved, true);
+  const cleared = getMemoryKnowledgeItemsForUser(clearUserId)[0];
+  assert.equal(cleared.observed_at, null);
+  assert.equal(cleared.valid_from, null);
+  assert.equal(cleared.valid_to, '2026-08-30T03:04:05.678Z');
+  assert.equal(cleared.review_at, null);
+
+  const invalidUserId = `user_lifecycle_invalid_${crypto.randomUUID()}`;
+  const invalidTarget = createMemoryKnowledgeItemForUser(invalidUserId, {
+    title: 'Guarded lifecycle', content: 'Must remain unchanged.', topic: 'Lifecycle',
+    validFrom: '2026-09-01T00:00:00.000Z',
+    validTo: '2026-09-30T00:00:00.000Z',
+  });
+  const invalidBatch = await createKnowledgeDraftBatchForUser(invalidUserId, {
+    provider: 'gemini', requestId: `lifecycle-invalid-${crypto.randomUUID()}`,
+    cards: [{ title: 'Invalid range candidate', topic: 'Lifecycle' }],
+  });
+  const invalidDraft = (await getKnowledgeDraftBatchForUser(invalidUserId, invalidBatch.batchId))!.drafts[0];
+  const before = {
+    version: invalidTarget.version,
+    sources: getMemoryKnowledgeSourcesForUser(invalidUserId).length,
+    evidence: getMemoryKnowledgeEvidenceForUser(invalidUserId).length,
+    activity: getMemoryKnowledgeActivityForUser(invalidUserId).length,
+  };
+  await assert.rejects(resolveKnowledgeDraftForUser(invalidUserId, {
+    batchId: invalidBatch.batchId,
+    draftId: invalidDraft.id,
+    expectedDraftVersion: invalidDraft.version,
+    action: 'merge',
+    targetKnowledgeItemId: invalidTarget.id,
+    expectedTargetVersion: invalidTarget.version,
+    reviewed: {
+      title: invalidTarget.title, summary: '', content: 'Invalid inherited interval.', topic: 'Lifecycle', tags: [],
+      knowledgeType: null, centralQuestion: null, structuredContent: null, bundleSchemaVersion: null,
+      validTo: '2026-08-31T23:59:59.999Z',
+    },
+  }), /validTo must not be earlier than validFrom/);
+  assert.equal(getMemoryKnowledgeItemsForUser(invalidUserId)[0]?.version, before.version);
+  assert.equal(getMemoryKnowledgeSourcesForUser(invalidUserId).length, before.sources);
+  assert.equal(getMemoryKnowledgeEvidenceForUser(invalidUserId).length, before.evidence);
+  assert.equal(getMemoryKnowledgeActivityForUser(invalidUserId).length, before.activity);
+  assert.equal((await getKnowledgeDraftBatchForUser(invalidUserId, invalidBatch.batchId))!.drafts[0].status, 'pending');
+});
+
+test('database resolution context retains milliseconds from native timestamp values', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const userId = 'owner-resolution-native-dates';
+  const draftId = 'draft-resolution-native-dates';
+  const targetId = 'target-resolution-native-dates';
+  const now = new Date('2030-01-01T00:00:00.000Z');
+
+  context.after(() => {
+    db.query = originalQuery;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string, params: unknown[] = []) => {
+    if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
+    if (text.includes('FROM knowledge_card_drafts d') && text.includes('WHERE d.id = $1')) {
+      assert.deepEqual(params, [draftId, userId]);
+      return { rows: [{
+        id: draftId,
+        batch_id: 'batch-resolution-native-dates',
+        client_card_id: 'native-dates',
+        title: 'Native date draft',
+        summary: '',
+        explanation: '',
+        topic: 'dates',
+        tags: [],
+        proposed_relations: [],
+        knowledge_type: null,
+        central_question: null,
+        structured_content: null,
+        bundle_schema_version: null,
+        dedupe_key: 'native-dates',
+        proposed_evidence: [],
+        resolution_action: null,
+        target_knowledge_item_id: null,
+        resolved_at: null,
+        status: 'pending',
+        version: 1,
+        knowledge_item_id: null,
+        created_at: now,
+        updated_at: now,
+      }] };
+    }
+    if (text.includes('FROM user_knowledge_items i') && text.includes('i.dedupe_key = $2')) {
+      return { rows: [] };
+    }
+    if (text.includes('FROM user_knowledge_items') && text.includes('WHERE id = $1')) {
+      assert.deepEqual(params, [targetId, userId]);
+      return { rows: [{
+        id: targetId,
+        title: 'Native target',
+        summary: '',
+        content: '',
+        topic: 'dates',
+        tags: [],
+        knowledge_type: null,
+        central_question: null,
+        structured_content: null,
+        bundle_schema_version: null,
+        observed_at: new Date('2026-08-01T01:02:03.456Z'),
+        valid_from: new Date('2026-08-02T02:03:04.567Z'),
+        valid_to: new Date('2026-08-30T03:04:05.678Z'),
+        review_at: new Date('2026-09-01T04:05:06.789Z'),
+        version: 1,
+      }] };
+    }
+    throw new Error(`Unexpected database query in native-date regression: ${text}`);
+  }) as typeof db.query;
+
+  const resolution = await getKnowledgeDraftResolutionContextForUser(userId, draftId, targetId);
+  assert.deepEqual(resolution?.target && {
+    observedAt: resolution.target.observed_at,
+    validFrom: resolution.target.valid_from,
+    validTo: resolution.target.valid_to,
+    reviewAt: resolution.target.review_at,
+  }, {
+    observedAt: '2026-08-01T01:02:03.456Z',
+    validFrom: '2026-08-02T02:03:04.567Z',
+    validTo: '2026-08-30T03:04:05.678Z',
+    reviewAt: '2026-09-01T04:05:06.789Z',
+  });
 });
 
 test('reviewed evidence permits removal and reorder but rejects added or tampered selectors', async () => {
@@ -776,6 +1001,149 @@ test('database draft approval partitions dynamically queued edge and update resu
   );
 });
 
+test('database per-draft resolution locks, resolves the actual node, inserts edges, then approves', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const userId = 'owner-single-resolution-edge';
+  const batchId = 'batch-single-resolution-edge';
+  const draftId = 'draft-single-resolution-edge';
+  const publicNodeId = 'mathematics';
+  const now = '2030-01-01T00:00:00.000Z';
+  const transactionCalls: Array<{ text: string; params: unknown[]; rows: unknown[] }> = [];
+  const fakeTransactionSql = {
+    transaction: async (callback: (tx: { query: (text: string, params?: unknown[]) => Promise<unknown[]> }) => Array<Promise<unknown[]>>) => {
+      const queries = callback({
+        query: (text, params = []) => {
+          const rows = text.includes('INSERT INTO user_graph_edges')
+            ? [{ id: 'persisted-edge' }]
+            : text.includes('AS approval_guard')
+              ? [{ approval_guard: 1 }]
+              : [{ marker: transactionCalls.length }];
+          transactionCalls.push({ text, params, rows });
+          return Promise.resolve(rows);
+        },
+      });
+      return Promise.all(queries);
+    },
+  };
+
+  const draftRow = {
+    id: draftId,
+    batch_id: batchId,
+    client_card_id: 'single-resolution-card',
+    title: 'Single resolution edge',
+    summary: 'Persist this relation.',
+    explanation: 'Persist this relation in the same transaction.',
+    topic: 'relations',
+    tags: [],
+    proposed_relations: [{
+      targetKind: 'public',
+      targetId: `graph_${publicNodeId}`,
+      type: 'supports',
+      direction: 'outgoing',
+      weight: 0.65,
+      relationOrigin: 'explicit_user',
+    }],
+    knowledge_type: null,
+    central_question: null,
+    structured_content: null,
+    bundle_schema_version: null,
+    dedupe_key: 'single-resolution-edge',
+    proposed_evidence: [],
+    resolution_action: null,
+    target_knowledge_item_id: null,
+    resolved_at: null,
+    status: 'pending',
+    version: 1,
+    knowledge_item_id: null,
+    created_at: now,
+    updated_at: now,
+  };
+
+  context.after(() => {
+    db.query = originalQuery;
+    setKnowledgeTransactionSqlForTesting(null);
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string, params: unknown[] = []) => {
+    if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
+    if (text.includes('FROM knowledge_card_drafts d') && text.includes('WHERE d.id = $1')) {
+      assert.deepEqual(params, [draftId, userId]);
+      return { rows: [draftRow] };
+    }
+    if (text.includes('FROM user_knowledge_items i') && text.includes('i.dedupe_key = $2')) {
+      return { rows: [] };
+    }
+    if (text.includes('WHERE b.id = $1 AND b.user_id = $2')) {
+      assert.deepEqual(params, [batchId, userId]);
+      return { rows: [{
+        id: batchId,
+        provider: 'chatgpt',
+        status: 'pending',
+        conversation_ref: null,
+        source_url: null,
+        discussed_at: null,
+        draft_count: 1,
+        pending_count: 1,
+        approved_count: 0,
+        created_at: now,
+        updated_at: now,
+        committed_at: null,
+      }] };
+    }
+    if (text.includes('FROM knowledge_card_drafts WHERE batch_id = $1 AND user_id = $2')) {
+      assert.deepEqual(params, [batchId, userId]);
+      return { rows: [draftRow] };
+    }
+    if (text.includes('SELECT id FROM graph_nodes')) {
+      assert.deepEqual(params, [publicNodeId]);
+      return { rows: [{ id: publicNodeId }] };
+    }
+    throw new Error(`Unexpected database query in single-resolution edge regression: ${text}`);
+  }) as typeof db.query;
+  setKnowledgeTransactionSqlForTesting(
+    fakeTransactionSql as unknown as NonNullable<Parameters<typeof setKnowledgeTransactionSqlForTesting>[0]>,
+  );
+
+  const result = await resolveKnowledgeDraftForUser(userId, {
+    batchId,
+    draftId,
+    expectedDraftVersion: 1,
+    action: 'create',
+  });
+  assert.equal(result.resolved, true);
+  assert.equal(result.skippedEdges, 0);
+
+  const accountLockIndex = transactionCalls.findIndex((call) => call.text.includes('pg_advisory_xact_lock')
+    && String(call.params[0] ?? '').startsWith('mcp-account-lifecycle:'));
+  const draftLockIndex = transactionCalls.findIndex((call) => call.params[0] === `knowledge-draft:${userId}:${batchId}`);
+  const graphLockIndex = transactionCalls.findIndex((call) => call.params[0] === `knowledge-graph:${userId}`);
+  const draftGuardIndex = transactionCalls.findIndex((call) => call.text.includes('AS draft_version_guard'));
+  const nodeIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO user_graph_nodes'));
+  const edgeIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO user_graph_edges'));
+  const approvalIndex = transactionCalls.findIndex((call) => call.text.includes('AS approval_guard'));
+  assert.ok(accountLockIndex >= 0 && draftLockIndex > accountLockIndex);
+  assert.ok(graphLockIndex > draftLockIndex && draftGuardIndex > graphLockIndex);
+  assert.ok(nodeIndex > draftGuardIndex && edgeIndex > nodeIndex && approvalIndex > edgeIndex);
+  assert.match(transactionCalls[draftGuardIndex]!.text, /FOR UPDATE OF d/);
+  assert.match(transactionCalls[edgeIndex]!.text, /n\.user_id = \$2 AND i\.id = \$3/);
+  assert.match(transactionCalls[edgeIndex]!.text, /i\.deleted_at IS NULL AND i\.archived_at IS NULL/);
+  assert.match(transactionCalls[edgeIndex]!.text, /knowledge_item_supersessions/);
+  assert.match(transactionCalls[edgeIndex]!.text, /source_batch_id, relation_origin/);
+  assert.match(transactionCalls[edgeIndex]!.text, /'conversation'/);
+  assert.match(transactionCalls[edgeIndex]!.text, /WITH RECURSIVE all_edges/);
+  assert.equal(transactionCalls[edgeIndex]!.params[2], result.knowledgeItemId);
+  assert.equal(transactionCalls[edgeIndex]!.params[5], publicNodeId);
+  assert.equal(transactionCalls[edgeIndex]!.params[7], 0.65);
+  assert.equal(transactionCalls[edgeIndex]!.params[8], batchId);
+  assert.equal(transactionCalls[edgeIndex]!.params[9], 'explicit_user');
+  assert.match(transactionCalls[approvalIndex]!.text, /WITH approved AS MATERIALIZED/);
+  assert.match(transactionCalls[approvalIndex]!.text, /THEN 1 ELSE 0 END AS approval_guard/);
+});
+
 test('archive and unarchive are optimistic versioned transitions with restored active history', async () => {
   const userId = `user_archive_lifecycle_${crypto.randomUUID()}`;
   const item = createMemoryKnowledgeItemForUser(userId, {
@@ -1313,6 +1681,292 @@ test('server approval requires pending draft dependencies so their edge is not l
   const graph = await getPrivateKnowledgeGraphForUser(userId);
   assert.equal(graph.nodes.length, 2);
   assert.equal(graph.edges.length, 1);
+});
+
+test('per-draft create persists reviewed conversation relations with direction, weight, and provenance', async () => {
+  const userId = `user_single_relation_create_${crypto.randomUUID()}`;
+  const privateTarget = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Existing private target', content: 'A canonical dependency.', topic: 'Relations',
+  });
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'chatgpt',
+    requestId: `single-relation-create-${crypto.randomUUID()}`,
+    cards: [{
+      clientCardId: 'relation-source',
+      title: 'Reviewed relation source',
+      topic: 'Relations',
+      relations: [
+        {
+          targetKind: 'public', targetId: 'graph_mathematics', type: 'related',
+          direction: 'outgoing', weight: 0.4, relationOrigin: 'extracted_from_source',
+        },
+        {
+          targetKind: 'private', targetId: privateTarget.id, type: 'derived_from',
+          direction: 'incoming', weight: 0.75, relationOrigin: 'explicit_user',
+        },
+      ],
+    }],
+  });
+  const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  const result = await resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: draft.id,
+    expectedDraftVersion: draft.version,
+    action: 'create',
+  });
+  assert.equal(result.resolved, true);
+  assert.equal(result.skippedEdges, 0);
+  assert.ok(result.knowledgeItemId);
+
+  const edges = getMemoryPrivateKnowledgeEdgesForTesting(userId);
+  assert.equal(edges.length, 2);
+  const publicEdge = edges.find((edge) => edge.type === 'related');
+  assert.ok(publicEdge);
+  assert.deepEqual(new Set([publicEdge.source, publicEdge.target]), new Set([
+    `personal:${result.knowledgeItemId}`,
+    'graph_mathematics',
+  ]));
+  assert.equal(publicEdge.weight, 0.4);
+  assert.equal(publicEdge.origin, 'conversation');
+  assert.equal(publicEdge.relation_origin, 'extracted_from_source');
+  const incoming = edges.find((edge) => edge.type === 'derived_from');
+  assert.equal(incoming?.source, `personal:${privateTarget.id}`);
+  assert.equal(incoming?.target, `personal:${result.knowledgeItemId}`);
+  assert.equal(incoming?.weight, 0.75);
+  assert.equal(incoming?.origin, 'conversation');
+  assert.equal(incoming?.relation_origin, 'explicit_user');
+});
+
+test('concurrent memory resolutions commit one related item and one edge', async () => {
+  const userId = `user_single_relation_race_${crypto.randomUUID()}`;
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'chatgpt',
+    requestId: `single-relation-race-${crypto.randomUUID()}`,
+    cards: [{
+      title: 'Single-flight relation source',
+      relations: [{ targetKind: 'public', targetId: 'graph_mathematics', type: 'supports' }],
+    }],
+  });
+  const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  const input = {
+    batchId: created.batchId,
+    draftId: draft.id,
+    expectedDraftVersion: draft.version,
+    action: 'create' as const,
+  };
+  const results = await Promise.all([
+    resolveKnowledgeDraftForUser(userId, input),
+    resolveKnowledgeDraftForUser(userId, input),
+  ]);
+  const successful = results.filter((result) => result.resolved);
+  const stale = results.filter((result) => !result.resolved && result.stale);
+  assert.equal(successful.length, 1);
+  assert.equal(stale.length, 1);
+  assert.equal(getMemoryKnowledgeItemsForUser(userId).length, 1);
+  assert.equal(getMemoryPrivateKnowledgeEdgesForTesting(userId).length, 1);
+  const resolvedDraft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  assert.equal(resolvedDraft.status, 'approved');
+  assert.equal(resolvedDraft.knowledge_item_id, successful[0]?.knowledgeItemId);
+});
+
+test('per-draft merge and update connect through one canonical graph node', async () => {
+  const userId = `user_single_relation_revision_${crypto.randomUUID()}`;
+  const target = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Canonical relation target', content: 'Version one.', topic: 'Relations',
+  });
+  const initialGraph = await getPrivateKnowledgeGraphForUser(userId);
+  const canonicalNodeId = initialGraph.nodes.find((node) => node.knowledge_item_id === target.id)?.graph_node_id;
+  assert.ok(canonicalNodeId);
+
+  let expectedTargetVersion = target.version;
+  for (const [action, publicTarget] of [
+    ['merge', 'mathematics'],
+    ['update', 'computer_science'],
+  ] as const) {
+    const created = await createKnowledgeDraftBatchForUser(userId, {
+      provider: 'claude',
+      requestId: `single-relation-${action}-${crypto.randomUUID()}`,
+      cards: [{
+        title: `${action} relation candidate`,
+        topic: 'Relations',
+        relations: [{
+          targetKind: 'public', targetId: `graph_${publicTarget}`, type: 'supports',
+          direction: 'outgoing', relationOrigin: 'model_inferred',
+        }],
+      }],
+    });
+    const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+    const result = await resolveKnowledgeDraftForUser(userId, {
+      batchId: created.batchId,
+      draftId: draft.id,
+      expectedDraftVersion: draft.version,
+      action,
+      targetKnowledgeItemId: target.id,
+      expectedTargetVersion,
+      reviewed: {
+        title: `Canonical after ${action}`,
+        summary: '',
+        content: `Canonical content after ${action}.`,
+        topic: 'Relations',
+        tags: [],
+        knowledgeType: null,
+        centralQuestion: null,
+        structuredContent: null,
+        bundleSchemaVersion: null,
+      },
+    });
+    assert.equal(result.resolved, true);
+    assert.equal(result.skippedEdges, 0);
+    expectedTargetVersion += 1;
+    assert.equal(result.version, expectedTargetVersion);
+  }
+
+  const graph = await getPrivateKnowledgeGraphForUser(userId);
+  assert.equal(graph.nodes.filter((node) => node.knowledge_item_id === target.id).length, 1);
+  assert.equal(graph.nodes.find((node) => node.knowledge_item_id === target.id)?.graph_node_id, canonicalNodeId);
+  assert.deepEqual(
+    new Set(graph.edges.filter((edge) => edge.type === 'supports').map((edge) => `${edge.source}->${edge.target}`)),
+    new Set([
+      `personal:${target.id}->graph_mathematics`,
+      `personal:${target.id}->graph_computer_science`,
+    ]),
+  );
+});
+
+test('per-draft merge and update restore a missing canonical graph node before adding relations', async () => {
+  const userId = `user_single_relation_missing_node_${crypto.randomUUID()}`;
+
+  for (const action of ['merge', 'update'] as const) {
+    const target = createMemoryKnowledgeItemForUser(userId, {
+      title: `${action} target without graph node`,
+      content: 'Canonical content.',
+      topic: 'Relations',
+    }, { syncGraph: false });
+    assert.equal(
+      (await getPrivateKnowledgeGraphForUser(userId)).nodes.some(
+        (node) => node.knowledge_item_id === target.id,
+      ),
+      false,
+    );
+
+    const created = await createKnowledgeDraftBatchForUser(userId, {
+      provider: 'other',
+      requestId: `single-relation-missing-node-${action}-${crypto.randomUUID()}`,
+      cards: [{
+        title: `${action} candidate`,
+        topic: 'Relations',
+        relations: [{ targetKind: 'public', targetId: 'graph_mathematics', type: 'supports' }],
+      }],
+    });
+    const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+    const result = await resolveKnowledgeDraftForUser(userId, {
+      batchId: created.batchId,
+      draftId: draft.id,
+      expectedDraftVersion: draft.version,
+      action,
+      targetKnowledgeItemId: target.id,
+      expectedTargetVersion: target.version,
+      reviewed: {
+        title: `${action} canonical with relation`,
+        summary: '',
+        content: 'Reviewed content.',
+        topic: 'Relations',
+        tags: [],
+        knowledgeType: null,
+        centralQuestion: null,
+        structuredContent: null,
+        bundleSchemaVersion: null,
+      },
+    });
+
+    assert.equal(result.resolved, true);
+    assert.equal(result.skippedEdges, 0);
+    const graph = await getPrivateKnowledgeGraphForUser(userId);
+    assert.equal(graph.nodes.filter((node) => node.knowledge_item_id === target.id).length, 1);
+    assert.ok(graph.edges.some((edge) => (
+      edge.source === `personal:${target.id}`
+      && edge.target === 'graph_mathematics'
+      && edge.type === 'supports'
+    )));
+  }
+});
+
+test('per-draft resolution keeps a source pending until its draft dependency is canonical', async () => {
+  const userId = `user_single_relation_dependency_${crypto.randomUUID()}`;
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'gemini',
+    requestId: `single-relation-dependency-${crypto.randomUUID()}`,
+    cards: [
+      {
+        clientCardId: 'single-source',
+        title: 'Single source',
+        relations: [{ targetKind: 'draft', targetId: 'single-target', type: 'related' }],
+      },
+      { clientCardId: 'single-target', title: 'Single target' },
+    ],
+  });
+  const loaded = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!;
+  const source = loaded.drafts.find((draft) => draft.client_card_id === 'single-source')!;
+  const target = loaded.drafts.find((draft) => draft.client_card_id === 'single-target')!;
+
+  const blocked = await resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: source.id,
+    expectedDraftVersion: source.version,
+    action: 'create',
+  });
+  assert.equal(blocked.resolved, false);
+  assert.equal(blocked.pendingDependency, true);
+  assert.equal(blocked.stale, undefined);
+  assert.equal(getMemoryKnowledgeItemsForUser(userId).length, 0);
+  assert.equal((await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts.find((draft) => draft.id === source.id)?.status, 'pending');
+
+  const targetResult = await resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: target.id,
+    expectedDraftVersion: target.version,
+    action: 'create',
+  });
+  assert.equal(targetResult.resolved, true);
+  const sourceResult = await resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: source.id,
+    expectedDraftVersion: source.version,
+    action: 'create',
+  });
+  assert.equal(sourceResult.resolved, true);
+  assert.equal(sourceResult.skippedEdges, 0);
+  assert.deepEqual(getMemoryPrivateKnowledgeEdgesForTesting(userId).map((edge) => new Set([edge.source, edge.target])), [
+    new Set([`personal:${sourceResult.knowledgeItemId}`, `personal:${targetResult.knowledgeItemId}`]),
+  ]);
+});
+
+test('per-draft self and missing targets are counted without corrupting canonical approval', async () => {
+  const userId = `user_single_relation_skips_${crypto.randomUUID()}`;
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'other',
+    requestId: `single-relation-skips-${crypto.randomUUID()}`,
+    cards: [{
+      clientCardId: 'self-card',
+      title: 'Self relation candidate',
+      relations: [
+        { targetKind: 'draft', targetId: 'self-card', type: 'related' },
+        { targetKind: 'public', targetId: 'graph_missing-public-node', type: 'supports' },
+      ],
+    }],
+  });
+  const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  const result = await resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: draft.id,
+    expectedDraftVersion: draft.version,
+    action: 'create',
+  });
+  assert.equal(result.resolved, true);
+  assert.equal(result.skippedEdges, 2);
+  assert.equal(getMemoryKnowledgeItemsForUser(userId).length, 1);
+  assert.equal(getMemoryPrivateKnowledgeEdgesForTesting(userId).length, 0);
+  assert.equal((await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0].status, 'approved');
 });
 
 test('skips prerequisite cycles and symmetric duplicates, then restores trashed graph data', async () => {

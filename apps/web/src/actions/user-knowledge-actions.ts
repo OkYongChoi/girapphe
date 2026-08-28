@@ -47,6 +47,7 @@ import {
 } from '@/lib/knowledge-ingestion';
 import { parseKnowledgeBundleFields, projectKnowledgeBundle, type KnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
 import { KNOWLEDGE_ITEM_UPDATE_QUERY } from '@/lib/knowledge-item-update-query';
+import { readKnowledgeResolutionTimestampField } from '@/lib/local-datetime';
 import { getTopicKnowledgeHubForUser, type TopicKnowledgeHub } from '@/lib/topic-knowledge-hub';
 
 export type UserKnowledgeItem = {
@@ -132,7 +133,10 @@ function readEvidenceSelectors(formData: FormData): KnowledgeEvidenceSelector[] 
   return selectors;
 }
 
-function readReviewedKnowledgePayload(formData: FormData): ReviewedKnowledgePayload {
+function readReviewedKnowledgePayload(
+  formData: FormData,
+  action: 'create' | 'merge' | 'update',
+): ReviewedKnowledgePayload {
   const title = sanitizeKnowledgeTitle(readStringField(formData, 'title', 120, true));
   const requestedSummary = sanitizeKnowledgeContent(readStringField(formData, 'summary', 500), 500);
   const requestedContent = sanitizeKnowledgeContent(readStringField(formData, 'content', 6000));
@@ -156,9 +160,12 @@ function readReviewedKnowledgePayload(formData: FormData): ReviewedKnowledgePayl
     throw new Error('A knowledge type is required for structured content.');
   }
   const projection = bundle ? projectKnowledgeBundle(bundle, requestedSummary) : null;
-  const observedAt = readOptionalTimestampField(formData, 'observed_at');
-  const validFrom = readOptionalTimestampField(formData, 'valid_from');
-  const validTo = readOptionalTimestampField(formData, 'valid_to');
+  const readLifecycleField = (name: 'observed_at' | 'valid_from' | 'valid_to' | 'review_at') => (
+    readKnowledgeResolutionTimestampField(formData, name, action)
+  );
+  const observedAt = readLifecycleField('observed_at');
+  const validFrom = readLifecycleField('valid_from');
+  const validTo = readLifecycleField('valid_to');
   if (validFrom && validTo && new Date(validTo).getTime() < new Date(validFrom).getTime()) {
     throw new Error('valid_to must not be earlier than valid_from.');
   }
@@ -176,7 +183,7 @@ function readReviewedKnowledgePayload(formData: FormData): ReviewedKnowledgePayl
     observedAt,
     validFrom,
     validTo,
-    reviewAt: readOptionalTimestampField(formData, 'review_at'),
+    reviewAt: readLifecycleField('review_at'),
     evidenceSelectors: readEvidenceSelectors(formData),
   };
 }
@@ -961,7 +968,7 @@ export async function resolveKnowledgeDraft(formData: FormData): Promise<Resolve
 
   let targetKnowledgeItemId: string | undefined;
   let expectedTargetVersion: number | undefined;
-  const reviewed: ReviewedKnowledgePayload = readReviewedKnowledgePayload(formData);
+  const reviewed: ReviewedKnowledgePayload = readReviewedKnowledgePayload(formData, action);
   if (action === 'merge' || action === 'update') {
     targetKnowledgeItemId = readIdentifierField(formData, 'target_item_id');
     expectedTargetVersion = readPositiveIntegerField(formData, 'target_version');

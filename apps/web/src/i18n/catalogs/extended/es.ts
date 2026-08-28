@@ -211,6 +211,7 @@ export const EXTRA_ES_MESSAGES = {
   "resolution.ignoring": "Ignorando…",
   "resolution.ignoreConfirm": "¿Ignorar este candidato? No se creará conocimiento canónico.",
   "resolution.changed": "El candidato o destino cambió en otra sesión. Recarga antes de resolverlo.",
+  "resolution.pendingDependency": "Aprueba primero el candidato relacionado pendiente o aprueba ambos juntos desde la bandeja del lote.",
   "resolution.resolveError": "No se pudo resolver el candidato. Revisa los campos finales e inténtalo de nuevo.",
   "resolution.ignoreChanged": "El candidato cambió en otra sesión. Recarga antes de ignorarlo.",
   "resolution.ignoreError": "No se pudo ignorar el candidato.",

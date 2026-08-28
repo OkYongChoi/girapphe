@@ -199,6 +199,7 @@ test('merge requires both optimistic versions and writes reviewed history, prove
     action: 'merge',
     knowledgeItemId: target.id,
     version: 2,
+    skippedEdges: 0,
   });
   assert.equal(getMemoryKnowledgeItemsForUser(userId)[0]?.content, 'The user-reviewed final content, without synthesized merging.');
 

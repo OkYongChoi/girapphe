@@ -9,7 +9,11 @@ import { LocalizedLink, localizeHref } from '@/i18n/navigation';
 import { useI18n } from '@/i18n/client';
 import type { TranslationValues } from '@/i18n';
 import type { MessageKey } from '@/i18n/messages';
-import { normalizeLocalDateTimeFields } from '@/lib/local-datetime';
+import {
+  prepareKnowledgeLifecycleFormData,
+  type KnowledgeLifecycleExactDefaults,
+  type KnowledgeLifecycleLocalDefaults,
+} from '@/lib/local-datetime';
 import {
   ignoreKnowledgeDraft,
   resolveKnowledgeDraft,
@@ -68,6 +72,12 @@ function asLocalDateTime(value: string | null | undefined) {
   return local.toISOString().slice(0, 16);
 }
 
+function asExactIso(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 function evidenceLocation(
   evidence: KnowledgeCardDraft['proposed_evidence'][number],
 ): { key: MessageKey; values: TranslationValues } {
@@ -82,9 +92,6 @@ function ResolutionButtons({ hasTarget }: { hasTarget: boolean }) {
   const { t } = useI18n();
   return (
     <div className="flex flex-wrap gap-2">
-      <button name="resolution_action" value="create" disabled={pending} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50">
-        {pending ? t('topic.lifecycle.saving') : t('resolution.saveNew')}
-      </button>
       {hasTarget ? (
         <>
           <button name="resolution_action" value="merge" disabled={pending} onClick={(event) => { if (!window.confirm(t('resolution.mergeConfirm'))) event.preventDefault(); }} className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
@@ -94,7 +101,11 @@ function ResolutionButtons({ hasTarget }: { hasTarget: boolean }) {
             {t('resolution.update')}
           </button>
         </>
-      ) : null}
+      ) : (
+        <button name="resolution_action" value="create" disabled={pending} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+          {pending ? t('topic.lifecycle.saving') : t('resolution.saveNew')}
+        </button>
+      )}
     </div>
   );
 }
@@ -135,16 +146,50 @@ export default function DraftResolutionPanel({
   const existing = target ? targetSeed(target) : null;
   const seed = seedChoice === 'existing' && existing ? existing : candidate;
   const eventObservedAt = draft.structured_content?.type === 'event' ? draft.structured_content.occurred_at : null;
+  const createLifecycleDefaults: KnowledgeLifecycleLocalDefaults = {
+    observed_at: asLocalDateTime(eventObservedAt),
+    review_at: '',
+    valid_from: '',
+    valid_to: '',
+  };
+  const createLifecycleExactDefaults: KnowledgeLifecycleExactDefaults = {
+    observed_at: asExactIso(eventObservedAt),
+    review_at: null,
+    valid_from: null,
+    valid_to: null,
+  };
+  const targetLifecycleDefaults: KnowledgeLifecycleLocalDefaults | null = target ? {
+    observed_at: asLocalDateTime(target.observed_at),
+    review_at: asLocalDateTime(target.review_at),
+    valid_from: asLocalDateTime(target.valid_from),
+    valid_to: asLocalDateTime(target.valid_to),
+  } : null;
+  const lifecycleDefaults = targetLifecycleDefaults ?? createLifecycleDefaults;
   const reviewedEvidence = draft.proposed_evidence.filter((_, index) => selectedEvidenceIndexes.has(index));
 
   const resolve = async (formData: FormData) => {
     setError(null);
     try {
-      normalizeLocalDateTimeFields(formData, ['observed_at', 'review_at', 'valid_from', 'valid_to']);
+      prepareKnowledgeLifecycleFormData(
+        formData,
+        String(formData.get('resolution_action') ?? ''),
+        targetLifecycleDefaults,
+        createLifecycleDefaults,
+        createLifecycleExactDefaults,
+      );
       const result = await resolveKnowledgeDraft(formData);
       if (!result.resolved) {
-        setError(result.stale ? t('resolution.changed') : t('resolution.resolveError'));
+        setError(result.pendingDependency
+          ? t('resolution.pendingDependency')
+          : result.stale ? t('resolution.changed') : t('resolution.resolveError'));
         router.refresh();
+        return;
+      }
+      if ((result.skippedEdges ?? 0) > 0) {
+        window.location.assign(String(localizeHref(
+          `/knowledge-inbox?approved=1&skippedEdges=${result.skippedEdges}`,
+          locale,
+        )));
         return;
       }
       const topic = String(formData.get('topic') ?? draft.topic);
@@ -250,6 +295,7 @@ export default function DraftResolutionPanel({
           <input type="hidden" name="batch_id" value={batchId} />
           <input type="hidden" name="draft_id" value={draft.id} />
           <input type="hidden" name="draft_version" value={draft.version} />
+          <input type="hidden" name="lifecycle_patch_semantics" value="tri_state_v1" />
           <input type="hidden" name="evidence_selectors_json" value={JSON.stringify(reviewedEvidence)} />
           {target ? <><input type="hidden" name="target_item_id" value={target.id} /><input type="hidden" name="target_version" value={target.version} /></> : null}
 
@@ -265,10 +311,10 @@ export default function DraftResolutionPanel({
           <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <summary className="cursor-pointer text-sm font-bold text-slate-800">{t('resolution.metadata')}</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1 text-xs font-bold text-slate-700">{t('bundle.field.occurredAt')}<input type="datetime-local" name="observed_at" defaultValue={asLocalDateTime(eventObservedAt)} className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
-              <label className="grid gap-1 text-xs font-bold text-slate-700">{t('topic.lifecycle.reviewAt')}<input type="datetime-local" name="review_at" className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
-              <label className="grid gap-1 text-xs font-bold text-slate-700">{t('notes.from')}<input type="datetime-local" name="valid_from" className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
-              <label className="grid gap-1 text-xs font-bold text-slate-700">{t('notes.to')}<input type="datetime-local" name="valid_to" className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
+              <label className="grid gap-1 text-xs font-bold text-slate-700">{t('bundle.field.occurredAt')}<input type="datetime-local" name="observed_at" defaultValue={lifecycleDefaults.observed_at} className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
+              <label className="grid gap-1 text-xs font-bold text-slate-700">{t('topic.lifecycle.reviewAt')}<input type="datetime-local" name="review_at" defaultValue={lifecycleDefaults.review_at} className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
+              <label className="grid gap-1 text-xs font-bold text-slate-700">{t('notes.from')}<input type="datetime-local" name="valid_from" defaultValue={lifecycleDefaults.valid_from} className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
+              <label className="grid gap-1 text-xs font-bold text-slate-700">{t('notes.to')}<input type="datetime-local" name="valid_to" defaultValue={lifecycleDefaults.valid_to} className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
             </div>
             {draft.proposed_evidence.length > 0 ? (
               <fieldset className="mt-4">

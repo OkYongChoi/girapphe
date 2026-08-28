@@ -179,6 +179,30 @@ export type MobileCandidateDraft = {
   }>;
 };
 
+export type MobileCandidateResolutionResult = {
+  resolved: boolean;
+  action: 'create' | 'ignore';
+  knowledgeItemId: string | null;
+  version: number | null;
+  skippedEdges?: number;
+};
+
+export class MobileApiRequestError extends Error {
+  readonly code: string | null;
+
+  constructor(message: string, code: string | null) {
+    super(message);
+    this.name = 'MobileApiRequestError';
+    this.code = code;
+  }
+}
+
+function readApiErrorCode(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object' || !('code' in payload)) return null;
+  const code = (payload as { code?: unknown }).code;
+  return typeof code === 'string' && /^[A-Z0-9_]{1,80}$/.test(code) ? code : null;
+}
+
 function getBaseUrl() {
   if (!apiBaseUrl) throw new Error(translate(getActiveLocale(), 'api.missingUrl'));
   return apiBaseUrl;
@@ -216,9 +240,14 @@ async function authenticatedFetch(path: string, init?: RequestInit): Promise<Res
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const locale = getActiveLocale();
   const response = await authenticatedFetch(path, init);
-  const payload = await response.json().catch(() => ({})) as T;
-  if (!response.ok) throw new Error(translate(locale, 'api.requestFailed', { status: new Intl.NumberFormat(locale).format(response.status) }));
-  return payload;
+  const payload: unknown = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      translate(locale, 'api.requestFailed', { status: new Intl.NumberFormat(locale).format(response.status) }),
+      readApiErrorCode(payload),
+    );
+  }
+  return payload as T;
 }
 
 async function publicRequest<T>(path: string): Promise<T> {

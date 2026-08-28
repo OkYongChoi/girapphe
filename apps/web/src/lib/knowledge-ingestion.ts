@@ -178,6 +178,10 @@ export type KnowledgeResolutionTarget = {
   central_question: string | null;
   structured_content: KnowledgeBundleContent | null;
   bundle_schema_version: number | null;
+  observed_at: string | null;
+  valid_from: string | null;
+  valid_to: string | null;
+  review_at: string | null;
   version: number;
 };
 
@@ -220,6 +224,8 @@ export type ResolveKnowledgeDraftResult = {
   knowledgeItemId: string | null;
   version: number | null;
   stale?: boolean;
+  pendingDependency?: boolean;
+  skippedEdges?: number;
 };
 
 export type KnowledgeItemUpdateResult =
@@ -2267,6 +2273,86 @@ type ResolvedEndpoint = {
   key: string;
 };
 
+type LogicalResolvedEndpoint = {
+  knowledgeItemId: string | null;
+  publicNodeId: string | null;
+};
+
+function toLogicalResolvedEndpoint(endpoint: ResolvedEndpoint): LogicalResolvedEndpoint {
+  return {
+    knowledgeItemId: endpoint.knowledgeItemId,
+    publicNodeId: endpoint.publicNodeId,
+  };
+}
+
+function resolveLogicalMemoryEndpointForUser(
+  userId: string,
+  endpoint: LogicalResolvedEndpoint,
+): ResolvedEndpoint | null {
+  if (endpoint.publicNodeId) {
+    return GRAPH_NODES.some((node) => node.id === endpoint.publicNodeId)
+      ? {
+          privateNodeId: null,
+          publicNodeId: endpoint.publicNodeId,
+          knowledgeItemId: null,
+          key: `public:${endpoint.publicNodeId}`,
+        }
+      : null;
+  }
+  if (!endpoint.knowledgeItemId) return null;
+  const supersededIds = new Set((memoryItemSupersessions.get(userId) ?? [])
+    .map((entry) => entry.superseded_item_id));
+  const item = (memoryKnowledgeItems.get(userId) ?? []).find((candidate) => (
+    candidate.id === endpoint.knowledgeItemId
+    && !candidate.deleted_at
+    && !candidate.archived_at
+    && !supersededIds.has(candidate.id)
+  ));
+  if (!item) return null;
+  const node = (memoryNodes.get(userId) ?? [])
+    .find((candidate) => candidate.knowledge_item_id === item.id);
+  return node ? {
+    privateNodeId: node.graph_node_id,
+    publicNodeId: null,
+    knowledgeItemId: item.id,
+    key: `private:${node.graph_node_id}`,
+  } : null;
+}
+
+function insertResolvedMemoryEdgeForUser(
+  userId: string,
+  rawSource: ResolvedEndpoint,
+  rawTarget: ResolvedEndpoint,
+  type: KnowledgeRelationType,
+  weight: number,
+  origin: 'manual' | 'conversation',
+  relationOrigin: KnowledgeRelationOrigin,
+): boolean {
+  const [source, target] = normalizeSymmetricEndpoints(rawSource, rawTarget, type);
+  if (source.key === target.key) return false;
+  if (type === 'prerequisite' && memoryPrerequisitePathExists(userId, target.key, source.key)) return false;
+  const edges = memoryEdges.get(userId) ?? [];
+  if (edges.some((edge) => edge.type === type
+    && presentationEndpointToKey(edge.source, userId) === source.key
+    && presentationEndpointToKey(edge.target, userId) === target.key)) return false;
+  const toPresentation = (endpoint: ResolvedEndpoint) => endpoint.privateNodeId
+    ? `personal:${endpoint.knowledgeItemId}`
+    : `graph_${endpoint.publicNodeId}`;
+  edges.push({
+    id: randomUUID(),
+    source: toPresentation(source),
+    target: toPresentation(target),
+    type,
+    weight,
+    origin,
+    relation_origin: relationOrigin,
+    confirmed_at: new Date().toISOString(),
+    created_at: new Date().toISOString(),
+  });
+  memoryEdges.set(userId, edges);
+  return true;
+}
+
 function normalizeSymmetricEndpoints(
   source: ResolvedEndpoint,
   target: ResolvedEndpoint,
@@ -2381,21 +2467,15 @@ async function insertResolvedEdgeForUser(
   if (source.key === target.key) return false;
 
   if (!process.env.DATABASE_URL) {
-    if (type === 'prerequisite' && memoryPrerequisitePathExists(userId, target.key, source.key)) return false;
-    const edges = memoryEdges.get(userId) ?? [];
-    if (edges.some((edge) => edge.type === type && presentationEndpointToKey(edge.source, userId) === source.key && presentationEndpointToKey(edge.target, userId) === target.key)) return false;
-    const toPresentation = (endpoint: ResolvedEndpoint) => endpoint.privateNodeId
-      ? `personal:${endpoint.knowledgeItemId}`
-      : `graph_${endpoint.publicNodeId}`;
-    edges.push({
-      id: randomUUID(), source: toPresentation(source), target: toPresentation(target), type,
-      weight, origin,
-      relation_origin: relationOrigin,
-      confirmed_at: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-    });
-    memoryEdges.set(userId, edges);
-    return true;
+    return insertResolvedMemoryEdgeForUser(
+      userId,
+      source,
+      target,
+      type,
+      weight,
+      origin,
+      relationOrigin,
+    );
   }
 
   const [result] = await pool.accountTransaction<{ id: string }>(userId, [{
@@ -2698,6 +2778,18 @@ function mapResolutionTarget(row: Record<string, unknown>): KnowledgeResolutionT
     central_question: bundle?.central_question ?? null,
     structured_content: bundle?.structured_content ?? null,
     bundle_schema_version: bundle?.bundle_schema_version ?? null,
+    observed_at: row.observed_at
+      ? (row.observed_at instanceof Date ? row.observed_at : new Date(String(row.observed_at))).toISOString()
+      : null,
+    valid_from: row.valid_from
+      ? (row.valid_from instanceof Date ? row.valid_from : new Date(String(row.valid_from))).toISOString()
+      : null,
+    valid_to: row.valid_to
+      ? (row.valid_to instanceof Date ? row.valid_to : new Date(String(row.valid_to))).toISOString()
+      : null,
+    review_at: row.review_at
+      ? (row.review_at instanceof Date ? row.review_at : new Date(String(row.review_at))).toISOString()
+      : null,
     version: Number(row.version ?? 1),
   };
 }
@@ -2932,7 +3024,8 @@ export async function getKnowledgeDraftResolutionContextForUser(
     } else {
       const result = await pool.query<Record<string, unknown>>(
         `SELECT id, title, summary, content, topic, tags, knowledge_type, central_question,
-           structured_content, bundle_schema_version, version
+           structured_content, bundle_schema_version, observed_at, valid_from, valid_to,
+           review_at, version
          FROM user_knowledge_items
          WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL AND archived_at IS NULL
            AND NOT EXISTS (
@@ -3050,6 +3143,92 @@ async function resolveDraftRelationTarget(
   return resolveEndpointForUser(userId, `personal:${draft.knowledge_item_id}`, { allowPublic: false, createPersonalNode: false });
 }
 
+type DraftResolutionRelationCandidate = {
+  source: LogicalResolvedEndpoint;
+  target: LogicalResolvedEndpoint;
+  relation: ProposedKnowledgeRelation;
+};
+
+export const DRAFT_RESOLUTION_EDGE_INSERT_SQL = `
+  WITH resolved AS MATERIALIZED (
+    SELECT
+      (
+        SELECT n.id
+        FROM user_graph_nodes n
+        JOIN user_knowledge_items i ON i.id = n.knowledge_item_id AND i.user_id = n.user_id
+        WHERE $3::text IS NOT NULL AND n.user_id = $2 AND i.id = $3
+          AND n.deleted_at IS NULL AND i.deleted_at IS NULL AND i.archived_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM knowledge_item_supersessions s
+            WHERE s.user_id = i.user_id AND s.superseded_item_id = i.id
+          )
+        LIMIT 1
+      ) AS source_private_node_id,
+      (SELECT n.id FROM graph_nodes n WHERE $4::text IS NOT NULL AND n.id = $4 LIMIT 1) AS source_public_node_id,
+      (
+        SELECT n.id
+        FROM user_graph_nodes n
+        JOIN user_knowledge_items i ON i.id = n.knowledge_item_id AND i.user_id = n.user_id
+        WHERE $5::text IS NOT NULL AND n.user_id = $2 AND i.id = $5
+          AND n.deleted_at IS NULL AND i.deleted_at IS NULL AND i.archived_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM knowledge_item_supersessions s
+            WHERE s.user_id = i.user_id AND s.superseded_item_id = i.id
+          )
+        LIMIT 1
+      ) AS target_private_node_id,
+      (SELECT n.id FROM graph_nodes n WHERE $6::text IS NOT NULL AND n.id = $6 LIMIT 1) AS target_public_node_id
+  ), endpoints AS MATERIALIZED (
+    SELECT *,
+      COALESCE('private:' || source_private_node_id, 'public:' || source_public_node_id) AS source_key,
+      COALESCE('private:' || target_private_node_id, 'public:' || target_public_node_id) AS target_key
+    FROM resolved
+    WHERE num_nonnulls(source_private_node_id, source_public_node_id) = 1
+      AND num_nonnulls(target_private_node_id, target_public_node_id) = 1
+  ), normalized AS MATERIALIZED (
+    SELECT
+      CASE WHEN $7::text IN ('related', 'equivalent_to') AND source_key > target_key
+        THEN target_private_node_id ELSE source_private_node_id END AS source_private_node_id,
+      CASE WHEN $7::text IN ('related', 'equivalent_to') AND source_key > target_key
+        THEN target_public_node_id ELSE source_public_node_id END AS source_public_node_id,
+      CASE WHEN $7::text IN ('related', 'equivalent_to') AND source_key > target_key
+        THEN source_private_node_id ELSE target_private_node_id END AS target_private_node_id,
+      CASE WHEN $7::text IN ('related', 'equivalent_to') AND source_key > target_key
+        THEN source_public_node_id ELSE target_public_node_id END AS target_public_node_id,
+      CASE WHEN $7::text IN ('related', 'equivalent_to') AND source_key > target_key
+        THEN target_key ELSE source_key END AS source_key,
+      CASE WHEN $7::text IN ('related', 'equivalent_to') AND source_key > target_key
+        THEN source_key ELSE target_key END AS target_key
+    FROM endpoints
+  )
+  INSERT INTO user_graph_edges (
+    id, user_id, source_private_node_id, source_public_node_id,
+    target_private_node_id, target_public_node_id, type, weight, origin,
+    source_batch_id, relation_origin, confirmed_at
+  )
+  SELECT $1, $2, source_private_node_id, source_public_node_id,
+    target_private_node_id, target_public_node_id, $7, $8, 'conversation', $9, $10, NOW()
+  FROM normalized
+  WHERE source_key <> target_key
+    AND ($7::text <> 'prerequisite' OR NOT EXISTS (
+      WITH RECURSIVE all_edges(source_key, target_key) AS (
+        SELECT 'public:' || e.source, 'public:' || e.target
+        FROM graph_edges e WHERE e.type = 'prerequisite'
+        UNION ALL
+        SELECT COALESCE('private:' || e.source_private_node_id, 'public:' || e.source_public_node_id),
+               COALESCE('private:' || e.target_private_node_id, 'public:' || e.target_public_node_id)
+        FROM user_graph_edges e
+        WHERE e.user_id = $2 AND e.type = 'prerequisite' AND e.deleted_at IS NULL
+      ), reach(node_key) AS (
+        SELECT normalized.target_key
+        UNION
+        SELECT e.target_key FROM all_edges e JOIN reach r ON e.source_key = r.node_key
+      )
+      SELECT 1 FROM reach WHERE node_key = normalized.source_key
+    ))
+  ON CONFLICT DO NOTHING
+  RETURNING id`;
+
 export async function approveKnowledgeDraftsForUser(
   userId: string,
   batchId: string,
@@ -3129,7 +3308,13 @@ export async function approveKnowledgeDraftsForUser(
   }
 
   if (!process.env.DATABASE_URL) {
-    let approved = 0;
+    const stored = memoryDrafts.get(batchId) ?? [];
+    if (planned.some((plan) => {
+      const current = stored.find((candidate) => candidate.id === plan.draft.id);
+      return !current || current.status !== 'pending' || current.version !== plan.expectedVersion;
+    }) || (memoryKnowledgeItems.get(userId) ?? []).length + planned.length > MAX_KNOWLEDGE_ITEMS_PER_USER) {
+      return { approved: 0, skippedEdges: 0 };
+    }
     let insertedEdges = 0;
     const batch = memoryBatches.get(batchId)!;
     for (const plan of planned) {
@@ -3152,32 +3337,32 @@ export async function approveKnowledgeDraftsForUser(
       plannedEndpoint.privateNodeId = node.graph_node_id;
       plannedEndpoint.key = `private:${node.graph_node_id}`;
       recordMemoryConversationSource(userId, item.id, batch, plan.draft, plan.draft.proposed_evidence);
-      const stored = memoryDrafts.get(batchId) ?? [];
-      const index = stored.findIndex((draft) => draft.id === plan.draft.id && draft.status === 'pending');
-      if (index >= 0) {
-        stored[index] = {
-          ...stored[index],
-          status: 'approved',
-          knowledge_item_id: item.id,
-          resolution_action: 'create',
-          target_knowledge_item_id: null,
-          resolved_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        approved += 1;
-      }
     }
     for (const candidate of candidates) {
-      if (await insertResolvedEdgeForUser(
+      if (insertResolvedMemoryEdgeForUser(
         userId,
         candidate.source,
         candidate.target,
         candidate.relation.type,
         candidate.relation.weight ?? 1,
         'conversation',
-        batchId,
         candidate.relation.relationOrigin ?? 'model_inferred',
       )) insertedEdges += 1;
+    }
+    let approved = 0;
+    for (const plan of planned) {
+      const index = stored.findIndex((draft) => draft.id === plan.draft.id && draft.status === 'pending');
+      if (index < 0) continue;
+      stored[index] = {
+        ...stored[index],
+        status: 'approved',
+        knowledge_item_id: plan.itemId,
+        resolution_action: 'create',
+        target_knowledge_item_id: null,
+        resolved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      approved += 1;
     }
     refreshMemoryBatchResolutionState(batchId);
     return { approved, skippedEdges: invalidRelations + candidates.length - insertedEdges };
@@ -3236,6 +3421,7 @@ export async function approveKnowledgeDraftsForUser(
     const queries = [
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
       tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
+      tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-draft:${userId}:${batchId}`]),
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-graph:${userId}`]),
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-items:${userId}`]),
       tx.query(
@@ -3246,11 +3432,15 @@ export async function approveKnowledgeDraftsForUser(
       ),
     ];
     queries.push(tx.query(
-      `SELECT 1 / CASE WHEN (
-         SELECT COUNT(*) FROM jsonb_to_recordset($1::jsonb) AS expected(id text, version int)
+      `WITH locked_drafts AS MATERIALIZED (
+         SELECT d.id
+         FROM jsonb_to_recordset($1::jsonb) AS expected(id text, version int)
          JOIN knowledge_card_drafts d ON d.id = expected.id AND d.version = expected.version
            AND d.batch_id = $2 AND d.user_id = $3 AND d.status = 'pending'
-       ) = $4 THEN 1 ELSE 0 END AS version_guard`,
+         FOR UPDATE OF d
+       )
+       SELECT 1 / CASE WHEN (SELECT COUNT(*) FROM locked_drafts) = $4
+         THEN 1 ELSE 0 END AS version_guard`,
       [JSON.stringify(planned.map((plan) => ({ id: plan.draft.id, version: plan.expectedVersion }))), batchId, userId, planned.length]
     ));
     for (const plan of planned) {
@@ -3417,15 +3607,16 @@ type SanitizedReviewedKnowledgePayload = {
   structured_content: KnowledgeBundleContent | null;
   bundle_schema_version: number | null;
   dedupe_key: string;
-  observed_at: string | null;
-  valid_from: string | null;
-  valid_to: string | null;
-  review_at: string | null;
+  observed_at: string | null | undefined;
+  valid_from: string | null | undefined;
+  valid_to: string | null | undefined;
+  review_at: string | null | undefined;
   evidence_selectors: KnowledgeEvidenceSelector[];
 };
 
-function strictOptionalTimestamp(value: string | null | undefined, fieldName: string): string | null {
-  if (value === undefined || value === null || value.trim() === '') return null;
+function strictOptionalTimestamp(value: string | null | undefined, fieldName: string): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value.trim() === '') return null;
   const sanitized = sanitizeTimestamp(value);
   if (!sanitized) throw new Error(`${fieldName} must be an ISO-8601 timestamp.`);
   return sanitized;
@@ -3730,9 +3921,29 @@ export async function resolveKnowledgeDraftForUser(
       return { resolved: false, action: input.action, knowledgeItemId: null, version: null, stale: true };
     }
   }
-  const payload = input.reviewed
+  const sanitizedPayload = input.reviewed
     ? sanitizeReviewedKnowledgePayload(input.reviewed)
     : reviewedPayloadFromDraft(draft);
+  const lifecycleFallback = input.action === 'create' ? null : target!;
+  const payload = {
+    ...sanitizedPayload,
+    observed_at: sanitizedPayload.observed_at === undefined
+      ? lifecycleFallback?.observed_at ?? null
+      : sanitizedPayload.observed_at,
+    valid_from: sanitizedPayload.valid_from === undefined
+      ? lifecycleFallback?.valid_from ?? null
+      : sanitizedPayload.valid_from,
+    valid_to: sanitizedPayload.valid_to === undefined
+      ? lifecycleFallback?.valid_to ?? null
+      : sanitizedPayload.valid_to,
+    review_at: sanitizedPayload.review_at === undefined
+      ? lifecycleFallback?.review_at ?? null
+      : sanitizedPayload.review_at,
+  };
+  if (payload.valid_from && payload.valid_to
+    && new Date(payload.valid_to).getTime() < new Date(payload.valid_from).getTime()) {
+    throw new Error('validTo must not be earlier than validFrom.');
+  }
   if (input.reviewed
     && !evidenceSelectorsAreExactSubset(payload.evidence_selectors, draft.proposed_evidence)) {
     throw new Error('Reviewed evidence selectors must be an exact subset of the persisted draft evidence.');
@@ -3740,6 +3951,60 @@ export async function resolveKnowledgeDraftForUser(
   const itemId = input.action === 'create' ? randomUUID() : input.targetKnowledgeItemId!;
   const nextVersion = input.action === 'create' ? 1 : input.expectedTargetVersion! + 1;
   const selectors = input.reviewed ? payload.evidence_selectors : draft.proposed_evidence;
+  const relationCandidates: DraftResolutionRelationCandidate[] = [];
+  let invalidRelations = 0;
+  if (draft.relations.length > 0) {
+    const loadedBatch = await getKnowledgeDraftBatchForUser(userId, input.batchId);
+    const persistedDraft = loadedBatch?.drafts.find((candidate) => candidate.id === draft.id);
+    if (!loadedBatch || loadedBatch.batch.status === 'discarded'
+      || !persistedDraft || persistedDraft.status !== 'pending'
+      || persistedDraft.version !== input.expectedDraftVersion) {
+      return { resolved: false, action: input.action, knowledgeItemId: null, version: null, stale: true };
+    }
+    const draftByReference = new Map<string, KnowledgeCardDraft>();
+    for (const candidate of loadedBatch.drafts) {
+      draftByReference.set(candidate.id, candidate);
+      draftByReference.set(candidate.client_card_id, candidate);
+    }
+    for (const relation of persistedDraft.relations) {
+      if (relation.targetKind !== 'draft') continue;
+      const dependency = draftByReference.get(relation.targetId.replace(/^draft:/, ''));
+      if (dependency && dependency.id !== persistedDraft.id && dependency.status === 'pending') {
+        return {
+          resolved: false,
+          action: input.action,
+          knowledgeItemId: null,
+          version: null,
+          pendingDependency: true,
+        };
+      }
+    }
+
+    const plannedSource: ResolvedEndpoint = {
+      privateNodeId: `pending:${itemId}`,
+      publicNodeId: null,
+      knowledgeItemId: itemId,
+      key: `pending:${itemId}`,
+    };
+    const plannedNodes = new Map<string, ResolvedEndpoint>([[persistedDraft.id, plannedSource]]);
+    for (const relation of persistedDraft.relations) {
+      const other = await resolveDraftRelationTarget(
+        userId,
+        relation,
+        loadedBatch.drafts,
+        plannedNodes,
+      );
+      if (!other) {
+        invalidRelations += 1;
+        continue;
+      }
+      relationCandidates.push({
+        source: toLogicalResolvedEndpoint(relation.direction === 'incoming' ? other : plannedSource),
+        target: toLogicalResolvedEndpoint(relation.direction === 'incoming' ? plannedSource : other),
+        relation,
+      });
+    }
+  }
 
   if (!process.env.DATABASE_URL) {
     if (input.action === 'create'
@@ -3799,7 +4064,23 @@ export async function resolveKnowledgeDraftForUser(
       item = getMemoryKnowledgeItemsForUser(userId).find((candidate) => candidate.id === itemId);
     }
     if (!item) return { resolved: false, action: input.action, knowledgeItemId: null, version: null };
+    ensureMemoryPrivateNode(userId, item, 'conversation');
     recordMemoryConversationSource(userId, item.id, batch, draft, selectors);
+    let insertedEdges = 0;
+    for (const candidate of relationCandidates) {
+      const source = resolveLogicalMemoryEndpointForUser(userId, candidate.source);
+      const relationTarget = resolveLogicalMemoryEndpointForUser(userId, candidate.target);
+      if (!source || !relationTarget) continue;
+      if (insertResolvedMemoryEdgeForUser(
+        userId,
+        source,
+        relationTarget,
+        candidate.relation.type,
+        candidate.relation.weight ?? 1,
+        'conversation',
+        candidate.relation.relationOrigin ?? 'model_inferred',
+      )) insertedEdges += 1;
+    }
     drafts[index] = {
       ...drafts[index],
       status: 'approved',
@@ -3810,7 +4091,13 @@ export async function resolveKnowledgeDraftForUser(
       updated_at: new Date().toISOString(),
     };
     refreshMemoryBatchResolutionState(input.batchId);
-    return { resolved: true, action: input.action, knowledgeItemId: item.id, version: item.version };
+    return {
+      resolved: true,
+      action: input.action,
+      knowledgeItemId: item.id,
+      version: item.version,
+      skippedEdges: invalidRelations + relationCandidates.length - insertedEdges,
+    };
   }
 
   await ensureKnowledgeIngestionSchema();
@@ -3827,20 +4114,25 @@ export async function resolveKnowledgeDraftForUser(
     draft_id: input.draftId,
     client_card_id: draft.client_card_id,
   });
+  let edgeResultStart = 0;
   try {
     const sql = getTransactionSql();
-    await sql.transaction((tx) => {
+    const resultSets = await sql.transaction((tx) => {
       const queries = [
         tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
         tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
         tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-draft:${userId}:${input.batchId}`]),
+        tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-graph:${userId}`]),
         tx.query(
-          `SELECT 1 / CASE WHEN EXISTS (
-             SELECT 1 FROM knowledge_card_drafts d
+          `WITH locked_draft AS MATERIALIZED (
+             SELECT d.id FROM knowledge_card_drafts d
              JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id
              WHERE d.id = $1 AND d.batch_id = $2 AND d.user_id = $3
                AND d.status = 'pending' AND d.version = $4 AND b.status <> 'discarded'
-           ) THEN 1 ELSE 0 END AS draft_version_guard`,
+             FOR UPDATE OF d
+           )
+           SELECT 1 / CASE WHEN EXISTS (SELECT 1 FROM locked_draft)
+             THEN 1 ELSE 0 END AS draft_version_guard`,
           [input.draftId, input.batchId, userId, input.expectedDraftVersion],
         ),
       ];
@@ -3906,8 +4198,11 @@ export async function resolveKnowledgeDraftForUser(
           `UPDATE user_knowledge_items SET
              title = $3, summary = $4, content = $5, topic = $6, tags = $7::jsonb,
              knowledge_type = $8, central_question = $9, structured_content = $10::jsonb,
-             bundle_schema_version = $11, dedupe_key = $12, observed_at = $13,
-             valid_from = $14, valid_to = $15, review_at = $16,
+             bundle_schema_version = $11, dedupe_key = $12,
+             observed_at = CASE WHEN $18::boolean THEN $13::timestamptz ELSE observed_at END,
+             valid_from = CASE WHEN $19::boolean THEN $14::timestamptz ELSE valid_from END,
+             valid_to = CASE WHEN $20::boolean THEN $15::timestamptz ELSE valid_to END,
+             review_at = CASE WHEN $21::boolean THEN $16::timestamptz ELSE review_at END,
              last_verified_at = NULL, version = version + 1, updated_at = NOW()
            WHERE id = $1 AND user_id = $2 AND version = $17
              AND deleted_at IS NULL AND archived_at IS NULL
@@ -3918,6 +4213,10 @@ export async function resolveKnowledgeDraftForUser(
             payload.structured_content ? JSON.stringify(payload.structured_content) : null,
             payload.bundle_schema_version, payload.dedupe_key, payload.observed_at,
             payload.valid_from, payload.valid_to, payload.review_at, input.expectedTargetVersion,
+            sanitizedPayload.observed_at !== undefined,
+            sanitizedPayload.valid_from !== undefined,
+            sanitizedPayload.valid_to !== undefined,
+            sanitizedPayload.review_at !== undefined,
           ],
         ));
       }
@@ -3975,15 +4274,34 @@ export async function resolveKnowledgeDraftForUser(
           ],
         ));
       }
+      edgeResultStart = queries.length;
+      for (const candidate of relationCandidates) {
+        queries.push(tx.query(DRAFT_RESOLUTION_EDGE_INSERT_SQL, [
+          randomUUID(),
+          userId,
+          candidate.source.knowledgeItemId,
+          candidate.source.publicNodeId,
+          candidate.target.knowledgeItemId,
+          candidate.target.publicNodeId,
+          candidate.relation.type,
+          Math.max(0.05, Math.min(1, candidate.relation.weight ?? 1)),
+          input.batchId,
+          candidate.relation.relationOrigin ?? 'model_inferred',
+        ]));
+      }
       queries.push(
         tx.query(
-           `UPDATE knowledge_card_drafts SET
-             status = 'approved', knowledge_item_id = $1, resolution_action = $2,
-             target_knowledge_item_id = CASE WHEN $2 = 'create' THEN NULL ELSE $1 END,
-             resolved_at = NOW(), approved_at = NOW(), updated_at = NOW()
-           WHERE id = $3 AND batch_id = $4 AND user_id = $5
-             AND status = 'pending' AND version = $6
-           RETURNING id`,
+           `WITH approved AS MATERIALIZED (
+              UPDATE knowledge_card_drafts SET
+                status = 'approved', knowledge_item_id = $1, resolution_action = $2,
+                target_knowledge_item_id = CASE WHEN $2 = 'create' THEN NULL ELSE $1 END,
+                resolved_at = NOW(), approved_at = NOW(), updated_at = NOW()
+              WHERE id = $3 AND batch_id = $4 AND user_id = $5
+                AND status = 'pending' AND version = $6
+              RETURNING id
+            )
+            SELECT 1 / CASE WHEN EXISTS (SELECT 1 FROM approved)
+              THEN 1 ELSE 0 END AS approval_guard`,
           [itemId, input.action, input.draftId, input.batchId, userId, input.expectedDraftVersion],
         ),
         tx.query(
@@ -3997,7 +4315,18 @@ export async function resolveKnowledgeDraftForUser(
       );
       return queries;
     }, { isolationLevel: 'ReadCommitted' });
-    return { resolved: true, action: input.action, knowledgeItemId: itemId, version: nextVersion };
+    const edgeResults = resultSets.slice(edgeResultStart, edgeResultStart + relationCandidates.length);
+    const insertedEdges = edgeResults.reduce(
+      (sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0),
+      0,
+    );
+    return {
+      resolved: true,
+      action: input.action,
+      knowledgeItemId: itemId,
+      version: nextVersion,
+      skippedEdges: invalidRelations + relationCandidates.length - insertedEdges,
+    };
   } catch (error) {
     if (isOptimisticGuardError(error)) {
       return { resolved: false, action: input.action, knowledgeItemId: null, version: null, stale: true };

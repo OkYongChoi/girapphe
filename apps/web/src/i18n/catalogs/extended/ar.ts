@@ -211,6 +211,7 @@ export const EXTRA_AR_MESSAGES = {
   "resolution.ignoring": "جارٍ التجاهل…",
   "resolution.ignoreConfirm": "هل تريد تجاهل هذا المرشح؟ لن يُنشأ عنصر معرفة مرجعي.",
   "resolution.changed": "تغير المرشح أو الهدف في جلسة أخرى. أعد التحميل قبل الحسم.",
+  "resolution.pendingDependency": "وافق أولاً على المرشح المرتبط المعلّق، أو وافق عليهما معًا من صندوق وارد الدفعة.",
   "resolution.resolveError": "تعذر حسم المرشح. راجع الحقول النهائية وحاول مجددًا.",
   "resolution.ignoreChanged": "تغير المرشح في جلسة أخرى. أعد التحميل قبل تجاهله.",
   "resolution.ignoreError": "تعذر تجاهل المرشح.",

@@ -211,6 +211,7 @@ export const EXTRA_ZH_CN_MESSAGES = {
   "resolution.ignoring": "正在忽略…",
   "resolution.ignoreConfirm": "忽略此候选吗？不会创建标准知识项目。",
   "resolution.changed": "此候选或目标已在另一会话中更改。请重新加载。",
+  "resolution.pendingDependency": "请先批准相关的待处理候选，或从批次收件箱中一起批准两者。",
   "resolution.resolveError": "无法处理此候选。请检查最终字段后重试。",
   "resolution.ignoreChanged": "此候选已在另一会话中更改。请重新加载。",
   "resolution.ignoreError": "无法忽略此候选。",

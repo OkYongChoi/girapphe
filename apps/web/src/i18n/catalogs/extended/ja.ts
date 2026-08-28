@@ -211,6 +211,7 @@ export const EXTRA_JA_MESSAGES = {
   "resolution.ignoring": "無視しています…",
   "resolution.ignoreConfirm": "この候補を無視しますか？正規ナレッジ項目は作成されません。",
   "resolution.changed": "候補または対象が別のセッションで変更されました。再読み込みしてください。",
+  "resolution.pendingDependency": "関連する保留中の候補を先に承認するか、バッチ受信箱から両方をまとめて承認してください。",
   "resolution.resolveError": "候補を確定できませんでした。最終項目を確認して再試行してください。",
   "resolution.ignoreChanged": "候補が別のセッションで変更されました。再読み込みしてください。",
   "resolution.ignoreError": "候補を無視できませんでした。",

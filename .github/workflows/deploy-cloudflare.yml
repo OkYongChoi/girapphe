@@ -141,6 +141,13 @@ jobs:
         env:
           LIVE_POSTGRES_TEST_DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
 
+      - name: Verify knowledge resolution database semantics
+        working-directory: apps/web
+        run: NODE_OPTIONS=--conditions=react-server pnpm exec tsx --test scripts/knowledge-resolution-postgres.test.mjs
+        env:
+          NODE_ENV: production
+          LIVE_POSTGRES_TEST_DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
+
       - name: Deploy preview Worker settings and upload PR version
         working-directory: apps/web
         env:
