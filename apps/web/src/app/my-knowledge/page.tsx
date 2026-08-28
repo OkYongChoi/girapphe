@@ -22,6 +22,9 @@ import {
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
 import type { Translate } from '@/i18n/core';
+import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
+import KnowledgeBundleView from '@/components/knowledge-bundle-view';
+import { isKnowledgeBundleType } from '@stem-brain/shared';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +39,7 @@ type MyKnowledgePageProps = {
     group?: 'none' | 'week' | 'month';
     view?: 'active' | 'trash';
     linkStatus?: 'created' | 'invalid' | 'cycle_or_duplicate';
+    type?: string;
   }>;
 };
 
@@ -97,6 +101,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
   const params = (await searchParams) ?? {};
   const query = (params.q ?? '').trim().toLowerCase();
   const topicFilter = (params.topic ?? 'all').trim().toLowerCase();
+  const typeFilter = (params.type ?? 'all').trim();
   const sortBy = params.sort === 'title' ? 'title' : params.sort === 'updated' ? 'updated' : 'created';
   const period = ['today', 'week', 'month', 'custom'].includes(params.period ?? '') ? params.period! : 'all';
   const groupBy = params.group === 'week' || params.group === 'month' ? params.group : 'none';
@@ -115,12 +120,14 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
   const filteredItems = items
     .filter((item) => {
       const matchesTopic = topicFilter === 'all' || item.topic.toLowerCase() === topicFilter;
-      const haystack = `${item.title} ${item.summary} ${item.content} ${item.topic} ${item.tags.join(' ')}`.toLowerCase();
+      const matchesType = typeFilter === 'all'
+        || (typeFilter === 'legacy' ? !item.knowledge_type : item.knowledge_type === typeFilter);
+      const haystack = `${item.title} ${item.summary} ${item.content} ${item.central_question ?? ''} ${item.knowledge_type ?? ''} ${item.topic} ${item.tags.join(' ')}`.toLowerCase();
       const matchesQuery = !query || haystack.includes(query);
       const created = new Date(item.created_at).getTime();
       const matchesStart = !bounds.start || created >= kstStart(bounds.start);
       const matchesEnd = !bounds.end || created < kstStart(bounds.end) + 86_400_000;
-      return matchesTopic && matchesQuery && matchesStart && matchesEnd;
+      return matchesTopic && matchesType && matchesQuery && matchesStart && matchesEnd;
     })
     .sort((a, b) => {
       if (sortBy === 'title') return a.title.localeCompare(b.title, locale);
@@ -132,7 +139,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
     ? [{ label: null, items: filteredItems }]
     : Object.entries(Object.groupBy(filteredItems, (item) => groupLabel(item.created_at, groupBy, formatDate, t)))
       .map(([label, grouped]) => ({ label, items: grouped ?? [] }));
-  const hasActiveFilter = !!params.q || (params.topic && params.topic !== 'all') || sortBy !== 'created' || period !== 'all' || groupBy !== 'none';
+  const hasActiveFilter = !!params.q || (params.topic && params.topic !== 'all') || typeFilter !== 'all' || sortBy !== 'created' || period !== 'all' || groupBy !== 'none';
   const createRequestId = randomUUID();
 
   return (
@@ -171,7 +178,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
         {/* Filter form */}
         <form role="search" aria-label={t('notes.filterAria')} className="mt-4 rounded-xl border bg-white p-3">
           <input type="hidden" name="view" value={isTrash ? 'trash' : 'active'} />
-          <div className="grid gap-2 lg:grid-cols-[minmax(12rem,1fr)_auto_auto_auto_auto_auto]">
+          <div className="grid gap-2 lg:grid-cols-[minmax(12rem,1fr)_auto_auto_auto_auto_auto_auto]">
             <div className="flex flex-col gap-1">
               <label htmlFor="knowledge-search" className="sr-only">
                 {t('notes.search')}
@@ -185,6 +192,12 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
+
+            <select name="type" defaultValue={typeFilter} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('bundle.format')}>
+              <option value="all">{t('common.allStatus')}</option>
+              <option value="legacy">{t('bundle.quickNote')}</option>
+              {(['concept', 'procedure', 'comparison', 'mechanism', 'structure', 'claim_evidence'] as const).map((value) => <option key={value} value={value}>{t(`bundle.type.${value}`)}</option>)}
+            </select>
 
             <div className="flex flex-col gap-1">
               <label htmlFor="knowledge-topic" className="sr-only">
@@ -298,6 +311,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
+            <KnowledgeBundleEditor key={createRequestId} />
             <div className="flex flex-col gap-1 md:col-span-2">
               <label htmlFor="new-summary" className="text-xs font-medium text-gray-700">
                 Summary
@@ -401,7 +415,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                   <ol aria-label={t('notes.itemsAria')} className="grid gap-4">
               {groupedItems.map((item) => (
                 <li key={item.id}>
-                  <details className="rounded-xl border bg-white p-4 md:p-5 group">
+                  <details suppressHydrationWarning className="rounded-xl border bg-white p-4 md:p-5 group">
                     <summary className="flex cursor-pointer items-start justify-between gap-3 list-none">
                       <div className="min-w-0 flex-1">
                         <h3 className="font-semibold text-gray-900">{item.title}</h3>
@@ -440,6 +454,12 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                       </span>
                     </summary>
 
+                    {item.knowledge_type && isKnowledgeBundleType(item.knowledge_type) && item.central_question && item.structured_content ? (
+                      <div className="mt-4 rounded-xl border border-blue-100 bg-white p-4">
+                        <KnowledgeBundleView type={item.knowledge_type} centralQuestion={item.central_question} content={item.structured_content} />
+                      </div>
+                    ) : null}
+
                     {!isTrash && <><form action={updateKnowledgeItem} className="mt-4 grid gap-3">
                       <input type="hidden" name="id" value={item.id} />
 
@@ -455,6 +475,13 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                           className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                         />
                       </div>
+
+                      <KnowledgeBundleEditor
+                        defaultType={item.knowledge_type}
+                        defaultQuestion={item.central_question}
+                        defaultContent={item.structured_content}
+                        legacyContent={item.knowledge_type ? '' : item.content}
+                      />
 
                       <div className="flex flex-col gap-1">
                         <label htmlFor={`topic-${item.id}`} className="text-xs font-medium text-gray-700">

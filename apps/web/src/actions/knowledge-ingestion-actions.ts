@@ -65,6 +65,15 @@ export async function updateKnowledgeDraft(formData: FormData): Promise<void> {
   }
   const expectedVersionValue = Number(formData.get('version'));
   if (!Number.isInteger(expectedVersionValue) || expectedVersionValue <= 0) return;
+  let structuredContent: unknown = null;
+  const knowledgeType = String(formData.get('knowledge_type') ?? '').trim();
+  if (knowledgeType) {
+    try {
+      structuredContent = JSON.parse(String(formData.get('structured_content') ?? '{}'));
+    } catch {
+      return;
+    }
+  }
   const updated = await updateKnowledgeDraftForUser(user.id, draftId, {
     title: String(formData.get('title') ?? ''),
     summary: String(formData.get('summary') ?? ''),
@@ -73,6 +82,10 @@ export async function updateKnowledgeDraft(formData: FormData): Promise<void> {
     tags: String(formData.get('tags') ?? '').split(',').map((tag) => tag.trim()),
     relations: sanitizeProposedRelations(relations),
     expectedVersion: expectedVersionValue,
+    knowledgeType: knowledgeType ? knowledgeType as KnowledgeCardDraft['knowledge_type'] : null,
+    centralQuestion: knowledgeType ? String(formData.get('central_question') ?? '') : null,
+    structuredContent: knowledgeType ? structuredContent as KnowledgeCardDraft['structured_content'] : null,
+    bundleSchemaVersion: knowledgeType ? Number(formData.get('bundle_schema_version') ?? 1) : null,
   });
   if (!updated) throw new Error('This draft changed before your edit was saved. Reload it and try again.');
   revalidateKnowledgeSurfaces(String(formData.get('batch_id') ?? '') || undefined);

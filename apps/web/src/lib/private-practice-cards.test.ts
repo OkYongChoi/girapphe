@@ -83,6 +83,19 @@ test('admits only active owner-approved conversation records', () => {
   }
 });
 
+test('admits a valid owner-authored typed bundle without an ingestion source chain', () => {
+  const typedManual = eligibilityRecord({
+    draft_user_id: null, batch_user_id: null, source_user_id: null,
+    draft_status: null, approved_at: null, batch_status: null,
+    batch_source_type: null, source_type: null,
+    knowledge_type: 'concept', central_question: 'What is a bounded context?', bundle_schema_version: 1,
+    structured_content: { type: 'concept', definition: 'A model boundary.', key_points: [], examples: [], non_examples: [], misconceptions: [] },
+  });
+  assert.equal(isEligiblePrivatePracticeRecord(typedManual, ACTOR_ID), true);
+  assert.equal(isEligiblePrivatePracticeRecord({ ...typedManual, item_user_id: 'user_other' }, ACTOR_ID), false);
+  assert.equal(isEligiblePrivatePracticeRecord({ ...typedManual, central_question: null }, ACTOR_ID), false);
+});
+
 test('practice selection filters pending, deleted, manual, and cross-owner rows again in application code', async (context) => {
   const originalQuery = db.query;
   const calls: Array<{ text: string; params?: unknown[] }> = [];

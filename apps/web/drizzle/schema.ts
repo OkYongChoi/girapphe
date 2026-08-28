@@ -15,6 +15,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { KnowledgeBundleContent, KnowledgeBundleType } from "@stem-brain/shared";
 
 export const knowledgeCards = pgTable("knowledge_cards", {
   id: text("id").primaryKey(),
@@ -169,6 +170,10 @@ export const userKnowledgeItems = pgTable("user_knowledge_items", {
   content: text("content").notNull().default(""),
   topic: text("topic").notNull().default("general"),
   tags: jsonb("tags").notNull().default([]),
+  knowledgeType: text("knowledge_type").$type<KnowledgeBundleType>(),
+  centralQuestion: text("central_question"),
+  structuredContent: jsonb("structured_content").$type<KnowledgeBundleContent>(),
+  bundleSchemaVersion: integer("bundle_schema_version"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -256,6 +261,10 @@ export const knowledgeCardDrafts = pgTable("knowledge_card_drafts", {
   topic: text("topic").notNull().default("general"),
   tags: jsonb("tags").notNull().default([]),
   proposedRelations: jsonb("proposed_relations").notNull().default([]),
+  knowledgeType: text("knowledge_type").$type<KnowledgeBundleType>(),
+  centralQuestion: text("central_question"),
+  structuredContent: jsonb("structured_content").$type<KnowledgeBundleContent>(),
+  bundleSchemaVersion: integer("bundle_schema_version"),
   status: text("status").notNull().default("pending"),
   version: integer("version").notNull().default(1),
   knowledgeItemId: text("knowledge_item_id").references(() => userKnowledgeItems.id, { onDelete: "set null" }),

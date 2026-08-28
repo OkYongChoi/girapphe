@@ -1,4 +1,6 @@
 import db from '@/lib/db';
+import type { KnowledgeBundleContent, KnowledgeBundleType } from '@stem-brain/shared';
+import { parseKnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
 
 export const PERSONAL_CARD_ID_PREFIX = 'personal:';
 const MAX_PERSONAL_KNOWLEDGE_ITEM_ID_LENGTH = 128;
@@ -20,6 +22,10 @@ export type PrivatePracticeCard = {
   progress_state: 'learning' | 'review' | null;
   due_at: Date | null;
   last_seen: Date | null;
+  knowledge_type: KnowledgeBundleType | null;
+  central_question: string | null;
+  structured_content: KnowledgeBundleContent | null;
+  bundle_schema_version: number | null;
 };
 
 export type PrivatePracticeStats = {
@@ -36,14 +42,18 @@ export type PrivatePracticeDomainProgress = {
 
 export type PrivatePracticeEligibilityRecord = {
   item_user_id: string;
-  draft_user_id: string;
-  batch_user_id: string;
-  source_user_id: string;
-  draft_status: string;
+  draft_user_id: string | null;
+  batch_user_id: string | null;
+  source_user_id: string | null;
+  draft_status: string | null;
   approved_at: Date | string | null;
-  batch_status: string;
-  batch_source_type: string;
-  source_type: string;
+  batch_status: string | null;
+  batch_source_type: string | null;
+  source_type: string | null;
+  knowledge_type?: string | null;
+  central_question?: string | null;
+  structured_content?: unknown;
+  bundle_schema_version?: number | null;
   deleted_at: Date | string | null;
   purge_at: Date | string | null;
 };
@@ -116,32 +126,37 @@ export function isEligiblePrivatePracticeRecord(
   record: PrivatePracticeEligibilityRecord,
   actorUserId: string,
 ): boolean {
-  return record.item_user_id === actorUserId
-    && record.draft_user_id === actorUserId
+  const typedManual = parseKnowledgeBundleFields({
+    knowledge_type: record.knowledge_type,
+    central_question: record.central_question,
+    structured_content: record.structured_content,
+    bundle_schema_version: record.bundle_schema_version,
+  }) !== null && record.draft_user_id === null && record.batch_user_id === null && record.source_user_id === null;
+  const approvedConversation = record.draft_user_id === actorUserId
     && record.batch_user_id === actorUserId
     && record.source_user_id === actorUserId
     && record.draft_status === 'approved'
     && record.approved_at !== null
     && (record.batch_status === 'partial' || record.batch_status === 'approved')
     && record.batch_source_type === 'conversation'
-    && record.source_type === 'conversation'
-    && record.deleted_at === null
-    && record.purge_at === null;
+    && record.source_type === 'conversation';
+  return record.item_user_id === actorUserId && (typedManual || approvedConversation)
+    && record.deleted_at === null && record.purge_at === null;
 }
 
 const ELIGIBLE_PRIVATE_CARD_FROM = `
   FROM user_knowledge_items i
-  JOIN knowledge_card_drafts d
+  LEFT JOIN knowledge_card_drafts d
     ON d.knowledge_item_id = i.id
    AND d.user_id = i.user_id
    AND d.status = 'approved'
    AND d.approved_at IS NOT NULL
-  JOIN knowledge_ingestion_batches b
+  LEFT JOIN knowledge_ingestion_batches b
     ON b.id = d.batch_id
    AND b.user_id = i.user_id
    AND b.source_type = 'conversation'
    AND b.status IN ('partial', 'approved')
-  JOIN knowledge_card_sources src
+  LEFT JOIN knowledge_card_sources src
     ON src.knowledge_item_id = i.id
    AND src.user_id = i.user_id
    AND src.draft_id = d.id
@@ -177,6 +192,12 @@ const APPROVED_CONVERSATION_SOURCE_PREDICATE = `
   )
 `;
 
+const PRIVATE_PRACTICE_ELIGIBILITY_PREDICATE = `
+  ((i.knowledge_type IS NOT NULL AND i.central_question IS NOT NULL
+    AND i.structured_content IS NOT NULL AND i.bundle_schema_version = 1)
+   OR ${APPROVED_CONVERSATION_SOURCE_PREDICATE})
+`;
+
 function mapPrivatePracticeCard(
   row: PrivatePracticeCardRow,
   actorUserId: string,
@@ -188,6 +209,12 @@ function mapPrivatePracticeCard(
   } catch {
     return null;
   }
+  const bundle = parseKnowledgeBundleFields({
+    knowledge_type: row.knowledge_type,
+    central_question: row.central_question,
+    structured_content: row.structured_content,
+    bundle_schema_version: row.bundle_schema_version,
+  });
 
   return {
     id: cardId,
@@ -202,6 +229,10 @@ function mapPrivatePracticeCard(
     progress_state: row.progress_state,
     due_at: row.due_at ? new Date(row.due_at) : null,
     last_seen: row.last_seen ? new Date(row.last_seen) : null,
+    knowledge_type: bundle?.knowledge_type ?? null,
+    central_question: bundle?.central_question ?? null,
+    structured_content: bundle?.structured_content ?? null,
+    bundle_schema_version: bundle?.bundle_schema_version ?? null,
   };
 }
 
@@ -220,6 +251,10 @@ export async function getEligiblePrivatePracticeCards(
       COALESCE(NULLIF(i.summary, ''), NULLIF(i.content, ''), i.title) AS summary,
       COALESCE(NULLIF(i.content, ''), NULLIF(i.summary, ''), i.title) AS explanation,
       COALESCE(NULLIF(i.topic, ''), 'personal') AS domain,
+      i.knowledge_type,
+      i.central_question,
+      i.structured_content,
+      i.bundle_schema_version,
       s.status,
       s.knowledge_state,
       s.progress_state,
@@ -241,6 +276,7 @@ export async function getEligiblePrivatePracticeCards(
       ON s.knowledge_item_id = i.id
      AND s.user_id = i.user_id
     WHERE ${ACTIVE_OWNER_PREDICATE}
+      AND ${PRIVATE_PRACTICE_ELIGIBILITY_PREDICATE}
       ${modePredicate}
     ORDER BY i.id, s.last_seen NULLS FIRST, i.created_at ASC
   `, [userId]);
@@ -277,7 +313,7 @@ export async function savePrivatePracticeCardState(
     FROM user_knowledge_items i
     WHERE ${ACTIVE_OWNER_PREDICATE}
       AND i.id = $2
-      AND ${APPROVED_CONVERSATION_SOURCE_PREDICATE}
+      AND ${PRIVATE_PRACTICE_ELIGIBILITY_PREDICATE}
     ON CONFLICT (user_id, knowledge_item_id)
     DO UPDATE SET
       status = EXCLUDED.status,
@@ -299,6 +335,10 @@ export async function getSavedPrivatePracticeCards(userId: string): Promise<Priv
       COALESCE(NULLIF(i.summary, ''), NULLIF(i.content, ''), i.title) AS summary,
       COALESCE(NULLIF(i.content, ''), NULLIF(i.summary, ''), i.title) AS explanation,
       COALESCE(NULLIF(i.topic, ''), 'personal') AS domain,
+      i.knowledge_type,
+      i.central_question,
+      i.structured_content,
+      i.bundle_schema_version,
       s.status,
       s.knowledge_state,
       s.progress_state,
@@ -320,6 +360,7 @@ export async function getSavedPrivatePracticeCards(userId: string): Promise<Priv
       ON s.knowledge_item_id = i.id
      AND s.user_id = i.user_id
     WHERE ${ACTIVE_OWNER_PREDICATE}
+      AND ${PRIVATE_PRACTICE_ELIGIBILITY_PREDICATE}
       AND (s.progress_state = 'learning' OR s.status = 'saved')
     ORDER BY i.id, s.last_seen DESC
   `, [userId]);
@@ -340,7 +381,7 @@ export async function removePrivatePracticeCardState(
       FROM user_knowledge_items i
       WHERE ${ACTIVE_OWNER_PREDICATE}
         AND i.id = $2
-        AND ${APPROVED_CONVERSATION_SOURCE_PREDICATE}
+        AND ${PRIVATE_PRACTICE_ELIGIBILITY_PREDICATE}
       LIMIT 1
     ), deleted AS (
       DELETE FROM user_private_card_states s
@@ -367,7 +408,7 @@ export async function getPrivatePracticeStats(userId: string): Promise<PrivatePr
       ON s.knowledge_item_id = i.id
      AND s.user_id = i.user_id
     WHERE ${ACTIVE_OWNER_PREDICATE}
-      AND ${APPROVED_CONVERSATION_SOURCE_PREDICATE}
+      AND ${PRIVATE_PRACTICE_ELIGIBILITY_PREDICATE}
   `, [userId]);
   const row = result.rows[0];
   return {
@@ -390,7 +431,7 @@ export async function getPrivatePracticeDomainProgress(
       ON s.knowledge_item_id = i.id
      AND s.user_id = i.user_id
     WHERE ${ACTIVE_OWNER_PREDICATE}
-      AND ${APPROVED_CONVERSATION_SOURCE_PREDICATE}
+      AND ${PRIVATE_PRACTICE_ELIGIBILITY_PREDICATE}
     GROUP BY COALESCE(NULLIF(i.topic, ''), 'personal')
     ORDER BY reviewed DESC, domain ASC
   `, [userId]);

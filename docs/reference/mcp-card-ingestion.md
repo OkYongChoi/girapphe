@@ -1,7 +1,10 @@
 # MCP card-draft ingestion
 
 Girapphe exposes a provider-neutral Streamable HTTP MCP endpoint at
-`POST /api/mcp`. The endpoint has one write tool, `create_card_drafts`.
+`POST /api/mcp`. The endpoint has two compatible write tools:
+
+- `create_knowledge_bundle_drafts` for versioned structured knowledge; and
+- `create_card_drafts` for existing clients, adapted to a `concept` bundle.
 
 The tool creates a private, pending review batch. It cannot approve cards,
 change learning state, or write to the public graph. A signed-in user must
@@ -56,7 +59,47 @@ custom authorization header. OAuth and Girapphe PATs are distinguished before
 authentication; an invalid Girapphe-prefixed token never falls through to the
 OAuth verifier.
 
-## Tool input
+## Structured bundle input
+
+`create_knowledge_bundle_drafts` accepts a strict discriminated union. Every
+bundle has `title`, `central_question`, `summary`, `topic`, `tags`,
+`knowledge_type`, `structured_content`, and `bundle_schema_version: 1`.
+`tags` may be empty, while the other common text fields must be non-blank. The
+six discriminators are:
+
+- `concept`: definition, key points, examples, non-examples, misconceptions;
+- `procedure`: goal, prerequisites, steps, branches, failure responses, completion criteria;
+- `comparison`: targets, criteria values, commonalities, differences, choice guide;
+- `mechanism`: causes, stages, results, conditions, exceptions;
+- `structure`: purpose, components/hierarchy, internal relations, boundaries; and
+- `claim_evidence`: claim, sourced evidence, counterevidence, scope, limitations, confidence.
+
+```json
+{
+  "provider": "claude",
+  "request_id": "send-2026-08-28-001",
+  "provenance": { "type": "current_conversation", "conversation_ref": "opaque-id" },
+  "bundles": [{
+    "client_bundle_id": "release-procedure",
+    "title": "Safe release",
+    "central_question": "How do I release safely?",
+    "knowledge_type": "procedure",
+    "summary": "Validate, release, and verify.",
+    "structured_content": {
+      "type": "procedure",
+      "goal": "Release without losing verification boundaries.",
+      "prerequisites": ["Passing checks"],
+      "steps": [{ "title": "Deploy", "detail": "Use the protected workflow." }],
+      "branches": [], "failure_modes": [], "done_when": ["Production smoke passes"]
+    },
+    "bundle_schema_version": 1
+  }]
+}
+```
+
+## Compatible card input
+
+`create_card_drafts` retains its original input shape:
 
 ```json
 {
@@ -102,6 +145,11 @@ Input boundaries:
 - identifiers are opaque strings, not conversation text;
 - unknown fields are rejected, and there is no transcript/history field.
 
+The adapter uses the card title as the central question, the summary as the
+concept definition, and the explanation as a key point. It shares the same
+authentication, idempotency, request-size, rate, quota, and pending-review
+boundary as the structured tool.
+
 The same user, provider, and request ID return the existing batch rather than
 creating duplicates.
 
@@ -117,7 +165,8 @@ of an existing request ID do not consume the draft quota again.
 
 Quota checks and inserts are serialized per user in one database transaction.
 Production does not run ingestion DDL in request handlers; apply
-`apps/web/drizzle/migrations/0007_private_knowledge_ingestion.sql` before
+`apps/web/drizzle/migrations/0007_private_knowledge_ingestion.sql` through
+`apps/web/drizzle/migrations/0015_typed_knowledge_bundles.sql` before
 enabling the MCP endpoint. PR previews keep the repository's existing isolated
 database bootstrap, but only authenticated UI paths invoke it; invalid bearer
 requests never execute DDL.
@@ -139,7 +188,7 @@ provider's current plan, workspace policy, and MCP client implementation.
 
 Approval creates the following records atomically:
 
-1. a private `user_knowledge_items` card;
+1. a private `user_knowledge_items` item whose structured JSON is authoritative;
 2. its `user_graph_nodes` identity;
 3. provenance in `knowledge_card_sources`; and
 4. only relationships whose endpoints still exist and are owned by the user
@@ -147,3 +196,6 @@ Approval creates the following records atomically:
 
 Drafts never affect mastery scores. Deleting a personal card moves its private
 node and incident private edges into the same 14-day trash lifecycle.
+Existing items and already-pending drafts remain untyped (`knowledge_type IS
+NULL`) until the user explicitly converts or edits them. A bundle remains one
+private graph node; its steps and components do not expand into graph nodes.

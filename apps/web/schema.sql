@@ -159,6 +159,10 @@ CREATE TABLE IF NOT EXISTS user_knowledge_items (
   content TEXT NOT NULL DEFAULT '',
   topic TEXT NOT NULL DEFAULT 'general',
   tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+  knowledge_type TEXT,
+  central_question TEXT,
+  structured_content JSONB,
+  bundle_schema_version INTEGER,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   deleted_at TIMESTAMP WITH TIME ZONE,
@@ -209,6 +213,10 @@ CREATE TABLE IF NOT EXISTS knowledge_card_drafts (
   topic TEXT NOT NULL DEFAULT 'general',
   tags JSONB NOT NULL DEFAULT '[]'::jsonb,
   proposed_relations JSONB NOT NULL DEFAULT '[]'::jsonb,
+  knowledge_type TEXT,
+  central_question TEXT,
+  structured_content JSONB,
+  bundle_schema_version INTEGER,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
   version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
   knowledge_item_id TEXT REFERENCES user_knowledge_items(id) ON DELETE SET NULL,
@@ -327,6 +335,10 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_card_drafts_user_created
 ON knowledge_card_drafts(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_card_drafts_batch
 ON knowledge_card_drafts(batch_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_card_drafts_user_type
+ON knowledge_card_drafts(user_id, knowledge_type) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_user_type
+ON user_knowledge_items(user_id, knowledge_type) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_user_graph_nodes_user_active
 ON user_graph_nodes(user_id, created_at DESC) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_user_graph_nodes_purge_at

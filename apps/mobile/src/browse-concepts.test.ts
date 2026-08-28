@@ -123,3 +123,16 @@ test('searches private concept content and respects concept filters', () => {
     [],
   );
 });
+
+test('filters personal graph nodes by typed bundle or legacy quick note', () => {
+  const concept = { ...privateNote, id: 'typed', knowledge_type: 'concept' as const, central_question: 'What is gradient descent?' };
+  assert.deepEqual(filterPersonalBrowseConcepts([privateNote, concept], {
+    query: '', domain: 'All', difficulty: 'All', locale: 'en', knowledgeType: 'concept',
+  }), [concept]);
+  assert.deepEqual(filterPersonalBrowseConcepts([privateNote, concept], {
+    query: '', domain: 'All', difficulty: 'All', locale: 'en', knowledgeType: 'legacy',
+  }), [privateNote]);
+  assert.deepEqual(filterPersonalBrowseConcepts([privateNote, concept], {
+    query: 'gradient descent', domain: 'All', difficulty: 'All', locale: 'en', knowledgeType: 'concept',
+  }), [concept]);
+});

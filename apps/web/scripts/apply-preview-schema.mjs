@@ -4,11 +4,13 @@ import pg from 'pg';
 
 const PREVIEW_MIGRATIONS = [
   new URL('../drizzle/migrations/0014_guest_knowledge_limits.sql', import.meta.url),
+  new URL('../drizzle/migrations/0015_typed_knowledge_bundles.sql', import.meta.url),
 ];
 
 const SAFE_STATEMENT_PREFIXES = [
   /^CREATE TABLE IF NOT EXISTS\b/i,
   /^CREATE INDEX IF NOT EXISTS\b/i,
+  /^ALTER TABLE\s+"?(?:user_knowledge_items|knowledge_card_drafts)"?\s+ADD COLUMN IF NOT EXISTS\b/i,
 ];
 
 export function parsePreviewMigration(sql) {

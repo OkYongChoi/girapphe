@@ -29,8 +29,9 @@ import {
 } from '@/browse-concepts';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
+import { knowledgeBundleTypeLabel, quickNoteLabel } from '@/knowledge-bundle-ui';
 import { normalizeCardNodeId, useLocalizedContent } from '@/localized-content';
-import { localizeDomain, localizeType } from '@stem-brain/shared';
+import { KNOWLEDGE_BUNDLE_TYPES, localizeDomain, localizeType, type KnowledgeBundleType } from '@stem-brain/shared';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 
 const DIFFICULTY_OPTIONS: DifficultyOption[] = ['All', 1, 2, 3, 4, 5];
@@ -45,6 +46,7 @@ export default function BrowseScreen() {
   const [query, setQuery] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<DomainOption>('All');
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyOption>('All');
+  const [selectedKnowledgeType, setSelectedKnowledgeType] = useState<'all' | 'legacy' | KnowledgeBundleType>('all');
   const [selectedConceptId, setSelectedConceptId] = useState<string | null>(null);
   const [selectedPublicNode, setSelectedPublicNode] = useState<GraphNode | null>(null);
   const [statusByNodeId, setStatusByNodeId] = useState<Map<string, CardStatus | null>>(new Map());
@@ -76,6 +78,7 @@ export default function BrowseScreen() {
   );
   const publicNodes = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase(locale);
+    if (selectedKnowledgeType !== 'all') return [];
     if (!normalizedQuery) return candidateNodes;
     return candidateNodes.filter((node) => {
       const content = localized.get(node.id);
@@ -83,15 +86,16 @@ export default function BrowseScreen() {
         .filter(Boolean)
         .some((value) => value!.toLocaleLowerCase(locale).includes(normalizedQuery));
     });
-  }, [candidateNodes, locale, localized, query]);
+  }, [candidateNodes, locale, localized, query, selectedKnowledgeType]);
   const visiblePersonalNotes = useMemo(
     () => filterPersonalBrowseConcepts(currentPersonalNotes, {
       query,
       domain: selectedDomain,
       difficulty: selectedDifficulty,
       locale,
+      knowledgeType: selectedKnowledgeType,
     }),
-    [currentPersonalNotes, locale, query, selectedDifficulty, selectedDomain],
+    [currentPersonalNotes, locale, query, selectedDifficulty, selectedDomain, selectedKnowledgeType],
   );
   const concepts = useMemo(
     () => mergeBrowseConcepts(publicNodes, visiblePersonalNotes),
@@ -208,6 +212,22 @@ export default function BrowseScreen() {
               ))}
             </ScrollView>
 
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+              {(['all', 'legacy', ...KNOWLEDGE_BUNDLE_TYPES] as const).map((value) => (
+                <Pressable
+                  key={value}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: selectedKnowledgeType === value }}
+                  onPress={() => { resetConceptSelection(); setSelectedKnowledgeType(value); }}
+                  style={[styles.smallChip, selectedKnowledgeType === value && styles.filterChipSelected]}
+                >
+                  <Text style={[styles.filterText, selectedKnowledgeType === value && styles.filterTextSelected]}>
+                    {value === 'all' ? t('common.all') : value === 'legacy' ? quickNoteLabel(locale) : knowledgeBundleTypeLabel(locale, value)}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -259,6 +279,8 @@ export default function BrowseScreen() {
                 <Text style={styles.previewTitle}>
                   {activeNote?.title ?? (activeNode ? labelFor(activeNode) : '')}
                 </Text>
+                {activeNote?.knowledge_type ? <Text style={styles.bundleBadge}>{knowledgeBundleTypeLabel(locale, activeNote.knowledge_type)}</Text> : null}
+                {activeNote?.central_question ? <Text style={styles.previewQuestion}>{activeNote.central_question}</Text> : null}
                 <Text style={styles.previewText} numberOfLines={6}>
                   {activeNote
                     ? activeNote.summary || activeNote.content || t('browse.privateCopy')
@@ -462,6 +484,25 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     marginBottom: 10,
+  },
+  bundleBadge: {
+    alignSelf: 'flex-start',
+    color: '#ede9fe',
+    backgroundColor: '#5b21b6',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontSize: 11,
+    fontWeight: '800',
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  previewQuestion: {
+    color: '#ffffff',
+    fontSize: 16,
+    lineHeight: 23,
+    fontWeight: '800',
+    marginBottom: 8,
   },
   previewText: {
     color: '#d7dee8',

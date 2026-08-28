@@ -12,6 +12,9 @@ import {
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import SubmitButton from '@/components/submit-button';
 import { draftDependencies, includeDraftDependencies } from '@/components/draft-review-selection';
+import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
+import { isKnowledgeBundleType, type KnowledgeBundleContent, type KnowledgeBundleType } from '@stem-brain/shared';
+import { useI18n } from '@/i18n/client';
 
 const RELATION_TYPES = [
   'related',
@@ -301,6 +304,7 @@ function DraftCardEditor({
   targetListId: string;
   dependencyRequired: boolean;
 }) {
+  const { t } = useI18n();
   const [saveError, setSaveError] = useState<string | null>(null);
   const record = asRecord(draft);
   const id = readString(record, 'id', 'draft_id');
@@ -311,6 +315,11 @@ function DraftCardEditor({
   const topic = readString(record, 'topic', 'domain') || 'general';
   const version = typeof record.version === 'number' ? record.version : Number(record.version ?? 1);
   const relations = readRelations(record);
+  const knowledgeType: KnowledgeBundleType | null = isKnowledgeBundleType(record.knowledge_type) ? record.knowledge_type : null;
+  const centralQuestion = readString(record, 'central_question');
+  const structuredContent = record.structured_content && typeof record.structured_content === 'object'
+    ? record.structured_content as KnowledgeBundleContent
+    : null;
 
   return (
     <article className={`rounded-2xl border bg-white shadow-sm transition ${selected ? 'border-blue-300 ring-2 ring-blue-100' : 'border-slate-200'}`}>
@@ -325,7 +334,7 @@ function DraftCardEditor({
           className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
         />
         <label htmlFor={`select-${id}`} className="min-w-0 flex-1 cursor-pointer">
-          <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Draft card</span>
+          <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{knowledgeType ? `${t('bundle.structuredView')} · ${t(`bundle.type.${knowledgeType}`)}` : t('bundle.quickNote')}</span>
           <span className="mt-1 block truncate text-base font-semibold text-slate-950">{title || 'Untitled draft'}</span>
           <span className="mt-1 block font-mono text-[10px] text-slate-400">{id}</span>
         </label>
@@ -365,6 +374,11 @@ function DraftCardEditor({
               <input name="topic" defaultValue={topic} maxLength={48} className="min-h-10 rounded-lg border px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-400" />
             </label>
           </div>
+          <KnowledgeBundleEditor
+            defaultType={knowledgeType}
+            defaultQuestion={centralQuestion}
+            defaultContent={structuredContent}
+          />
           <label className="grid gap-1 text-xs font-semibold text-slate-700">
             Summary
             <textarea name="summary" defaultValue={summary} maxLength={500} className="min-h-20 rounded-lg border p-3 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-400" />

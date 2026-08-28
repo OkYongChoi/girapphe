@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import pool from '@/lib/db';
+import type { KnowledgeBundleContent, KnowledgeBundleType } from '@stem-brain/shared';
 import { requireCurrentActor } from '@/lib/auth';
 import {
   GUEST_KNOWLEDGE_ITEM_LIMIT,
@@ -29,6 +30,7 @@ import {
   softDeleteMemoryKnowledgeItemForUser,
   updateMemoryKnowledgeItemForUser,
 } from '@/lib/knowledge-ingestion';
+import { parseKnowledgeBundleFields, projectKnowledgeBundle, type KnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
 
 export type UserKnowledgeItem = {
   id: string;
@@ -38,6 +40,10 @@ export type UserKnowledgeItem = {
   content: string;
   topic: string;
   tags: string[];
+  knowledge_type: KnowledgeBundleType | null;
+  central_question: string | null;
+  structured_content: KnowledgeBundleContent | null;
+  bundle_schema_version: number | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -53,6 +59,23 @@ export type UserKnowledgeOverview = {
 
 let schemaReady = false;
 const memoryGuestWriteWindows = new Map<string, { startedAt: number; count: number }>();
+
+function readBundleFormData(formData: FormData): KnowledgeBundleFields | null {
+  const knowledgeType = String(formData.get('knowledge_type') ?? '').trim();
+  if (!knowledgeType) return null;
+  let structuredContent: unknown;
+  try {
+    structuredContent = JSON.parse(String(formData.get('structured_content') ?? '{}'));
+  } catch {
+    return null;
+  }
+  return parseKnowledgeBundleFields({
+    knowledge_type: knowledgeType,
+    central_question: String(formData.get('central_question') ?? ''),
+    structured_content: structuredContent,
+    bundle_schema_version: Number(formData.get('bundle_schema_version') ?? 1),
+  });
+}
 
 async function getGuestRateScope(userId: string) {
   const requestHeaders = await headers();
@@ -111,6 +134,10 @@ async function ensureSchema() {
       content TEXT NOT NULL DEFAULT '',
       topic TEXT NOT NULL DEFAULT 'general',
       tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+      knowledge_type TEXT,
+      central_question TEXT,
+      structured_content JSONB,
+      bundle_schema_version INTEGER,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       deleted_at TIMESTAMP WITH TIME ZONE,
@@ -127,6 +154,10 @@ async function ensureSchema() {
     ALTER TABLE user_knowledge_items
       ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS knowledge_type TEXT,
+      ADD COLUMN IF NOT EXISTS central_question TEXT,
+      ADD COLUMN IF NOT EXISTS structured_content JSONB,
+      ADD COLUMN IF NOT EXISTS bundle_schema_version INTEGER,
       ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE,
       ADD COLUMN IF NOT EXISTS purge_at TIMESTAMP WITH TIME ZONE;
   `);
@@ -191,7 +222,9 @@ export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
 
   const result = await pool.query<UserKnowledgeItem>(
     `
-    SELECT i.id, i.user_id, i.title, i.summary, i.content, i.topic, i.tags, i.created_at::text, i.updated_at::text,
+    SELECT i.id, i.user_id, i.title, i.summary, i.content, i.topic, i.tags,
+      i.knowledge_type, i.central_question, i.structured_content, i.bundle_schema_version,
+      i.created_at::text, i.updated_at::text,
       i.deleted_at::text, i.purge_at::text, s.provider AS source_provider, s.batch_id AS source_batch_id
     FROM user_knowledge_items i
     LEFT JOIN LATERAL (
@@ -247,8 +280,14 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   const user = await requireCurrentActor();
   const syncGraph = !user.isGuest;
   const title = sanitizeKnowledgeTitle(String(formData.get('title') ?? ''));
-  const summary = sanitizeKnowledgeContent(String(formData.get('summary') ?? ''), 500);
-  const content = sanitizeKnowledgeContent(String(formData.get('content') ?? ''));
+  const requestedSummary = sanitizeKnowledgeContent(String(formData.get('summary') ?? ''), 500);
+  const requestedContent = sanitizeKnowledgeContent(String(formData.get('content') ?? ''));
+  const hasBundleInput = Boolean(String(formData.get('knowledge_type') ?? '').trim());
+  const bundle = readBundleFormData(formData);
+  if (hasBundleInput && !bundle) return;
+  const projection = bundle ? projectKnowledgeBundle(bundle, requestedSummary) : null;
+  const summary = sanitizeKnowledgeContent(projection?.summary ?? requestedSummary, 500);
+  const content = sanitizeKnowledgeContent(projection?.content ?? requestedContent);
   const topic = normalizeKnowledgeTopic(String(formData.get('topic') ?? ''));
   const tags = sanitizeKnowledgeTags(String(formData.get('tags') ?? '').split(','));
   const requestId = normalizeKnowledgeRequestId(formData.get('request_id'));
@@ -268,7 +307,13 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
       if (activeCount >= GUEST_KNOWLEDGE_ITEM_LIMIT) throw new Error('guest_knowledge_item_limit');
     }
     if (requestId && hasMemoryCreateRequest(user.id, requestId)) return;
-    const item = createMemoryKnowledgeItemForUser(user.id, { title, summary, content, topic, tags }, { syncGraph });
+    const item = createMemoryKnowledgeItemForUser(user.id, {
+      title, summary, content, topic, tags,
+      knowledgeType: bundle?.knowledge_type ?? null,
+      centralQuestion: bundle?.central_question ?? null,
+      structuredContent: bundle?.structured_content ?? null,
+      bundleSchemaVersion: bundle?.bundle_schema_version ?? null,
+    }, { syncGraph });
     if (user.isGuest) {
       item.purge_at = new Date(Date.now() + GUEST_KNOWLEDGE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     }
@@ -294,8 +339,9 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
            INSERT INTO user_knowledge_create_requests (user_id, request_id) VALUES ($1, $2)
            ON CONFLICT DO NOTHING RETURNING 1
          ), inserted_item AS (
-           INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags, purge_at)
-           SELECT $3, $1, $4, $9, $5, $6, $8::jsonb,
+           INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags,
+             knowledge_type, central_question, structured_content, bundle_schema_version, purge_at)
+           SELECT $3, $1, $4, $9, $5, $6, $8::jsonb, $14, $15, $16::jsonb, $17,
              CASE WHEN $11::boolean THEN NOW() + ($12::int * INTERVAL '1 day') ELSE NULL END
            WHERE EXISTS (SELECT 1 FROM claimed)
              AND (NOT $11::boolean OR (
@@ -310,8 +356,9 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
            RETURNING knowledge_item_id
          ) SELECT id FROM inserted_item`
     : `WITH inserted_item AS (
-           INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags, purge_at)
-           SELECT $3, $1, $4, $9, $5, $6, $8::jsonb,
+           INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags,
+             knowledge_type, central_question, structured_content, bundle_schema_version, purge_at)
+           SELECT $3, $1, $4, $9, $5, $6, $8::jsonb, $14, $15, $16::jsonb, $17,
              CASE WHEN $11::boolean THEN NOW() + ($12::int * INTERVAL '1 day') ELSE NULL END
            WHERE $2::text IS NULL
              AND (NOT $11::boolean OR (
@@ -339,6 +386,10 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
     user.isGuest,
     GUEST_KNOWLEDGE_RETENTION_DAYS,
     GUEST_KNOWLEDGE_ITEM_LIMIT,
+    bundle?.knowledge_type ?? null,
+    bundle?.central_question ?? null,
+    bundle?.structured_content ? JSON.stringify(bundle.structured_content) : null,
+    bundle?.bundle_schema_version ?? null,
   ];
   const result = user.isGuest
     ? (await pool.transaction<{ id: string }>([
@@ -378,8 +429,14 @@ export async function updateKnowledgeItem(formData: FormData): Promise<void> {
   const id = String(formData.get('id') ?? '').trim();
   const title = sanitizeKnowledgeTitle(String(formData.get('title') ?? ''));
   const summaryField = formData.get('summary');
-  const summary = summaryField === null ? undefined : sanitizeKnowledgeContent(String(summaryField), 500);
-  const content = sanitizeKnowledgeContent(String(formData.get('content') ?? ''));
+  const requestedSummary = summaryField === null ? undefined : sanitizeKnowledgeContent(String(summaryField), 500);
+  const bundleEditorPresent = String(formData.get('bundle_mode_present') ?? '') === '1';
+  const hasBundleInput = Boolean(String(formData.get('knowledge_type') ?? '').trim());
+  const bundle = readBundleFormData(formData);
+  if (hasBundleInput && !bundle) return;
+  const projection = bundle ? projectKnowledgeBundle(bundle, requestedSummary ?? '') : null;
+  const summary = projection?.summary ?? requestedSummary;
+  const content = sanitizeKnowledgeContent(projection?.content ?? String(formData.get('content') ?? ''));
   const topic = normalizeKnowledgeTopic(String(formData.get('topic') ?? ''));
   const tagsField = formData.get('tags');
   const tags = tagsField === null ? undefined : sanitizeKnowledgeTags(String(tagsField).split(','));
@@ -389,7 +446,13 @@ export async function updateKnowledgeItem(formData: FormData): Promise<void> {
   }
 
   if (!process.env.DATABASE_URL) {
-    updateMemoryKnowledgeItemForUser(user.id, id, { title, summary, content, topic, tags }, { syncGraph });
+    updateMemoryKnowledgeItemForUser(user.id, id, {
+      title, summary, content, topic, tags,
+      knowledgeType: bundleEditorPresent ? bundle?.knowledge_type ?? null : undefined,
+      centralQuestion: bundleEditorPresent ? bundle?.central_question ?? null : undefined,
+      structuredContent: bundleEditorPresent ? bundle?.structured_content ?? null : undefined,
+      bundleSchemaVersion: bundleEditorPresent ? bundle?.bundle_schema_version ?? null : undefined,
+    }, { syncGraph });
 
     revalidatePath('/my-knowledge');
     revalidatePath('/grid');
@@ -403,12 +466,20 @@ export async function updateKnowledgeItem(formData: FormData): Promise<void> {
     `WITH updated_item AS (
        UPDATE user_knowledge_items SET title = $3, content = $4, topic = $5,
          tags = CASE WHEN $6::jsonb IS NULL THEN tags ELSE $6::jsonb END,
-         summary = CASE WHEN $7::text IS NULL THEN summary ELSE $7 END, updated_at = NOW()
+         summary = CASE WHEN $7::text IS NULL THEN summary ELSE $7 END,
+         knowledge_type = CASE WHEN $9::boolean THEN $10 ELSE knowledge_type END,
+         central_question = CASE WHEN $9::boolean THEN $11 ELSE central_question END,
+         structured_content = CASE WHEN $9::boolean THEN $12::jsonb ELSE structured_content END,
+         bundle_schema_version = CASE WHEN $9::boolean THEN $13 ELSE bundle_schema_version END,
+         updated_at = NOW()
        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL RETURNING id, title, topic
      )
      UPDATE user_graph_nodes n SET label = i.title, topic = i.topic, updated_at = NOW()
      FROM updated_item i WHERE $8::boolean AND n.knowledge_item_id = i.id AND n.user_id = $2 AND n.deleted_at IS NULL`,
-    [id, user.id, title, content, topic, tags ? JSON.stringify(tags) : null, summary ?? null, syncGraph]
+    [id, user.id, title, content, topic, tags ? JSON.stringify(tags) : null, summary ?? null, syncGraph,
+      bundleEditorPresent, bundle?.knowledge_type ?? null, bundle?.central_question ?? null,
+      bundle?.structured_content ? JSON.stringify(bundle.structured_content) : null,
+      bundle?.bundle_schema_version ?? null]
   );
 
   revalidatePath('/my-knowledge');
@@ -467,7 +538,9 @@ export async function getDeletedKnowledgeItems(): Promise<UserKnowledgeItem[]> {
 
   await ensureSchema();
   const result = await pool.query<UserKnowledgeItem>(
-    `SELECT id, user_id, title, summary, content, topic, tags, created_at::text, updated_at::text,
+    `SELECT id, user_id, title, summary, content, topic, tags,
+      knowledge_type, central_question, structured_content, bundle_schema_version,
+      created_at::text, updated_at::text,
       deleted_at::text, purge_at::text
      FROM user_knowledge_items
      WHERE user_id = $1 AND deleted_at IS NOT NULL AND purge_at > NOW()

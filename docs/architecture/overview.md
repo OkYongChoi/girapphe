@@ -37,7 +37,7 @@ see the [August 2026 architecture consulting review](./consulting-review-2026-08
 - `GET /api/graph`: returns graph nodes/links and user-aware stats.
 - `POST /api/quiz_result`: accepts assessment result, updates state, propagates, and diffuses.
 - `GET /api/mobile`: serves authenticated mobile graph, notes, progress, ranking, and admin payloads.
-- `POST /api/mcp`: exposes the pending-only `create_card_drafts` MCP tool.
+- `POST /api/mcp`: exposes pending-only structured bundle creation plus the compatible card-draft adapter.
 - Billing, webhook, and health routes live in the same Next.js application and deploy as one Cloudflare Worker.
 - Serializes graph data into force-graph-friendly response format.
 

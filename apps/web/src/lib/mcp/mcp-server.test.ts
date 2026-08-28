@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CREATE_CARD_DRAFTS_TOOL_NAME, MCP_DRAFT_CREATE_SCOPE } from './create-card-drafts-schema';
+import { CREATE_KNOWLEDGE_BUNDLE_DRAFTS_TOOL_NAME } from './create-knowledge-bundle-drafts-schema';
 import { createDraftMcpHandler, toMcpAuthInfo } from './mcp-server';
 
 const authInfo = toMcpAuthInfo({
@@ -69,7 +70,10 @@ test('serves initialize, tools/list, and a pending-only create_card_drafts call'
 
   const listed = await callMcp(handler, 2, 'tools/list', {});
   const tools = (listed.result as { tools?: Array<{ name?: string }> }).tools ?? [];
-  assert.deepEqual(tools.map((tool) => tool.name), [CREATE_CARD_DRAFTS_TOOL_NAME]);
+  assert.deepEqual(tools.map((tool) => tool.name), [
+    CREATE_CARD_DRAFTS_TOOL_NAME,
+    CREATE_KNOWLEDGE_BUNDLE_DRAFTS_TOOL_NAME,
+  ]);
 
   const called = await callMcp(handler, 3, 'tools/call', {
     name: CREATE_CARD_DRAFTS_TOOL_NAME,
@@ -130,6 +134,17 @@ test('serves initialize, tools/list, and a pending-only create_card_drafts call'
                 weight: undefined,
               },
             ],
+            knowledgeType: 'concept',
+            centralQuestion: 'Bayes theorem',
+            structuredContent: {
+              type: 'concept',
+              definition: 'A probability update rule.',
+              key_points: [],
+              examples: [],
+              non_examples: [],
+              misconceptions: [],
+            },
+            bundleSchemaVersion: 1,
           },
         ],
       },
@@ -168,6 +183,39 @@ test('does not create a draft when the input has a transcript field', async () =
   const result = response.result as { isError?: boolean };
   assert.equal(result.isError, true);
   assert.equal(createCalls, 0);
+
+  await handler.close();
+});
+
+test('creates only pending structured bundles through create_knowledge_bundle_drafts', async () => {
+  const received: Array<Record<string, unknown>> = [];
+  const handler = createDraftMcpHandler(async (_userId, input) => {
+    received.push(input as unknown as Record<string, unknown>);
+    return { batchId: 'bundle_batch_123', created: true, draftCount: input.cards.length, reviewPath: '/knowledge-inbox/bundle_batch_123' };
+  });
+
+  const response = await callMcp(handler, 5, 'tools/call', {
+    name: CREATE_KNOWLEDGE_BUNDLE_DRAFTS_TOOL_NAME,
+    arguments: {
+      provider: 'chatgpt', request_id: 'bundle-request-123',
+      provenance: { type: 'current_conversation', conversation_ref: 'conversation-123' },
+      bundles: [{
+        client_bundle_id: 'mechanism-1', title: 'Rain formation',
+        central_question: 'How does rain form?', knowledge_type: 'mechanism',
+        summary: 'Moist air cools and condenses.', topic: 'weather', tags: ['rain'], bundle_schema_version: 1,
+        structured_content: { type: 'mechanism', causes: ['Moist air'], stages: [{ title: 'Condense', detail: 'Water cools.' }], results: ['Rain'], conditions: [], exceptions: [] },
+      }],
+    },
+  });
+
+  assert.deepEqual((response.result as { structuredContent?: Record<string, unknown> }).structuredContent, {
+    status: 'pending', batch_id: 'bundle_batch_123', created: true, bundle_count: 1, review_path: '/knowledge-inbox/bundle_batch_123',
+  });
+  assert.equal(received.length, 1);
+  const card = (received[0]?.cards as Array<Record<string, unknown>>)[0];
+  assert.equal(card?.knowledgeType, 'mechanism');
+  assert.equal(card?.centralQuestion, 'How does rain form?');
+  assert.equal(card?.bundleSchemaVersion, 1);
 
   await handler.close();
 });
