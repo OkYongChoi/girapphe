@@ -211,3 +211,154 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
     await pool.end();
   }
 });
+
+test('PostgreSQL Topic Hub relations expose only active private endpoints', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Topic Hub test',
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const imported = await import('../src/lib/topic-knowledge-hub.ts');
+  const topicKnowledge = imported.default ?? imported;
+  const { getTopicKnowledgeHubForUser } = topicKnowledge;
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const userId = `live-topic-relations-${crypto.randomUUID()}`;
+  const topic = 'live-topic-relations';
+  const itemIds = {
+    source: `live-item-source-${crypto.randomUUID()}`,
+    active: `live-item-active-${crypto.randomUUID()}`,
+    archived: `live-item-archived-${crypto.randomUUID()}`,
+    deleted: `live-item-deleted-${crypto.randomUUID()}`,
+    expired: `live-item-expired-${crypto.randomUUID()}`,
+    superseded: `live-item-superseded-${crypto.randomUUID()}`,
+    replacement: `live-item-replacement-${crypto.randomUUID()}`,
+    deletedNode: `live-item-node-deleted-${crypto.randomUUID()}`,
+  };
+  const nodeIds = Object.fromEntries(Object.entries(itemIds).map(([state, itemId]) => [
+    state,
+    `live-node-${state}-${itemId.slice(-36)}`,
+  ]));
+  const activeEdgeId = `live-edge-active-${crypto.randomUUID()}`;
+  const publicEdgeId = `live-edge-public-${crypto.randomUUID()}`;
+  const publicIncomingEdgeId = `live-edge-public-incoming-${crypto.randomUUID()}`;
+  const publicNodeId = `live-public-topic-${crypto.randomUUID()}`;
+  let createdPublicNode = false;
+
+  try {
+    const insertedPublicNode = await pool.query(
+      `INSERT INTO graph_nodes (id, label, domain)
+       VALUES ($1, 'Live Topic Hub public node', 'Live Topic Hub')
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id`,
+      [publicNodeId],
+    );
+    createdPublicNode = insertedPublicNode.rowCount === 1;
+
+    for (const [state, itemId] of Object.entries(itemIds)) {
+      await pool.query(
+        `INSERT INTO user_knowledge_items
+           (id, user_id, title, content, topic, summary, tags, version, dedupe_key)
+         VALUES ($1, $2, $3, 'Live Topic Hub relation fixture', $4, '', '[]'::jsonb, 1, $5)`,
+        [
+          itemId,
+          userId,
+          `Live Topic Hub ${state}`,
+          state === 'source' ? topic : 'live-topic-relation-targets',
+          `live-topic-dedupe-${crypto.randomUUID()}`,
+        ],
+      );
+      await pool.query(
+        `INSERT INTO user_graph_nodes (id, user_id, knowledge_item_id, label, topic)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [nodeIds[state], userId, itemId, `Live Topic Hub ${state}`, topic],
+      );
+    }
+
+    await pool.query(
+      `UPDATE user_knowledge_items SET archived_at = NOW() WHERE id = $1 AND user_id = $2`,
+      [itemIds.archived, userId],
+    );
+    await pool.query(
+      `UPDATE user_knowledge_items SET deleted_at = NOW() WHERE id = $1 AND user_id = $2`,
+      [itemIds.deleted, userId],
+    );
+    await pool.query(
+      `UPDATE user_knowledge_items SET purge_at = NOW() - INTERVAL '1 minute' WHERE id = $1 AND user_id = $2`,
+      [itemIds.expired, userId],
+    );
+    await pool.query(
+      `UPDATE user_graph_nodes SET deleted_at = NOW() WHERE id = $1 AND user_id = $2`,
+      [nodeIds.deletedNode, userId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_item_supersessions
+         (id, user_id, superseded_item_id, replacement_item_id,
+          replacement_live_item_id, replacement_live_user_id, reason)
+       VALUES ($1, $2, $3, $4, $4, $2, 'Live Topic Hub inactive endpoint fixture')`,
+      [
+        `live-supersession-${crypto.randomUUID()}`,
+        userId,
+        itemIds.superseded,
+        itemIds.replacement,
+      ],
+    );
+
+    await pool.query(
+      `INSERT INTO user_graph_edges
+         (id, user_id, source_private_node_id, target_private_node_id, type, weight)
+       VALUES ($1, $2, $3, $4, 'related', 1)`,
+      [activeEdgeId, userId, nodeIds.source, nodeIds.active],
+    );
+    await pool.query(
+      `INSERT INTO user_graph_edges
+         (id, user_id, source_private_node_id, target_public_node_id, type, weight)
+       VALUES ($1, $2, $3, $4, 'related', 1)`,
+      [publicEdgeId, userId, nodeIds.source, publicNodeId],
+    );
+    await pool.query(
+      `INSERT INTO user_graph_edges
+         (id, user_id, source_public_node_id, target_private_node_id, type, weight)
+       VALUES ($1, $2, $3, $4, 'supports', 1)`,
+      [publicIncomingEdgeId, userId, publicNodeId, nodeIds.source],
+    );
+    for (const state of ['archived', 'deleted', 'expired', 'superseded', 'deletedNode']) {
+      await pool.query(
+        `INSERT INTO user_graph_edges
+           (id, user_id, source_private_node_id, target_private_node_id, type, weight)
+         VALUES ($1, $2, $3, $4, 'supports', 1),
+                ($5, $2, $4, $3, 'answers', 1)`,
+        [
+          `live-edge-to-${state}-${crypto.randomUUID()}`,
+          userId,
+          nodeIds.source,
+          nodeIds[state],
+          `live-edge-from-${state}-${crypto.randomUUID()}`,
+        ],
+      );
+    }
+
+    const hub = await getTopicKnowledgeHubForUser(userId, topic);
+    assert.deepEqual(hub.items.map((item) => item.id), [itemIds.source]);
+    assert.deepEqual(hub.relations.map((relation) => ({
+      id: relation.id,
+      source: relation.source,
+      target: relation.target,
+    })), [{
+      id: activeEdgeId,
+      source: `personal:${itemIds.source}`,
+      target: `personal:${itemIds.active}`,
+    }, {
+      id: publicEdgeId,
+      source: `personal:${itemIds.source}`,
+      target: `public:${publicNodeId}`,
+    }, {
+      id: publicIncomingEdgeId,
+      source: `public:${publicNodeId}`,
+      target: `personal:${itemIds.source}`,
+    }]);
+  } finally {
+    await pool.query('DELETE FROM user_knowledge_items WHERE user_id = $1', [userId]).catch(() => undefined);
+    if (createdPublicNode) {
+      await pool.query('DELETE FROM graph_nodes WHERE id = $1', [publicNodeId]).catch(() => undefined);
+    }
+    await pool.end();
+  }
+});

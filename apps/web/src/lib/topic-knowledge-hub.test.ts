@@ -371,7 +371,7 @@ test('expired guest knowledge stays out of topic hubs, summaries, exports, and c
   assert.doesNotMatch(contextExport, new RegExp(expired.id, 'u'));
 });
 
-test('PostgreSQL topic queries apply retention to active items and every supersession-history hop', async () => {
+test('PostgreSQL topic queries exclude inactive relation endpoints and retain only visible history', async () => {
   const originalQuery = db.query;
   const queries: string[] = [];
   process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
@@ -398,8 +398,18 @@ test('PostgreSQL topic queries apply retention to active items and every superse
 
   const relationQuery = queries.find((query) => query.includes('FROM user_graph_edges e'));
   assert.ok(relationQuery);
+  assert.match(relationQuery, /sn\.deleted_at IS NULL/u);
+  assert.match(relationQuery, /tn\.deleted_at IS NULL/u);
+  assert.match(relationQuery, /si\.deleted_at IS NULL AND si\.archived_at IS NULL/u);
+  assert.match(relationQuery, /ti\.deleted_at IS NULL AND ti\.archived_at IS NULL/u);
   assert.match(relationQuery, /si\.purge_at IS NULL OR si\.purge_at > NOW\(\)/u);
   assert.match(relationQuery, /ti\.purge_at IS NULL OR ti\.purge_at > NOW\(\)/u);
+  assert.match(relationQuery, /source_supersession\.user_id = si\.user_id/u);
+  assert.match(relationQuery, /source_supersession\.superseded_item_id = si\.id/u);
+  assert.match(relationQuery, /target_supersession\.user_id = ti\.user_id/u);
+  assert.match(relationQuery, /target_supersession\.superseded_item_id = ti\.id/u);
+  assert.match(relationQuery, /e\.source_private_node_id IS NULL OR si\.id IS NOT NULL/u);
+  assert.match(relationQuery, /e\.target_private_node_id IS NULL OR ti\.id IS NOT NULL/u);
 
   const supersessionQuery = queries.find((query) => query.includes('JOIN user_knowledge_items superseded_item'));
   assert.ok(supersessionQuery);

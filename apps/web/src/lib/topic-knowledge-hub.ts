@@ -552,11 +552,25 @@ export async function getTopicKnowledgeHubForUser(
          e.type, e.origin, e.relation_origin, e.confirmed_at
        FROM user_graph_edges e
        LEFT JOIN user_graph_nodes sn ON sn.id = e.source_private_node_id AND sn.user_id = e.user_id
+         AND sn.deleted_at IS NULL
        LEFT JOIN user_graph_nodes tn ON tn.id = e.target_private_node_id AND tn.user_id = e.user_id
+         AND tn.deleted_at IS NULL
        LEFT JOIN user_knowledge_items si ON si.id = sn.knowledge_item_id AND si.user_id = sn.user_id
+         AND si.deleted_at IS NULL AND si.archived_at IS NULL
          AND (si.purge_at IS NULL OR si.purge_at > NOW())
+         AND NOT EXISTS (
+           SELECT 1 FROM knowledge_item_supersessions source_supersession
+           WHERE source_supersession.user_id = si.user_id
+             AND source_supersession.superseded_item_id = si.id
+         )
        LEFT JOIN user_knowledge_items ti ON ti.id = tn.knowledge_item_id AND ti.user_id = tn.user_id
+         AND ti.deleted_at IS NULL AND ti.archived_at IS NULL
          AND (ti.purge_at IS NULL OR ti.purge_at > NOW())
+         AND NOT EXISTS (
+           SELECT 1 FROM knowledge_item_supersessions target_supersession
+           WHERE target_supersession.user_id = ti.user_id
+             AND target_supersession.superseded_item_id = ti.id
+         )
        WHERE e.user_id = $1 AND e.deleted_at IS NULL
          AND (sn.knowledge_item_id = ANY($2::text[]) OR tn.knowledge_item_id = ANY($2::text[]))
          AND (e.source_private_node_id IS NULL OR si.id IS NOT NULL)
