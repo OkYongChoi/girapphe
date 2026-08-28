@@ -6,15 +6,16 @@ const PREVIEW_MIGRATIONS = [
   new URL('../drizzle/migrations/0014_guest_knowledge_limits.sql', import.meta.url),
   new URL('../drizzle/migrations/0015_typed_knowledge_bundles.sql', import.meta.url),
   new URL('../drizzle/migrations/0016_conversation_knowledge_hub.sql', import.meta.url),
+  new URL('../drizzle/migrations/0017_supersession_replacement_tombstones.sql', import.meta.url),
 ];
 
 const SAFE_STATEMENT_PREFIXES = [
   /^CREATE TABLE IF NOT EXISTS\b/i,
   /^CREATE INDEX IF NOT EXISTS\b/i,
   /^CREATE UNIQUE INDEX IF NOT EXISTS\b/i,
-  /^ALTER TABLE\s+"?(?:user_knowledge_items|knowledge_ingestion_batches|knowledge_card_drafts|knowledge_card_sources|user_graph_edges)"?\s+ADD COLUMN IF NOT EXISTS\b/i,
-  /^ALTER TABLE\s+"?(?:user_knowledge_items|knowledge_ingestion_batches|knowledge_card_drafts|knowledge_card_sources|user_graph_edges)"?\s+DROP CONSTRAINT IF EXISTS\b/i,
-  /^ALTER TABLE\s+"?(?:user_knowledge_items|knowledge_ingestion_batches|knowledge_card_drafts|knowledge_card_sources|user_graph_edges)"?\s+ADD CONSTRAINT\b/i,
+  /^ALTER TABLE\s+"?(?:user_knowledge_items|knowledge_ingestion_batches|knowledge_card_drafts|knowledge_card_sources|user_graph_edges|knowledge_item_supersessions)"?\s+ADD COLUMN IF NOT EXISTS\b/i,
+  /^ALTER TABLE\s+"?(?:user_knowledge_items|knowledge_ingestion_batches|knowledge_card_drafts|knowledge_card_sources|user_graph_edges|knowledge_item_supersessions)"?\s+DROP CONSTRAINT IF EXISTS\b/i,
+  /^ALTER TABLE\s+"?(?:user_knowledge_items|knowledge_ingestion_batches|knowledge_card_drafts|knowledge_card_sources|user_graph_edges|knowledge_item_supersessions)"?\s+ADD CONSTRAINT\b/i,
 ];
 
 export function parsePreviewMigration(sql) {

@@ -12,6 +12,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0014_guest_knowledge_limits.sql', 5],
     ['0015_typed_knowledge_bundles.sql', 4],
     ['0016_conversation_knowledge_hub.sql', 39],
+    ['0017_supersession_replacement_tombstones.sql', 7],
   ];
   for (const [name, expectedCount] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -110,6 +111,19 @@ test('conversation knowledge hub migration is owner-scoped and selector-only', a
   assert.ok(sql.includes(`AND position('?' in ("selector" ->> 'source_ref')) = 0`));
   assert.ok(sql.includes(`AND position('#' in ("selector" ->> 'source_ref')) = 0`));
   assert.ok(sql.includes(`AND ("selector" ->> 'source_ref') !~ '^https://[^/?#]*@'`));
+});
+
+test('supersession tombstone migration upgrades already-created hub tables safely', async () => {
+  const sql = await readFile(new URL('../drizzle/migrations/0017_supersession_replacement_tombstones.sql', import.meta.url), 'utf8');
+  for (const statement of parsePreviewMigration(sql)) assertSafePreviewStatement(statement);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS "replacement_live_item_id" text/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS "replacement_live_user_id" text/);
+  assert.match(sql, /DROP CONSTRAINT IF EXISTS "knowledge_item_supersessions_new_owner_fk"/);
+  assert.match(sql, /FOREIGN KEY \("replacement_live_item_id", "replacement_live_user_id"\)/);
+  assert.match(sql, /ON DELETE set null/);
+  assert.match(sql, /"replacement_live_item_id" = "replacement_item_id"/);
+  assert.match(sql, /"replacement_live_user_id" = "user_id"/);
+  assert.doesNotMatch(sql, /^\s*UPDATE\b/im);
 });
 
 test('preview schema update is fenced to an explicit preview environment', async () => {

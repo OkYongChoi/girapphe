@@ -1017,19 +1017,47 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS knowledge_item_supersessions (
           id TEXT PRIMARY KEY, user_id TEXT NOT NULL, superseded_item_id TEXT NOT NULL,
-          replacement_item_id TEXT NOT NULL, reason TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          replacement_item_id TEXT NOT NULL, replacement_live_item_id TEXT,
+          replacement_live_user_id TEXT, reason TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           CONSTRAINT knowledge_item_supersessions_old_owner_fk
             FOREIGN KEY (superseded_item_id, user_id)
             REFERENCES user_knowledge_items(id, user_id) ON DELETE CASCADE,
           CONSTRAINT knowledge_item_supersessions_new_owner_fk
-            FOREIGN KEY (replacement_item_id, user_id)
-            REFERENCES user_knowledge_items(id, user_id) ON DELETE CASCADE,
+            FOREIGN KEY (replacement_live_item_id, replacement_live_user_id)
+            REFERENCES user_knowledge_items(id, user_id) ON DELETE SET NULL,
           CONSTRAINT knowledge_item_supersessions_old_key
             UNIQUE(user_id, superseded_item_id),
           CONSTRAINT knowledge_item_supersessions_distinct_check
-            CHECK (superseded_item_id <> replacement_item_id)
+            CHECK (superseded_item_id <> replacement_item_id),
+          CONSTRAINT knowledge_item_supersessions_live_replacement_check
+            CHECK (
+              (replacement_live_item_id IS NULL AND replacement_live_user_id IS NULL)
+              OR (replacement_live_item_id IS NOT NULL
+                AND replacement_live_user_id IS NOT NULL
+                AND replacement_live_item_id = replacement_item_id
+                AND replacement_live_user_id = user_id)
+            )
         );
       `);
+      await pool.query(`ALTER TABLE knowledge_item_supersessions
+        ADD COLUMN IF NOT EXISTS replacement_live_item_id TEXT`);
+      await pool.query(`ALTER TABLE knowledge_item_supersessions
+        ADD COLUMN IF NOT EXISTS replacement_live_user_id TEXT`);
+      await pool.query(`ALTER TABLE knowledge_item_supersessions
+        DROP CONSTRAINT IF EXISTS knowledge_item_supersessions_new_owner_fk,
+        DROP CONSTRAINT IF EXISTS knowledge_item_supersessions_live_replacement_check`);
+      await pool.query(`ALTER TABLE knowledge_item_supersessions
+        ADD CONSTRAINT knowledge_item_supersessions_new_owner_fk
+          FOREIGN KEY(replacement_live_item_id, replacement_live_user_id)
+          REFERENCES user_knowledge_items(id, user_id) ON DELETE SET NULL,
+        ADD CONSTRAINT knowledge_item_supersessions_live_replacement_check
+          CHECK (
+            (replacement_live_item_id IS NULL AND replacement_live_user_id IS NULL)
+            OR (replacement_live_item_id IS NOT NULL
+              AND replacement_live_user_id IS NOT NULL
+              AND replacement_live_item_id = replacement_item_id
+              AND replacement_live_user_id = user_id)
+          )`);
       await pool.query(`ALTER TABLE knowledge_item_supersessions
         DROP CONSTRAINT IF EXISTS knowledge_item_supersessions_pair_key,
         DROP CONSTRAINT IF EXISTS knowledge_item_supersessions_old_key`);
@@ -1194,6 +1222,8 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
         ON knowledge_item_supersessions(user_id, superseded_item_id)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_knowledge_item_supersessions_user_new
         ON knowledge_item_supersessions(user_id, replacement_item_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_knowledge_item_supersessions_live_replacement
+        ON knowledge_item_supersessions(replacement_live_item_id, replacement_live_user_id)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_spans_user_item
         ON knowledge_evidence_spans(user_id, knowledge_item_id)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_spans_user_source
@@ -2005,8 +2035,10 @@ export function updateMemoryKnowledgeItemForUser(
   options: { syncGraph?: boolean; activityMetadata?: Record<string, unknown>; expectedVersion?: number } = {}
 ): KnowledgeItemUpdateResult {
   const now = new Date().toISOString();
+  const supersededIds = new Set((memoryItemSupersessions.get(userId) ?? [])
+    .map((entry) => entry.superseded_item_id));
   const previous = (memoryKnowledgeItems.get(userId) ?? []).find((item) => item.id === itemId
-    && !item.deleted_at && !item.archived_at);
+    && !item.deleted_at && !item.archived_at && !supersededIds.has(item.id));
   if (!previous) return { updated: false, version: null, notFound: true };
   if (options.expectedVersion !== undefined && previous.version !== options.expectedVersion) {
     return { updated: false, version: null, stale: true };
@@ -2156,8 +2188,7 @@ export function purgeMemoryKnowledgeItemsForUser(userId: string): void {
   memoryItemActivity.set(userId, (memoryItemActivity.get(userId) ?? [])
     .filter((entry) => !purgedIds.has(entry.knowledge_item_id)));
   memoryItemSupersessions.set(userId, (memoryItemSupersessions.get(userId) ?? [])
-    .filter((entry) => !purgedIds.has(entry.superseded_item_id)
-      && !purgedIds.has(entry.superseding_item_id)));
+    .filter((entry) => !purgedIds.has(entry.superseded_item_id)));
   memoryEvidenceSelectors.set(userId, (memoryEvidenceSelectors.get(userId) ?? [])
     .filter((entry) => !purgedIds.has(entry.knowledge_item_id)));
   memoryKnowledgeSources.set(userId, (memoryKnowledgeSources.get(userId) ?? [])
@@ -2258,17 +2289,20 @@ async function resolveEndpointForUser(
       if (!options.allowPublic || !GRAPH_NODES.some((node) => node.id === parsed.id)) return null;
       return { privateNodeId: null, publicNodeId: parsed.id, knowledgeItemId: null, key: `public:${parsed.id}` };
     }
+    const supersededIds = new Set((memoryItemSupersessions.get(userId) ?? [])
+      .map((entry) => entry.superseded_item_id));
+    const activeItemById = (itemId: string) => (memoryKnowledgeItems.get(userId) ?? [])
+      .find((candidate) => candidate.id === itemId
+        && !candidate.deleted_at && !candidate.archived_at && !supersededIds.has(candidate.id));
     let node: PrivateKnowledgeNode | undefined;
     if (parsed.kind === 'personal') {
-      const supersededIds = new Set((memoryItemSupersessions.get(userId) ?? [])
-        .map((entry) => entry.superseded_item_id));
-      const item = (memoryKnowledgeItems.get(userId) ?? []).find((candidate) => candidate.id === parsed.id
-        && !candidate.deleted_at && !candidate.archived_at && !supersededIds.has(candidate.id));
+      const item = activeItemById(parsed.id);
       if (!item) return null;
       node = (memoryNodes.get(userId) ?? []).find((candidate) => candidate.knowledge_item_id === item.id);
       if (!node && options.createPersonalNode) node = ensureMemoryPrivateNode(userId, item, 'manual');
     } else {
       node = (memoryNodes.get(userId) ?? []).find((candidate) => candidate.graph_node_id === parsed.id);
+      if (node && !activeItemById(node.knowledge_item_id)) node = undefined;
     }
     return node ? { privateNodeId: node.graph_node_id, publicNodeId: null, knowledgeItemId: node.knowledge_item_id, key: `private:${node.graph_node_id}` } : null;
   }
@@ -4372,8 +4406,9 @@ export async function supersedeKnowledgeItemForUser(
       ),
       tx.query(
         `INSERT INTO knowledge_item_supersessions
-           (id, user_id, superseded_item_id, replacement_item_id, reason)
-         VALUES ($1, $2, $3, $4, $5)
+           (id, user_id, superseded_item_id, replacement_item_id,
+            replacement_live_item_id, replacement_live_user_id, reason)
+         VALUES ($1, $2, $3, $4, $4, $2, $5)
          RETURNING id`,
         [supersessionId, userId, supersededItemId, supersedingItemId, reason || null],
       ),

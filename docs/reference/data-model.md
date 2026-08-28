@@ -83,7 +83,12 @@ views without deleting its content, relations, provenance, or history.
 `knowledge_item_revisions` stores immutable versions,
 `knowledge_item_activity` stores events such as confirmation, verification,
 revision, archive/restore, supersession, and reuse,
-`knowledge_item_supersessions` links canonical replacements, and
+`knowledge_item_supersessions` links canonical replacements. New links carry an
+owner-scoped live-reference pair that becomes null when a replacement is
+permanently deleted, while the durable replacement ID remains as a tombstone so
+the prior item does not silently become canonical again. Rows created before
+migration `0017` intentionally keep a null live-reference pair even if the
+replacement still exists; null therefore is not a universal liveness signal.
 `knowledge_evidence_spans` stores source positions without transcript text.
 Accepted HTTPS source URLs reject embedded credentials and drop query strings
 and fragments before persistence; opaque conversation references reject

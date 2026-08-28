@@ -462,6 +462,17 @@ test('canonical revision clears verification and supersession consumes its optim
   currentOldItem = getMemoryKnowledgeItemsForUser(userId)
     .find((item) => item.id === oldItem.id)!;
   assert.equal(currentOldItem.version, 4);
+  assert.deepEqual(updateMemoryKnowledgeItemForUser(userId, oldItem.id, {
+    title: 'Superseded history must stay immutable',
+    content: 'A stale manual action cannot revise it.',
+    topic: 'Lifecycle',
+  }, { expectedVersion: currentOldItem.version }), {
+    updated: false,
+    version: null,
+    notFound: true,
+  });
+  assert.equal(getMemoryKnowledgeItemsForUser(userId)
+    .find((item) => item.id === oldItem.id)?.title, 'Revised note');
   assert.equal((await supersedeKnowledgeItemForUser(
     userId,
     oldItem.id,
@@ -476,6 +487,42 @@ test('canonical revision clears verification and supersession consumes its optim
     replacement.version,
     'A cycle is not allowed.',
   )).superseded, false);
+});
+
+test('memory private-node endpoints reject archived and superseded knowledge', async () => {
+  const userId = `user_memory_private_endpoint_${crypto.randomUUID()}`;
+  const prior = createMemoryKnowledgeItemForUser(userId, {
+    graphNodeId: 'superseded-memory-node',
+    title: 'Prior answer',
+    content: 'This answer is historical.',
+    topic: 'Lifecycle',
+  });
+  const replacement = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Replacement answer',
+    content: 'This answer is canonical.',
+    topic: 'Lifecycle',
+  });
+  assert.deepEqual(await supersedeKnowledgeItemForUser(
+    userId, prior.id, replacement.id, prior.version, 'Replacement selected.',
+  ), { superseded: true });
+
+  const archived = createMemoryKnowledgeItemForUser(userId, {
+    graphNodeId: 'archived-memory-node',
+    title: 'Archived answer',
+    content: 'This answer is no longer active.',
+    topic: 'Lifecycle',
+  });
+  assert.deepEqual(await archiveKnowledgeItemForUser(userId, archived.id, archived.version), {
+    archived: true,
+    version: archived.version + 1,
+  });
+
+  assert.deepEqual(await createPrivateKnowledgeEdgeForUser(
+    userId, 'private:superseded-memory-node', 'graph_linear_algebra', 'related',
+  ), { created: false, reason: 'invalid' });
+  assert.deepEqual(await createPrivateKnowledgeEdgeForUser(
+    userId, 'private:archived-memory-node', 'graph_linear_algebra', 'related',
+  ), { created: false, reason: 'invalid' });
 });
 
 test('database supersession preserves old-to-replacement table semantics but writes replacement-to-old graph direction', async (context) => {
@@ -516,6 +563,8 @@ test('database supersession preserves old-to-replacement table semantics but wri
 
   const tableInsert = calls.find((call) => call.text.includes('INSERT INTO knowledge_item_supersessions'));
   assert.deepEqual(tableInsert?.params.slice(2, 4), [oldItemId, replacementItemId]);
+  assert.match(tableInsert?.text ?? '', /replacement_live_item_id, replacement_live_user_id/);
+  assert.match(tableInsert?.text ?? '', /VALUES \(\$1, \$2, \$3, \$4, \$4, \$2, \$5\)/);
   const edgeInsert = calls.find((call) => call.text.includes('INSERT INTO user_graph_edges'));
   assert.deepEqual(edgeInsert?.params.slice(2, 4), [replacementItemId, oldItemId]);
 });

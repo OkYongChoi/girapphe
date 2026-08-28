@@ -521,6 +521,8 @@ export const knowledgeItemSupersessions = pgTable("knowledge_item_supersessions"
   userId: text("user_id").notNull(),
   supersededItemId: text("superseded_item_id").notNull(),
   replacementItemId: text("replacement_item_id").notNull(),
+  replacementLiveItemId: text("replacement_live_item_id"),
+  replacementLiveUserId: text("replacement_live_user_id"),
   reason: text("reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -530,14 +532,22 @@ export const knowledgeItemSupersessions = pgTable("knowledge_item_supersessions"
     name: "knowledge_item_supersessions_old_owner_fk",
   }).onDelete("cascade"),
   foreignKey({
-    columns: [t.replacementItemId, t.userId],
+    columns: [t.replacementLiveItemId, t.replacementLiveUserId],
     foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
     name: "knowledge_item_supersessions_new_owner_fk",
-  }).onDelete("cascade"),
+  }).onDelete("set null"),
   unique("knowledge_item_supersessions_old_key").on(t.userId, t.supersededItemId),
   index("idx_knowledge_item_supersessions_user_old").on(t.userId, t.supersededItemId),
   index("idx_knowledge_item_supersessions_user_new").on(t.userId, t.replacementItemId),
+  index("idx_knowledge_item_supersessions_live_replacement").on(t.replacementLiveItemId, t.replacementLiveUserId),
   check("knowledge_item_supersessions_distinct_check", sql`${t.supersededItemId} <> ${t.replacementItemId}`),
+  check("knowledge_item_supersessions_live_replacement_check", sql`(
+    (${t.replacementLiveItemId} IS NULL AND ${t.replacementLiveUserId} IS NULL)
+    OR (${t.replacementLiveItemId} IS NOT NULL
+      AND ${t.replacementLiveUserId} IS NOT NULL
+      AND ${t.replacementLiveItemId} = ${t.replacementItemId}
+      AND ${t.replacementLiveUserId} = ${t.userId})
+  )`),
 ]);
 
 export const knowledgeEvidenceSpans = pgTable("knowledge_evidence_spans", {

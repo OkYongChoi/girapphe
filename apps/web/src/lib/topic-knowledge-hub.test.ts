@@ -10,8 +10,10 @@ import {
   getKnowledgeDuplicateSuggestionsForDraftsForUser,
   getKnowledgeDuplicateSuggestionsForUser,
   getMemoryKnowledgeItemsForUser,
+  getMemoryKnowledgeSupersessionsForUser,
   getMemoryKnowledgeEvidenceForUser,
   getMemoryKnowledgeSourcesForUser,
+  purgeMemoryKnowledgeItemsForUser,
   recordKnowledgeReuseForUser,
   resolveKnowledgeDraftForUser,
   sanitizeKnowledgeEvidenceSelectors,
@@ -352,6 +354,42 @@ test('a moved replacement preserves the old topic audit trail without exposing i
   const serialized = serializeTopicKnowledgeHub(explicitContext, 'json');
   assert.doesNotMatch(serialized, new RegExp(oldItem.id, 'u'));
   assert.deepEqual(explicitContext.supersessions, []);
+});
+
+test('purging a replacement retains a tombstone that keeps the prior item superseded', async () => {
+  const userId = `user_purged_replacement_${crypto.randomUUID()}`;
+  const prior = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Prior canonical answer',
+    content: 'This answer was replaced.',
+    topic: 'Retention',
+  });
+  const replacement = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Replacement answer',
+    content: 'This became canonical.',
+    topic: 'Retention',
+  });
+  assert.deepEqual(await supersedeKnowledgeItemForUser(
+    userId,
+    prior.id,
+    replacement.id,
+    prior.version,
+    'The replacement became canonical.',
+  ), { superseded: true });
+
+  softDeleteMemoryKnowledgeItemForUser(userId, replacement.id, 0, { syncGraph: false });
+  purgeMemoryKnowledgeItemsForUser(userId);
+
+  assert.equal(getMemoryKnowledgeItemsForUser(userId).some((item) => item.id === replacement.id), false);
+  const activeHub = await getTopicKnowledgeHubForUser(userId, 'Retention');
+  assert.deepEqual(activeHub.items, []);
+  const historyHub = await getTopicKnowledgeHubForUser(userId, 'Retention', { includeSuperseded: true });
+  assert.equal(historyHub.items[0]?.id, prior.id);
+  assert.equal(historyHub.supersessions[0]?.superseded_item_id, prior.id);
+  assert.equal(historyHub.supersessions[0]?.replacement_item_id, replacement.id);
+
+  softDeleteMemoryKnowledgeItemForUser(userId, prior.id, 0, { syncGraph: false });
+  purgeMemoryKnowledgeItemsForUser(userId);
+  assert.deepEqual(getMemoryKnowledgeSupersessionsForUser(userId), []);
 });
 
 test('explicit context selection queries an item older than the newest two-hundred-item hub window', async () => {

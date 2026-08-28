@@ -135,6 +135,12 @@ jobs:
           APP_ENV: preview
           DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
 
+      - name: Verify supersession tombstone database semantics
+        working-directory: apps/web
+        run: pnpm exec tsx --test scripts/knowledge-supersession-tombstone-postgres.test.mjs
+        env:
+          LIVE_POSTGRES_TEST_DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
+
       - name: Deploy preview Worker settings and upload PR version
         working-directory: apps/web
         env:

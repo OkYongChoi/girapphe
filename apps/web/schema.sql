@@ -443,6 +443,8 @@ CREATE TABLE IF NOT EXISTS knowledge_item_supersessions (
   user_id TEXT NOT NULL,
   superseded_item_id TEXT NOT NULL,
   replacement_item_id TEXT NOT NULL,
+  replacement_live_item_id TEXT,
+  replacement_live_user_id TEXT,
   reason TEXT,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
   CONSTRAINT knowledge_item_supersessions_old_owner_fk
@@ -450,13 +452,21 @@ CREATE TABLE IF NOT EXISTS knowledge_item_supersessions (
     REFERENCES user_knowledge_items(id, user_id)
     ON DELETE CASCADE,
   CONSTRAINT knowledge_item_supersessions_new_owner_fk
-    FOREIGN KEY (replacement_item_id, user_id)
+    FOREIGN KEY (replacement_live_item_id, replacement_live_user_id)
     REFERENCES user_knowledge_items(id, user_id)
-    ON DELETE CASCADE,
+    ON DELETE SET NULL,
   CONSTRAINT knowledge_item_supersessions_old_key
     UNIQUE (user_id, superseded_item_id),
   CONSTRAINT knowledge_item_supersessions_distinct_check
-    CHECK (superseded_item_id <> replacement_item_id)
+    CHECK (superseded_item_id <> replacement_item_id),
+  CONSTRAINT knowledge_item_supersessions_live_replacement_check
+    CHECK (
+      (replacement_live_item_id IS NULL AND replacement_live_user_id IS NULL)
+      OR (replacement_live_item_id IS NOT NULL
+        AND replacement_live_user_id IS NOT NULL
+        AND replacement_live_item_id = replacement_item_id
+        AND replacement_live_user_id = user_id)
+    )
 );
 
 CREATE TABLE IF NOT EXISTS knowledge_evidence_spans (
@@ -633,6 +643,8 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_item_supersessions_user_old
 ON knowledge_item_supersessions(user_id, superseded_item_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_item_supersessions_user_new
 ON knowledge_item_supersessions(user_id, replacement_item_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_item_supersessions_live_replacement
+ON knowledge_item_supersessions(replacement_live_item_id, replacement_live_user_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_spans_user_item
 ON knowledge_evidence_spans(user_id, knowledge_item_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_spans_user_source
