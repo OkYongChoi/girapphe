@@ -24,7 +24,7 @@ import {
   resetPrivatePracticeProgress,
   savePrivatePracticeCardState,
 } from '@/lib/private-practice-cards';
-import { localizeDomain } from '@stem-brain/shared';
+import { localizeDomain, type KnowledgeBundleContent, type KnowledgeBundleType } from '@stem-brain/shared';
 import { canRunRuntimeSchemaBootstrap } from '@/lib/schema-bootstrap';
 import {
   localizeGraphNodes,
@@ -58,6 +58,10 @@ export type KnowledgeCard = {
   domain: string;
   domains?: string[];
   type?: string;
+  knowledge_type?: KnowledgeBundleType | null;
+  central_question?: string | null;
+  structured_content?: KnowledgeBundleContent | null;
+  bundle_schema_version?: number | null;
   domain_label?: string;
   type_label?: string;
   level_label?: string;

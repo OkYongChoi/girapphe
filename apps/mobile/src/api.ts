@@ -1,5 +1,5 @@
 import { getClerkInstance } from '@clerk/expo';
-import type { Locale } from '@stem-brain/shared';
+import type { KnowledgeBundleContent, KnowledgeBundleType, Locale } from '@stem-brain/shared';
 import { getActiveLocale, translate } from '@/i18n';
 
 const apiBaseUrl = (process.env.EXPO_PUBLIC_APP_BASE_URL ?? '').replace(/\/$/, '');
@@ -26,6 +26,10 @@ export type MobileCard = {
   source_locale?: Locale;
   resolved_locale?: Locale;
   translation_status?: TranslationStatus;
+  knowledge_type?: KnowledgeBundleType | null;
+  central_question?: string | null;
+  structured_content?: KnowledgeBundleContent | null;
+  bundle_schema_version?: number | null;
 };
 
 export type LocalizedContent = {
@@ -61,13 +65,30 @@ export type PersonalNote = {
   content: string;
   topic: string;
   tags: string[];
+  knowledge_type: KnowledgeBundleType | null;
+  central_question: string | null;
+  structured_content: KnowledgeBundleContent | null;
+  bundle_schema_version: number | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
   purge_at: string | null;
 };
 
-export type PersonalNoteSummary = Pick<PersonalNote, 'id' | 'title' | 'summary' | 'content' | 'topic' | 'tags' | 'created_at' | 'updated_at'>;
+export type PersonalNoteSummary = Pick<PersonalNote,
+  | 'id'
+  | 'title'
+  | 'summary'
+  | 'content'
+  | 'topic'
+  | 'tags'
+  | 'knowledge_type'
+  | 'central_question'
+  | 'structured_content'
+  | 'bundle_schema_version'
+  | 'created_at'
+  | 'updated_at'
+>;
 export type GraphCardSummary = Pick<MobileCard, 'id' | 'title' | 'status'>;
 
 function getBaseUrl() {

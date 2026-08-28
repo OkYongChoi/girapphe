@@ -34,6 +34,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { readBoundedJson } from '@/lib/billing/bounded-json';
 import { handlePublicContentRequest } from '@/lib/public-content-api';
 import { parseContentLocale } from '@/lib/content-localization';
+import { parseKnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
 
 const MAX_JSON_BYTES = 16_384;
 
@@ -70,6 +71,10 @@ function toMobileNote(item: UserKnowledgeItem) {
     content: item.content,
     topic: item.topic,
     tags: item.tags,
+    knowledge_type: item.knowledge_type,
+    central_question: item.central_question,
+    structured_content: item.structured_content,
+    bundle_schema_version: item.bundle_schema_version,
     created_at: item.created_at,
     updated_at: item.updated_at,
     deleted_at: item.deleted_at,
@@ -85,6 +90,10 @@ function toMobileConcept(item: UserKnowledgeItem) {
     content: item.content,
     topic: item.topic,
     tags: item.tags,
+    knowledge_type: item.knowledge_type,
+    central_question: item.central_question,
+    structured_content: item.structured_content,
+    bundle_schema_version: item.bundle_schema_version,
     created_at: item.created_at,
     updated_at: item.updated_at,
   };
@@ -92,6 +101,30 @@ function toMobileConcept(item: UserKnowledgeItem) {
 
 function stringField(value: unknown, maxLength: number) {
   return typeof value === 'string' && value.length <= maxLength ? value : null;
+}
+
+function parseMobileBundle(body: Record<string, unknown>) {
+  const knowledgeType = stringField(body.knowledge_type, 32) ?? '';
+  if (!knowledgeType) return { knowledgeType: '', centralQuestion: '', structuredContent: '' };
+  const parsed = parseKnowledgeBundleFields({
+    knowledge_type: knowledgeType,
+    central_question: stringField(body.central_question, 500) ?? '',
+    structured_content: body.structured_content,
+    bundle_schema_version: body.bundle_schema_version ?? 1,
+  });
+  if (!parsed) return null;
+  return {
+    knowledgeType: parsed.knowledge_type,
+    centralQuestion: parsed.central_question,
+    structuredContent: JSON.stringify(parsed.structured_content),
+  };
+}
+
+function parseMobileTags(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 12) return null;
+  const tags = value.map((tag) => typeof tag === 'string' ? tag.trim() : '');
+  return tags.every((tag) => tag.length > 0 && tag.length <= 48) ? tags : null;
 }
 
 async function readBody(request: NextRequest) {
@@ -244,7 +277,14 @@ export async function POST(request: NextRequest) {
     const topic = stringField(body.topic, 120) ?? '';
     const requestId = stringField(body.requestId, 160) ?? '';
     if (!title?.trim()) return invalid('A note title is required.');
-    await createKnowledgeItem(toFormData({ title, content, topic, request_id: requestId }));
+    const summary = stringField(body.summary, 500) ?? '';
+    const bundle = parseMobileBundle(body);
+    if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
+    const tags = parseMobileTags(body.tags);
+    if (!tags) return invalid('Tags must contain at most 12 non-empty values.', 'INVALID_TAGS');
+    await createKnowledgeItem(toFormData({ title, summary, content, topic, tags: tags.join(','), request_id: requestId,
+      knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
+      bundle_schema_version: bundle.knowledgeType ? '1' : '' }));
     return NextResponse.json({ success: true }, { status: 201 });
   }
 
@@ -254,7 +294,14 @@ export async function POST(request: NextRequest) {
     const content = stringField(body.content, 8_000) ?? '';
     const topic = stringField(body.topic, 120) ?? '';
     if (!title?.trim()) return invalid('A note title is required.');
-    await updateKnowledgeItem(toFormData({ id, title, content, topic }));
+    const summary = stringField(body.summary, 500) ?? '';
+    const bundle = parseMobileBundle(body);
+    if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
+    const tags = parseMobileTags(body.tags);
+    if (!tags) return invalid('Tags must contain at most 12 non-empty values.', 'INVALID_TAGS');
+    await updateKnowledgeItem(toFormData({ id, title, summary, content, topic, tags: tags.join(','), bundle_mode_present: '1',
+      knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
+      bundle_schema_version: bundle.knowledgeType ? '1' : '' }));
     return NextResponse.json({ success: true });
   }
   if (action === 'delete-note') {

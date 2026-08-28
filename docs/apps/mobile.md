@@ -49,6 +49,8 @@ Mobile feature code should be organized around user flows, not platform names:
 - Home: high-level map and featured topic entry points.
 - Browse: searchable and filterable topic discovery.
 - Practice: guest/local fallback plus authenticated, server-synced review using tri-state ratings.
+- My Knowledge: quick notes plus full-field version-one concept, procedure,
+  comparison, mechanism, structure, and claim/evidence bundles.
 - Topic detail: explanation plus prerequisite/dependent/related navigation.
 
 Do not create separate iOS-only or Android-only versions of these flows unless
@@ -92,6 +94,12 @@ Expo screen
 Shared request/response types should move into `@stem-brain/shared` only when they are used by
 more than one app target. Keep the guest/local fallback explicit; never silently present it as
 account-synced state.
+
+Typed personal items retain the flat note fields for compatibility. Mobile
+renders their type badge and central question, supports full-field create/edit
+and explicit legacy-note conversion, filters personal graph nodes by type, and
+reuses the existing reveal/rating/review schedule with a type-specific recall
+prompt. MCP pending review remains web-only.
 
 ## Platform Rules
 

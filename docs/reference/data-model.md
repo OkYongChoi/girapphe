@@ -76,8 +76,17 @@ Adding a card does not update `user_knowledge_states` or imply mastery.
 `knowledge_ingestion_batches` is idempotent by user, provider, and request ID.
 Its scope is constrained to `current_conversation`. `knowledge_card_drafts`
 stores editable pending concepts, explicit tags, version numbers, and proposed
-typed relationships. Approval creates the personal card, private node, source
+typed relationships. Both it and `user_knowledge_items` have nullable
+`knowledge_type`, `central_question`, `structured_content`, and
+`bundle_schema_version` fields. Null identifies a legacy quick note. For a
+typed item, version-one structured JSON is authoritative; flat summary/content
+is regenerated as a compatibility projection for search, graph, practice, and
+older clients. Approval creates the personal card, private node, source
 record, and valid edges in one database transaction.
+
+The private graph keeps one node per bundle. Internal steps, components, and
+evidence remain inside structured JSON. Existing public graph node types and
+existing personal rows are never automatically converted.
 
 `mcp_access_tokens` stores only token hashes, a final-four display hint, the
 single `knowledge:drafts:create` scope, expiry, last-use time, and revocation

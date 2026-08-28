@@ -70,10 +70,12 @@ Returns health and storage mode:
 
 ### `POST /api/mcp`
 
-Streamable HTTP MCP endpoint exposing the scoped `create_card_drafts` tool.
+Streamable HTTP MCP endpoint exposing `create_knowledge_bundle_drafts` and the
+compatible `create_card_drafts` tool under the same narrow scope.
 It accepts structured concepts from the current ChatGPT, Claude, Gemini, or
 other conversation and creates a private review batch; it never auto-approves
-cards or writes to the public graph. See
+items or writes to the public graph. Structured drafts support concept,
+procedure, comparison, mechanism, structure, and claim/evidence bundles. See
 [`docs/reference/mcp-card-ingestion.md`](docs/reference/mcp-card-ingestion.md).
 
 ### `POST /api/quiz_result`

@@ -25,3 +25,20 @@ export {
   localizeLevel,
   localizeType,
 } from './taxonomy';
+
+export {
+  KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
+  KNOWLEDGE_BUNDLE_TYPES,
+  createEmptyKnowledgeBundleContent,
+  isKnowledgeBundleType,
+  projectKnowledgeBundleContent,
+  type ClaimEvidenceBundleContent,
+  type ComparisonBundleContent,
+  type ConceptBundleContent,
+  type KnowledgeBundleContent,
+  type KnowledgeBundleType,
+  type KnowledgeBundleV1,
+  type MechanismBundleContent,
+  type ProcedureBundleContent,
+  type StructureBundleContent,
+} from './knowledge-bundles';

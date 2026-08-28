@@ -1,4 +1,5 @@
 import type { GraphNode } from '@stem-brain/graph-engine';
+import type { KnowledgeBundleContent, KnowledgeBundleType } from '@stem-brain/shared';
 
 export type PersonalBrowseConcept = {
   id: string;
@@ -7,6 +8,10 @@ export type PersonalBrowseConcept = {
   content: string;
   topic: string;
   tags: string[];
+  knowledge_type?: KnowledgeBundleType | null;
+  central_question?: string | null;
+  structured_content?: KnowledgeBundleContent | null;
+  bundle_schema_version?: number | null;
 };
 
 export type BrowseConcept =
@@ -18,6 +23,7 @@ type PersonalConceptFilter = {
   domain: string;
   difficulty: 'All' | number;
   locale: string;
+  knowledgeType?: 'all' | 'legacy' | KnowledgeBundleType;
 };
 
 function normalizeBrowseSearch(value: string, locale: string) {
@@ -79,7 +85,7 @@ export function resolveBrowseDomain(
 
 export function filterPersonalBrowseConcepts<T extends PersonalBrowseConcept>(
   notes: readonly T[],
-  { query, domain, difficulty, locale }: PersonalConceptFilter,
+  { query, domain, difficulty, locale, knowledgeType = 'all' }: PersonalConceptFilter,
 ): T[] {
   if (difficulty !== 'All') return [];
 
@@ -88,10 +94,12 @@ export function filterPersonalBrowseConcepts<T extends PersonalBrowseConcept>(
 
   return notes.filter((note) => {
     const matchesDomain = domain === 'All' || canonicalizeBrowseDomain(note.topic) === normalizedDomain;
-    if (!matchesDomain) return false;
+    const matchesType = knowledgeType === 'all'
+      || (knowledgeType === 'legacy' ? !note.knowledge_type : note.knowledge_type === knowledgeType);
+    if (!matchesDomain || !matchesType) return false;
     if (!normalizedQuery) return true;
 
-    return [note.title, note.summary, note.content, note.topic, ...(note.tags ?? [])]
+    return [note.title, note.summary, note.content, note.topic, note.central_question, note.knowledge_type, ...(note.tags ?? [])]
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
       .some((value) => normalizeBrowseSearch(value, locale).includes(normalizedQuery));
   });

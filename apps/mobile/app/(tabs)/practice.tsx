@@ -7,6 +7,8 @@ import { TranslationFallbackNotice } from '@/components/translation-fallback-not
 import { mobileApi, type MobileCard } from '@/api';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
+import { knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
+import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
 import {
   getNodeExplanation,
   getNodeSummary,
@@ -333,11 +335,18 @@ function SyncedPracticeScreen() {
                 <Text style={styles.domainText}>{card.domain_label ?? localizeDomain(locale, card.domain)}</Text>
                 <Text style={styles.difficultyText}>{localizeLevel(locale, card.level)}</Text>
               </View>
+              {card.knowledge_type ? <Text style={styles.bundleBadge}>{knowledgeBundleTypeLabel(locale, card.knowledge_type)}</Text> : null}
               <Text style={styles.cardTitle}>{card.title}</Text>
-              <Text style={styles.cardSummary}>{card.summary}</Text>
+              <Text style={styles.cardSummary}>{card.central_question || card.summary}</Text>
+              {!isRevealed && card.knowledge_type ? <Text style={styles.recallPrompt}>{knowledgeBundleRecallPrompt(locale, card.knowledge_type)}</Text> : null}
               <TranslationFallbackNotice dark translation={card} />
               {isRevealed ? (
-                <View style={styles.answerPanel}><Text style={styles.answerTitle}>{t('practice.explanation')}</Text><Text style={styles.answerText}>{card.explanation}</Text></View>
+                <View style={styles.answerPanel}>
+                  <Text style={styles.answerTitle}>{t('practice.explanation')}</Text>
+                  {card.structured_content
+                    ? <MobileKnowledgeBundleView content={card.structured_content} locale={locale} />
+                    : <Text style={styles.answerText}>{card.explanation}</Text>}
+                </View>
               ) : (
                 <Pressable accessibilityRole="button" accessibilityLabel={t('practice.reveal')} onPress={() => setIsRevealed(true)} style={styles.revealButton}><Text style={styles.revealButtonText}>{t('practice.reveal')}</Text></Pressable>
               )}
@@ -531,6 +540,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+  bundleBadge: {
+    alignSelf: 'flex-start',
+    color: '#ede9fe',
+    backgroundColor: '#5b21b6',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    fontSize: 12,
+    fontWeight: '800',
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
   cardTitle: {
     color: '#ffffff',
     fontSize: 30,
@@ -541,6 +562,13 @@ const styles = StyleSheet.create({
     color: '#d7dee8',
     fontSize: 16,
     lineHeight: 24,
+  },
+  recallPrompt: {
+    color: '#c4b5fd',
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '700',
+    marginTop: 14,
   },
   revealButton: {
     minHeight: 50,

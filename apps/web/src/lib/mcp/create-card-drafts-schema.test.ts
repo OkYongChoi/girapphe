@@ -55,6 +55,17 @@ test('maps a strict current-conversation draft request to the ingestion contract
             weight: 0.8,
           },
         ],
+        knowledgeType: 'concept',
+        centralQuestion: 'Bayes theorem',
+        structuredContent: {
+          type: 'concept',
+          definition: 'A rule for updating probabilities with evidence.',
+          key_points: [],
+          examples: [],
+          non_examples: [],
+          misconceptions: [],
+        },
+        bundleSchemaVersion: 1,
       },
     ],
   });

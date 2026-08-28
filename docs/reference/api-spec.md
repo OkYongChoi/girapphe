@@ -113,10 +113,17 @@ Returns service availability and storage mode health.
 ## `/api/mcp`
 
 Provider-neutral Streamable HTTP MCP endpoint. It accepts a Girapphe-scoped PAT
-or Clerk OAuth bearer token and exposes only `create_card_drafts`; tool calls create pending private
+or Clerk OAuth bearer token and exposes `create_knowledge_bundle_drafts` plus
+the backward-compatible `create_card_drafts`; tool calls create pending private
 review batches and cannot approve or publish cards. See
 [MCP card-draft ingestion](./mcp-card-ingestion.md) for the strict input schema,
 review boundary, and client compatibility notes.
+
+Authenticated mobile `notes`, `graph`, and `practice` payloads preserve the
+legacy flat fields and may additionally include `knowledge_type`,
+`central_question`, `structured_content`, and `bundle_schema_version`. Mobile
+create/update requests accept the same fields, reject invalid version-one
+bundles, and keep quick notes untyped.
 
 The path is exempt from Clerk cookie authentication because remote MCP clients
 do not carry a browser session. The route still verifies its own PAT or OAuth

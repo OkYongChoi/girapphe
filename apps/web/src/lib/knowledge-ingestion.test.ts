@@ -142,6 +142,56 @@ test('keeps pending drafts out of active private cards and the graph until appro
   assert.deepEqual(await getPrivateKnowledgeGraphForUser(userId), { nodes: [], edges: [] });
 });
 
+test('approves a typed bundle atomically as one private item and one graph node', async () => {
+  const userId = `user_typed_bundle_approval_${crypto.randomUUID()}`;
+  const structuredContent = {
+    type: 'procedure' as const,
+    goal: 'Ship safely.',
+    prerequisites: ['Passing checks'],
+    steps: [{ title: 'Deploy', detail: 'Use the protected release.' }],
+    branches: [], failure_modes: [], done_when: ['Production smoke passes'],
+  };
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'chatgpt', requestId: 'typed-bundle-approval', conversationRef: 'current-conversation-ref',
+    cards: [{
+      title: 'Safe release', summary: 'A verified release process.', knowledgeType: 'procedure',
+      centralQuestion: 'How do I release safely?', structuredContent, bundleSchemaVersion: 1,
+    }],
+  });
+  const pending = await getKnowledgeDraftBatchForUser(userId, created.batchId);
+  assert.ok(pending);
+  assert.equal(getMemoryKnowledgeItemsForUser(userId).length, 0);
+  assert.equal(pending.drafts[0]?.knowledge_type, 'procedure');
+
+  const approved = await approveKnowledgeDraftsForUser(
+    userId, created.batchId, [pending.drafts[0].id], { [pending.drafts[0].id]: pending.drafts[0].version },
+  );
+  assert.deepEqual(approved, { approved: 1, skippedEdges: 0 });
+  const items = getMemoryKnowledgeItemsForUser(userId);
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.central_question, 'How do I release safely?');
+  assert.deepEqual(items[0]?.structured_content, structuredContent);
+  assert.match(items[0]?.content ?? '', /Steps/);
+  const graph = await getPrivateKnowledgeGraphForUser(userId);
+  assert.equal(graph.nodes.length, 1);
+  assert.equal(graph.nodes[0]?.knowledge_type, 'procedure');
+  assert.deepEqual(graph.nodes[0]?.structured_content, structuredContent);
+
+  softDeleteMemoryKnowledgeItemForUser(userId, items[0].id, 14);
+  const trashedItems = getMemoryKnowledgeItemsForUser(userId);
+  assert.equal(trashedItems.length, 1);
+  assert.ok(trashedItems[0]?.deleted_at);
+  assert.deepEqual(trashedItems[0]?.structured_content, structuredContent);
+  assert.equal((await getPrivateKnowledgeGraphForUser(userId)).nodes.length, 0);
+  restoreMemoryKnowledgeItemForUser(userId, items[0].id);
+  const restoredItems = getMemoryKnowledgeItemsForUser(userId);
+  assert.equal(restoredItems.length, 1);
+  assert.equal(restoredItems[0]?.deleted_at, null);
+  assert.equal(restoredItems[0]?.knowledge_type, 'procedure');
+  assert.deepEqual(restoredItems[0]?.structured_content, structuredContent);
+  assert.equal((await getPrivateKnowledgeGraphForUser(userId)).nodes.length, 1);
+});
+
 test('limits active MCP tokens and hourly drafts without breaking idempotent retries', async () => {
   const tokenLimitUserId = `user_token_limit_${crypto.randomUUID()}`;
   for (let index = 0; index < 10; index += 1) {

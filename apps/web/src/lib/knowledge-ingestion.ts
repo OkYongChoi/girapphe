@@ -3,8 +3,10 @@ import 'server-only';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { GRAPH_EDGES, GRAPH_NODES } from '@stem-brain/graph-engine';
+import type { KnowledgeBundleContent, KnowledgeBundleType } from '@stem-brain/shared';
 import pool from '@/lib/db';
 import { canRunRuntimeSchemaBootstrap } from '@/lib/schema-bootstrap';
+import { parseKnowledgeBundleFields, projectKnowledgeBundle } from '@/lib/knowledge-bundle-runtime';
 
 export const MCP_DRAFT_CREATE_SCOPE = 'knowledge:drafts:create' as const;
 export const MCP_REQUESTS_PER_TOKEN_PER_MINUTE = 60;
@@ -49,6 +51,10 @@ export type CreateKnowledgeDraftCardInput = {
   topic?: string;
   tags?: string[];
   relations?: ProposedKnowledgeRelation[];
+  knowledgeType?: KnowledgeBundleType;
+  centralQuestion?: string;
+  structuredContent?: KnowledgeBundleContent;
+  bundleSchemaVersion?: 1;
 };
 
 export type CreateKnowledgeDraftBatchInput = {
@@ -90,6 +96,10 @@ export type KnowledgeCardDraft = {
   topic: string;
   tags: string[];
   relations: ProposedKnowledgeRelation[];
+  knowledge_type: KnowledgeBundleType | null;
+  central_question: string | null;
+  structured_content: KnowledgeBundleContent | null;
+  bundle_schema_version: number | null;
   status: 'pending' | 'approved' | 'rejected';
   version: number;
   knowledge_item_id: string | null;
@@ -106,6 +116,10 @@ export type PrivateKnowledgeNode = {
   explanation: string;
   topic: string;
   tags: string[];
+  knowledge_type: KnowledgeBundleType | null;
+  central_question: string | null;
+  structured_content: KnowledgeBundleContent | null;
+  bundle_schema_version: number | null;
   origin: 'manual' | 'conversation';
   created_at: string;
 };
@@ -157,6 +171,10 @@ export type MemoryKnowledgeItem = {
   content: string;
   topic: string;
   tags: string[];
+  knowledge_type: KnowledgeBundleType | null;
+  central_question: string | null;
+  structured_content: KnowledgeBundleContent | null;
+  bundle_schema_version: number | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -172,6 +190,10 @@ type DraftPayload = {
   topic: string;
   tags: string[];
   relations: ProposedKnowledgeRelation[];
+  knowledge_type: KnowledgeBundleType | null;
+  central_question: string | null;
+  structured_content: KnowledgeBundleContent | null;
+  bundle_schema_version: number | null;
 };
 
 type MemoryBatchRecord = KnowledgeDraftBatch & {
@@ -299,15 +321,34 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
     const clientCardId = sanitizeIdentifier(String(card.clientCardId ?? `card-${index + 1}`), 160);
     if (!clientCardId || seenClientIds.has(clientCardId)) throw new Error('clientCardId values must be non-empty and unique within a batch.');
     seenClientIds.add(clientCardId);
+    const bundle = card.knowledgeType || card.centralQuestion || card.structuredContent || card.bundleSchemaVersion
+      ? parseKnowledgeBundleFields({
+          knowledge_type: card.knowledgeType,
+          central_question: card.centralQuestion,
+          structured_content: card.structuredContent,
+          bundle_schema_version: card.bundleSchemaVersion,
+        })
+      : null;
+    if ((card.knowledgeType || card.centralQuestion || card.structuredContent || card.bundleSchemaVersion) && !bundle) {
+      throw new Error(`Card ${index + 1} has an invalid structured knowledge bundle.`);
+    }
+    const preferredSummary = sanitizeKnowledgeContent(String(card.summary ?? ''), 500);
+    const projected = bundle
+      ? projectKnowledgeBundle(bundle, preferredSummary)
+      : { summary: preferredSummary, content: sanitizeKnowledgeContent(String(card.explanation ?? ''), 6000) };
     return {
       id: randomUUID(),
       client_card_id: clientCardId,
       title,
-      summary: sanitizeKnowledgeContent(String(card.summary ?? ''), 500),
-      explanation: sanitizeKnowledgeContent(String(card.explanation ?? ''), 6000),
+      summary: sanitizeKnowledgeContent(projected.summary, 500),
+      explanation: sanitizeKnowledgeContent(projected.content || String(card.explanation ?? ''), 6000),
       topic: normalizeKnowledgeTopic(String(card.topic ?? '')),
       tags: sanitizeKnowledgeTags(card.tags),
       relations: sanitizeProposedRelations(card.relations),
+      knowledge_type: bundle?.knowledge_type ?? null,
+      central_question: bundle?.central_question ?? null,
+      structured_content: bundle?.structured_content ?? null,
+      bundle_schema_version: bundle?.bundle_schema_version ?? null,
     };
   });
 }
@@ -322,7 +363,11 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
     ingestionSchemaPromise = (async () => {
       await pool.query(`ALTER TABLE user_knowledge_items
         ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '',
-        ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb`);
+        ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS knowledge_type TEXT,
+        ADD COLUMN IF NOT EXISTS central_question TEXT,
+        ADD COLUMN IF NOT EXISTS structured_content JSONB,
+        ADD COLUMN IF NOT EXISTS bundle_schema_version INTEGER`);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS knowledge_ingestion_batches (
           id TEXT PRIMARY KEY, user_id TEXT NOT NULL, source_type TEXT NOT NULL DEFAULT 'conversation',
@@ -339,12 +384,18 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           id TEXT PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES knowledge_ingestion_batches(id) ON DELETE CASCADE,
           user_id TEXT NOT NULL, client_card_id TEXT NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '',
           explanation TEXT NOT NULL DEFAULT '', topic TEXT NOT NULL DEFAULT 'general', tags JSONB NOT NULL DEFAULT '[]'::jsonb,
-          proposed_relations JSONB NOT NULL DEFAULT '[]'::jsonb, status TEXT NOT NULL DEFAULT 'pending', version INTEGER NOT NULL DEFAULT 1,
+          proposed_relations JSONB NOT NULL DEFAULT '[]'::jsonb, knowledge_type TEXT, central_question TEXT,
+          structured_content JSONB, bundle_schema_version INTEGER, status TEXT NOT NULL DEFAULT 'pending', version INTEGER NOT NULL DEFAULT 1,
           knowledge_item_id TEXT REFERENCES user_knowledge_items(id) ON DELETE SET NULL, created_at TIMESTAMPTZ DEFAULT NOW(),
           updated_at TIMESTAMPTZ DEFAULT NOW(), approved_at TIMESTAMPTZ, UNIQUE(batch_id, client_card_id),
           CHECK (status IN ('pending', 'approved', 'rejected')), CHECK (version >= 1)
         );
       `);
+      await pool.query(`ALTER TABLE knowledge_card_drafts
+        ADD COLUMN IF NOT EXISTS knowledge_type TEXT,
+        ADD COLUMN IF NOT EXISTS central_question TEXT,
+        ADD COLUMN IF NOT EXISTS structured_content JSONB,
+        ADD COLUMN IF NOT EXISTS bundle_schema_version INTEGER`);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS user_graph_nodes (
           id TEXT PRIMARY KEY, user_id TEXT NOT NULL, knowledge_item_id TEXT NOT NULL REFERENCES user_knowledge_items(id) ON DELETE CASCADE,
@@ -453,6 +504,12 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
 }
 
 function mapDraftRow(row: Record<string, unknown>): KnowledgeCardDraft {
+  const bundle = parseKnowledgeBundleFields({
+    knowledge_type: row.knowledge_type,
+    central_question: row.central_question,
+    structured_content: row.structured_content,
+    bundle_schema_version: row.bundle_schema_version,
+  });
   return {
     id: String(row.id),
     batch_id: String(row.batch_id),
@@ -463,6 +520,10 @@ function mapDraftRow(row: Record<string, unknown>): KnowledgeCardDraft {
     topic: String(row.topic ?? 'general'),
     tags: sanitizeKnowledgeTags(row.tags),
     relations: sanitizeProposedRelations(row.proposed_relations ?? row.relations),
+    knowledge_type: bundle?.knowledge_type ?? null,
+    central_question: bundle?.central_question ?? null,
+    structured_content: bundle?.structured_content ?? null,
+    bundle_schema_version: bundle?.bundle_schema_version ?? null,
     status: row.status as KnowledgeCardDraft['status'],
     version: Number(row.version ?? 1),
     knowledge_item_id: row.knowledge_item_id ? String(row.knowledge_item_id) : null,
@@ -550,6 +611,10 @@ export async function createKnowledgeDraftBatchForUser(
       topic: card.topic,
       tags: card.tags,
       relations: card.relations,
+      knowledge_type: card.knowledge_type,
+      central_question: card.central_question,
+      structured_content: card.structured_content,
+      bundle_schema_version: card.bundle_schema_version,
       status: 'pending',
       version: 1,
       knowledge_item_id: null,
@@ -620,11 +685,14 @@ export async function createKnowledgeDraftBatchForUser(
       LIMIT 1
     ), inserted_drafts AS (
       INSERT INTO knowledge_card_drafts
-        (id, batch_id, user_id, client_card_id, title, summary, explanation, topic, tags, proposed_relations)
-      SELECT d.id, rb.id, $2, d.client_card_id, d.title, d.summary, d.explanation, d.topic, d.tags, d.relations
+        (id, batch_id, user_id, client_card_id, title, summary, explanation, topic, tags, proposed_relations,
+         knowledge_type, central_question, structured_content, bundle_schema_version)
+      SELECT d.id, rb.id, $2, d.client_card_id, d.title, d.summary, d.explanation, d.topic, d.tags, d.relations,
+        d.knowledge_type, d.central_question, d.structured_content, d.bundle_schema_version
       FROM resolved_batch rb
       CROSS JOIN jsonb_to_recordset($7::jsonb) AS d(
-        id text, client_card_id text, title text, summary text, explanation text, topic text, tags jsonb, relations jsonb
+        id text, client_card_id text, title text, summary text, explanation text, topic text, tags jsonb, relations jsonb,
+        knowledge_type text, central_question text, structured_content jsonb, bundle_schema_version int
       )
       WHERE rb.created
       RETURNING id
@@ -718,7 +786,8 @@ export async function getKnowledgeDraftBatchForUser(
 
   const draftResult = await pool.query<Record<string, unknown>>(
     `SELECT id, batch_id, client_card_id, title, summary, explanation, topic, tags,
-      proposed_relations, status, version, knowledge_item_id, created_at::text, updated_at::text
+      proposed_relations, knowledge_type, central_question, structured_content, bundle_schema_version,
+      status, version, knowledge_item_id, created_at::text, updated_at::text
      FROM knowledge_card_drafts WHERE batch_id = $1 AND user_id = $2 ORDER BY created_at, id`,
     [batchId, userId]
   );
@@ -1075,7 +1144,7 @@ export function hasMemoryCreateRequest(userId: string, requestId: string): boole
 
 export function createMemoryKnowledgeItemForUser(
   userId: string,
-  input: { id?: string; graphNodeId?: string; title: string; summary?: string; content: string; topic: string; tags?: string[]; origin?: 'manual' | 'conversation' },
+  input: { id?: string; graphNodeId?: string; title: string; summary?: string; content: string; topic: string; tags?: string[]; origin?: 'manual' | 'conversation'; knowledgeType?: KnowledgeBundleType | null; centralQuestion?: string | null; structuredContent?: KnowledgeBundleContent | null; bundleSchemaVersion?: number | null },
   options: { syncGraph?: boolean } = {}
 ): MemoryKnowledgeItem {
   const now = new Date().toISOString();
@@ -1087,6 +1156,10 @@ export function createMemoryKnowledgeItemForUser(
     content: sanitizeKnowledgeContent(input.content),
     topic: normalizeKnowledgeTopic(input.topic),
     tags: sanitizeKnowledgeTags(input.tags),
+    knowledge_type: input.knowledgeType ?? null,
+    central_question: input.centralQuestion ?? null,
+    structured_content: input.structuredContent ?? null,
+    bundle_schema_version: input.bundleSchemaVersion ?? null,
     created_at: now,
     updated_at: now,
     deleted_at: null,
@@ -1102,17 +1175,26 @@ export function createMemoryKnowledgeItemForUser(
 export function updateMemoryKnowledgeItemForUser(
   userId: string,
   itemId: string,
-  input: { title: string; summary?: string; content: string; topic: string; tags?: string[] },
+  input: { title: string; summary?: string; content: string; topic: string; tags?: string[]; knowledgeType?: KnowledgeBundleType | null; centralQuestion?: string | null; structuredContent?: KnowledgeBundleContent | null; bundleSchemaVersion?: number | null },
   options: { syncGraph?: boolean } = {}
 ): void {
   const now = new Date().toISOString();
   const items = (memoryKnowledgeItems.get(userId) ?? []).map((item) => item.id === itemId && !item.deleted_at
-    ? { ...item, title: input.title, summary: input.summary ?? item.summary, content: input.content, topic: input.topic, tags: input.tags ? sanitizeKnowledgeTags(input.tags) : item.tags, updated_at: now }
+    ? { ...item, title: input.title, summary: input.summary ?? item.summary, content: input.content, topic: input.topic, tags: input.tags ? sanitizeKnowledgeTags(input.tags) : item.tags,
+      knowledge_type: input.knowledgeType === undefined ? item.knowledge_type : input.knowledgeType,
+      central_question: input.centralQuestion === undefined ? item.central_question : input.centralQuestion,
+      structured_content: input.structuredContent === undefined ? item.structured_content : input.structuredContent,
+      bundle_schema_version: input.bundleSchemaVersion === undefined ? item.bundle_schema_version : input.bundleSchemaVersion,
+      updated_at: now }
     : item);
   memoryKnowledgeItems.set(userId, items);
   if (options.syncGraph === false) return;
   const nodes = (memoryNodes.get(userId) ?? []).map((node) => node.knowledge_item_id === itemId
-    ? { ...node, label: input.title, summary: input.summary ?? node.summary, explanation: input.content, topic: input.topic, tags: input.tags ? sanitizeKnowledgeTags(input.tags) : node.tags }
+    ? { ...node, label: input.title, summary: input.summary ?? node.summary, explanation: input.content, topic: input.topic, tags: input.tags ? sanitizeKnowledgeTags(input.tags) : node.tags,
+      knowledge_type: input.knowledgeType === undefined ? node.knowledge_type : input.knowledgeType,
+      central_question: input.centralQuestion === undefined ? node.central_question : input.centralQuestion,
+      structured_content: input.structuredContent === undefined ? node.structured_content : input.structuredContent,
+      bundle_schema_version: input.bundleSchemaVersion === undefined ? node.bundle_schema_version : input.bundleSchemaVersion }
     : node);
   memoryNodes.set(userId, nodes);
 }
@@ -1200,6 +1282,10 @@ function ensureMemoryPrivateNode(
     explanation: item.content,
     topic: item.topic,
     tags: item.tags,
+    knowledge_type: item.knowledge_type,
+    central_question: item.central_question,
+    structured_content: item.structured_content,
+    bundle_schema_version: item.bundle_schema_version,
     origin,
     created_at: item.created_at,
   };
@@ -1429,7 +1515,8 @@ export async function getPrivateKnowledgeGraphForUser(userId: string): Promise<P
   const [nodeResult, edgeResult] = await Promise.all([
     pool.query<Record<string, unknown>>(
       `SELECT n.id AS graph_node_id, n.knowledge_item_id, n.label, i.summary, i.content AS explanation,
-        n.topic, i.tags, n.origin, n.created_at::text
+        n.topic, i.tags, i.knowledge_type, i.central_question, i.structured_content, i.bundle_schema_version,
+        n.origin, n.created_at::text
        FROM user_graph_nodes n JOIN user_knowledge_items i ON i.id = n.knowledge_item_id AND i.user_id = n.user_id
        WHERE n.user_id = $1 AND n.deleted_at IS NULL AND i.deleted_at IS NULL ORDER BY n.created_at DESC`,
       [userId]
@@ -1448,18 +1535,30 @@ export async function getPrivateKnowledgeGraphForUser(userId: string): Promise<P
       [userId]
     ),
   ]);
-  const nodes = nodeResult.rows.map<PrivateKnowledgeNode>((row) => ({
-    id: `personal:${String(row.knowledge_item_id)}`,
-    graph_node_id: String(row.graph_node_id),
-    knowledge_item_id: String(row.knowledge_item_id),
-    label: String(row.label),
-    summary: String(row.summary ?? ''),
-    explanation: String(row.explanation ?? ''),
-    topic: String(row.topic),
-    tags: sanitizeKnowledgeTags(row.tags),
-    origin: row.origin as PrivateKnowledgeNode['origin'],
-    created_at: new Date(String(row.created_at)).toISOString(),
-  }));
+  const nodes = nodeResult.rows.map<PrivateKnowledgeNode>((row) => {
+    const bundle = parseKnowledgeBundleFields({
+      knowledge_type: row.knowledge_type,
+      central_question: row.central_question,
+      structured_content: row.structured_content,
+      bundle_schema_version: row.bundle_schema_version,
+    });
+    return {
+      id: `personal:${String(row.knowledge_item_id)}`,
+      graph_node_id: String(row.graph_node_id),
+      knowledge_item_id: String(row.knowledge_item_id),
+      label: String(row.label),
+      summary: String(row.summary ?? ''),
+      explanation: String(row.explanation ?? ''),
+      topic: String(row.topic),
+      tags: sanitizeKnowledgeTags(row.tags),
+      knowledge_type: bundle?.knowledge_type ?? null,
+      central_question: bundle?.central_question ?? null,
+      structured_content: bundle?.structured_content ?? null,
+      bundle_schema_version: bundle?.bundle_schema_version ?? null,
+      origin: row.origin as PrivateKnowledgeNode['origin'],
+      created_at: new Date(String(row.created_at)).toISOString(),
+    };
+  });
   const edges = edgeResult.rows.map<PrivateKnowledgeEdge>((row) => ({
     id: String(row.id),
     source: row.source_private_node_id ? `personal:${String(row.source_item_id)}` : `graph_${String(row.source_public_node_id)}`,
@@ -1516,17 +1615,35 @@ export async function updateKnowledgeDraftForUser(
     tags: string[];
     relations: ProposedKnowledgeRelation[];
     expectedVersion: number;
+    knowledgeType?: KnowledgeBundleType | null;
+    centralQuestion?: string | null;
+    structuredContent?: KnowledgeBundleContent | null;
+    bundleSchemaVersion?: number | null;
   }
 ): Promise<boolean> {
   const title = sanitizeKnowledgeTitle(input.title);
   if (!title) return false;
+  const hasBundleInput = Boolean(input.knowledgeType || input.centralQuestion || input.structuredContent || input.bundleSchemaVersion);
+  const bundle = hasBundleInput ? parseKnowledgeBundleFields({
+    knowledge_type: input.knowledgeType,
+    central_question: input.centralQuestion,
+    structured_content: input.structuredContent,
+    bundle_schema_version: input.bundleSchemaVersion,
+  }) : null;
+  if (hasBundleInput && !bundle) return false;
+  const requestedSummary = sanitizeKnowledgeContent(input.summary, 500);
+  const projection = bundle ? projectKnowledgeBundle(bundle, requestedSummary) : null;
   const payload = {
     title,
-    summary: sanitizeKnowledgeContent(input.summary, 500),
-    explanation: sanitizeKnowledgeContent(input.explanation, 6000),
+    summary: sanitizeKnowledgeContent(projection?.summary ?? requestedSummary, 500),
+    explanation: sanitizeKnowledgeContent(projection?.content ?? input.explanation, 6000),
     topic: normalizeKnowledgeTopic(input.topic),
     tags: sanitizeKnowledgeTags(input.tags),
     relations: sanitizeProposedRelations(input.relations),
+    knowledge_type: bundle?.knowledge_type ?? null,
+    central_question: bundle?.central_question ?? null,
+    structured_content: bundle?.structured_content ?? null,
+    bundle_schema_version: bundle?.bundle_schema_version ?? null,
   };
   if (!process.env.DATABASE_URL) {
     for (const [batchId, drafts] of memoryDrafts.entries()) {
@@ -1541,12 +1658,17 @@ export async function updateKnowledgeDraftForUser(
   await ensureKnowledgeIngestionSchema();
   const result = await pool.query<{ id: string }>(
     `UPDATE knowledge_card_drafts SET title = $3, summary = $4, explanation = $5, topic = $6,
-       tags = $7::jsonb, proposed_relations = $8::jsonb, version = version + 1, updated_at = NOW()
+       tags = $7::jsonb, proposed_relations = $8::jsonb, knowledge_type = $10,
+       central_question = $11, structured_content = $12::jsonb, bundle_schema_version = $13,
+       version = version + 1, updated_at = NOW()
      WHERE id = $1 AND user_id = $2 AND status = 'pending'
        AND version = $9
      RETURNING id`,
     [draftId, userId, payload.title, payload.summary, payload.explanation, payload.topic,
-      JSON.stringify(payload.tags), JSON.stringify(payload.relations), input.expectedVersion]
+      JSON.stringify(payload.tags), JSON.stringify(payload.relations), input.expectedVersion,
+      payload.knowledge_type, payload.central_question,
+      payload.structured_content ? JSON.stringify(payload.structured_content) : null,
+      payload.bundle_schema_version]
   );
   return result.rows.length > 0;
 }
@@ -1657,6 +1779,10 @@ export async function approveKnowledgeDraftsForUser(
         topic: plan.draft.topic,
         tags: plan.draft.tags,
         origin: 'conversation',
+        knowledgeType: plan.draft.knowledge_type,
+        centralQuestion: plan.draft.central_question,
+        structuredContent: plan.draft.structured_content,
+        bundleSchemaVersion: plan.draft.bundle_schema_version,
       });
       const node = ensureMemoryPrivateNode(userId, item, 'conversation');
       const plannedEndpoint = plannedNodes.get(plan.draft.id)!;
@@ -1723,8 +1849,10 @@ export async function approveKnowledgeDraftsForUser(
     ));
     for (const plan of planned) {
       queries.push(tx.query(
-        `INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags)
-         SELECT $1, $2, d.title, d.summary, CASE WHEN d.explanation <> '' THEN d.explanation ELSE d.summary END, d.topic, d.tags
+        `INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags,
+           knowledge_type, central_question, structured_content, bundle_schema_version)
+         SELECT $1, $2, d.title, d.summary, CASE WHEN d.explanation <> '' THEN d.explanation ELSE d.summary END, d.topic, d.tags,
+           d.knowledge_type, d.central_question, d.structured_content, d.bundle_schema_version
          FROM knowledge_card_drafts d JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id
          WHERE d.id = $3 AND d.batch_id = $4 AND d.user_id = $2 AND d.status = 'pending'
            AND d.version = $5 AND b.status <> 'discarded'

@@ -1,0 +1,44 @@
+import { StyleSheet, Text, View } from 'react-native';
+import type { KnowledgeBundleContent, Locale } from '@stem-brain/shared';
+import { knowledgeBundleConfidenceLabel, knowledgeBundleRecallPrompt } from '@/knowledge-bundle-ui';
+
+function Lines({ values, tone = 'plain' }: { values: string[]; tone?: 'plain' | 'good' | 'warn' }) {
+  if (!values.length) return null;
+  return <View style={styles.lines}>{values.map((value, index) => <Text key={`${index}-${value}`} style={[styles.line, tone === 'good' && styles.good, tone === 'warn' && styles.warn]}>• {value}</Text>)}</View>;
+}
+
+function Pairs({ values }: { values: Array<{ first: string; second: string }> }) {
+  if (!values.length) return null;
+  return <View style={styles.pairs}>{values.map((value, index) => <View key={`${index}-${value.first}`} style={styles.pair}><Text style={styles.pairTitle}>{value.first}</Text><Text style={styles.pairDetail}>{value.second}</Text></View>)}</View>;
+}
+
+function hierarchyDepth(content: Extract<KnowledgeBundleContent, { type: 'structure' }>, id: string) {
+  let depth = 0;
+  let parent = content.components.find((item) => item.id === id)?.parent_id;
+  const seen = new Set([id]);
+  while (parent && !seen.has(parent) && depth < content.components.length) {
+    seen.add(parent); depth += 1; parent = content.components.find((item) => item.id === parent)?.parent_id;
+  }
+  return depth;
+}
+
+export function MobileKnowledgeBundleView({ content, locale }: { content: KnowledgeBundleContent; locale: Locale }) {
+  const label = knowledgeBundleRecallPrompt(locale, content.type);
+  if (content.type === 'concept') return <View accessibilityLabel={label} style={styles.root}>{content.definition ? <Text style={styles.hero}>{content.definition}</Text> : null}<Lines values={content.key_points} /><Lines values={content.examples} tone="good" /><Lines values={content.non_examples} tone="warn" /><Pairs values={content.misconceptions.map((item) => ({ first: item.claim, second: item.correction }))} /></View>;
+  if (content.type === 'procedure') return <View accessibilityLabel={label} style={styles.root}>{content.goal ? <Text style={styles.hero}>{content.goal}</Text> : null}<Lines values={content.prerequisites} />{content.steps.map((step, index) => <View key={`${index}-${step.title}`} style={styles.step}><Text style={styles.stepNumber}>{index + 1}</Text><View style={styles.flex}><Text style={styles.pairTitle}>{step.title}</Text>{step.detail ? <Text style={styles.pairDetail}>{step.detail}</Text> : null}</View></View>)}<Pairs values={content.branches.map((item) => ({ first: item.condition, second: item.action }))} /><Pairs values={content.failure_modes.map((item) => ({ first: item.symptom, second: item.response }))} /><Lines values={content.done_when} tone="good" /></View>;
+  if (content.type === 'comparison') return <View accessibilityLabel={label} style={styles.root}><View style={styles.chips}>{content.targets.map((target) => <Text key={target} style={styles.chip}>{target}</Text>)}</View>{content.criteria.map((item) => <View key={item.name} style={styles.compareRow}><Text style={styles.compareName}>{item.name}</Text><View style={styles.compareValues}>{item.values.map((value, index) => <Text key={`${index}-${value}`} style={styles.compareValue}>{value}</Text>)}</View></View>)}<Lines values={content.commonalities} tone="good" /><Lines values={content.differences} tone="warn" /><Pairs values={content.choice_guide.map((item) => ({ first: item.condition, second: item.recommendation }))} /></View>;
+  if (content.type === 'mechanism') return <View accessibilityLabel={label} style={styles.root}><Lines values={content.causes} />{content.stages.map((stage, index) => <View key={`${index}-${stage.title}`}><View style={styles.stage}><Text style={styles.pairTitle}>{stage.title}</Text>{stage.detail ? <Text style={styles.pairDetail}>{stage.detail}</Text> : null}</View>{index < content.stages.length - 1 ? <Text style={styles.arrow}>↓</Text> : null}</View>)}<Lines values={content.results} tone="good" /><Lines values={content.conditions} /><Lines values={content.exceptions} tone="warn" /></View>;
+  if (content.type === 'structure') return <View accessibilityLabel={label} style={styles.root}>{content.purpose ? <Text style={styles.hero}>{content.purpose}</Text> : null}{content.components.map((item) => <View key={item.id} style={[styles.component, { marginStart: hierarchyDepth(content, item.id) * 18 }]}><Text style={styles.pairTitle}>{item.label}</Text>{item.role ? <Text style={styles.pairDetail}>{item.role}</Text> : null}</View>)}<Pairs values={content.relations.map((item) => ({ first: `${item.source_id} → ${item.target_id}`, second: item.label }))} /><Lines values={content.boundaries} tone="warn" /></View>;
+  return <View accessibilityLabel={label} style={styles.root}>{content.claim ? <Text style={styles.claim}>{content.claim}</Text> : null}{content.evidence.map((item, index) => <View key={`${index}-${item.statement}`} style={styles.evidence}><Text style={styles.pairTitle}>{item.statement}</Text>{item.source ? <Text style={styles.source}>{item.source}</Text> : null}</View>)}<Lines values={content.counterevidence} tone="warn" /><Lines values={content.scope} /><Lines values={content.limitations} tone="warn" />{content.confidence ? <Text style={styles.confidence}>{knowledgeBundleConfidenceLabel(locale, content.confidence)}</Text> : null}</View>;
+}
+
+const styles = StyleSheet.create({
+  root: { gap: 9 }, flex: { flex: 1 }, hero: { color: '#312e81', backgroundColor: '#eef2ff', borderRadius: 8, padding: 10, fontSize: 14, lineHeight: 21, fontWeight: '700' },
+  lines: { gap: 4 }, line: { color: '#374151', fontSize: 13, lineHeight: 19 }, good: { color: '#166534' }, warn: { color: '#9f1239' }, pairs: { gap: 7 },
+  pair: { borderStartWidth: 3, borderStartColor: '#a78bfa', paddingStart: 9 }, pairTitle: { color: '#111827', fontSize: 13, fontWeight: '800' }, pairDetail: { color: '#4b5563', fontSize: 13, lineHeight: 18, marginTop: 2 },
+  step: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, backgroundColor: '#f8fafc', borderRadius: 8, padding: 9 }, stepNumber: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#2563eb', color: '#fff', textAlign: 'center', paddingTop: 3, fontSize: 12, fontWeight: '900', overflow: 'hidden' },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, chip: { color: '#1e3a8a', backgroundColor: '#dbeafe', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5, fontSize: 12, fontWeight: '800', overflow: 'hidden' },
+  compareRow: { borderColor: '#e5e7eb', borderWidth: 1, borderRadius: 8, overflow: 'hidden' }, compareName: { color: '#111827', backgroundColor: '#f3f4f6', padding: 7, fontWeight: '800' }, compareValues: { flexDirection: 'row' }, compareValue: { flex: 1, color: '#374151', padding: 7, fontSize: 12 },
+  stage: { borderColor: '#bfdbfe', borderWidth: 1, borderRadius: 8, backgroundColor: '#eff6ff', padding: 9 }, arrow: { color: '#2563eb', textAlign: 'center', fontWeight: '900' }, component: { borderStartColor: '#8b5cf6', borderStartWidth: 3, backgroundColor: '#faf5ff', padding: 8, borderRadius: 6 },
+  claim: { color: '#111827', backgroundColor: '#eff6ff', borderStartColor: '#2563eb', borderStartWidth: 4, padding: 11, fontSize: 15, lineHeight: 22, fontWeight: '800' }, evidence: { borderColor: '#bbf7d0', borderWidth: 1, backgroundColor: '#f0fdf4', borderRadius: 8, padding: 9 }, source: { color: '#166534', fontSize: 11, marginTop: 4 }, confidence: { alignSelf: 'flex-start', color: '#5b21b6', backgroundColor: '#ede9fe', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5, fontSize: 11, fontWeight: '900', overflow: 'hidden' },
+});

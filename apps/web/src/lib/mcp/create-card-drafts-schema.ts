@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import type { KnowledgeBundleContent, KnowledgeBundleType } from '@stem-brain/shared';
+import { conceptBundleFromLegacyCard } from '@/lib/knowledge-bundle-runtime';
 
 export const CREATE_CARD_DRAFTS_TOOL_NAME = 'create_card_drafts';
 export const MCP_DRAFT_CREATE_SCOPE = 'knowledge:drafts:create';
@@ -23,7 +25,7 @@ const optionalText = (field: string, maxLength: number) =>
     .max(maxLength, `${field} must be at most ${maxLength} characters.`)
     .optional();
 
-const proposedRelationSchema = z
+export const proposedRelationSchema = z
   .object({
     target_kind: z.enum(['public', 'private', 'draft']),
     target_id: opaqueIdentifier('relations[].target_id', 160),
@@ -153,6 +155,10 @@ export type KnowledgeDraftBatchInput = {
       direction?: 'outgoing' | 'incoming';
       weight?: number;
     }>;
+    knowledgeType?: KnowledgeBundleType;
+    centralQuestion?: string;
+    structuredContent?: KnowledgeBundleContent;
+    bundleSchemaVersion?: 1;
   }>;
 };
 
@@ -161,20 +167,27 @@ export function toKnowledgeDraftBatchInput(input: CreateCardDraftsToolInput): Kn
     provider: input.provider,
     requestId: input.request_id,
     conversationRef: input.provenance.conversation_ref,
-    cards: input.cards.map((card) => ({
-      clientCardId: card.client_card_id,
-      title: card.title,
-      summary: card.summary,
-      explanation: card.explanation,
-      topic: card.topic,
-      tags: card.tags,
-      relations: card.relations?.map((relation) => ({
-        targetKind: relation.target_kind,
-        targetId: relation.target_id,
-        type: relation.type,
-        direction: relation.direction,
-        weight: relation.weight,
-      })),
-    })),
+    cards: input.cards.map((card) => {
+      const bundle = conceptBundleFromLegacyCard(card.title, card.summary, card.explanation);
+      return {
+        clientCardId: card.client_card_id,
+        title: card.title,
+        summary: card.summary,
+        explanation: card.explanation,
+        topic: card.topic,
+        tags: card.tags,
+        relations: card.relations?.map((relation) => ({
+          targetKind: relation.target_kind,
+          targetId: relation.target_id,
+          type: relation.type,
+          direction: relation.direction,
+          weight: relation.weight,
+        })),
+        knowledgeType: bundle.knowledge_type,
+        centralQuestion: bundle.central_question,
+        structuredContent: bundle.structured_content,
+        bundleSchemaVersion: bundle.bundle_schema_version,
+      };
+    }),
   };
 }

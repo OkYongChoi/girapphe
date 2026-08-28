@@ -7,6 +7,11 @@ import {
   toKnowledgeDraftBatchInput,
   type KnowledgeDraftBatchInput,
 } from './create-card-drafts-schema';
+import {
+  CREATE_KNOWLEDGE_BUNDLE_DRAFTS_TOOL_NAME,
+  createKnowledgeBundleDraftsInputSchema,
+  toKnowledgeBundleDraftBatchInput,
+} from './create-knowledge-bundle-drafts-schema';
 
 export type McpDraftPrincipal = {
   userId: string;
@@ -39,6 +44,14 @@ const createCardDraftsOutputSchema = z
     review_path: z.string().startsWith('/').max(512),
   })
   .strict();
+
+const createKnowledgeBundleDraftsOutputSchema = z.object({
+  status: z.literal('pending'),
+  batch_id: z.string().trim().min(1).max(160),
+  created: z.boolean(),
+  bundle_count: z.number().int().min(0).max(50),
+  review_path: z.string().startsWith('/').max(512),
+}).strict();
 
 /**
  * Converts the already-validated, user-scoped token record into the shape the
@@ -82,7 +95,7 @@ function createMcpServer(principal: McpDraftPrincipal, createDraftBatch: CreateD
     version: '1.0.0',
   }, {
     instructions:
-      'Call create_card_drafts only after the user explicitly selects concise concepts from this current conversation. Never send a transcript, message history, or concepts inferred from older conversations. Every result stays pending until the user reviews and approves it in Girapphe.',
+      'Call create_knowledge_bundle_drafts or the compatible create_card_drafts only after the user explicitly selects concise knowledge from this current conversation. Never send a transcript, message history, or knowledge inferred from older conversations. Every result stays pending until the user reviews and approves it in Girapphe.',
   });
 
   server.registerTool(
@@ -140,6 +153,53 @@ function createMcpServer(principal: McpDraftPrincipal, createDraftBatch: CreateD
         };
       }
     }
+  );
+
+  server.registerTool(
+    CREATE_KNOWLEDGE_BUNDLE_DRAFTS_TOOL_NAME,
+    {
+      title: 'Create structured knowledge-bundle drafts',
+      description:
+        'Create pending, user-owned concept, procedure, comparison, mechanism, structure, or claim/evidence drafts from an explicitly approved selection in the current conversation. It cannot approve drafts, retain transcripts, or modify public knowledge.',
+      inputSchema: createKnowledgeBundleDraftsInputSchema,
+      outputSchema: createKnowledgeBundleDraftsOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      try {
+        const created = await createDraftBatch(
+          principal.userId,
+          toKnowledgeBundleDraftBatchInput(input),
+          principal.sourceTokenId,
+        );
+        const output = createKnowledgeBundleDraftsOutputSchema.parse({
+          status: 'pending',
+          batch_id: created.batchId,
+          created: created.created,
+          bundle_count: created.draftCount,
+          review_path: created.reviewPath,
+        });
+        return {
+          content: [{
+            type: 'text' as const,
+            text: output.created
+              ? `${output.bundle_count} structured knowledge bundle draft(s) are pending review.`
+              : `The existing draft batch has ${output.bundle_count} structured knowledge bundle draft(s).`,
+          }],
+          structuredContent: output,
+        };
+      } catch {
+        return {
+          isError: true,
+          content: [{ type: 'text' as const, text: 'Unable to create the bundle draft batch. No knowledge was approved or published.' }],
+        };
+      }
+    },
   );
 
   return server;
