@@ -367,6 +367,8 @@ test('expired guest knowledge stays out of topic hubs, summaries, exports, and c
   const contextExport = serializeTopicKnowledgeHub(context, 'json');
   assert.doesNotMatch(exported, /Expired guest decision|Expired guest content/u);
   assert.doesNotMatch(contextExport, /Expired guest decision|Expired guest content/u);
+  assert.doesNotMatch(exported, new RegExp(expired.id, 'u'));
+  assert.doesNotMatch(contextExport, new RegExp(expired.id, 'u'));
 });
 
 test('PostgreSQL topic queries apply retention to active items and every supersession-history hop', async () => {
@@ -478,6 +480,7 @@ test('purging a replacement retains a tombstone that keeps the prior item supers
   assert.equal(historyHub.items[0]?.id, prior.id);
   assert.equal(historyHub.supersessions[0]?.superseded_item_id, prior.id);
   assert.equal(historyHub.supersessions[0]?.replacement_item_id, replacement.id);
+  assert.ok(historyHub.activity.some((entry) => entry.metadata.replacement_item_id === replacement.id));
 
   softDeleteMemoryKnowledgeItemForUser(userId, prior.id, 0, { syncGraph: false });
   purgeMemoryKnowledgeItemsForUser(userId);

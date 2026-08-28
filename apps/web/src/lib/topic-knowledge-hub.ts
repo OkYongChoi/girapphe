@@ -338,10 +338,26 @@ function finalizeTopicKnowledgeHub(
     evidence_selectors: [...collections.evidence_selectors].sort((left, right) => left.knowledge_item_id.localeCompare(right.knowledge_item_id)
       || oldestFirst(left.created_at, right.created_at, left.id, right.id)),
   };
+  const visiblePrivateItemIds = new Set([
+    ...sorted.items.map((item) => item.id),
+    ...sorted.revisions.map((revision) => revision.knowledge_item_id),
+    ...sorted.supersessions.flatMap((entry) => [entry.superseded_item_id, entry.replacement_item_id]),
+    ...sorted.relations.flatMap((relation) => [relation.source, relation.target]
+      .filter((endpoint) => endpoint.startsWith('personal:'))
+      .map((endpoint) => endpoint.slice('personal:'.length))),
+  ]);
   return {
     topic,
     generated_at: deterministicGeneratedAt(sorted),
     ...sorted,
+    activity: sorted.activity.map((entry) => ({
+      ...entry,
+      metadata: sanitizeActivityMetadataForVisibleItems(
+        entry.metadata,
+        visiblePrivateItemIds,
+        visiblePrivateItemIds,
+      ),
+    })),
   };
 }
 
@@ -772,7 +788,7 @@ export function serializeTopicKnowledgeHub(hub: TopicKnowledgeHub, format: Knowl
   return markdownHub(hub);
 }
 
-function sanitizeActivityMetadataForContext(
+function sanitizeActivityMetadataForVisibleItems(
   metadata: Record<string, unknown>,
   selectedItemIds: Set<string>,
   knownPrivateItemIds: Set<string>,
@@ -832,7 +848,7 @@ export async function buildTopicKnowledgeContextPackForUser(
       .filter((entry) => itemIds.has(entry.knowledge_item_id))
       .map((entry) => ({
         ...entry,
-        metadata: sanitizeActivityMetadataForContext(entry.metadata, itemIds, knownPrivateItemIds),
+        metadata: sanitizeActivityMetadataForVisibleItems(entry.metadata, itemIds, knownPrivateItemIds),
       })),
     revisions: hub.revisions.filter((revision) => itemIds.has(revision.knowledge_item_id)),
     supersessions: hub.supersessions.filter((entry) => itemIds.has(entry.superseded_item_id)
