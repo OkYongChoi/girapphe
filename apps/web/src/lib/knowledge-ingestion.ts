@@ -4454,10 +4454,11 @@ export async function recordKnowledgeReuseForUser(
       .filter((item) => itemIds.includes(item.id) && !item.deleted_at
         && !item.archived_at && !supersededIds.has(item.id))
       .map((item) => item.id));
+    if (ownedActiveIds.size !== itemIds.length) return 0;
     for (const itemId of itemIds) {
-      if (ownedActiveIds.has(itemId)) recordMemoryActivity(userId, itemId, 'reused', safeMetadata);
+      recordMemoryActivity(userId, itemId, 'reused', safeMetadata);
     }
-    return ownedActiveIds.size;
+    return itemIds.length;
   }
 
   await ensureKnowledgeIngestionSchema();
@@ -4467,20 +4468,28 @@ export async function recordKnowledgeReuseForUser(
       params: [deriveMcpAccountAdvisoryLockKey(userId)],
     },
     {
-      text: `INSERT INTO knowledge_item_activity
+      text: `WITH eligible_items AS MATERIALIZED (
+       SELECT i.user_id, i.id
+       FROM user_knowledge_items i
+       JOIN unnest($2::text[]) requested(id) ON requested.id = i.id
+       WHERE i.user_id = $1 AND i.deleted_at IS NULL AND i.archived_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM mcp_deleted_account_markers marker WHERE marker.scope_key = $4
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM knowledge_item_supersessions s
+           WHERE s.user_id = i.user_id AND s.superseded_item_id = i.id
+         )
+     ), complete_selection AS (
+       SELECT COUNT(*) AS eligible_count FROM eligible_items
+     )
+     INSERT INTO knowledge_item_activity
        (id, user_id, knowledge_item_id, activity_type, metadata)
      SELECT md5(random()::text || clock_timestamp()::text || i.id), i.user_id, i.id,
        'reused', $3::jsonb
-     FROM user_knowledge_items i
-     JOIN unnest($2::text[]) requested(id) ON requested.id = i.id
-     WHERE i.user_id = $1 AND i.deleted_at IS NULL AND i.archived_at IS NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM mcp_deleted_account_markers marker WHERE marker.scope_key = $4
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM knowledge_item_supersessions s
-         WHERE s.user_id = i.user_id AND s.superseded_item_id = i.id
-       )
+     FROM eligible_items i
+     CROSS JOIN complete_selection selection
+     WHERE selection.eligible_count = cardinality($2::text[])
      RETURNING id`,
       params: [
         userId,

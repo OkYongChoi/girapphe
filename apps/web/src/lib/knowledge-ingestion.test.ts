@@ -46,6 +46,31 @@ test('normalizes Korean topics without collapsing them to general', () => {
   assert.equal(normalizeKnowledgeTopic('확률과_통계!'), '확률과_통계');
 });
 
+test('reuse activity is all-or-nothing when one selected item becomes ineligible', async () => {
+  const userId = `user_atomic_reuse_${crypto.randomUUID()}`;
+  const active = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Still active',
+    content: 'This item remains eligible.',
+    topic: 'atomic reuse',
+  });
+  const archived = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Archived before recording',
+    content: 'This item changed after the context pack was built.',
+    topic: 'atomic reuse',
+  });
+  assert.deepEqual(
+    await archiveKnowledgeItemForUser(userId, archived.id, archived.version),
+    { archived: true, version: archived.version + 1 },
+  );
+
+  assert.equal(await recordKnowledgeReuseForUser(userId, [active.id, archived.id]), 0);
+  assert.equal(
+    getMemoryKnowledgeActivityForUser(userId, new Set([active.id]))
+      .filter((entry) => entry.activity_type === 'reused').length,
+    0,
+  );
+});
+
 test('creates an idempotent memory draft batch and preserves normalized tags', async () => {
   const userId = `user_ingestion_idempotency_${crypto.randomUUID()}`;
   const input = {
@@ -1165,6 +1190,11 @@ test('database MCP draft, token, and reuse writers lock then reject post-delete 
   assert.deepEqual(poolTransactions[0]!.options, { isolationLevel: 'ReadCommitted' });
   assert.deepEqual(poolTransactions[0]!.queries[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
   assert.match(poolTransactions[0]!.queries[1]!.text, /mcp_deleted_account_markers/);
+  assert.match(poolTransactions[0]!.queries[1]!.text, /WITH eligible_items AS MATERIALIZED/);
+  assert.match(
+    poolTransactions[0]!.queries[1]!.text,
+    /selection\.eligible_count = cardinality\(\$2::text\[\]\)/,
+  );
   assert.equal(poolTransactions[0]!.queries[1]!.params?.[3], scopeKey);
 });
 
