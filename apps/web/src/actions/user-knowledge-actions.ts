@@ -389,10 +389,14 @@ export async function getUserKnowledgeItems(): Promise<UserKnowledgeItem[]> {
 export async function getArchivedKnowledgeItems(): Promise<UserKnowledgeItem[]> {
   const user = await requireCurrentActor();
   if (!process.env.DATABASE_URL) {
+    const now = Date.now();
+    purgeMemoryKnowledgeItemsForUser(user.id);
     const supersededIds = new Set(getMemoryKnowledgeSupersessionsForUser(user.id)
       .map((entry) => entry.superseded_item_id));
     return getMemoryKnowledgeItemsForUser(user.id)
-      .filter((item) => !item.deleted_at && Boolean(item.archived_at) && !supersededIds.has(item.id))
+      .filter((item) => !item.deleted_at && Boolean(item.archived_at)
+        && (!item.purge_at || new Date(item.purge_at).getTime() > now)
+        && !supersededIds.has(item.id))
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id));
   }
 
@@ -410,6 +414,7 @@ export async function getArchivedKnowledgeItems(): Promise<UserKnowledgeItem[]> 
        ORDER BY s.created_at DESC LIMIT 1
      ) s ON TRUE
      WHERE i.user_id = $1 AND i.deleted_at IS NULL AND i.archived_at IS NOT NULL
+       AND (i.purge_at IS NULL OR i.purge_at > NOW())
        AND NOT EXISTS (
          SELECT 1 FROM knowledge_item_supersessions supersession
          WHERE supersession.user_id = i.user_id
@@ -446,6 +451,7 @@ export async function getUserKnowledgeOverview(maxGraphNotes = 48): Promise<User
     SELECT id, title, topic, COUNT(*) OVER()::text AS total_count
     FROM user_knowledge_items
     WHERE user_id = $1 AND deleted_at IS NULL AND archived_at IS NULL
+      AND (purge_at IS NULL OR purge_at > NOW())
       AND NOT EXISTS (
         SELECT 1 FROM knowledge_item_supersessions supersession
         WHERE supersession.user_id = user_knowledge_items.user_id

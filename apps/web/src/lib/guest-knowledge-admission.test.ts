@@ -43,6 +43,21 @@ test('guest knowledge admission bounds identifiers, writes, rows, and retention'
   assert.match(source, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
   assert.match(source, /guest-knowledge:\$\{user\.id\}/);
 
+  const archiveRead = source.slice(
+    source.indexOf('export async function getArchivedKnowledgeItems'),
+    source.indexOf('export async function getUserKnowledgeOverview'),
+  );
+  assert.match(archiveRead, /purgeMemoryKnowledgeItemsForUser\(user\.id\)/);
+  assert.match(archiveRead, /!item\.purge_at \|\| new Date\(item\.purge_at\)\.getTime\(\) > now/);
+  assert.match(archiveRead, /i\.purge_at IS NULL OR i\.purge_at > NOW\(\)/);
+
+  const overviewRead = source.slice(
+    source.indexOf('export async function getUserKnowledgeOverview'),
+    source.indexOf('export async function createKnowledgeItem'),
+  );
+  assert.match(overviewRead, /purgeMemoryKnowledgeItemsForUser\(user\.id\)/);
+  assert.match(overviewRead, /purge_at IS NULL OR purge_at > NOW\(\)/);
+
   const purgeSource = readFileSync(new URL('./personal-knowledge.ts', import.meta.url), 'utf8');
   assert.match(purgeSource, /DELETE FROM user_knowledge_create_requests/);
   assert.match(purgeSource, /DELETE FROM guest_knowledge_write_limits/);
