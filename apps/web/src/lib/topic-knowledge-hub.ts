@@ -11,6 +11,7 @@ import {
   getMemoryKnowledgeSupersessionsForUser,
   getPrivateKnowledgeGraphForUser,
   normalizeKnowledgeTopic,
+  purgeMemoryKnowledgeItemsForUser,
   sanitizeKnowledgeEvidenceSelectors,
 } from '@/lib/knowledge-ingestion';
 import {
@@ -357,6 +358,7 @@ export async function getTopicKnowledgeHubForUser(
   const requestedItems = requestedItemIds.length > 0 ? new Set(requestedItemIds) : null;
 
   if (!process.env.DATABASE_URL) {
+    purgeMemoryKnowledgeItemsForUser(userId);
     const allMemoryItems = getMemoryKnowledgeItemsForUser(userId);
     const allSupersessions = getMemoryKnowledgeSupersessionsForUser(userId);
     const supersededIds = new Set(allSupersessions.map((entry) => entry.superseded_item_id));
@@ -449,6 +451,7 @@ export async function getTopicKnowledgeHubForUser(
        i.created_at, i.updated_at
      FROM user_knowledge_items i
      WHERE i.user_id = $1 AND i.topic = $2 AND i.deleted_at IS NULL
+       AND (i.purge_at IS NULL OR i.purge_at > NOW())
        AND ($3::boolean OR i.archived_at IS NULL)
        AND ($4::boolean OR NOT EXISTS (
          SELECT 1 FROM knowledge_item_supersessions s
@@ -475,6 +478,7 @@ export async function getTopicKnowledgeHubForUser(
        SELECT i.id
        FROM user_knowledge_items i
        WHERE i.user_id = $1 AND i.topic = $3 AND i.deleted_at IS NULL
+         AND (i.purge_at IS NULL OR i.purge_at > NOW())
          AND ($4::boolean OR i.archived_at IS NULL)
          AND EXISTS (
            SELECT 1 FROM knowledge_item_supersessions s
@@ -486,9 +490,16 @@ export async function getTopicKnowledgeHubForUser(
        SELECT s.superseded_item_id
        FROM knowledge_item_supersessions s
        JOIN history_ids h ON h.id = s.replacement_item_id
+       JOIN user_knowledge_items predecessor
+         ON predecessor.id = s.superseded_item_id AND predecessor.user_id = s.user_id
+         AND (predecessor.purge_at IS NULL OR predecessor.purge_at > NOW())
        WHERE s.user_id = $1
      )
-     SELECT id FROM history_ids ORDER BY id LIMIT 1000`,
+     SELECT h.id
+     FROM history_ids h
+     JOIN user_knowledge_items i ON i.id = h.id AND i.user_id = $1
+     WHERE i.purge_at IS NULL OR i.purge_at > NOW()
+     ORDER BY h.id LIMIT 1000`,
     [userId, itemIds, topic, options.includeArchived === true],
   );
   const historyItemIds = historyIdResult.rows.map((row) => row.id);
@@ -526,8 +537,14 @@ export async function getTopicKnowledgeHubForUser(
        FROM user_graph_edges e
        LEFT JOIN user_graph_nodes sn ON sn.id = e.source_private_node_id AND sn.user_id = e.user_id
        LEFT JOIN user_graph_nodes tn ON tn.id = e.target_private_node_id AND tn.user_id = e.user_id
+       LEFT JOIN user_knowledge_items si ON si.id = sn.knowledge_item_id AND si.user_id = sn.user_id
+         AND (si.purge_at IS NULL OR si.purge_at > NOW())
+       LEFT JOIN user_knowledge_items ti ON ti.id = tn.knowledge_item_id AND ti.user_id = tn.user_id
+         AND (ti.purge_at IS NULL OR ti.purge_at > NOW())
        WHERE e.user_id = $1 AND e.deleted_at IS NULL
          AND (sn.knowledge_item_id = ANY($2::text[]) OR tn.knowledge_item_id = ANY($2::text[]))
+         AND (e.source_private_node_id IS NULL OR si.id IS NOT NULL)
+         AND (e.target_private_node_id IS NULL OR ti.id IS NOT NULL)
        ORDER BY e.created_at, e.id
        LIMIT 500`,
       [userId, itemIds],
@@ -541,11 +558,14 @@ export async function getTopicKnowledgeHubForUser(
       [userId, historyItemIds],
     ),
     pool.query<Record<string, unknown>>(
-      `SELECT id, superseded_item_id, replacement_item_id, reason, created_at
-       FROM knowledge_item_supersessions
-       WHERE user_id = $1
-         AND (superseded_item_id = ANY($2::text[]) OR replacement_item_id = ANY($2::text[]))
-       ORDER BY created_at DESC, id
+      `SELECT s.id, s.superseded_item_id, s.replacement_item_id, s.reason, s.created_at
+       FROM knowledge_item_supersessions s
+       JOIN user_knowledge_items superseded_item
+         ON superseded_item.id = s.superseded_item_id AND superseded_item.user_id = s.user_id
+         AND (superseded_item.purge_at IS NULL OR superseded_item.purge_at > NOW())
+       WHERE s.user_id = $1
+         AND (s.superseded_item_id = ANY($2::text[]) OR s.replacement_item_id = ANY($2::text[]))
+       ORDER BY s.created_at DESC, s.id
        LIMIT 500`,
       [userId, historyItemIds],
     ),
@@ -595,6 +615,7 @@ export async function getActiveKnowledgeTopicSummariesForUser(
   if (!userId) throw new Error('A user is required.');
 
   if (!process.env.DATABASE_URL) {
+    purgeMemoryKnowledgeItemsForUser(userId);
     const supersededIds = new Set(getMemoryKnowledgeSupersessionsForUser(userId)
       .map((entry) => entry.superseded_item_id));
     const activeItems = getMemoryKnowledgeItemsForUser(userId)
@@ -640,6 +661,7 @@ export async function getActiveKnowledgeTopicSummariesForUser(
        SELECT i.id, i.topic, i.title, i.knowledge_type, i.structured_content, i.updated_at
        FROM user_knowledge_items i
        WHERE i.user_id = $1 AND i.deleted_at IS NULL AND i.archived_at IS NULL
+         AND (i.purge_at IS NULL OR i.purge_at > NOW())
          AND NOT EXISTS (
            SELECT 1 FROM knowledge_item_supersessions s
            WHERE s.user_id = i.user_id AND s.superseded_item_id = i.id

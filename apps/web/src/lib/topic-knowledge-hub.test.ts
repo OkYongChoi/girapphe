@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import db from './db';
 import {
   createKnowledgeDraftBatchForUser,
   createMemoryKnowledgeItemForUser,
@@ -315,6 +316,96 @@ test('verification, supersession, bounded context, and reuse activity preserve a
   const reuse = afterReuse.activity.find((entry) => entry.activity_type === 'reused');
   assert.deepEqual(reuse?.metadata, { topic: 'release', format: 'json', count: 1 });
   assert.equal(serializeTopicKnowledgeHub(afterReuse, 'json'), serializeTopicKnowledgeHub(afterReuse, 'json'));
+});
+
+test('expired guest knowledge stays out of topic hubs, summaries, exports, and context packs before purge cleanup', async () => {
+  const userId = `user_expired_guest_topic_${crypto.randomUUID()}`;
+  const expired = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Expired guest decision',
+    content: 'Expired guest content must not remain visible.',
+    topic: 'Guest retention',
+  });
+  const retained = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Retained guest decision',
+    content: 'This guest item is still inside its retention window.',
+    topic: 'Guest retention',
+  });
+  assert.deepEqual(await supersedeKnowledgeItemForUser(
+    userId,
+    expired.id,
+    retained.id,
+    expired.version,
+    'The retained decision replaces the expired decision.',
+  ), { superseded: true });
+  expired.purge_at = new Date(Date.now() - 60_000).toISOString();
+  retained.purge_at = new Date(Date.now() + 60_000).toISOString();
+
+  const hub = await getTopicKnowledgeHubForUser(userId, 'Guest retention', {
+    includeSuperseded: true,
+  });
+  assert.deepEqual(hub.items.map((item) => item.id), [retained.id]);
+  assert.equal(hub.revisions.some((revision) => revision.knowledge_item_id === expired.id), false);
+  assert.equal(hub.supersessions.some((entry) => entry.superseded_item_id === expired.id), false);
+  assert.equal(getMemoryKnowledgeItemsForUser(userId).some((item) => item.id === expired.id), false);
+
+  const summaries = await getActiveKnowledgeTopicSummariesForUser(userId);
+  assert.deepEqual(summaries.map((summary) => ({
+    topic: summary.topic,
+    item_count: summary.item_count,
+    sample_titles: summary.sample_titles,
+  })), [{
+    topic: 'guest-retention',
+    item_count: 1,
+    sample_titles: ['Retained guest decision'],
+  }]);
+
+  const context = await buildTopicKnowledgeContextPackForUser(userId, 'Guest retention', {
+    itemIds: [expired.id, retained.id],
+  });
+  assert.deepEqual(context.items.map((item) => item.id), [retained.id]);
+  const exported = serializeTopicKnowledgeHub(hub, 'json');
+  const contextExport = serializeTopicKnowledgeHub(context, 'json');
+  assert.doesNotMatch(exported, /Expired guest decision|Expired guest content/u);
+  assert.doesNotMatch(contextExport, /Expired guest decision|Expired guest content/u);
+});
+
+test('PostgreSQL topic queries apply retention to active items and every supersession-history hop', async () => {
+  const originalQuery = db.query;
+  const queries: string[] = [];
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string) => {
+    queries.push(text);
+    return { rows: [] };
+  }) as typeof db.query;
+  try {
+    await getTopicKnowledgeHubForUser('database-retention-user', 'Guest retention');
+    await getActiveKnowledgeTopicSummariesForUser('database-retention-user');
+  } finally {
+    db.query = originalQuery;
+    delete process.env.DATABASE_URL;
+  }
+
+  const itemQuery = queries.find((query) => query.includes('AND ($3::boolean OR i.archived_at IS NULL)'));
+  assert.ok(itemQuery);
+  assert.match(itemQuery, /i\.purge_at IS NULL OR i\.purge_at > NOW\(\)/u);
+
+  const historyQuery = queries.find((query) => query.includes('WITH RECURSIVE topic_history_seed'));
+  assert.ok(historyQuery);
+  assert.match(historyQuery, /predecessor\.purge_at IS NULL OR predecessor\.purge_at > NOW\(\)/u);
+  assert.match(historyQuery, /WHERE i\.purge_at IS NULL OR i\.purge_at > NOW\(\)/u);
+
+  const relationQuery = queries.find((query) => query.includes('FROM user_graph_edges e'));
+  assert.ok(relationQuery);
+  assert.match(relationQuery, /si\.purge_at IS NULL OR si\.purge_at > NOW\(\)/u);
+  assert.match(relationQuery, /ti\.purge_at IS NULL OR ti\.purge_at > NOW\(\)/u);
+
+  const supersessionQuery = queries.find((query) => query.includes('JOIN user_knowledge_items superseded_item'));
+  assert.ok(supersessionQuery);
+  assert.match(supersessionQuery, /superseded_item\.purge_at IS NULL OR superseded_item\.purge_at > NOW\(\)/u);
+
+  const summaryQuery = queries.find((query) => query.includes('WITH active_items AS'));
+  assert.ok(summaryQuery);
+  assert.match(summaryQuery, /i\.purge_at IS NULL OR i\.purge_at > NOW\(\)/u);
 });
 
 test('a moved replacement preserves the old topic audit trail without exposing it in an explicit context pack', async () => {
