@@ -311,7 +311,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
-            <KnowledgeBundleEditor />
+            <KnowledgeBundleEditor key={createRequestId} />
             <div className="flex flex-col gap-1 md:col-span-2">
               <label htmlFor="new-summary" className="text-xs font-medium text-gray-700">
                 Summary

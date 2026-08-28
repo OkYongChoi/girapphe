@@ -559,6 +559,8 @@ test.describe('browser smoke', () => {
     await createForm.getByLabel('Done when', { exact: true }).fill('Production smoke passes');
     await createForm.getByLabel('Summary', { exact: true }).fill('A verified release procedure.');
     await createForm.getByRole('button', { name: 'Save item' }).click();
+    await expect(format).toHaveValue('');
+    await expect(createForm.getByLabel('Goal', { exact: true })).toBeHidden();
 
     let item = page.locator('details').filter({ hasText: title });
     await expect(item).toHaveCount(1);
