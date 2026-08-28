@@ -139,6 +139,7 @@ type TopicHubOptions = {
 };
 
 type ContextPackOptions = TopicHubOptions & {
+  format: KnowledgeContextFormat;
   maxBytes?: number;
 };
 
@@ -830,7 +831,7 @@ function sanitizeActivityMetadataForVisibleItems(
 export async function buildTopicKnowledgeContextPackForUser(
   userId: string,
   topic: string,
-  options: ContextPackOptions = {},
+  options: ContextPackOptions,
 ): Promise<TopicKnowledgeHub> {
   const defaultMaxItems = boundedLimit(options.maxItems, DEFAULT_CONTEXT_PACK_ITEMS, MAX_CONTEXT_PACK_ITEMS);
   const selectedIds = [...new Set(options.itemIds?.map((id) => id.trim()).filter(Boolean)
@@ -880,7 +881,7 @@ export async function buildTopicKnowledgeContextPackForUser(
     }),
   });
   const maxBytes = boundedLimit(options.maxBytes, MAX_CONTEXT_PACK_BYTES, MAX_CONTEXT_PACK_BYTES);
-  if (new TextEncoder().encode(stableKnowledgeJson(result)).byteLength > maxBytes) {
+  if (new TextEncoder().encode(serializeTopicKnowledgeHub(result, options.format)).byteLength > maxBytes) {
     throw new Error('The selected context pack exceeds the configured size limit.');
   }
   return result;

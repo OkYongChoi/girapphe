@@ -308,6 +308,118 @@ test('PostgreSQL reuse validation rejects a selection that expires behind the ac
   }
 });
 
+test('PostgreSQL supersession rejects an endpoint that expires behind the account lock', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL supersession test',
+  timeout: 20_000,
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const imported = await import('../src/lib/knowledge-ingestion.ts');
+  const knowledge = imported.default ?? imported;
+  const { supersedeKnowledgeItemForUser } = knowledge;
+  const lifecycleImported = await import('../src/lib/mcp-account-lifecycle.ts');
+  const lifecycle = lifecycleImported.default ?? lifecycleImported;
+  const { deriveMcpAccountAdvisoryLockKey } = lifecycle;
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const userId = `live-supersession-retention-${crypto.randomUUID()}`;
+  const priorItemId = `live-supersession-prior-${crypto.randomUUID()}`;
+  const replacementItemId = `live-supersession-replacement-${crypto.randomUUID()}`;
+  let blocker;
+  let blockerTransaction = false;
+  let supersessionPromise;
+
+  try {
+    await pool.query(
+      `INSERT INTO user_knowledge_items
+         (id, user_id, title, content, topic, summary, tags, version, dedupe_key, purge_at)
+       VALUES
+         ($1, $3, 'Prior canonical answer', 'Must remain canonical', 'live-supersession-retention', '', '[]'::jsonb, 1, $4, NOW() + INTERVAL '1 day'),
+         ($2, $3, 'Expiring replacement answer', 'Expires while validation waits', 'live-supersession-retention', '', '[]'::jsonb, 1, $5, NOW() + INTERVAL '1 day')`,
+      [
+        priorItemId,
+        replacementItemId,
+        userId,
+        `live-supersession-prior-${crypto.randomUUID()}`,
+        `live-supersession-replacement-${crypto.randomUUID()}`,
+      ],
+    );
+
+    blocker = await pool.connect();
+    await blocker.query('BEGIN');
+    blockerTransaction = true;
+    await blocker.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      deriveMcpAccountAdvisoryLockKey(userId),
+    ]);
+    supersessionPromise = supersedeKnowledgeItemForUser(
+      userId,
+      priorItemId,
+      replacementItemId,
+      1,
+      'The expiring replacement must not become canonical.',
+    );
+    void supersessionPromise.catch(() => undefined);
+
+    let observedWaiter = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const waiting = await blocker.query(
+        `SELECT EXISTS (
+           SELECT 1 FROM pg_stat_activity activity
+           WHERE pg_backend_pid() = ANY(pg_blocking_pids(activity.pid))
+         ) AS waiting`,
+      );
+      if (waiting.rows[0]?.waiting) {
+        observedWaiter = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(observedWaiter, true, 'supersession transaction must wait behind the held account lock');
+
+    await blocker.query(
+      `UPDATE user_knowledge_items
+       SET purge_at = clock_timestamp() + INTERVAL '200 milliseconds'
+       WHERE id = $1 AND user_id = $2`,
+      [replacementItemId, userId],
+    );
+    await blocker.query('SELECT pg_sleep(0.35)');
+    await blocker.query('COMMIT');
+    blockerTransaction = false;
+    blocker.release();
+    blocker = undefined;
+
+    assert.deepEqual(await supersessionPromise, { superseded: false, stale: true });
+    assert.deepEqual((await pool.query(
+      `SELECT id, version FROM user_knowledge_items
+       WHERE user_id = $1 ORDER BY id`,
+      [userId],
+    )).rows, [
+      { id: priorItemId, version: 1 },
+      { id: replacementItemId, version: 1 },
+    ].sort((left, right) => left.id.localeCompare(right.id)));
+    assert.equal((await pool.query(
+      'SELECT 1 FROM knowledge_item_supersessions WHERE user_id = $1',
+      [userId],
+    )).rowCount, 0);
+    assert.equal((await pool.query(
+      'SELECT 1 FROM knowledge_item_activity WHERE user_id = $1',
+      [userId],
+    )).rowCount, 0);
+    assert.equal((await pool.query(
+      'SELECT 1 FROM user_graph_edges WHERE user_id = $1',
+      [userId],
+    )).rowCount, 0);
+    assert.equal((await pool.query(
+      'SELECT 1 FROM user_graph_nodes WHERE user_id = $1',
+      [userId],
+    )).rowCount, 0);
+  } finally {
+    if (blockerTransaction) await blocker.query('ROLLBACK').catch(() => undefined);
+    blocker?.release();
+    if (supersessionPromise) await supersessionPromise.catch(() => undefined);
+    await pool.query('DELETE FROM user_knowledge_items WHERE user_id = $1', [userId]).catch(() => undefined);
+    await pool.end();
+  }
+});
+
 test('PostgreSQL Topic Hub relations expose only active private endpoints', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Topic Hub test',
 }, async () => {

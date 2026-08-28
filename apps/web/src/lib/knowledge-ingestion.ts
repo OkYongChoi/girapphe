@@ -4622,28 +4622,39 @@ export async function supersedeKnowledgeItemForUser(
     targetItemId: supersededItemId,
   };
   if (!process.env.DATABASE_URL) {
+    purgeMemoryKnowledgeItemsForUser(userId);
+    const acceptedAt = Date.now();
+    const isRetained = (item: MemoryKnowledgeItem) => !item.purge_at
+      || new Date(item.purge_at).getTime() > acceptedAt;
     const items = getMemoryKnowledgeItemsForUser(userId);
     const alreadySuperseded = new Set((memoryItemSupersessions.get(userId) ?? [])
       .map((entry) => entry.superseded_item_id));
-    const superseded = items.find((item) => item.id === supersededItemId && !item.deleted_at && !item.archived_at);
+    const superseded = items.find((item) => item.id === supersededItemId
+      && !item.deleted_at && !item.archived_at && isRetained(item));
     const replacement = items.find((item) => item.id === supersedingItemId
-      && !item.deleted_at && !item.archived_at && !alreadySuperseded.has(item.id));
+      && !item.deleted_at && !item.archived_at && isRetained(item)
+      && !alreadySuperseded.has(item.id));
     if (!superseded || !replacement || superseded.version !== expectedVersion) {
       return { superseded: false, stale: true };
     }
-    const supersessions = memoryItemSupersessions.get(userId) ?? [];
     if (alreadySuperseded.has(supersededItemId)) {
       return { superseded: false };
     }
-    const source = await resolveEndpointForUser(userId, `personal:${supersessionEdge.sourceItemId}`, {
-      allowPublic: false,
-      createPersonalNode: true,
-    });
-    const target = await resolveEndpointForUser(userId, `personal:${supersessionEdge.targetItemId}`, {
-      allowPublic: false,
-      createPersonalNode: true,
-    });
-    if (!source || !target) return { superseded: false };
+    const sourceNode = ensureMemoryPrivateNode(userId, replacement, 'manual');
+    const targetNode = ensureMemoryPrivateNode(userId, superseded, 'manual');
+    const source: ResolvedEndpoint = {
+      privateNodeId: sourceNode.graph_node_id,
+      publicNodeId: null,
+      knowledgeItemId: replacement.id,
+      key: `private:${sourceNode.graph_node_id}`,
+    };
+    const target: ResolvedEndpoint = {
+      privateNodeId: targetNode.graph_node_id,
+      publicNodeId: null,
+      knowledgeItemId: superseded.id,
+      key: `private:${targetNode.graph_node_id}`,
+    };
+    const supersessions = memoryItemSupersessions.get(userId) ?? [];
     const supersededAt = new Date().toISOString();
     recordMemoryRevision(userId, superseded);
     superseded.version += 1;
@@ -4692,17 +4703,24 @@ export async function supersedeKnowledgeItemForUser(
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-item:${userId}:${firstItemId}`]),
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-item:${userId}:${secondItemId}`]),
       tx.query(
-        `SELECT 1 / CASE WHEN
+        `WITH supersession_cutoff AS MATERIALIZED (
+           SELECT clock_timestamp() AS checked_at
+         )
+         SELECT 1 / CASE WHEN
            $1::text <> $2::text
            AND EXISTS (
              SELECT 1 FROM user_knowledge_items i
+             CROSS JOIN supersession_cutoff cutoff
              WHERE i.id = $1 AND i.user_id = $3 AND i.version = $4
                AND i.deleted_at IS NULL AND i.archived_at IS NULL
+               AND (i.purge_at IS NULL OR i.purge_at > cutoff.checked_at)
            )
            AND EXISTS (
              SELECT 1 FROM user_knowledge_items i
+             CROSS JOIN supersession_cutoff cutoff
              WHERE i.id = $2 AND i.user_id = $3
                AND i.deleted_at IS NULL AND i.archived_at IS NULL
+               AND (i.purge_at IS NULL OR i.purge_at > cutoff.checked_at)
                AND NOT EXISTS (
                  SELECT 1 FROM knowledge_item_supersessions replacement_state
                  WHERE replacement_state.user_id = i.user_id

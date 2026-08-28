@@ -80,6 +80,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const pack = await buildTopicKnowledgeContextPackForUser(user.id, topic, {
+      format,
       ...(itemIds.length > 0 ? { itemIds } : {}),
     });
     if (pack.items.length !== itemIds.length) {

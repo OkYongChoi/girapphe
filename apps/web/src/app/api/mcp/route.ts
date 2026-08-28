@@ -36,8 +36,8 @@ async function getContextPackForMcp(userId: string, input: TopicContextPackInput
     userId,
     input.topic,
     input.selection.type === 'items'
-      ? { itemIds: input.selection.itemIds }
-      : { maxItems: input.selection.limit },
+      ? { itemIds: input.selection.itemIds, format: input.format }
+      : { maxItems: input.selection.limit, format: input.format },
   );
   if (pack.items.length === 0
     || (explicitItemIds && pack.items.length !== explicitItemIds.length)) {

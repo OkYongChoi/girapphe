@@ -302,6 +302,7 @@ test('verification, supersession, bounded context, and reuse activity preserve a
   assert.deepEqual(new Set(withSuperseded.items.map((item) => item.id)), new Set([oldItem.id, replacement.id]));
 
   const context = await buildTopicKnowledgeContextPackForUser(userId, 'Release', {
+    format: 'json',
     itemIds: [replacement.id, oldItem.id],
     maxItems: 10,
   });
@@ -360,6 +361,7 @@ test('expired guest knowledge stays out of topic hubs, summaries, exports, and c
   }]);
 
   const context = await buildTopicKnowledgeContextPackForUser(userId, 'Guest retention', {
+    format: 'json',
     itemIds: [expired.id, retained.id],
   });
   assert.deepEqual(context.items.map((item) => item.id), [retained.id]);
@@ -453,6 +455,7 @@ test('a moved replacement preserves the old topic audit trail without exposing i
   );
 
   const explicitContext = await buildTopicKnowledgeContextPackForUser(userId, 'Architecture', {
+    format: 'json',
     itemIds: [replacement.id],
   });
   const serialized = serializeTopicKnowledgeHub(explicitContext, 'json');
@@ -518,17 +521,62 @@ test('explicit context selection queries an item older than the newest two-hundr
   assert.equal(defaultWindow.items.length, 200);
   assert.equal(defaultWindow.items.some((item) => item.id === oldItem.id), false);
   const context = await buildTopicKnowledgeContextPackForUser(userId, 'Large topic', {
+    format: 'json',
     itemIds: [oldItem.id],
   });
   assert.deepEqual(context.items.map((item) => item.id), [oldItem.id]);
 
   const sixtyItemContext = await buildTopicKnowledgeContextPackForUser(userId, 'Large topic', {
+    format: 'json',
     itemIds: newerItems.slice(0, 60).map((item) => item.id),
   });
   assert.equal(sixtyItemContext.items.length, 60);
   assert.deepEqual(
     new Set(sixtyItemContext.items.map((item) => item.id)),
     new Set(newerItems.slice(0, 60).map((item) => item.id)),
+  );
+});
+
+test('context pack size validation measures the requested serialization format', async () => {
+  const userId = `user_context_format_size_${crypto.randomUUID()}`;
+  const item = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Compact Markdown context',
+    content: 'The readable projection is intentionally compact.',
+    topic: 'Format-aware context',
+    knowledgeType: 'concept',
+    centralQuestion: 'Which serialization should define the response limit?',
+    structuredContent: {
+      type: 'concept',
+      definition: 'x'.repeat(3_000),
+      key_points: [],
+      examples: [],
+      non_examples: [],
+      misconceptions: [],
+    },
+    bundleSchemaVersion: 1,
+  });
+  const markdownPack = await buildTopicKnowledgeContextPackForUser(userId, 'Format-aware context', {
+    format: 'markdown',
+    itemIds: [item.id],
+  });
+  const encoder = new TextEncoder();
+  const markdownBytes = encoder.encode(serializeTopicKnowledgeHub(markdownPack, 'markdown')).byteLength;
+  const jsonBytes = encoder.encode(serializeTopicKnowledgeHub(markdownPack, 'json')).byteLength;
+  assert.ok(jsonBytes > markdownBytes);
+
+  const limitedMarkdown = await buildTopicKnowledgeContextPackForUser(userId, 'Format-aware context', {
+    format: 'markdown',
+    itemIds: [item.id],
+    maxBytes: markdownBytes,
+  });
+  assert.deepEqual(limitedMarkdown.items.map((entry) => entry.id), [item.id]);
+  await assert.rejects(
+    buildTopicKnowledgeContextPackForUser(userId, 'Format-aware context', {
+      format: 'json',
+      itemIds: [item.id],
+      maxBytes: markdownBytes,
+    }),
+    /configured size limit/,
   );
 });
 

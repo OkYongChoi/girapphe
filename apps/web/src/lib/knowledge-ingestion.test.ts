@@ -18,6 +18,7 @@ import {
   getMemoryKnowledgeEvidenceForUser,
   getMemoryKnowledgeActivityForUser,
   getMemoryKnowledgeRevisionsForUser,
+  getMemoryKnowledgeSupersessionsForUser,
   getMemoryPrivateKnowledgeEdgesForTesting,
   getMemoryKnowledgeSourcesForUser,
   getMemoryKnowledgeItemsForUser,
@@ -804,6 +805,46 @@ test('canonical revision clears verification and supersession consumes its optim
   )).superseded, false);
 });
 
+test('supersession rejects either endpoint after guest retention expires without canonical side effects', async () => {
+  for (const expiredRole of ['prior', 'replacement'] as const) {
+    const userId = `user_expired_supersession_${expiredRole}_${crypto.randomUUID()}`;
+    const prior = createMemoryKnowledgeItemForUser(userId, {
+      title: 'Prior retained answer',
+      content: 'This answer may only be superseded while both endpoints are retained.',
+      topic: 'Retention',
+    }, { syncGraph: false });
+    const replacement = createMemoryKnowledgeItemForUser(userId, {
+      title: 'Replacement retained answer',
+      content: 'This replacement may only become canonical while it is retained.',
+      topic: 'Retention',
+    }, { syncGraph: false });
+    const expired = expiredRole === 'prior' ? prior : replacement;
+    const retained = expiredRole === 'prior' ? replacement : prior;
+    const retainedIds = new Set([retained.id]);
+    const beforeRetainedRevisions = getMemoryKnowledgeRevisionsForUser(userId, retainedIds).length;
+    const beforeRetainedActivity = getMemoryKnowledgeActivityForUser(userId, retainedIds).length;
+    const beforeEdges = getMemoryPrivateKnowledgeEdgesForTesting(userId).length;
+    expired.purge_at = new Date(Date.now() - 60_000).toISOString();
+
+    assert.deepEqual(await supersedeKnowledgeItemForUser(
+      userId,
+      prior.id,
+      replacement.id,
+      prior.version,
+      'An expired endpoint must not create a durable supersession.',
+    ), { superseded: false, stale: true });
+
+    assert.equal(prior.version, 1);
+    assert.equal(replacement.version, 1);
+    assert.equal(getMemoryKnowledgeItemsForUser(userId).some((item) => item.id === expired.id), false);
+    assert.equal(getMemoryKnowledgeRevisionsForUser(userId, retainedIds).length, beforeRetainedRevisions);
+    assert.equal(getMemoryKnowledgeActivityForUser(userId, retainedIds).length, beforeRetainedActivity);
+    assert.equal(getMemoryPrivateKnowledgeEdgesForTesting(userId).length, beforeEdges);
+    assert.deepEqual((await getPrivateKnowledgeGraphForUser(userId)).nodes, []);
+    assert.deepEqual(getMemoryKnowledgeSupersessionsForUser(userId), []);
+  }
+});
+
 test('memory private-node endpoints reject archived and superseded knowledge', async () => {
   const userId = `user_memory_private_endpoint_${crypto.randomUUID()}`;
   const prior = createMemoryKnowledgeItemForUser(userId, {
@@ -882,6 +923,13 @@ test('database supersession preserves old-to-replacement table semantics but wri
   assert.match(tableInsert?.text ?? '', /VALUES \(\$1, \$2, \$3, \$4, \$4, \$2, \$5\)/);
   const edgeInsert = calls.find((call) => call.text.includes('INSERT INTO user_graph_edges'));
   assert.deepEqual(edgeInsert?.params.slice(2, 4), [replacementItemId, oldItemId]);
+  const versionGuard = calls.find((call) => call.text.includes('version_guard'));
+  assert.match(versionGuard?.text ?? '', /WITH supersession_cutoff AS MATERIALIZED/);
+  assert.match(versionGuard?.text ?? '', /SELECT clock_timestamp\(\) AS checked_at/);
+  assert.equal(
+    versionGuard?.text.match(/i\.purge_at IS NULL OR i\.purge_at > cutoff\.checked_at/g)?.length,
+    2,
+  );
 });
 
 test('database graph surfaces and manual endpoints require active owner-scoped knowledge', async (context) => {
