@@ -32,14 +32,6 @@ const ACTIVITY_LABEL_KEYS: Record<TopicKnowledgeActivity['activity_type'], Messa
   restored: 'topic.hub.activity.restored',
 };
 
-function decodeTopic(value: string) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
 function eventDate(item: TopicKnowledgeHubItem) {
   if (item.structured_content?.type === 'event' && item.structured_content.occurred_at) {
     const occurred = new Date(item.structured_content.occurred_at);
@@ -90,7 +82,7 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
   const user = await requireCurrentUser();
   const { topic: topicParam } = await params;
   const { formatDate, t } = await getServerI18n();
-  const hub = await getTopicKnowledgeHubForUser(user.id, decodeTopic(topicParam));
+  const hub = await getTopicKnowledgeHubForUser(user.id, topicParam);
   const itemById = new Map(hub.items.map((item) => [item.id, item]));
   const sourcesByItem = Map.groupBy(hub.sources, (source) => source.knowledge_item_id);
   const evidenceBySource = Map.groupBy(hub.evidence_selectors, (evidence) => evidence.source_id);

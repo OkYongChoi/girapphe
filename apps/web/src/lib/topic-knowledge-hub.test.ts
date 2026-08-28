@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   createKnowledgeDraftBatchForUser,
   createMemoryKnowledgeItemForUser,
@@ -28,6 +31,14 @@ delete process.env.DATABASE_URL;
 test.after(() => {
   if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = previousDatabaseUrl;
+});
+
+test('topic page uses the already-decoded Next.js route parameter exactly once', () => {
+  const sourceDir = dirname(fileURLToPath(import.meta.url));
+  const topicPage = readFileSync(join(sourceDir, '../app/topics/[topic]/page.tsx'), 'utf8');
+
+  assert.doesNotMatch(topicPage, /decodeURIComponent\(topicParam\)/);
+  assert.match(topicPage, /getTopicKnowledgeHubForUser\(user\.id, topicParam\)/);
 });
 
 test('duplicate suggestions are deterministic, advisory, and owner scoped', async () => {
