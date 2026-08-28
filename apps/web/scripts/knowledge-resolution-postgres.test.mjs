@@ -18,22 +18,25 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
   } = knowledge;
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });
   const userId = `live-resolution-${crypto.randomUUID()}`;
+  const publicNodeId = `live-public-${crypto.randomUUID()}`;
   let targetItemId;
-  let localPublicNodeId;
+  let createdPublicNode = false;
 
   try {
+    const insertedPublicNode = await pool.query(
+      `INSERT INTO graph_nodes (id, label, domain)
+       VALUES ($1, 'Live public node', 'Live resolution')
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id`,
+      [publicNodeId],
+    );
+    createdPublicNode = insertedPublicNode.rowCount === 1;
+
     const hostname = new URL(databaseUrl).hostname;
     if (hostname === '127.0.0.1' || hostname === 'localhost') {
       const batchId = `live-batch-${crypto.randomUUID()}`;
       targetItemId = `live-item-${crypto.randomUUID()}`;
       const canonicalNodeId = `live-node-${crypto.randomUUID()}`;
-      const publicNodeId = `live-public-${crypto.randomUUID()}`;
-      localPublicNodeId = publicNodeId;
-      await pool.query(
-        `INSERT INTO graph_nodes (id, label, domain)
-         VALUES ($1, 'Live public node', 'Live resolution')`,
-        [publicNodeId],
-      );
       await pool.query(
         `INSERT INTO knowledge_ingestion_batches
            (id, user_id, provider, request_id, status)
@@ -124,7 +127,7 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
         topic: 'live-resolution',
         relations: [{
           targetKind: 'public',
-          targetId: 'graph_mathematics',
+          targetId: `graph_${publicNodeId}`,
           type: 'supports',
           direction: 'outgoing',
           weight: 0.65,
@@ -188,7 +191,7 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
       source_private_node_id: canonicalNodeId,
       source_public_node_id: null,
       target_private_node_id: null,
-      target_public_node_id: 'mathematics',
+      target_public_node_id: publicNodeId,
       type: 'supports',
       weight: 0.65,
       origin: 'conversation',
@@ -202,8 +205,8 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
   } finally {
     await pool.query('DELETE FROM user_knowledge_items WHERE user_id = $1', [userId]).catch(() => undefined);
     await pool.query('DELETE FROM knowledge_ingestion_batches WHERE user_id = $1', [userId]).catch(() => undefined);
-    if (localPublicNodeId) {
-      await pool.query('DELETE FROM graph_nodes WHERE id = $1', [localPublicNodeId]).catch(() => undefined);
+    if (createdPublicNode) {
+      await pool.query('DELETE FROM graph_nodes WHERE id = $1', [publicNodeId]).catch(() => undefined);
     }
     await pool.end();
   }
