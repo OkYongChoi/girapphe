@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { ActivityIndicator, Alert, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { Locale } from '@stem-brain/shared';
@@ -6,7 +6,12 @@ import { AuthRequired } from '@/components/auth-required';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
 import { mobileApi, type MobileCandidateBatch, type MobileCandidateDraft } from '@/api';
 import { useI18n } from '@/i18n';
-import { createCandidateInboxRequestGuard } from '@/candidate-inbox-requests';
+import {
+  addPendingCandidate,
+  createCandidateInboxRequestGuard,
+  removePendingCandidate,
+  selectCandidateBatch,
+} from '@/candidate-inbox-requests';
 import { knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
 
 type InboxCopy = {
@@ -41,18 +46,23 @@ function CandidateInboxContent() {
   const [selectedBatch, setSelectedBatch] = useState<MobileCandidateBatch | null>(null);
   const [drafts, setDrafts] = useState<MobileCandidateDraft[]>([]);
   const [loading, setLoading] = useState(true);
-  const [mutatingId, setMutatingId] = useState<string | null>(null);
+  const [mutatingIds, setMutatingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [requestGuard] = useState(createCandidateInboxRequestGuard);
+  const pendingMutations = useRef(new Set<string>());
+  const selectedBatchId = useRef<string | null>(null);
 
   const loadBatch = useCallback(async (batch: MobileCandidateBatch) => {
     const request = requestGuard.begin();
+    selectedBatchId.current = batch.id;
     setSelectedBatch(batch);
+    setDrafts([]);
     setLoading(true);
     setError(null);
     try {
       const result = await mobileApi.candidateBatch(batch.id);
       if (!requestGuard.isLatest(request)) return;
+      selectedBatchId.current = result.batch.id;
       setSelectedBatch(result.batch);
       setDrafts(result.drafts);
     } catch (reason) {
@@ -66,14 +76,20 @@ function CandidateInboxContent() {
 
   const load = useCallback(async () => {
     const request = requestGuard.begin();
+    setDrafts([]);
     setLoading(true);
     setError(null);
     try {
       const next = (await mobileApi.candidateInbox()).batches;
       if (!requestGuard.isLatest(request)) return;
       setBatches(next);
-      if (next.length > 0) await loadBatch(next[0]!);
-      else { setSelectedBatch(null); setDrafts([]); setLoading(false); }
+      const nextBatch = selectCandidateBatch(next, selectedBatchId.current);
+      if (nextBatch) await loadBatch(nextBatch);
+      else {
+        selectedBatchId.current = null;
+        setSelectedBatch(null);
+        setLoading(false);
+      }
     } catch (reason) {
       if (requestGuard.isLatest(request)) {
         setError(reason instanceof Error ? reason.message : t('api.networkFailed'));
@@ -92,26 +108,23 @@ function CandidateInboxContent() {
       [
         { text: t('common.cancel'), style: 'cancel' },
         { text: destructive ? copy.ignore : copy.save, style: destructive ? 'destructive' : 'default', onPress: () => {
-          const request = requestGuard.begin();
-          setMutatingId(draft.id);
+          if (pendingMutations.current.has(draft.id)) return;
+          pendingMutations.current.add(draft.id);
+          setMutatingIds((current) => addPendingCandidate(current, draft.id));
           setError(null);
           void mobileApi.mutate({ action, batchId: draft.batch_id, draftId: draft.id, draftVersion: draft.version })
             .then(async () => {
-              if (!requestGuard.isLatest(request)) return;
-              const refreshed = await mobileApi.candidateInbox();
-              if (!requestGuard.isLatest(request)) return;
-              setBatches(refreshed.batches);
-              const current = refreshed.batches.find((batch) => batch.id === draft.batch_id);
-              if (current) await loadBatch(current);
-              else { setSelectedBatch(null); setDrafts([]); setLoading(false); }
+              await load();
             })
             .catch((reason) => {
-              if (requestGuard.isLatest(request)) {
+              if (selectedBatchId.current === draft.batch_id) {
                 setError(reason instanceof Error ? reason.message : t('api.networkFailed'));
-                setLoading(false);
               }
             })
-            .finally(() => setMutatingId(null));
+            .finally(() => {
+              pendingMutations.current.delete(draft.id);
+              setMutatingIds((current) => removePendingCandidate(current, draft.id));
+            });
         } },
       ],
     );
@@ -153,8 +166,8 @@ function CandidateInboxContent() {
                 {draft.structured_content ? <View style={styles.bundle}><MobileKnowledgeBundleView content={draft.structured_content} locale={locale} /></View> : draft.explanation ? <Text style={styles.body}>{draft.explanation}</Text> : null}
                 {draft.duplicate_suggestions.length > 0 ? <View style={styles.duplicateWarning}><Text style={styles.duplicateTitle}>{draft.duplicate_suggestions.length} {copy.duplicate}</Text><Text style={styles.duplicateBody}>{copy.webMerge}</Text>{draft.duplicate_suggestions.slice(0, 3).map((item) => <Text key={item.id} style={styles.duplicateItem}>• {item.title} · {Math.round(item.score * 100)}%</Text>)}</View> : null}
                 <View style={styles.actions}>
-                  <Pressable accessibilityRole="button" disabled={mutatingId === draft.id} onPress={() => resolve(draft, 'approve-candidate')} style={[styles.saveButton, mutatingId === draft.id && styles.disabled]}><Text style={styles.saveText}>{mutatingId === draft.id ? copy.saving : copy.save}</Text></Pressable>
-                  <Pressable accessibilityRole="button" disabled={mutatingId === draft.id} onPress={() => resolve(draft, 'ignore-candidate')} style={[styles.ignoreButton, mutatingId === draft.id && styles.disabled]}><Text style={styles.ignoreText}>{copy.ignore}</Text></Pressable>
+                  <Pressable accessibilityRole="button" disabled={mutatingIds.has(draft.id)} onPress={() => resolve(draft, 'approve-candidate')} style={[styles.saveButton, mutatingIds.has(draft.id) && styles.disabled]}><Text style={styles.saveText}>{mutatingIds.has(draft.id) ? copy.saving : copy.save}</Text></Pressable>
+                  <Pressable accessibilityRole="button" disabled={mutatingIds.has(draft.id)} onPress={() => resolve(draft, 'ignore-candidate')} style={[styles.ignoreButton, mutatingIds.has(draft.id) && styles.disabled]}><Text style={styles.ignoreText}>{copy.ignore}</Text></Pressable>
                 </View>
               </View>
             ))}

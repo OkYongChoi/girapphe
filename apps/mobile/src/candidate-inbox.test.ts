@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { createCandidateInboxRequestGuard } from './candidate-inbox-requests';
+import {
+  addPendingCandidate,
+  createCandidateInboxRequestGuard,
+  removePendingCandidate,
+  selectCandidateBatch,
+} from './candidate-inbox-requests';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -38,6 +43,37 @@ test('a stale initial inbox response cannot auto-select over the latest explicit
   assert.equal(selectedBatch, 'explicit-batch');
 });
 
+test('the last completed overlapping mutation owns the final guarded refresh', async () => {
+  const requestGuard = createCandidateInboxRequestGuard();
+  const firstMutation = deferred<void>();
+  const secondMutation = deferred<void>();
+  const firstRefresh = deferred<string[]>();
+  const secondRefresh = deferred<string[]>();
+  let renderedDrafts = ['candidate-a', 'candidate-b'];
+
+  const settle = async (
+    mutation: ReturnType<typeof deferred<void>>,
+    refresh: ReturnType<typeof deferred<string[]>>,
+  ) => {
+    await mutation.promise;
+    const request = requestGuard.begin();
+    const drafts = await refresh.promise;
+    if (requestGuard.isLatest(request)) renderedDrafts = drafts;
+  };
+
+  const first = settle(firstMutation, firstRefresh);
+  const second = settle(secondMutation, secondRefresh);
+  secondMutation.resolve();
+  await Promise.resolve();
+  firstMutation.resolve();
+  await Promise.resolve();
+  secondRefresh.resolve(['candidate-a']);
+  firstRefresh.resolve([]);
+  await Promise.all([first, second]);
+
+  assert.deepEqual(renderedDrafts, []);
+});
+
 test('candidate inbox guards the list response before automatic batch selection', () => {
   const sourceDir = dirname(fileURLToPath(import.meta.url));
   const candidateInbox = readFileSync(join(sourceDir, '../app/candidate-inbox.tsx'), 'utf8');
@@ -45,11 +81,15 @@ test('candidate inbox guards the list response before automatic batch selection'
   assert.match(candidateInbox, /const \[requestGuard\] = useState\(createCandidateInboxRequestGuard\)/);
   assert.match(
     candidateInbox,
-    /const load = useCallback\(async \(\) => \{\s*const request = requestGuard\.begin\(\);[\s\S]*?const next = \(await mobileApi\.candidateInbox\(\)\)\.batches;\s*if \(!requestGuard\.isLatest\(request\)\) return;\s*setBatches\(next\);\s*if \(next\.length > 0\) await loadBatch\(next\[0\]!\);/,
+    /const load = useCallback\(async \(\) => \{\s*const request = requestGuard\.begin\(\);\s*setDrafts\(\[\]\);[\s\S]*?const next = \(await mobileApi\.candidateInbox\(\)\)\.batches;\s*if \(!requestGuard\.isLatest\(request\)\) return;\s*setBatches\(next\);\s*const nextBatch = selectCandidateBatch\(next, selectedBatchId\.current\);\s*if \(nextBatch\) await loadBatch\(nextBatch\);/,
   );
   assert.match(
     candidateInbox,
-    /const result = await mobileApi\.candidateBatch\(batch\.id\);\s*if \(!requestGuard\.isLatest\(request\)\) return;\s*setSelectedBatch\(result\.batch\);\s*setDrafts\(result\.drafts\);/,
+    /const result = await mobileApi\.candidateBatch\(batch\.id\);\s*if \(!requestGuard\.isLatest\(request\)\) return;\s*selectedBatchId\.current = result\.batch\.id;\s*setSelectedBatch\(result\.batch\);\s*setDrafts\(result\.drafts\);/,
+  );
+  assert.match(
+    candidateInbox,
+    /setSelectedBatch\(batch\);\s*setDrafts\(\[\]\);\s*setLoading\(true\);/,
   );
   assert.match(
     candidateInbox,
@@ -57,6 +97,31 @@ test('candidate inbox guards the list response before automatic batch selection'
   );
   assert.match(
     candidateInbox,
-    /mobileApi\.mutate\([\s\S]*?if \(!requestGuard\.isLatest\(request\)\) return;\s*const refreshed = await mobileApi\.candidateInbox\(\);\s*if \(!requestGuard\.isLatest\(request\)\) return;/,
+    /mobileApi\.mutate\([\s\S]*?\.then\(async \(\) => \{\s*await load\(\);\s*\}\)/,
   );
+  assert.match(candidateInbox, /pendingMutations\.current\.has\(draft\.id\)/);
+  assert.match(
+    candidateInbox,
+    /setMutatingIds\(\(current\) => removePendingCandidate\(current, draft\.id\)\)/,
+  );
+});
+
+test('finishing one candidate action keeps every other candidate pending', () => {
+  const empty = new Set<string>();
+  const firstPending = addPendingCandidate(empty, 'candidate-a');
+  const bothPending = addPendingCandidate(firstPending, 'candidate-b');
+  const secondStillPending = removePendingCandidate(bothPending, 'candidate-a');
+
+  assert.deepEqual([...empty], []);
+  assert.deepEqual([...firstPending], ['candidate-a']);
+  assert.deepEqual([...bothPending].sort(), ['candidate-a', 'candidate-b']);
+  assert.deepEqual([...secondStillPending], ['candidate-b']);
+});
+
+test('candidate refresh preserves the explicit batch and falls back only when it is gone', () => {
+  const batches = [{ id: 'first' }, { id: 'explicit' }];
+
+  assert.equal(selectCandidateBatch(batches, 'explicit')?.id, 'explicit');
+  assert.equal(selectCandidateBatch(batches, 'removed')?.id, 'first');
+  assert.equal(selectCandidateBatch([], 'removed'), null);
 });

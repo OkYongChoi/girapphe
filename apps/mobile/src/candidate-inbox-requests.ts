@@ -16,3 +16,30 @@ export function createCandidateInboxRequestGuard(): CandidateInboxRequestGuard {
     },
   };
 }
+
+export function addPendingCandidate(
+  pendingCandidates: ReadonlySet<string>,
+  candidateId: string,
+): ReadonlySet<string> {
+  const next = new Set(pendingCandidates);
+  next.add(candidateId);
+  return next;
+}
+
+export function removePendingCandidate(
+  pendingCandidates: ReadonlySet<string>,
+  candidateId: string,
+): ReadonlySet<string> {
+  const next = new Set(pendingCandidates);
+  next.delete(candidateId);
+  return next;
+}
+
+export function selectCandidateBatch<T extends { id: string }>(
+  batches: readonly T[],
+  preferredBatchId: string | null,
+): T | null {
+  return (preferredBatchId
+    ? batches.find((batch) => batch.id === preferredBatchId)
+    : undefined) ?? batches[0] ?? null;
+}
