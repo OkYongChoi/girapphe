@@ -46,7 +46,11 @@ import {
   ignoreKnowledgeDraft,
   resolveKnowledgeDraft,
 } from '@/actions/user-knowledge-actions';
-import { getKnowledgeDuplicateSuggestionsForDraftsForUser } from '@/lib/knowledge-ingestion';
+import {
+  getActiveKnowledgeItemVersionForUser,
+  getKnowledgeDuplicateSuggestionsForDraftsForUser,
+} from '@/lib/knowledge-ingestion';
+import { resolveMobileNoteUpdateVersion } from '@/lib/mobile-note-update-version';
 
 const MAX_JSON_BYTES = 16_384;
 
@@ -259,7 +263,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!await requireMobileUser()) return unauthorized();
+  const mobileUser = await requireMobileUser();
+  if (!mobileUser) return unauthorized();
   const parsedBody = await readBody(request);
   if (!parsedBody.ok) {
     return NextResponse.json(
@@ -383,10 +388,6 @@ export async function POST(request: NextRequest) {
 
   if (!id) return invalid('A note id is required.');
   if (action === 'update-note') {
-    const version = body.version;
-    if (!Number.isSafeInteger(version) || (version as number) <= 0) {
-      return invalid('A valid note version is required.', 'INVALID_NOTE_VERSION');
-    }
     const title = stringField(body.title, 240);
     const content = stringField(body.content, 8_000) ?? '';
     const topic = stringField(body.topic, 120) ?? '';
@@ -396,6 +397,17 @@ export async function POST(request: NextRequest) {
     if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
     const tags = parseMobileTags(body.tags);
     if (!tags) return invalid('Tags must contain at most 12 non-empty values.', 'INVALID_TAGS');
+    const resolvedVersion = await resolveMobileNoteUpdateVersion(
+      body.version,
+      () => getActiveKnowledgeItemVersionForUser(mobileUser.id, id),
+    );
+    if (!resolvedVersion.ok && resolvedVersion.reason === 'invalid') {
+      return invalid('A valid note version is required.', 'INVALID_NOTE_VERSION');
+    }
+    if (!resolvedVersion.ok) {
+      return NextResponse.json({ error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
+    }
+    const version = resolvedVersion.version;
     const result = await updateKnowledgeItem(toFormData({ id, version: String(version), title, summary, content, topic, tags: tags.join(','), bundle_mode_present: '1',
       knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
       bundle_schema_version: bundle.knowledgeType ? '1' : '' }));

@@ -1980,6 +1980,41 @@ export function getMemoryKnowledgeItemsForUser(userId: string): MemoryKnowledgeI
   return memoryKnowledgeItems.get(userId) ?? [];
 }
 
+export async function getActiveKnowledgeItemVersionForUser(
+  userId: string,
+  itemId: string,
+): Promise<number | null> {
+  if (!process.env.DATABASE_URL) {
+    purgeMemoryKnowledgeItemsForUser(userId);
+    const supersededIds = new Set((memoryItemSupersessions.get(userId) ?? [])
+      .map((entry) => entry.superseded_item_id));
+    const item = (memoryKnowledgeItems.get(userId) ?? []).find((candidate) => (
+      candidate.id === itemId
+      && !candidate.deleted_at
+      && !candidate.archived_at
+      && !supersededIds.has(candidate.id)
+      && (!candidate.purge_at || new Date(candidate.purge_at).getTime() > Date.now())
+    ));
+    return item?.version ?? null;
+  }
+
+  await ensureKnowledgeIngestionSchema();
+  const result = await pool.query<{ version: number }>(
+    `SELECT i.version
+     FROM user_knowledge_items i
+     WHERE i.id = $1 AND i.user_id = $2
+       AND i.deleted_at IS NULL AND i.archived_at IS NULL
+       AND (i.purge_at IS NULL OR i.purge_at > NOW())
+       AND NOT EXISTS (
+         SELECT 1 FROM knowledge_item_supersessions s
+         WHERE s.user_id = i.user_id AND s.superseded_item_id = i.id
+       )
+     LIMIT 1`,
+    [itemId, userId],
+  );
+  return result.rows[0]?.version ?? null;
+}
+
 export function hasMemoryCreateRequest(userId: string, requestId: string): boolean {
   if (!requestId) return false;
   const seen = memoryCreateRequests.get(userId) ?? new Set<string>();

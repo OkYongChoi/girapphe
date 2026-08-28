@@ -13,9 +13,11 @@ import {
   getKnowledgeDraftBatchForUser,
   getKnowledgeDraftResolutionContextForUser,
   getKnowledgeLinkTargetsForUser,
+  getActiveKnowledgeItemVersionForUser,
   getMemoryMcpCredentialRateLimitRecordCountForTesting,
   getMemoryKnowledgeEvidenceForUser,
   getMemoryKnowledgeActivityForUser,
+  getMemoryKnowledgeRevisionsForUser,
   getMemoryPrivateKnowledgeEdgesForTesting,
   getMemoryKnowledgeSourcesForUser,
   getMemoryKnowledgeItemsForUser,
@@ -41,11 +43,76 @@ import {
   verifyKnowledgeItemForUser,
 } from './knowledge-ingestion';
 import { deriveMcpDeletedAccountScopeKey } from './mcp-account-lifecycle';
+import { resolveMobileNoteUpdateVersion } from './mobile-note-update-version';
 import { getTopicKnowledgeHubForUser } from './topic-knowledge-hub';
 
 test('normalizes Korean topics without collapsing them to general', () => {
   assert.equal(normalizeKnowledgeTopic('  머신 러닝 / 기초  '), '머신-러닝-기초');
   assert.equal(normalizeKnowledgeTopic('확률과_통계!'), '확률과_통계');
+});
+
+test('legacy mobile version lookup is owner scoped and retains guarded update semantics', async () => {
+  const userId = `user_mobile_legacy_version_${crypto.randomUUID()}`;
+  const item = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Legacy mobile note',
+    content: 'Editable by a previously released client.',
+    topic: 'Compatibility',
+  });
+  assert.equal(await getActiveKnowledgeItemVersionForUser(userId, item.id), 1);
+  assert.equal(await getActiveKnowledgeItemVersionForUser(`${userId}_other`, item.id), null);
+
+  assert.deepEqual(updateMemoryKnowledgeItemForUser(userId, item.id, {
+    title: 'Version two', content: 'Saved by a current client.', topic: 'Compatibility',
+  }, { expectedVersion: 1 }), { updated: true, version: 2 });
+
+  const [firstLegacy, concurrentLegacy] = await Promise.all([
+    resolveMobileNoteUpdateVersion(undefined, () => getActiveKnowledgeItemVersionForUser(userId, item.id)),
+    resolveMobileNoteUpdateVersion(undefined, () => getActiveKnowledgeItemVersionForUser(userId, item.id)),
+  ]);
+  assert.deepEqual(firstLegacy, { ok: true, version: 2, legacy: true });
+  assert.deepEqual(concurrentLegacy, firstLegacy);
+  if (!firstLegacy.ok || !concurrentLegacy.ok) assert.fail('Legacy versions must resolve.');
+
+  const itemIds = new Set([item.id]);
+  const beforeRevisions = getMemoryKnowledgeRevisionsForUser(userId, itemIds).length;
+  const beforeActivity = getMemoryKnowledgeActivityForUser(userId, itemIds).length;
+  assert.deepEqual(updateMemoryKnowledgeItemForUser(userId, item.id, {
+    title: 'Legacy edit wins', content: 'Versionless payload saved once.', topic: 'Legacy compatibility',
+  }, { expectedVersion: firstLegacy.version }), { updated: true, version: 3 });
+  assert.deepEqual(updateMemoryKnowledgeItemForUser(userId, item.id, {
+    title: 'Concurrent legacy overwrite', content: 'Must remain stale.', topic: 'Compatibility',
+  }, { expectedVersion: concurrentLegacy.version }), { updated: false, version: null, stale: true });
+
+  const current = getMemoryKnowledgeItemsForUser(userId).find((candidate) => candidate.id === item.id);
+  assert.equal(current?.title, 'Legacy edit wins');
+  assert.equal(current?.version, 3);
+  assert.equal(getMemoryKnowledgeRevisionsForUser(userId, itemIds).length, beforeRevisions + 1);
+  assert.equal(getMemoryKnowledgeActivityForUser(userId, itemIds).length, beforeActivity + 1);
+  const graphNode = (await getPrivateKnowledgeGraphForUser(userId)).nodes
+    .find((node) => node.knowledge_item_id === item.id);
+  assert.equal(graphNode?.label, 'Legacy edit wins');
+  assert.equal(graphNode?.topic, 'Legacy compatibility');
+
+  const replacement = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Replacement note', content: 'This replaces the legacy note.', topic: 'Compatibility',
+  });
+  assert.deepEqual(await supersedeKnowledgeItemForUser(
+    userId,
+    item.id,
+    replacement.id,
+    3,
+    'Replacement selected.',
+  ), { superseded: true });
+  assert.equal(await getActiveKnowledgeItemVersionForUser(userId, item.id), null);
+
+  const archived = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Archived note', content: 'Inactive content.', topic: 'Compatibility',
+  });
+  assert.deepEqual(await archiveKnowledgeItemForUser(userId, archived.id, 1), {
+    archived: true,
+    version: 2,
+  });
+  assert.equal(await getActiveKnowledgeItemVersionForUser(userId, archived.id), null);
 });
 
 test('reuse activity is all-or-nothing when one selected item becomes ineligible', async () => {
@@ -818,6 +885,13 @@ test('database graph surfaces and manual endpoints require active owner-scoped k
   db.query = (async (text: string, params: unknown[] = []) => {
     if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
 
+    if (text.includes('SELECT i.version') && text.includes('FROM user_knowledge_items i')) {
+      assertActiveItemGuard(text);
+      assert.match(text, /i\.purge_at IS NULL OR i\.purge_at > NOW\(\)/);
+      assert.deepEqual(params, ['legacy-active-item', userId]);
+      return { rows: [{ version: 8 }] };
+    }
+
     if (text.includes('SELECT n.id AS graph_node_id')) {
       assertActiveItemGuard(text);
       return { rows: [] };
@@ -866,6 +940,7 @@ test('database graph surfaces and manual endpoints require active owner-scoped k
 
   assert.deepEqual(await getPrivateKnowledgeGraphForUser(userId), { nodes: [], edges: [] });
   assert.deepEqual(await getKnowledgeLinkTargetsForUser(userId), []);
+  assert.equal(await getActiveKnowledgeItemVersionForUser(userId, 'legacy-active-item'), 8);
   assert.deepEqual(await createPrivateKnowledgeEdgeForUser(
     userId, 'personal:archived-item', 'graph_public-node', 'related',
   ), { created: false, reason: 'invalid' });
