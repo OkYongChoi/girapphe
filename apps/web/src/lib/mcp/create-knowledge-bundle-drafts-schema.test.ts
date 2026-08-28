@@ -37,6 +37,73 @@ test('maps a strict structured bundle request to the shared pending ingestion co
   assert.equal(mapped.cards[0]?.bundleSchemaVersion, 1);
 });
 
+test('maps an optional HTTPS source location without accepting insecure links', () => {
+  const parsed = createKnowledgeBundleDraftsInputSchema.parse({
+    ...validInput,
+    provenance: {
+      ...validInput.provenance,
+      source_url: 'https://assistant.example/thread/current-1?token=secret#private',
+      discussed_at: '2026-08-28T00:30:00Z',
+    },
+  });
+  const mapped = toKnowledgeBundleDraftBatchInput(parsed);
+  assert.equal(mapped.sourceUrl, 'https://assistant.example/thread/current-1');
+  assert.equal(mapped.discussedAt, '2026-08-28T00:30:00Z');
+  assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse({
+    ...validInput,
+    provenance: { ...validInput.provenance, source_url: 'javascript:alert(1)' },
+  }).success, false);
+  for (const source_url of [
+    'https://user:password@assistant.example/thread/current-1',
+    'HTTPS://user:password@assistant.example/thread/current-1',
+  ]) {
+    assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse({
+      ...validInput,
+      provenance: { ...validInput.provenance, source_url },
+    }).success, false);
+  }
+});
+
+test('accepts selector-only evidence on typed bundles', () => {
+  const parsed = createKnowledgeBundleDraftsInputSchema.parse({
+    ...validInput,
+    bundles: [{
+      ...validInput.bundles[0],
+      evidence_selectors: [{ selector_type: 'line_range', line_start: 4, line_end: 8 }],
+    }],
+  });
+  assert.deepEqual(toKnowledgeBundleDraftBatchInput(parsed).cards[0]?.proposedEvidence, [{
+    selectorType: 'line_range',
+    lineStart: 4,
+    lineEnd: 8,
+    polarity: 'supports',
+    quality: 'unknown',
+    relationOrigin: 'model_inferred',
+  }]);
+});
+
+test('accepts the exact question, decision, and event version-one shapes', () => {
+  const newTypes = [
+    { type: 'question', question: 'What remains unknown?', context: 'A follow-up is needed.', known_facts: ['One fact'], hypotheses: ['One hypothesis'], next_steps: ['Test it'], answer_summary: '', status: 'open' },
+    { type: 'decision', decision: 'Use a protected PR.', context: 'Production is affected.', options: [{ name: 'Protected PR', tradeoffs: 'More verification time.' }], criteria: ['Safety'], rationale: ['Checks are recorded.'], reconsider_when: ['The release path changes.'], outcome: '' },
+    { type: 'event', event: 'The release completed.', occurred_at: '2026-08-28T03:02:19Z', context: 'The exact main revision deployed.', changes: ['Types became available.'], causes: ['The workflow completed.'], consequences: ['Users can save them.'] },
+  ] as const;
+  for (const structuredContent of newTypes) {
+    const input = {
+      ...validInput,
+      bundles: [{
+        ...validInput.bundles[0],
+        client_bundle_id: `${structuredContent.type}-1`,
+        knowledge_type: structuredContent.type,
+        structured_content: structuredContent,
+      }],
+    };
+    const parsed = createKnowledgeBundleDraftsInputSchema.parse(input);
+    assert.equal(parsed.bundles[0]?.knowledge_type, structuredContent.type);
+    assert.equal(parsed.bundles[0]?.structured_content.type, structuredContent.type);
+  }
+});
+
 test('rejects raw conversation fields, unknown nested fields, type mismatches, and duplicate ids', () => {
   for (const field of ['transcript', 'history', 'messages']) {
     assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse({ ...validInput, [field]: 'raw conversation' }).success, false);

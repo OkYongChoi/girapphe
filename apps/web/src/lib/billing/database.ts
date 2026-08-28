@@ -1,4 +1,9 @@
 import pool from '@/lib/db';
+import {
+  deriveAccountBillingOperationEventId,
+  deriveDeletedAccountScopeKey,
+  type AccountBillingOperationProvider,
+} from '@/lib/account-lifecycle';
 
 export const AD_FREE_ENTITLEMENT = 'ad_free' as const;
 
@@ -32,6 +37,19 @@ export type SubscriptionOverview = {
 };
 
 type WebhookClaim = 'claimed' | 'processed' | 'busy';
+
+export type AccountBillingOperationLease = {
+  provider: AccountBillingOperationProvider;
+  eventId: string;
+  ownerToken: string;
+  eventType: string;
+};
+
+export type AccountBillingOperationName =
+  | 'checkout'
+  | 'prepare'
+  | 'activation'
+  | 'renewal';
 
 function asDate(value: unknown): Date | null {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
@@ -467,6 +485,66 @@ export async function expireRevenueCatSubscriptions(
        AND ($3::text IS NULL OR provider_subscription_id <> $3)
        AND (provider_event_at IS NULL OR provider_event_at <= $2)`,
     [userId, providerEventAt, exceptProviderSubscriptionId],
+  );
+}
+
+export async function isAccountDeletionMarked(userId: string): Promise<boolean> {
+  const marker = await pool.query<{ deleted: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM mcp_deleted_account_markers WHERE scope_key = $1
+     ) AS deleted`,
+    [deriveDeletedAccountScopeKey(userId)],
+  );
+  return marker.rows[0]?.deleted === true;
+}
+
+/**
+ * Claims the single provider-initiation lease for an account. Acquisition is
+ * in the same lifecycle transaction as the permanent deletion-marker check,
+ * so a deletion and a new provider mutation cannot both win.
+ */
+export async function claimAccountBillingOperation(
+  userId: string,
+  provider: AccountBillingOperationProvider,
+  operation: AccountBillingOperationName,
+): Promise<AccountBillingOperationLease | null> {
+  const eventId = deriveAccountBillingOperationEventId(userId, provider);
+  const ownerToken = crypto.randomUUID();
+  const eventType = `account.billing.${operation}:${ownerToken}`;
+  try {
+    const [claimed] = await pool.accountTransaction<{ event_id: string }>(userId, [
+      {
+        text: `INSERT INTO billing_webhook_events (
+                 provider, event_id, event_type, processed_at, created_at
+               ) VALUES ($1, $2, $3, NULL, NOW())
+               ON CONFLICT (provider, event_id) DO UPDATE SET
+                 event_type = EXCLUDED.event_type,
+                 created_at = NOW()
+               WHERE billing_webhook_events.processed_at IS NULL
+                 AND billing_webhook_events.created_at < NOW() - INTERVAL '10 minutes'
+               RETURNING event_id`,
+        params: [provider, eventId, eventType],
+      },
+    ]);
+    return claimed?.rows[0]
+      ? { provider, eventId, ownerToken, eventType }
+      : null;
+  } catch (error) {
+    // The marker assertion intentionally aborts with a uniqueness error. Keep
+    // that database detail out of callers while preserving unrelated failures.
+    if (await isAccountDeletionMarked(userId).catch(() => false)) return null;
+    throw error;
+  }
+}
+
+export async function releaseAccountBillingOperation(
+  lease: AccountBillingOperationLease,
+): Promise<void> {
+  await pool.query(
+    `DELETE FROM billing_webhook_events
+     WHERE provider = $1 AND event_id = $2
+       AND event_type = $3 AND processed_at IS NULL`,
+    [lease.provider, lease.eventId, lease.eventType],
   );
 }
 

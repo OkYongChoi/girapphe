@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CREATE_CARD_DRAFTS_TOOL_NAME, MCP_DRAFT_CREATE_SCOPE } from './create-card-drafts-schema';
 import { CREATE_KNOWLEDGE_BUNDLE_DRAFTS_TOOL_NAME } from './create-knowledge-bundle-drafts-schema';
+import {
+  GET_TOPIC_CONTEXT_TOOL_NAME,
+  MCP_CONTEXT_READ_SCOPE,
+} from './get-topic-context-schema';
 import { createDraftMcpHandler, toMcpAuthInfo } from './mcp-server';
 
 const authInfo = toMcpAuthInfo({
@@ -9,6 +13,13 @@ const authInfo = toMcpAuthInfo({
   tokenId: 'token_123',
   sourceTokenId: 'token_123',
   scopes: [MCP_DRAFT_CREATE_SCOPE],
+});
+
+const contextAuthInfo = toMcpAuthInfo({
+  userId: 'context_user_123',
+  tokenId: 'context_token_123',
+  sourceTokenId: null,
+  scopes: [MCP_CONTEXT_READ_SCOPE],
 });
 
 function jsonRpcRequest(id: number, method: string, params: Record<string, unknown>) {
@@ -26,9 +37,12 @@ async function callMcp(
   handler: ReturnType<typeof createDraftMcpHandler>,
   id: number,
   method: string,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  requestAuthInfo: ReturnType<typeof toMcpAuthInfo> = authInfo,
 ) {
-  const response = await handler.fetch(jsonRpcRequest(id, method, params), { authInfo });
+  const response = await handler.fetch(jsonRpcRequest(id, method, params), {
+    authInfo: requestAuthInfo,
+  });
   assert.equal(response.status, 200);
   const responseText = await response.text();
 
@@ -216,6 +230,264 @@ test('creates only pending structured bundles through create_knowledge_bundle_dr
   assert.equal(card?.knowledgeType, 'mechanism');
   assert.equal(card?.centralQuestion, 'How does rain form?');
   assert.equal(card?.bundleSchemaVersion, 1);
+
+  await handler.close();
+});
+
+test('lists context and draft tools only for their exact scopes', async () => {
+  const handler = createDraftMcpHandler(
+    async () => ({
+      batchId: 'unused',
+      created: true,
+      draftCount: 1,
+      reviewPath: '/knowledge-inbox/unused',
+    }),
+    async () => ({ content: '{"items":[]}', itemCount: 1 }),
+  );
+
+  const draftListed = await callMcp(handler, 6, 'tools/list', {});
+  const draftTools = (draftListed.result as {
+    tools?: Array<{ name?: string }>;
+  }).tools ?? [];
+  assert.deepEqual(draftTools.map((tool) => tool.name), [
+    CREATE_CARD_DRAFTS_TOOL_NAME,
+    CREATE_KNOWLEDGE_BUNDLE_DRAFTS_TOOL_NAME,
+  ]);
+
+  const contextListed = await callMcp(
+    handler,
+    7,
+    'tools/list',
+    {},
+    contextAuthInfo,
+  );
+  const contextTools = (contextListed.result as {
+    tools?: Array<{
+      name?: string;
+      annotations?: Record<string, boolean>;
+    }>;
+  }).tools ?? [];
+  assert.deepEqual(contextTools.map((tool) => tool.name), [
+    GET_TOPIC_CONTEXT_TOOL_NAME,
+  ]);
+  assert.deepEqual(contextTools[0]?.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+  });
+
+  const combinedAuthInfo = toMcpAuthInfo({
+    userId: 'combined_user_123',
+    tokenId: 'combined_token_123',
+    sourceTokenId: 'combined_token_123',
+    scopes: [MCP_DRAFT_CREATE_SCOPE, MCP_CONTEXT_READ_SCOPE],
+  });
+  const combinedListed = await callMcp(
+    handler,
+    8,
+    'tools/list',
+    {},
+    combinedAuthInfo,
+  );
+  const combinedTools = (combinedListed.result as {
+    tools?: Array<{ name?: string }>;
+  }).tools ?? [];
+  assert.deepEqual(combinedTools.map((tool) => tool.name), [
+    CREATE_CARD_DRAFTS_TOOL_NAME,
+    CREATE_KNOWLEDGE_BUNDLE_DRAFTS_TOOL_NAME,
+    GET_TOPIC_CONTEXT_TOOL_NAME,
+  ]);
+
+  await handler.close();
+});
+
+test('forwards the owner and bounded explicit or recent context selection', async () => {
+  const received: Array<{ userId: string; input: Record<string, unknown> }> = [];
+  const handler = createDraftMcpHandler(
+    async () => {
+      throw new Error('The draft dependency must not be called by a context-only principal.');
+    },
+    async (userId, input) => {
+      received.push({ userId, input: input as unknown as Record<string, unknown> });
+      const itemCount = input.selection.type === 'items'
+        ? input.selection.itemIds.length
+        : input.selection.limit;
+      return {
+        content: input.format === 'markdown'
+          ? '# Confirmed release context'
+          : '{"topic":"Release","items":[{"id":"item_1"}]}',
+        itemCount,
+      };
+    },
+  );
+
+  const explicitCall = await callMcp(handler, 9, 'tools/call', {
+    name: GET_TOPIC_CONTEXT_TOOL_NAME,
+    arguments: {
+      topic: 'Release',
+      format: 'markdown',
+      selection: { type: 'items', item_ids: ['item_1', 'item_2'] },
+    },
+  }, contextAuthInfo);
+  assert.deepEqual(
+    (explicitCall.result as { structuredContent?: Record<string, unknown> }).structuredContent,
+    {
+      status: 'confirmed_context',
+      topic: 'Release',
+      format: 'markdown',
+      selection_type: 'items',
+      item_count: 2,
+    },
+  );
+  assert.equal(
+    ((explicitCall.result as {
+      content?: Array<{ text?: string }>;
+    }).content ?? [])[0]?.text,
+    '# Confirmed release context',
+  );
+
+  const recentCall = await callMcp(handler, 10, 'tools/call', {
+    name: GET_TOPIC_CONTEXT_TOOL_NAME,
+    arguments: {
+      topic: 'Release',
+      format: 'json',
+      selection: { type: 'recent_topic', limit: 3 },
+    },
+  }, contextAuthInfo);
+  assert.equal(
+    ((recentCall.result as { structuredContent?: { item_count?: number } })
+      .structuredContent)?.item_count,
+    3,
+  );
+  assert.deepEqual(received, [
+    {
+      userId: 'context_user_123',
+      input: {
+        topic: 'Release',
+        format: 'markdown',
+        selection: { type: 'items', itemIds: ['item_1', 'item_2'] },
+      },
+    },
+    {
+      userId: 'context_user_123',
+      input: {
+        topic: 'Release',
+        format: 'json',
+        selection: { type: 'recent_topic', limit: 3 },
+      },
+    },
+  ]);
+
+  await handler.close();
+});
+
+test('rejects out-of-bounds, duplicate, and non-strict context selectors', async () => {
+  let contextCalls = 0;
+  const handler = createDraftMcpHandler(
+    async () => ({
+      batchId: 'unused',
+      created: true,
+      draftCount: 1,
+      reviewPath: '/knowledge-inbox/unused',
+    }),
+    async () => {
+      contextCalls += 1;
+      return { content: 'must not be returned', itemCount: 1 };
+    },
+  );
+  const invalidArguments: Array<Record<string, unknown>> = [
+    {
+      topic: 't'.repeat(121),
+      format: 'json',
+      selection: { type: 'items', item_ids: ['item_1'] },
+    },
+    {
+      topic: 'Release',
+      format: 'json',
+      selection: { type: 'items', item_ids: [] },
+    },
+    {
+      topic: 'Release',
+      format: 'json',
+      selection: {
+        type: 'items',
+        item_ids: Array.from({ length: 101 }, (_, index) => `item_${index}`),
+      },
+    },
+    {
+      topic: 'Release',
+      format: 'json',
+      selection: { type: 'items', item_ids: ['item_1', 'item_1'] },
+    },
+    {
+      topic: 'Release',
+      format: 'yaml',
+      selection: { type: 'recent_topic', limit: 51 },
+    },
+    {
+      topic: 'Release',
+      format: 'yaml',
+      selection: { type: 'recent_topic', limit: 1, item_ids: ['item_1'] },
+    },
+    {
+      topic: 'Release',
+      format: 'json',
+      selection: { type: 'items', item_ids: ['item_1'] },
+      transcript: 'A raw conversation must not fit this strict object.',
+    },
+  ];
+
+  for (const [index, argumentsInput] of invalidArguments.entries()) {
+    const response = await callMcp(handler, 20 + index, 'tools/call', {
+      name: GET_TOPIC_CONTEXT_TOOL_NAME,
+      arguments: argumentsInput,
+    }, contextAuthInfo);
+    assert.equal(
+      (response.result as { isError?: boolean }).isError,
+      true,
+      `invalid context input ${index} should be rejected`,
+    );
+  }
+  assert.equal(contextCalls, 0);
+
+  await handler.close();
+});
+
+test('returns a non-leaky context error when the owner-scoped dependency fails', async () => {
+  const handler = createDraftMcpHandler(
+    async () => ({
+      batchId: 'unused',
+      created: true,
+      draftCount: 1,
+      reviewPath: '/knowledge-inbox/unused',
+    }),
+    async () => {
+      throw new Error(
+        'postgres://private-credential raw-message-payload database-table-name',
+      );
+    },
+  );
+
+  const response = await callMcp(handler, 30, 'tools/call', {
+    name: GET_TOPIC_CONTEXT_TOOL_NAME,
+    arguments: {
+      topic: 'Release',
+      format: 'json',
+      selection: { type: 'items', item_ids: ['item_1'] },
+    },
+  }, contextAuthInfo);
+  const result = response.result as {
+    isError?: boolean;
+    content?: Array<{ text?: string }>;
+  };
+  assert.equal(result.isError, true);
+  assert.equal(
+    result.content?.[0]?.text,
+    'Unable to retrieve the confirmed topic context. No conversation transcript was returned.',
+  );
+  const serialized = JSON.stringify(response);
+  assert.doesNotMatch(serialized, /private-credential|raw-message-payload|database-table-name/);
 
   await handler.close();
 });

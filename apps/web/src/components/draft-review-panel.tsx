@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   approveKnowledgeDrafts,
@@ -15,6 +14,7 @@ import { draftDependencies, includeDraftDependencies } from '@/components/draft-
 import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
 import { isKnowledgeBundleType, type KnowledgeBundleContent, type KnowledgeBundleType } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
+import { LocalizedLink, localizeHref } from '@/i18n/navigation';
 
 const RELATION_TYPES = [
   'related',
@@ -22,6 +22,10 @@ const RELATION_TYPES = [
   'generalizes',
   'derived_from',
   'equivalent_to',
+  'supersedes',
+  'answers',
+  'supports',
+  'contradicts',
 ] as const;
 
 type DraftLinkTarget = {
@@ -46,13 +50,14 @@ type DraftReviewPanelProps = {
 
 function SelectionSubmitButton({ count, blocked }: { count: number; blocked: boolean }) {
   const { pending } = useFormStatus();
+  const { t } = useI18n();
   return (
     <button
       type="submit"
       disabled={pending || count === 0 || blocked}
       className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
     >
-      {pending ? '추가 중…' : `선택한 ${count}개 추가`}
+      {pending ? t('topic.lifecycle.saving') : t('inbox.saveSelected', { count })}
     </button>
   );
 }
@@ -334,7 +339,8 @@ function DraftCardEditor({
           className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
         />
         <label htmlFor={`select-${id}`} className="min-w-0 flex-1 cursor-pointer">
-          <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{knowledgeType ? `${t('bundle.structuredView')} · ${t(`bundle.type.${knowledgeType}`)}` : t('bundle.quickNote')}</span>
+          <span className="block text-xs font-semibold uppercase tracking-wide text-amber-700">{t('inbox.candidateUnconfirmed')}</span>
+          <span className="mt-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">{knowledgeType ? `${t('bundle.structuredView')} · ${t(`bundle.type.${knowledgeType}`)}` : t('bundle.quickNote')}</span>
           <span className="mt-1 block truncate text-base font-semibold text-slate-950">{title || 'Untitled draft'}</span>
           <span className="mt-1 block font-mono text-[10px] text-slate-400">{id}</span>
         </label>
@@ -343,9 +349,16 @@ function DraftCardEditor({
         </span>
       </div>
 
-      <details className="group" open>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-amber-50/60 px-4 py-3 md:px-5">
+        <p className="max-w-2xl text-xs leading-relaxed text-amber-950">{t('inbox.resolutionBody')}</p>
+        <LocalizedLink href={`/knowledge-inbox/${encodeURIComponent(batchId)}/${encodeURIComponent(id)}/resolve`} className="inline-flex min-h-10 items-center rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2">
+          {t('inbox.reviewResolution')} →
+        </LocalizedLink>
+      </div>
+
+      <details className="group">
         <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 md:px-5">
-          Edit card and relationships <span aria-hidden="true" className="ml-1 text-slate-400 group-open:hidden">+</span><span aria-hidden="true" className="ml-1 hidden text-slate-400 group-open:inline">−</span>
+          {t('inbox.editCandidate')} <span aria-hidden="true" className="ml-1 text-slate-400 group-open:hidden">+</span><span aria-hidden="true" className="ml-1 hidden text-slate-400 group-open:inline">−</span>
         </summary>
         <form
           className="grid gap-4 border-t border-slate-100 p-4 md:p-5"
@@ -416,10 +429,12 @@ function DraftCardEditor({
 
 export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: DraftReviewPanelProps) {
   const router = useRouter();
+  const { locale, t } = useI18n();
   const batchRecord = asRecord(batch);
   const batchId = readString(batchRecord, 'id', 'batch_id');
   const provider = providerLabel(batchRecord);
   const sourceReference = readString(batchRecord, 'source_reference', 'source_ref', 'conversation_ref', 'external_source_id');
+  const sourceUrl = readString(batchRecord, 'source_url');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
   const [approvalError, setApprovalError] = useState<string | null>(null);
@@ -472,8 +487,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
       router.refresh();
       return;
     }
-    router.push(`/knowledge-inbox?approved=${result.approved}&skippedEdges=${result.skippedEdges}`);
-    router.refresh();
+    window.location.assign(String(localizeHref(`/knowledge-inbox?approved=${result.approved}&skippedEdges=${result.skippedEdges}`, locale)));
   };
 
   return (
@@ -490,6 +504,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
           <div className="rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-right">
             <p className="font-mono text-[10px] text-slate-500">Batch {batchId}</p>
             {sourceReference ? <p className="mt-1 max-w-xs truncate text-xs text-slate-600">Source {sourceReference}</p> : null}
+            {sourceUrl.startsWith('https://') ? <a href={sourceUrl} target="_blank" rel="noreferrer noopener" className="mt-1 block text-xs font-semibold text-blue-700 hover:underline">{t('inbox.openSelectedSource')} ↗</a> : null}
           </div>
         </div>
       </section>
@@ -516,7 +531,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
               </p>
             ) : null}
             <p className="mt-1 text-xs text-slate-500">
-              Draft cards referenced by selected relationships are selected automatically so their edges are not lost.
+              {t('inbox.fastSaveBody')}
             </p>
           </div>
 
@@ -533,9 +548,9 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
               <input type="hidden" name="approve_all" value="true" />
               <input type="hidden" name="draft_versions" value={JSON.stringify(draftVersions)} />
               <ConfirmApprovalButton
-                label="이번 배치 전부 추가"
-                loadingLabel="전부 추가 중…"
-                confirmMessage={`${provider} 배치의 ${drafts.length}개 카드를 전부 추가할까요? 이 배치 범위에만 적용됩니다.`}
+                label={t('inbox.saveBatch')}
+                loadingLabel={t('inbox.savingBatch')}
+                confirmMessage={t('inbox.saveBatchConfirm', { count: drafts.length, provider })}
                 blocked={dirtyIds.size > 0}
                 className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
               />
@@ -544,14 +559,14 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
             <form
               action={async (formData) => {
                 await discardKnowledgeDraftBatch(formData);
-                router.push('/knowledge-inbox');
+                router.push(String(localizeHref('/knowledge-inbox', locale)));
                 router.refresh();
               }}
             >
               <input type="hidden" name="batch_id" value={batchId} />
               <ConfirmDeleteButton
-                label="모두 버리기"
-                confirmMessage={`${provider} 배치의 ${drafts.length}개 초안을 모두 버릴까요?`}
+                label={t('inbox.ignoreBatch')}
+                confirmMessage={t('inbox.ignoreBatchConfirm', { count: drafts.length, provider })}
                 className="rounded-lg border border-red-200 px-4 py-2 text-sm font-bold text-red-700 hover:bg-red-50"
               />
             </form>
@@ -568,7 +583,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
         <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
           <h2 className="font-semibold text-slate-900">No pending cards in this batch</h2>
           <p className="mt-1 text-sm text-slate-500">They may already have been approved or discarded.</p>
-          <Link href="/knowledge-inbox" className="mt-4 inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Back to inbox</Link>
+          <LocalizedLink href="/knowledge-inbox" className="mt-4 inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">{t('inbox.back')}</LocalizedLink>
         </section>
       ) : (
         <div className="grid gap-4">

@@ -71,6 +71,116 @@ test('maps a strict current-conversation draft request to the ingestion contract
   });
 });
 
+test('accepts only a bounded HTTPS source location and preserves its discussion time', () => {
+  const parsed = createCardDraftsInputSchema.parse({
+    ...validInput,
+    provenance: {
+      ...validInput.provenance,
+      source_url: 'https://chat.example/conversations/current-1?access_token=secret#private',
+      discussed_at: '2026-08-28T09:30:00+09:00',
+    },
+  });
+  const mapped = toKnowledgeDraftBatchInput(parsed);
+  assert.equal(mapped.sourceUrl, 'https://chat.example/conversations/current-1');
+  assert.equal(mapped.discussedAt, '2026-08-28T09:30:00+09:00');
+
+  assert.equal(createCardDraftsInputSchema.safeParse({
+    ...validInput,
+    provenance: { ...validInput.provenance, source_url: 'http://chat.example/current-1' },
+  }).success, false);
+  for (const source_url of [
+    'https://user:password@chat.example/current-1',
+    'HTTPS://user:password@chat.example/current-1',
+  ]) {
+    assert.equal(createCardDraftsInputSchema.safeParse({
+      ...validInput,
+      provenance: { ...validInput.provenance, source_url },
+    }).success, false);
+  }
+});
+
+test('maps the complete relation grammar and selector-only evidence without source text', () => {
+  const parsed = createCardDraftsInputSchema.parse({
+    ...validInput,
+    cards: [{
+      ...validInput.cards[0],
+      relations: [{ target_kind: 'draft', target_id: 'question-2', type: 'answers' }],
+      evidence_selectors: [{
+        selector_type: 'message',
+        message_ref: 'message-7',
+        polarity: 'supports',
+        quality: 'high',
+        relation_origin: 'explicit_user',
+      }],
+    }],
+  });
+  const card = toKnowledgeDraftBatchInput(parsed).cards[0];
+  assert.equal(card?.relations?.[0]?.type, 'answers');
+  assert.deepEqual(card?.proposedEvidence, [{
+    selectorType: 'message',
+    messageRef: 'message-7',
+    polarity: 'supports',
+    quality: 'high',
+    relationOrigin: 'explicit_user',
+  }]);
+  assert.equal(createCardDraftsInputSchema.safeParse({
+    ...validInput,
+    cards: [{
+      ...validInput.cards[0],
+      evidence_selectors: [{ selector_type: 'message', message_ref: 'message-7', excerpt: 'raw text' }],
+    }],
+  }).success, false);
+});
+
+test('normalizes safe evidence URLs and rejects credential-bearing or non-HTTPS schemes', () => {
+  const parsed = createCardDraftsInputSchema.parse({
+    ...validInput,
+    cards: [{
+      ...validInput.cards[0],
+      evidence_selectors: [{
+        selector_type: 'external_ref',
+        source_ref: 'https://evidence.example/source?signature=secret#private',
+      }],
+    }],
+  });
+  assert.equal(
+    toKnowledgeDraftBatchInput(parsed).cards[0]?.proposedEvidence?.[0]?.sourceRef,
+    'https://evidence.example/source',
+  );
+  const longHttpsReference = `https://evidence.example/${'a'.repeat(300)}`;
+  const longParsed = createCardDraftsInputSchema.parse({
+    ...validInput,
+    cards: [{
+      ...validInput.cards[0],
+      evidence_selectors: [{ selector_type: 'external_ref', source_ref: longHttpsReference }],
+    }],
+  });
+  assert.equal(
+    toKnowledgeDraftBatchInput(longParsed).cards[0]?.proposedEvidence?.[0]?.sourceRef,
+    longHttpsReference,
+  );
+  assert.equal(createCardDraftsInputSchema.safeParse({
+    ...validInput,
+    cards: [{
+      ...validInput.cards[0],
+      evidence_selectors: [{ selector_type: 'external_ref', source_ref: `opaque-${'a'.repeat(240)}` }],
+    }],
+  }).success, false);
+  for (const source_ref of [
+    'https://user:password@evidence.example/source',
+    'HTTPS://user:password@evidence.example/source',
+    'FTP://evidence.example/source',
+  ]) {
+    assert.equal(createCardDraftsInputSchema.safeParse({
+      ...validInput,
+      cards: [{
+        ...validInput.cards[0],
+        evidence_selectors: [{ selector_type: 'external_ref', source_ref }],
+      }],
+    }).success, false);
+  }
+});
+
 test('rejects transcript, history, messages, and non-current provenance at the schema boundary', () => {
   const historical = {
     ...validInput,

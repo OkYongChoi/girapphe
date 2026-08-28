@@ -211,8 +211,8 @@ async function persistUserStates(userId: string, states: UserKnowledgeState[]): 
     );
   }
 
-  await pool.query(
-    `
+  await pool.accountTransaction(userId, [{
+    text: `
     INSERT INTO user_knowledge_states (
       user_id,
       node_id,
@@ -233,13 +233,13 @@ async function persistUserStates(userId: string, states: UserKnowledgeState[]): 
         ELSE user_knowledge_states.first_known_at
       END
     `,
-    values
-  );
+    params: values,
+  }]);
 }
 
 async function claimQuizSubmission(userId: string): Promise<void> {
-  const { rows } = await pool.query<{ user_id: string }>(
-    `
+  const [result] = await pool.accountTransaction<{ user_id: string }>(userId, [{
+    text: `
     INSERT INTO user_quiz_rate_limits (user_id, next_allowed_at)
     VALUES ($1, NOW() + INTERVAL '2 seconds')
     ON CONFLICT (user_id)
@@ -247,10 +247,10 @@ async function claimQuizSubmission(userId: string): Promise<void> {
     WHERE user_quiz_rate_limits.next_allowed_at <= NOW()
     RETURNING user_id;
     `,
-    [userId]
-  );
+    params: [userId],
+  }]);
 
-  if (rows.length === 0) throw new QuizRateLimitError();
+  if (result.rows.length === 0) throw new QuizRateLimitError();
 }
 
 export async function getDbGraphDataForUser(

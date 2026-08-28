@@ -1,27 +1,45 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import db from './db';
 import {
   approveKnowledgeDraftsForUser,
+  archiveKnowledgeItemForUser,
   authenticateMcpAccessToken,
   createKnowledgeDraftBatchForUser,
   createMcpAccessTokenForUser,
   createMemoryKnowledgeItemForUser,
   createPrivateKnowledgeEdgeForUser,
   getKnowledgeDraftBatchForUser,
+  getKnowledgeLinkTargetsForUser,
   getMemoryMcpCredentialRateLimitRecordCountForTesting,
+  getMemoryKnowledgeEvidenceForUser,
+  getMemoryKnowledgeActivityForUser,
+  getMemoryPrivateKnowledgeEdgesForTesting,
   getMemoryKnowledgeItemsForUser,
   getPrivateKnowledgeGraphForUser,
+  MCP_CONTEXT_READ_SCOPE,
   MCP_CREDENTIAL_RATE_LIMIT_CLEANUP_BATCH_SIZE,
   MCP_CREDENTIAL_RATE_LIMIT_RETENTION_MS,
+  MCP_DRAFT_CREATE_SCOPE,
   MCP_REQUESTS_PER_TOKEN_PER_MINUTE,
+  McpDeletedAccountError,
   McpRequestRateLimitError,
   normalizeKnowledgeTopic,
   rateLimitMcpOAuthPrincipal,
+  recordKnowledgeReuseForUser,
+  resolveKnowledgeDraftForUser,
   restoreMemoryKnowledgeItemForUser,
+  restoreArchivedKnowledgeItemForUser,
+  sanitizeKnowledgeEvidenceSelectors,
+  setKnowledgeTransactionSqlForTesting,
   softDeleteMemoryKnowledgeItemForUser,
+  supersedeKnowledgeItemForUser,
   updateMemoryKnowledgeItemForUser,
+  verifyKnowledgeItemForUser,
 } from './knowledge-ingestion';
+import { deriveMcpDeletedAccountScopeKey } from './mcp-account-lifecycle';
+import { getTopicKnowledgeHubForUser } from './topic-knowledge-hub';
 
 test('normalizes Korean topics without collapsing them to general', () => {
   assert.equal(normalizeKnowledgeTopic('  머신 러닝 / 기초  '), '머신-러닝-기초');
@@ -142,6 +160,582 @@ test('keeps pending drafts out of active private cards and the graph until appro
   assert.deepEqual(await getPrivateKnowledgeGraphForUser(userId), { nodes: [], edges: [] });
 });
 
+test('reviewed create stores edited canonical content, a null target, and an explicitly cleared evidence set', async () => {
+  const userId = `user_reviewed_create_${crypto.randomUUID()}`;
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'chatgpt',
+    requestId: `reviewed-create-${crypto.randomUUID()}`,
+    conversationRef: 'conversation-reviewed-create',
+    cards: [{
+      title: 'Proposed title',
+      summary: 'Proposed summary',
+      proposedEvidence: [{
+        selectorType: 'message',
+        messageRef: 'message-proposed',
+        polarity: 'supports',
+        quality: 'medium',
+        relationOrigin: 'model_inferred',
+      }],
+    }],
+  });
+  const pending = await getKnowledgeDraftBatchForUser(userId, created.batchId);
+  assert.ok(pending);
+  const draft = pending.drafts[0];
+  const result = await resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: draft.id,
+    expectedDraftVersion: draft.version,
+    action: 'create',
+    reviewed: {
+      title: 'Reviewed title',
+      summary: 'Reviewed summary',
+      content: 'Reviewed canonical content.',
+      topic: 'Reviewed Topic',
+      tags: ['reviewed'],
+      knowledgeType: null,
+      centralQuestion: null,
+      structuredContent: null,
+      bundleSchemaVersion: null,
+      evidenceSelectors: [],
+    },
+  });
+  assert.equal(result.resolved, true);
+  const item = getMemoryKnowledgeItemsForUser(userId)[0];
+  assert.equal(item?.title, 'Reviewed title');
+  assert.equal(item?.content, 'Reviewed canonical content.');
+  const resolved = await getKnowledgeDraftBatchForUser(userId, created.batchId);
+  assert.equal(resolved?.drafts[0]?.resolution_action, 'create');
+  assert.equal(resolved?.drafts[0]?.target_knowledge_item_id, null);
+  assert.deepEqual(getMemoryKnowledgeEvidenceForUser(userId), []);
+});
+
+test('reviewed evidence permits removal and reorder but rejects added or tampered selectors', async () => {
+  const allowedUserId = `user_evidence_subset_${crypto.randomUUID()}`;
+  const allowedBatch = await createKnowledgeDraftBatchForUser(allowedUserId, {
+    provider: 'chatgpt',
+    requestId: `evidence-subset-${crypto.randomUUID()}`,
+    cards: [{
+      title: 'Evidence subset',
+      proposedEvidence: [
+        {
+          selectorType: 'message', messageRef: 'message-a', polarity: 'supports',
+          quality: 'high', relationOrigin: 'explicit_user',
+        },
+        {
+          selectorType: 'message', messageRef: 'message-b', polarity: 'contradicts',
+          quality: 'medium', relationOrigin: 'model_inferred',
+        },
+        {
+          selectorType: 'external_ref', sourceRef: 'https://example.com/evidence', polarity: 'supports',
+          quality: 'high', relationOrigin: 'extracted_from_source',
+        },
+      ],
+    }],
+  });
+  const allowedDraft = (await getKnowledgeDraftBatchForUser(allowedUserId, allowedBatch.batchId))!.drafts[0];
+  const allowed = await resolveKnowledgeDraftForUser(allowedUserId, {
+    batchId: allowedBatch.batchId,
+    draftId: allowedDraft.id,
+    expectedDraftVersion: allowedDraft.version,
+    action: 'create',
+    reviewed: {
+      title: allowedDraft.title, summary: allowedDraft.summary, content: allowedDraft.explanation,
+      topic: allowedDraft.topic, tags: allowedDraft.tags,
+      knowledgeType: null, centralQuestion: null, structuredContent: null, bundleSchemaVersion: null,
+      evidenceSelectors: [allowedDraft.proposed_evidence[2], allowedDraft.proposed_evidence[0]],
+    },
+  });
+  assert.equal(allowed.resolved, true);
+  assert.deepEqual(
+    getMemoryKnowledgeEvidenceForUser(allowedUserId).map((entry) => entry.selector.messageRef ?? entry.selector.sourceRef),
+    ['https://example.com/evidence', 'message-a'],
+  );
+
+  const rejectedUserId = `user_evidence_tamper_${crypto.randomUUID()}`;
+  const rejectedBatch = await createKnowledgeDraftBatchForUser(rejectedUserId, {
+    provider: 'claude',
+    requestId: `evidence-tamper-${crypto.randomUUID()}`,
+    cards: [{
+      title: 'Evidence tamper',
+      proposedEvidence: [{
+        selectorType: 'message', messageRef: 'message-original', polarity: 'supports',
+        quality: 'high', relationOrigin: 'explicit_user',
+      }],
+    }],
+  });
+  const rejectedDraft = (await getKnowledgeDraftBatchForUser(rejectedUserId, rejectedBatch.batchId))!.drafts[0];
+  const reviewedBase = {
+    title: rejectedDraft.title, summary: rejectedDraft.summary, content: rejectedDraft.explanation,
+    topic: rejectedDraft.topic, tags: rejectedDraft.tags,
+    knowledgeType: null, centralQuestion: null, structuredContent: null, bundleSchemaVersion: null,
+  };
+  await assert.rejects(resolveKnowledgeDraftForUser(rejectedUserId, {
+    batchId: rejectedBatch.batchId,
+    draftId: rejectedDraft.id,
+    expectedDraftVersion: rejectedDraft.version,
+    action: 'create',
+    reviewed: {
+      ...reviewedBase,
+      evidenceSelectors: [{ ...rejectedDraft.proposed_evidence[0], quality: 'medium' }],
+    },
+  }), /exact subset/i);
+  await assert.rejects(resolveKnowledgeDraftForUser(rejectedUserId, {
+    batchId: rejectedBatch.batchId,
+    draftId: rejectedDraft.id,
+    expectedDraftVersion: rejectedDraft.version,
+    action: 'create',
+    reviewed: {
+      ...reviewedBase,
+      evidenceSelectors: [...rejectedDraft.proposed_evidence, {
+        selectorType: 'message', messageRef: 'message-added', polarity: 'supports',
+        quality: 'high', relationOrigin: 'explicit_user',
+      }],
+    },
+  }), /exact subset/i);
+  assert.equal((await getKnowledgeDraftBatchForUser(rejectedUserId, rejectedBatch.batchId))!.drafts[0].status, 'pending');
+  assert.equal(getMemoryKnowledgeItemsForUser(rejectedUserId).length, 0);
+});
+
+test('manual memory updates consume the client version and return typed stale or not-found results', () => {
+  const userId = `user_manual_update_version_${crypto.randomUUID()}`;
+  const item = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Concurrent note', content: 'Version one.', topic: 'Concurrency',
+  });
+  assert.deepEqual(updateMemoryKnowledgeItemForUser(userId, item.id, {
+    title: 'First editor', content: 'First edit wins.', topic: 'Concurrency',
+  }, { expectedVersion: item.version }), { updated: true, version: 2 });
+  assert.deepEqual(updateMemoryKnowledgeItemForUser(userId, item.id, {
+    title: 'Second editor', content: 'Stale edit must fail.', topic: 'Concurrency',
+  }, { expectedVersion: item.version }), { updated: false, version: null, stale: true });
+  assert.deepEqual(updateMemoryKnowledgeItemForUser(userId, 'missing-item', {
+    title: 'Missing', content: '', topic: 'Concurrency',
+  }, { expectedVersion: 1 }), { updated: false, version: null, notFound: true });
+  assert.equal(getMemoryKnowledgeItemsForUser(userId)[0]?.title, 'First editor');
+});
+
+test('conversation and evidence references accept only opaque ids or bounded HTTPS URLs', async () => {
+  await assert.rejects(
+    createKnowledgeDraftBatchForUser(`user_bad_reference_${crypto.randomUUID()}`, {
+      provider: 'chatgpt',
+      requestId: `bad-ref-${crypto.randomUUID()}`,
+      conversationRef: 'this is raw conversation text',
+      cards: [{ title: 'Unsafe reference' }],
+    }),
+    /opaque reference/i,
+  );
+  await assert.rejects(
+    createKnowledgeDraftBatchForUser(`user_credential_conversation_${crypto.randomUUID()}`, {
+      provider: 'chatgpt',
+      requestId: `credential-conversation-${crypto.randomUUID()}`,
+      conversationRef: 'HTTPS://user:password@example.com/conversation',
+      cards: [{ title: 'Unsafe conversation reference' }],
+    }),
+    /opaque reference/i,
+  );
+  await assert.rejects(
+    createKnowledgeDraftBatchForUser(`user_credential_source_${crypto.randomUUID()}`, {
+      provider: 'chatgpt',
+      requestId: `credential-source-${crypto.randomUUID()}`,
+      conversationRef: 'safe-conversation-ref',
+      sourceUrl: 'HTTPS://user:password@example.com/conversation',
+      cards: [{ title: 'Unsafe source URL' }],
+    }),
+    /bounded HTTPS URL/i,
+  );
+  assert.deepEqual(sanitizeKnowledgeEvidenceSelectors([{
+    selectorType: 'message',
+    messageRef: 'raw quoted message text',
+    polarity: 'supports',
+    quality: 'high',
+    relationOrigin: 'explicit_user',
+  }]), []);
+  assert.deepEqual(sanitizeKnowledgeEvidenceSelectors([{
+    selectorType: 'external_ref',
+    sourceRef: 'raw source sentence',
+    polarity: 'supports',
+    quality: 'high',
+    relationOrigin: 'extracted_from_source',
+  }]), []);
+  const normalizedEvidence = sanitizeKnowledgeEvidenceSelectors([{
+    selectorType: 'external_ref',
+    sourceRef: 'https://example.com/source?access_token=secret#private-fragment',
+    polarity: 'supports',
+    quality: 'high',
+    relationOrigin: 'extracted_from_source',
+  }]);
+  assert.equal(normalizedEvidence[0]?.sourceRef, 'https://example.com/source');
+  for (const sourceRef of [
+    'https://user:password@example.com/source',
+    'HTTPS://user:password@example.com/source',
+    'FTP://user:password@example.com/source',
+  ]) {
+    assert.deepEqual(sanitizeKnowledgeEvidenceSelectors([{
+      selectorType: 'external_ref', sourceRef, polarity: 'supports', quality: 'high',
+      relationOrigin: 'extracted_from_source',
+    }]), []);
+  }
+
+  const normalizedUserId = `user_normalized_source_${crypto.randomUUID()}`;
+  const normalizedBatch = await createKnowledgeDraftBatchForUser(normalizedUserId, {
+    provider: 'chatgpt',
+    requestId: `normalized-source-${crypto.randomUUID()}`,
+    conversationRef: 'safe-conversation-ref',
+    sourceUrl: 'https://example.com/current/path?access_token=secret#private-fragment',
+    cards: [{ title: 'Normalized source URL' }],
+  });
+  assert.equal(
+    (await getKnowledgeDraftBatchForUser(normalizedUserId, normalizedBatch.batchId))?.batch.source_url,
+    'https://example.com/current/path',
+  );
+});
+
+test('canonical revision clears verification and supersession consumes its optimistic version once', async () => {
+  const userId = `user_lifecycle_version_${crypto.randomUUID()}`;
+  const oldItem = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Verified note',
+    content: 'Version one.',
+    topic: 'Lifecycle',
+  });
+  assert.deepEqual(await verifyKnowledgeItemForUser(userId, oldItem.id, 1), {
+    verified: true,
+    version: 2,
+  });
+  let currentOldItem = getMemoryKnowledgeItemsForUser(userId)
+    .find((item) => item.id === oldItem.id)!;
+  assert.ok(currentOldItem.last_verified_at);
+  updateMemoryKnowledgeItemForUser(userId, oldItem.id, {
+    title: 'Revised note',
+    content: 'Version two content.',
+    topic: 'Lifecycle',
+  });
+  currentOldItem = getMemoryKnowledgeItemsForUser(userId)
+    .find((item) => item.id === oldItem.id)!;
+  assert.equal(currentOldItem.version, 3);
+  assert.equal(currentOldItem.last_verified_at, null);
+
+  const replacement = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Replacement',
+    content: 'Current content.',
+    topic: 'Lifecycle',
+  });
+  const alternative = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Alternative',
+    content: 'Alternative content.',
+    topic: 'Lifecycle',
+  });
+  assert.deepEqual(await supersedeKnowledgeItemForUser(
+    userId,
+    oldItem.id,
+    replacement.id,
+    currentOldItem.version,
+    'Replacement selected.',
+  ), { superseded: true });
+  const supersedesEdge = getMemoryPrivateKnowledgeEdgesForTesting(userId)
+    .find((edge) => edge.type === 'supersedes');
+  assert.equal(supersedesEdge?.source, `personal:${replacement.id}`);
+  assert.equal(supersedesEdge?.target, `personal:${oldItem.id}`);
+  currentOldItem = getMemoryKnowledgeItemsForUser(userId)
+    .find((item) => item.id === oldItem.id)!;
+  assert.equal(currentOldItem.version, 4);
+  assert.equal((await supersedeKnowledgeItemForUser(
+    userId,
+    oldItem.id,
+    alternative.id,
+    3,
+    'A second replacement is not allowed.',
+  )).superseded, false);
+  assert.equal((await supersedeKnowledgeItemForUser(
+    userId,
+    replacement.id,
+    oldItem.id,
+    replacement.version,
+    'A cycle is not allowed.',
+  )).superseded, false);
+});
+
+test('database supersession preserves old-to-replacement table semantics but writes replacement-to-old graph direction', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const originalAccountTransaction = db.accountTransaction;
+  const calls: Array<{ text: string; params: unknown[] }> = [];
+  const fakeTransactionSql = {
+    transaction: async (callback: (tx: { query: (text: string, params?: unknown[]) => Promise<unknown[]> }) => Array<Promise<unknown[]>>) => {
+      const queries = callback({
+        query: (text, params = []) => {
+          calls.push({ text, params });
+          return Promise.resolve([]);
+        },
+      });
+      await Promise.all(queries);
+      return queries.map(() => []);
+    },
+  };
+  context.after(() => {
+    db.query = originalQuery;
+    db.accountTransaction = originalAccountTransaction;
+    setKnowledgeTransactionSqlForTesting(null);
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async () => ({ rows: [] })) as typeof db.query;
+  setKnowledgeTransactionSqlForTesting(
+    fakeTransactionSql as unknown as NonNullable<Parameters<typeof setKnowledgeTransactionSqlForTesting>[0]>,
+  );
+
+  const oldItemId = 'old-item';
+  const replacementItemId = 'replacement-item';
+  assert.deepEqual(await supersedeKnowledgeItemForUser(
+    'owner-id', oldItemId, replacementItemId, 7, 'Replacement selected.',
+  ), { superseded: true });
+
+  const tableInsert = calls.find((call) => call.text.includes('INSERT INTO knowledge_item_supersessions'));
+  assert.deepEqual(tableInsert?.params.slice(2, 4), [oldItemId, replacementItemId]);
+  const edgeInsert = calls.find((call) => call.text.includes('INSERT INTO user_graph_edges'));
+  assert.deepEqual(edgeInsert?.params.slice(2, 4), [replacementItemId, oldItemId]);
+});
+
+test('database graph surfaces and manual endpoints require active owner-scoped knowledge', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const userId = 'owner-active-graph';
+  let manualEdgeInsertCount = 0;
+
+  const assertActiveItemGuard = (text: string, alias = 'i') => {
+    assert.match(text, new RegExp(`${alias}\\.deleted_at IS NULL`));
+    assert.match(text, new RegExp(`${alias}\\.archived_at IS NULL`));
+    assert.match(text, /knowledge_item_supersessions/);
+    assert.match(text, new RegExp(`s\\.user_id = ${alias}\\.user_id`));
+    assert.match(text, new RegExp(`s\\.superseded_item_id = ${alias}\\.id`));
+  };
+
+  context.after(() => {
+    db.query = originalQuery;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string, params: unknown[] = []) => {
+    if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
+
+    if (text.includes('SELECT n.id AS graph_node_id')) {
+      assertActiveItemGuard(text);
+      return { rows: [] };
+    }
+    if (text.includes('FROM user_graph_edges e') && !text.includes('INSERT INTO user_graph_edges')) {
+      assert.match(text, /si\.deleted_at IS NULL AND si\.archived_at IS NULL/);
+      assert.match(text, /source_supersession\.user_id = si\.user_id/);
+      assert.match(text, /source_supersession\.superseded_item_id = si\.id/);
+      assert.match(text, /ti\.deleted_at IS NULL AND ti\.archived_at IS NULL/);
+      assert.match(text, /target_supersession\.user_id = ti\.user_id/);
+      assert.match(text, /target_supersession\.superseded_item_id = ti\.id/);
+      assert.match(text, /e\.source_private_node_id IS NULL OR si\.id IS NOT NULL/);
+      assert.match(text, /e\.target_private_node_id IS NULL OR ti\.id IS NOT NULL/);
+      return { rows: [] };
+    }
+    if (text.includes('SELECT id, label, scope, topic FROM (')) {
+      assertActiveItemGuard(text);
+      return { rows: [] };
+    }
+    if (text.includes('INSERT INTO user_graph_nodes')) {
+      assertActiveItemGuard(text);
+      const itemId = String(params[0]);
+      return itemId === 'active-then-archived'
+        ? { rows: [{ id: 'race-node', knowledge_item_id: itemId }] }
+        : { rows: [] };
+    }
+    if (text.includes('SELECT n.id, n.knowledge_item_id FROM user_graph_nodes n')) {
+      assertActiveItemGuard(text);
+      return { rows: [] };
+    }
+    if (text.includes('SELECT id FROM graph_nodes')) {
+      return { rows: [{ id: String(params[0]) }] };
+    }
+    if (text.includes('INSERT INTO user_graph_edges')) {
+      manualEdgeInsertCount += 1;
+      assert.equal(text.match(/i\.archived_at IS NULL/g)?.length, 2);
+      assert.equal(text.match(/s\.user_id = i\.user_id AND s\.superseded_item_id = i\.id/g)?.length, 2);
+      return { rows: [] };
+    }
+    throw new Error(`Unexpected database query in active graph regression: ${text}`);
+  }) as typeof db.query;
+  db.accountTransaction = (async (
+    _userId: string,
+    queries: Parameters<typeof db.accountTransaction>[1],
+  ) => Promise.all(queries.map(({ text, params }) => db.query(text, params))) as never) as typeof db.accountTransaction;
+
+  assert.deepEqual(await getPrivateKnowledgeGraphForUser(userId), { nodes: [], edges: [] });
+  assert.deepEqual(await getKnowledgeLinkTargetsForUser(userId), []);
+  assert.deepEqual(await createPrivateKnowledgeEdgeForUser(
+    userId, 'personal:archived-item', 'graph_public-node', 'related',
+  ), { created: false, reason: 'invalid' });
+  assert.deepEqual(await createPrivateKnowledgeEdgeForUser(
+    userId, 'private:superseded-node', 'graph_public-node', 'related',
+  ), { created: false, reason: 'invalid' });
+  assert.deepEqual(await createPrivateKnowledgeEdgeForUser(
+    userId, 'personal:active-then-archived', 'graph_public-node', 'related',
+  ), { created: false, reason: 'cycle_or_duplicate' });
+  assert.equal(manualEdgeInsertCount, 1);
+});
+
+test('database draft approval partitions dynamically queued edge and update results', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const userId = 'owner-approval-result-offsets';
+  const batchId = 'batch-approval-result-offsets';
+  const draftId = 'draft-approval-result-offsets';
+  const publicNodeId = 'public-approval-target';
+  const now = '2030-01-01T00:00:00.000Z';
+  const transactionCalls: Array<{ text: string; params: unknown[]; rows: unknown[] }> = [];
+  const fakeTransactionSql = {
+    transaction: async (callback: (tx: { query: (text: string, params?: unknown[]) => Promise<unknown[]> }) => Array<Promise<unknown[]>>) => {
+      const queries = callback({
+        query: (text, params = []) => {
+          const queryNumber = transactionCalls.length;
+          const rows = text.includes('INSERT INTO user_graph_edges')
+            ? []
+            : text.includes("UPDATE knowledge_card_drafts SET status = 'approved'")
+              ? [{ id: draftId }]
+              : [{ marker: queryNumber }];
+          transactionCalls.push({ text, params, rows });
+          return Promise.resolve(rows);
+        },
+      });
+      return Promise.all(queries);
+    },
+  };
+
+  context.after(() => {
+    db.query = originalQuery;
+    setKnowledgeTransactionSqlForTesting(null);
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string, params: unknown[] = []) => {
+    if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
+    if (text.includes('WHERE b.id = $1 AND b.user_id = $2')) {
+      assert.deepEqual(params, [batchId, userId]);
+      return { rows: [{
+        id: batchId,
+        provider: 'chatgpt',
+        status: 'pending',
+        conversation_ref: null,
+        source_url: null,
+        discussed_at: null,
+        draft_count: 1,
+        pending_count: 1,
+        approved_count: 0,
+        created_at: now,
+        updated_at: now,
+        committed_at: null,
+      }] };
+    }
+    if (text.includes('FROM knowledge_card_drafts WHERE batch_id = $1 AND user_id = $2')) {
+      assert.deepEqual(params, [batchId, userId]);
+      return { rows: [{
+        id: draftId,
+        batch_id: batchId,
+        client_card_id: 'approval-result-card',
+        title: 'Approval result partition',
+        summary: 'Distinct transaction results.',
+        explanation: 'Distinct transaction results.',
+        topic: 'testing',
+        tags: [],
+        proposed_relations: [{
+          targetKind: 'public',
+          targetId: `graph_${publicNodeId}`,
+          type: 'related',
+          direction: 'outgoing',
+          weight: 1,
+          relationOrigin: 'model_inferred',
+        }],
+        knowledge_type: null,
+        central_question: null,
+        structured_content: null,
+        bundle_schema_version: null,
+        dedupe_key: 'approval-result-partition',
+        proposed_evidence: [{
+          selectorType: 'message',
+          messageRef: 'selected-message',
+          polarity: 'supports',
+          quality: 'high',
+          relationOrigin: 'explicit_user',
+        }],
+        resolution_action: null,
+        target_knowledge_item_id: null,
+        resolved_at: null,
+        status: 'pending',
+        version: 1,
+        knowledge_item_id: null,
+        created_at: now,
+        updated_at: now,
+      }] };
+    }
+    if (text.includes('SELECT id FROM graph_nodes')) {
+      assert.deepEqual(params, [publicNodeId]);
+      return { rows: [{ id: publicNodeId }] };
+    }
+    throw new Error(`Unexpected database query in approval result regression: ${text}`);
+  }) as typeof db.query;
+  setKnowledgeTransactionSqlForTesting(
+    fakeTransactionSql as unknown as NonNullable<Parameters<typeof setKnowledgeTransactionSqlForTesting>[0]>,
+  );
+
+  assert.deepEqual(await approveKnowledgeDraftsForUser(
+    userId, batchId, [draftId], { [draftId]: 1 },
+  ), { approved: 1, skippedEdges: 1 });
+
+  const edgeIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO user_graph_edges'));
+  const updateIndex = transactionCalls.findIndex((call) => call.text.includes("UPDATE knowledge_card_drafts SET status = 'approved'"));
+  const evidenceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_evidence_spans'));
+  assert.ok(evidenceIndex >= 0 && edgeIndex > evidenceIndex);
+  assert.equal(updateIndex, edgeIndex + 1);
+  assert.deepEqual(transactionCalls[edgeIndex]?.rows, []);
+  assert.deepEqual(transactionCalls[updateIndex]?.rows, [{ id: draftId }]);
+  assert.equal(transactionCalls[edgeIndex]?.text.match(/i\.archived_at IS NULL/g)?.length, 2);
+  assert.equal(
+    transactionCalls[edgeIndex]?.text.match(/s\.user_id = i\.user_id AND s\.superseded_item_id = i\.id/g)?.length,
+    2,
+  );
+});
+
+test('archive and unarchive are optimistic versioned transitions with restored active history', async () => {
+  const userId = `user_archive_lifecycle_${crypto.randomUUID()}`;
+  const item = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Archivable runbook',
+    content: 'Current instructions.',
+    topic: 'Operations',
+  });
+  assert.deepEqual(await verifyKnowledgeItemForUser(userId, item.id, 1), {
+    verified: true,
+    version: 2,
+  });
+  assert.deepEqual(await archiveKnowledgeItemForUser(userId, item.id, 2), {
+    archived: true,
+    version: 3,
+  });
+  const archived = getMemoryKnowledgeItemsForUser(userId).find((candidate) => candidate.id === item.id)!;
+  assert.ok(archived.archived_at);
+  assert.equal(archived.last_verified_at, null);
+  assert.equal((await getPrivateKnowledgeGraphForUser(userId)).nodes.length, 0);
+  assert.equal((await getTopicKnowledgeHubForUser(userId, 'Operations')).items.length, 0);
+  assert.equal((await archiveKnowledgeItemForUser(userId, item.id, 2)).stale, true);
+
+  assert.deepEqual(await restoreArchivedKnowledgeItemForUser(userId, item.id, 3), {
+    archived: false,
+    version: 4,
+  });
+  assert.equal((await getPrivateKnowledgeGraphForUser(userId)).nodes.length, 1);
+  const restoredHub = await getTopicKnowledgeHubForUser(userId, 'Operations');
+  assert.deepEqual(restoredHub.items.map((entry) => entry.id), [item.id]);
+  assert.deepEqual(restoredHub.revisions.map((revision) => revision.version), [1, 2, 3, 4]);
+  assert.ok(restoredHub.activity.some((entry) => entry.activity_type === 'archived'));
+  assert.ok(restoredHub.activity.some((entry) => entry.activity_type === 'restored'));
+});
+
 test('approves a typed bundle atomically as one private item and one graph node', async () => {
   const userId = `user_typed_bundle_approval_${crypto.randomUUID()}`;
   const structuredContent = {
@@ -190,6 +784,51 @@ test('approves a typed bundle atomically as one private item and one graph node'
   assert.equal(restoredItems[0]?.knowledge_type, 'procedure');
   assert.deepEqual(restoredItems[0]?.structured_content, structuredContent);
   assert.equal((await getPrivateKnowledgeGraphForUser(userId)).nodes.length, 1);
+  const trashActivity = getMemoryKnowledgeActivityForUser(userId, new Set([items[0].id]));
+  assert.equal(trashActivity.some((entry) => entry.activity_type === 'archived' || entry.activity_type === 'restored'), false);
+  assert.deepEqual(
+    trashActivity.filter((entry) => entry.metadata.lifecycle === 'trash').map((entry) => entry.metadata.state),
+    ['deleted', 'restored'],
+  );
+});
+
+test('issues only explicitly requested MCP knowledge scopes', async () => {
+  const contextUserId = `user_context_scope_${crypto.randomUUID()}`;
+  const contextToken = await createMcpAccessTokenForUser(
+    contextUserId,
+    'Confirmed context only',
+    [MCP_CONTEXT_READ_SCOPE],
+  );
+  assert.deepEqual(contextToken.record.scopes, [MCP_CONTEXT_READ_SCOPE]);
+  assert.equal(
+    await authenticateMcpAccessToken(`Bearer ${contextToken.token}`, MCP_DRAFT_CREATE_SCOPE),
+    null,
+  );
+  assert.equal(
+    (await authenticateMcpAccessToken(`Bearer ${contextToken.token}`, MCP_CONTEXT_READ_SCOPE))?.userId,
+    contextUserId,
+  );
+
+  const draftUserId = `user_draft_scope_${crypto.randomUUID()}`;
+  const draftToken = await createMcpAccessTokenForUser(draftUserId, 'Draft only');
+  assert.deepEqual(draftToken.record.scopes, [MCP_DRAFT_CREATE_SCOPE]);
+  assert.equal(
+    await authenticateMcpAccessToken(`Bearer ${draftToken.token}`, MCP_CONTEXT_READ_SCOPE),
+    null,
+  );
+  assert.equal(
+    (await authenticateMcpAccessToken(`Bearer ${draftToken.token}`, MCP_DRAFT_CREATE_SCOPE))?.userId,
+    draftUserId,
+  );
+
+  await assert.rejects(
+    createMcpAccessTokenForUser(`user_empty_scope_${crypto.randomUUID()}`, 'No access', []),
+    /supported MCP scope/i,
+  );
+  await assert.rejects(
+    createMcpAccessTokenForUser(`user_unknown_scope_${crypto.randomUUID()}`, 'Unknown access', ['knowledge:everything']),
+    /supported MCP scope/i,
+  );
 });
 
 test('limits active MCP tokens and hourly drafts without breaking idempotent retries', async () => {
@@ -328,6 +967,205 @@ test('prunes stale OAuth credential counters in bounded batches without resettin
   } finally {
     Date.now = originalDateNow;
   }
+});
+
+test('database OAuth rate limiting locks first and refuses a tombstoned account without rate inserts', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const originalTransaction = db.transaction;
+  const userId = 'user_deleted_oauth_owner';
+  const calls: Array<{ text: string; params?: unknown[] }> = [];
+
+  context.after(() => {
+    db.query = originalQuery;
+    db.transaction = originalTransaction;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string) => {
+    if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
+    throw new Error(`Unexpected OAuth setup query: ${text}`);
+  }) as typeof db.query;
+  db.transaction = (async (
+    queries: Parameters<typeof db.transaction>[0],
+    options: Parameters<typeof db.transaction>[1],
+  ) => {
+    calls.push(...queries);
+    assert.deepEqual(options, { isolationLevel: 'ReadCommitted' });
+    return [
+      { rows: [] },
+      { rows: [{ account_active: false, rate_allowed: false }] },
+    ];
+  }) as typeof db.transaction;
+
+  await assert.rejects(
+    rateLimitMcpOAuthPrincipal(userId, 'deleted-oauth-client'),
+    McpDeletedAccountError,
+  );
+  assert.equal(calls.length, 2);
+  assert.match(calls[0]!.text, /pg_advisory_xact_lock/);
+  assert.match(String(calls[0]!.params?.[0]), /^mcp-account-lifecycle:[0-9a-f]{64}$/);
+  assert.equal(String(calls[0]!.params?.[0]).includes(userId), false);
+  assert.match(calls[1]!.text, /mcp_deleted_account_markers/);
+  assert.match(calls[1]!.text, /FROM account_state WHERE account_active/g);
+  assert.equal(calls[1]!.params?.[6], deriveMcpDeletedAccountScopeKey(userId));
+  assert.equal(String(calls[1]!.params?.[6]).includes(userId), false);
+});
+
+test('database PAT authentication uses a read-only owner preflight then fully rechecks under the lifecycle lock', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const originalTransaction = db.transaction;
+  const rawToken = 'girapphe_mcp_database_recheck_token';
+  const tokenHash = createHash('sha256').update(rawToken, 'utf8').digest('hex');
+  const userId = 'user_pat_recheck_owner';
+  const transactionCalls: Array<Array<{ text: string; params?: unknown[] }>> = [];
+  let preflightCount = 0;
+
+  context.after(() => {
+    db.query = originalQuery;
+    db.transaction = originalTransaction;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string, params?: unknown[]) => {
+    if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
+    assert.match(text, /^SELECT user_id FROM mcp_access_tokens WHERE token_hash = \$1 LIMIT 1$/);
+    assert.doesNotMatch(text, /UPDATE|INSERT|DELETE/);
+    assert.deepEqual(params, [tokenHash]);
+    preflightCount += 1;
+    return { rows: [{ user_id: userId }] };
+  }) as typeof db.query;
+  db.transaction = (async (
+    queries: Parameters<typeof db.transaction>[0],
+    options: Parameters<typeof db.transaction>[1],
+  ) => {
+    transactionCalls.push(queries);
+    assert.deepEqual(options, { isolationLevel: 'ReadCommitted' });
+    return transactionCalls.length === 1
+      ? [
+          { rows: [] },
+          { rows: [{
+            id: 'pat-token-id',
+            user_id: userId,
+            token_hash: tokenHash,
+            scopes: [MCP_DRAFT_CREATE_SCOPE],
+            rate_allowed: true,
+          }] },
+        ]
+      : [{ rows: [] }, { rows: [] }];
+  }) as typeof db.transaction;
+
+  assert.deepEqual(await authenticateMcpAccessToken(rawToken), {
+    userId,
+    tokenId: 'pat-token-id',
+    scopes: [MCP_DRAFT_CREATE_SCOPE],
+  });
+  assert.equal(await authenticateMcpAccessToken(rawToken), null);
+  assert.equal(preflightCount, 2);
+  assert.equal(transactionCalls.length, 2);
+  for (const queries of transactionCalls) {
+    assert.equal(queries.length, 2);
+    assert.match(queries[0]!.text, /pg_advisory_xact_lock/);
+    assert.match(queries[1]!.text, /mcp_deleted_account_markers/);
+    assert.match(queries[1]!.text, /token_hash = \$1 AND user_id = \$5/);
+    assert.match(queries[1]!.text, /revoked_at IS NULL AND expires_at > NOW\(\)/);
+    assert.match(queries[1]!.text, /scopes @> \$2::jsonb/);
+    assert.equal(queries[1]!.params?.[4], userId);
+    assert.equal(queries[1]!.params?.[5], deriveMcpDeletedAccountScopeKey(userId));
+  }
+});
+
+test('database MCP draft, token, and reuse writers lock then reject post-delete reinsertion', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const originalTransaction = db.transaction;
+  const userId = 'user_post_delete_writers';
+  const scopeKey = deriveMcpDeletedAccountScopeKey(userId);
+  const neonTransactions: Array<{
+    calls: Array<{ text: string; params: unknown[] }>;
+    options: unknown;
+  }> = [];
+  const poolTransactions: Array<{
+    queries: Array<{ text: string; params?: unknown[] }>;
+    options: unknown;
+  }> = [];
+  const fakeTransactionSql = {
+    transaction: async (
+      callback: (tx: { query: (text: string, params?: unknown[]) => Promise<unknown[]> }) => Array<Promise<unknown[]>>,
+      options: unknown,
+    ) => {
+      const calls: Array<{ text: string; params: unknown[] }> = [];
+      const queries = callback({
+        query: (text, params = []) => {
+          calls.push({ text, params });
+          return Promise.resolve(text.includes('EXISTS (SELECT 1 FROM inserted_token) AS inserted')
+            ? [{ account_active: false, inserted: false }]
+            : []);
+        },
+      });
+      const result = await Promise.all(queries);
+      neonTransactions.push({ calls, options });
+      return result;
+    },
+  };
+
+  context.after(() => {
+    db.query = originalQuery;
+    db.transaction = originalTransaction;
+    setKnowledgeTransactionSqlForTesting(null);
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async () => ({ rows: [] })) as typeof db.query;
+  db.transaction = (async (
+    queries: Parameters<typeof db.transaction>[0],
+    options: Parameters<typeof db.transaction>[1],
+  ) => {
+    poolTransactions.push({ queries, options });
+    return queries.map(() => ({ rows: [] }));
+  }) as typeof db.transaction;
+  setKnowledgeTransactionSqlForTesting(
+    fakeTransactionSql as unknown as NonNullable<Parameters<typeof setKnowledgeTransactionSqlForTesting>[0]>,
+  );
+
+  await assert.rejects(
+    createKnowledgeDraftBatchForUser(userId, {
+      provider: 'chatgpt',
+      requestId: 'post-delete-draft',
+      cards: [{ title: 'Must not reappear' }],
+    }),
+    /token or ingestion quota is unavailable/,
+  );
+  await assert.rejects(
+    createMcpAccessTokenForUser(userId, 'Post-delete token'),
+    McpDeletedAccountError,
+  );
+  assert.equal(await recordKnowledgeReuseForUser(userId, ['deleted-item']), 0);
+
+  assert.equal(neonTransactions.length, 2);
+  for (const [index, transaction] of neonTransactions.entries()) {
+    assert.deepEqual(transaction.options, { isolationLevel: 'ReadCommitted' });
+    assert.equal(transaction.calls.length, 3);
+    assert.deepEqual(transaction.calls[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
+    assert.deepEqual(
+      transaction.calls[1]!.params,
+      [index === 0 ? `knowledge-ingestion:${userId}` : `mcp-token:${userId}`],
+    );
+    assert.match(transaction.calls[2]!.text, /mcp_deleted_account_markers/);
+    assert.equal(transaction.calls[2]!.params.at(-1), scopeKey);
+  }
+  assert.equal(poolTransactions.length, 1);
+  assert.deepEqual(poolTransactions[0]!.options, { isolationLevel: 'ReadCommitted' });
+  assert.deepEqual(poolTransactions[0]!.queries[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
+  assert.match(poolTransactions[0]!.queries[1]!.text, /mcp_deleted_account_markers/);
+  assert.equal(poolTransactions[0]!.queries[1]!.params?.[3], scopeKey);
 });
 
 test('supports selected approval and add-all while rejecting stale versions', async () => {

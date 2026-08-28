@@ -136,12 +136,20 @@ test('practice selection filters pending, deleted, manual, and cross-owner rows 
 
 test('private ratings use one owner-gated insert and never write shared cards or graph state', async (context) => {
   const originalQuery = db.query;
+  const originalAccountTransaction = db.accountTransaction;
   const calls: Array<{ text: string; params?: unknown[] }> = [];
-  context.after(() => { db.query = originalQuery; });
+  context.after(() => {
+    db.query = originalQuery;
+    db.accountTransaction = originalAccountTransaction;
+  });
   db.query = (async (text: string, params?: unknown[]) => {
     calls.push({ text, params });
     return { rows: [{ knowledge_item_id: params?.[1] }] };
   }) as typeof db.query;
+  db.accountTransaction = (async (
+    _userId: string,
+    queries: Parameters<typeof db.accountTransaction>[1],
+  ) => Promise.all(queries.map(({ text, params }) => db.query(text, params))) as never) as typeof db.accountTransaction;
 
   const saved = await savePrivatePracticeCardState(
     ACTOR_ID,

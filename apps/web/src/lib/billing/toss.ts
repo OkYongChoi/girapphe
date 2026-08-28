@@ -55,6 +55,19 @@ export class TossBillingError extends Error {
   }
 }
 
+export class TossProviderRequestError extends TossBillingError {
+  constructor(
+    message: string,
+    code: string,
+    readonly outcome: 'definite_rejection' | 'indeterminate',
+    options?: ErrorOptions,
+  ) {
+    super(message, code);
+    this.name = 'TossProviderRequestError';
+    if (options?.cause !== undefined) this.cause = options.cause;
+  }
+}
+
 export function isTossBillingEnabled() {
   return process.env.TOSS_BILLING_ENABLED === 'true';
 }
@@ -215,17 +228,37 @@ async function tossApiRequest<T>(
   });
   if (init.idempotencyKey) headers.set('Idempotency-Key', init.idempotencyKey);
 
-  const response = await fetch(`https://api.tosspayments.com${path}`, {
-    method: init.method,
-    headers,
-    body: init.body ? JSON.stringify(init.body) : undefined,
-    cache: 'no-store',
-    signal: AbortSignal.timeout(65_000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`https://api.tosspayments.com${path}`, {
+      method: init.method,
+      headers,
+      body: init.body ? JSON.stringify(init.body) : undefined,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(65_000),
+    });
+  } catch (error) {
+    if (init.method === 'POST') {
+      throw new TossProviderRequestError(
+        'The Toss Payments request outcome is indeterminate.',
+        'TOSS_PROVIDER_OUTCOME_INDETERMINATE',
+        'indeterminate',
+        { cause: error },
+      );
+    }
+    throw error;
+  }
   const payload = await response.json().catch(() => null) as (T & { code?: string; message?: string }) | null;
   if (!response.ok || (!payload && !init.allowEmptySuccess)) {
     const code = payload?.code?.slice(0, 80) || `HTTP_${response.status}`;
-    throw new TossBillingError('Toss Payments rejected the billing request.', code);
+    const outcome = init.method === 'POST' && (response.ok || response.status >= 500)
+      ? 'indeterminate'
+      : 'definite_rejection';
+    throw new TossProviderRequestError(
+      'Toss Payments rejected the billing request.',
+      code,
+      outcome,
+    );
   }
   return payload as T;
 }
@@ -241,7 +274,11 @@ export async function issueTossBillingKey(
     body: { authKey, customerKey },
   });
   if (!result.billingKey || result.customerKey !== customerKey) {
-    throw new TossBillingError('Toss billing authorization returned an invalid identity.', 'TOSS_IDENTITY_MISMATCH');
+    throw new TossProviderRequestError(
+      'Toss billing authorization returned an invalid identity.',
+      'TOSS_IDENTITY_MISMATCH',
+      'indeterminate',
+    );
   }
   return result.billingKey;
 }
@@ -255,7 +292,7 @@ export async function chargeTossBillingKey(input: {
   customerEmail?: string;
   idempotencyKey: string;
 }) {
-  return tossApiRequest<TossPayment>(`/v1/billing/${encodeURIComponent(input.billingKey)}`, {
+  const payment = await tossApiRequest<TossPayment>(`/v1/billing/${encodeURIComponent(input.billingKey)}`, {
     method: 'POST',
     idempotencyKey: input.idempotencyKey,
     body: {
@@ -266,6 +303,18 @@ export async function chargeTossBillingKey(input: {
       ...(input.customerEmail ? { customerEmail: input.customerEmail } : {}),
     },
   });
+  if (
+    !payment.paymentKey
+    || payment.orderId !== input.orderId
+    || payment.totalAmount !== input.amount
+  ) {
+    throw new TossProviderRequestError(
+      'Toss billing returned an invalid payment identity.',
+      'TOSS_PAYMENT_IDENTITY_MISMATCH',
+      'indeterminate',
+    );
+  }
+  return payment;
 }
 
 export async function verifyTossPayment(input: {

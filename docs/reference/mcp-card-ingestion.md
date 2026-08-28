@@ -1,21 +1,24 @@
 # MCP card-draft ingestion
 
 Girapphe exposes a provider-neutral Streamable HTTP MCP endpoint at
-`POST /api/mcp`. The endpoint has two compatible write tools:
+`POST /api/mcp`. The endpoint has two compatible write tools and one
+owner-scoped read tool:
 
 - `create_knowledge_bundle_drafts` for versioned structured knowledge; and
-- `create_card_drafts` for existing clients, adapted to a `concept` bundle.
+- `create_card_drafts` for existing clients, adapted to a `concept` bundle;
+  and
+- `get_topic_context` for explicit reuse of confirmed knowledge.
 
 The tool creates a private, pending review batch. It cannot approve cards,
 change learning state, or write to the public graph. A signed-in user must
 review the batch in `/knowledge-inbox` and explicitly choose one of:
 
-- add selected cards;
-- add every pending card in this batch; or
-- discard this batch.
+- save a reviewed candidate as new;
+- merge or update it after selecting and comparing an owner-scoped match; or
+- ignore the candidate.
 
-“Add every card” is deliberately scoped to the displayed batch. It is not a
-persistent auto-import setting.
+There is no persistent auto-import or auto-merge setting. Every candidate
+crosses this review boundary independently.
 
 ## Authentication
 
@@ -30,8 +33,9 @@ MCP discovery through:
 - `/.well-known/oauth-authorization-server`.
 
 OAuth clients receive only the provider's `profile` identity scope. Girapphe
-then maps that authenticated user to its one narrow MCP permission:
-`knowledge:drafts:create`. The access token and Clerk client ID are not stored
+currently maps that authenticated user only to `knowledge:drafts:create`.
+OAuth context reads remain disabled until a custom consent surface can request
+and explain `knowledge:context:read`. The access token and Clerk client ID are not stored
 in ingestion records or rate-limit keys; a one-way user/client fingerprint is
 used for request throttling.
 
@@ -49,10 +53,13 @@ Inbox. Send it only in the authorization header:
 Authorization: Bearer <token shown once by Girapphe>
 ```
 
-Girapphe stores only a SHA-256 hash and the final four characters. Tokens have
-the single `knowledge:drafts:create` scope, expire after 90 days, and can be
-revoked. An account may keep up to 10 active tokens and create up to 20 in a
-day (500 retained token records total).
+Girapphe stores only a SHA-256 hash and the final four characters. PATs receive
+explicit scopes: `knowledge:drafts:create` is the default, and
+`knowledge:context:read` must be selected for Topic Context reuse. Tokens
+expire after 90 days and can be revoked. Existing tokens are not automatically
+upgraded when a new scope becomes available; create a new token when the
+additional permission is needed. An account may keep up to 10 active tokens
+and create up to 20 in a day (500 retained token records total).
 
 This path remains useful for programmatic or local clients that can attach a
 custom authorization header. OAuth and Girapphe PATs are distinguished before
@@ -65,14 +72,17 @@ OAuth verifier.
 bundle has `title`, `central_question`, `summary`, `topic`, `tags`,
 `knowledge_type`, `structured_content`, and `bundle_schema_version: 1`.
 `tags` may be empty, while the other common text fields must be non-blank. The
-six discriminators are:
+nine discriminators are:
 
 - `concept`: definition, key points, examples, non-examples, misconceptions;
 - `procedure`: goal, prerequisites, steps, branches, failure responses, completion criteria;
 - `comparison`: targets, criteria values, commonalities, differences, choice guide;
 - `mechanism`: causes, stages, results, conditions, exceptions;
 - `structure`: purpose, components/hierarchy, internal relations, boundaries; and
-- `claim_evidence`: claim, sourced evidence, counterevidence, scope, limitations, confidence.
+- `claim_evidence`: claim, sourced evidence, counterevidence, scope, limitations, confidence;
+- `question`: question, context, known facts, hypotheses, next steps, answer summary, open/answered status;
+- `decision`: decision, context, options/tradeoffs, criteria, rationale, reconsideration triggers, outcome; and
+- `event`: event, occurrence text, context, changes, causes, consequences.
 
 ```json
 {
@@ -141,17 +151,41 @@ Input boundaries:
   transcript or silently revisit conversation history;
 - 1–50 cards per request;
 - relationship types are `prerequisite`, `related`, `generalizes`,
-  `derived_from`, and `equivalent_to`;
+  `derived_from`, `equivalent_to`, `supersedes`, `answers`, `supports`, and
+  `contradicts`;
+- optional evidence is selector-only (`message`, `text_position`,
+  `line_range`, or `external_ref`); transcript text and excerpt fields are
+  rejected;
 - identifiers are opaque strings, not conversation text;
 - unknown fields are rejected, and there is no transcript/history field.
 
-The adapter uses the card title as the central question, the summary as the
+Both tools may include a bounded HTTPS `provenance.source_url` and an ISO-8601
+`provenance.discussed_at`. Source URLs reject embedded credentials and are
+stored without query strings or fragments. Opaque conversation references
+reject URL-like `scheme://` values. These locate the explicitly selected current
+conversation without accepting its transcript. The adapter uses the card title as the central question, the summary as the
 concept definition, and the explanation as a key point. It shares the same
 authentication, idempotency, request-size, rate, quota, and pending-review
 boundary as the structured tool.
 
 The same user, provider, and request ID return the existing batch rather than
 creating duplicates.
+
+## Confirmed Topic Context
+
+`get_topic_context` requires `knowledge:context:read` and a topic plus one
+strict selection:
+
+- `{ "type": "items", "item_ids": [...] }` contains 1–100 unique,
+  owner-scoped confirmed item IDs; or
+- `{ "type": "recent_topic", "limit": 1..50 }` requests a bounded recent
+  selection from that topic.
+
+The request also chooses `json`, `markdown`, or `yaml`. Unknown fields,
+pending/archived/foreign items, duplicated IDs, transcript text, and mixed
+selection shapes are rejected. Successful output contains canonical knowledge
+plus selector-only provenance and records a `Reused` lifecycle activity for
+every returned item. It never returns a raw transcript.
 
 ## Quotas and deployment
 
@@ -166,10 +200,17 @@ of an existing request ID do not consume the draft quota again.
 Quota checks and inserts are serialized per user in one database transaction.
 Production does not run ingestion DDL in request handlers; apply
 `apps/web/drizzle/migrations/0007_private_knowledge_ingestion.sql` through
-`apps/web/drizzle/migrations/0015_typed_knowledge_bundles.sql` before
+`apps/web/drizzle/migrations/0016_conversation_knowledge_hub.sql` before
 enabling the MCP endpoint. PR previews keep the repository's existing isolated
 database bootstrap, but only authenticated UI paths invoke it; invalid bearer
 requests never execute DDL.
+
+After migration, treat schema presence as a release gate: `user_knowledge_items`
+must expose `version`, `dedupe_key`, and the temporal/lifecycle columns, and
+`knowledge_item_revisions`, `knowledge_item_activity`,
+`knowledge_item_supersessions`, and `knowledge_evidence_spans` must all exist.
+Run `pnpm --filter @stem-brain/web db:migrate` for the target database and the
+repository's `pnpm harness:deploy` gate before enabling the new review UI.
 
 ## Client compatibility
 
@@ -186,12 +227,14 @@ provider's current plan, workspace policy, and MCP client implementation.
 
 ## Data lifecycle
 
-Approval creates the following records atomically:
+Approval or an explicit merge/update creates the following records atomically:
 
 1. a private `user_knowledge_items` item whose structured JSON is authoritative;
 2. its `user_graph_nodes` identity;
-3. provenance in `knowledge_card_sources`; and
-4. only relationships whose endpoints still exist and are owned by the user
+3. immutable version history and lifecycle activity;
+4. provenance in `knowledge_card_sources` plus selector-only evidence metadata;
+   and
+5. only relationships whose endpoints still exist and are owned by the user
    (or reference a valid public node).
 
 Drafts never affect mastery scores. Deleting a personal card moves its private

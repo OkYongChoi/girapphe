@@ -165,7 +165,12 @@ export async function getMcpAccessTokens(): Promise<McpAccessToken[]> {
 
 export async function createMcpAccessToken(formData: FormData): Promise<{ token: string; record: McpAccessToken }> {
   const user = await requireCurrentUser();
-  const result = await createMcpAccessTokenForUser(user.id, String(formData.get('label') ?? 'MCP client'));
+  const scopes = formData.getAll('scope').filter((value): value is string => typeof value === 'string');
+  const result = await createMcpAccessTokenForUser(
+    user.id,
+    String(formData.get('label') ?? 'MCP client'),
+    scopes,
+  );
   revalidatePath('/knowledge-inbox');
   return result;
 }

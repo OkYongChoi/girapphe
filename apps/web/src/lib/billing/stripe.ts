@@ -1,15 +1,16 @@
 import {
   AD_FREE_ENTITLEMENT,
+  claimAccountBillingOperation,
   claimStripePortalRateSlot,
-  claimWebhookEvent,
   claimTrial,
   consumeTrialFromWebhook,
   findUserIdByStripeCustomer,
   hasBlockingSubscription,
   getStripeCustomerId,
   getStripeSubscriptionIds,
+  isAccountDeletionMarked,
+  releaseAccountBillingOperation,
   releaseTrialClaim,
-  releaseWebhookEvent,
   saveStripeCustomer,
   upsertSubscription,
   type BillingPlan,
@@ -29,6 +30,16 @@ type StripeEvent = {
 
 export class BillingConfigurationError extends Error {}
 export class ExistingSubscriptionError extends Error {}
+export class StripeProviderRequestError extends Error {
+  constructor(
+    message: string,
+    readonly outcome: 'definite_rejection' | 'indeterminate',
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = 'StripeProviderRequestError';
+  }
+}
 export class StripePortalRateLimitError extends Error {
   readonly retryAfterSeconds = 600;
 
@@ -101,14 +112,20 @@ function planForPrice(priceId: string | null): BillingPlan {
   return 'unknown';
 }
 
-async function readStripeResponse<T extends JsonObject>(response: Response): Promise<T> {
+async function readStripeResponse<T extends JsonObject>(
+  response: Response,
+  providerMutation: boolean,
+): Promise<T> {
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok || !isObject(payload)) {
     const stripeMessage = isObject(payload) && isObject(payload.error)
       ? stringValue(payload.error.message)
       : null;
     const message = stripeMessage ?? `Stripe request failed with status ${response.status}.`;
-    throw new Error(message);
+    const outcome = providerMutation && (response.ok || response.status >= 500)
+      ? 'indeterminate'
+      : 'definite_rejection';
+    throw new StripeProviderRequestError(message, outcome);
   }
   return payload as T;
 }
@@ -117,6 +134,7 @@ async function stripeFetch<T extends JsonObject>(
   url: string,
   init: RequestInit,
   requestTimeoutMs = STRIPE_PROVIDER_TIMEOUT_MS,
+  providerMutation = false,
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(
@@ -125,10 +143,24 @@ async function stripeFetch<T extends JsonObject>(
   );
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
-    return await readStripeResponse<T>(response);
+    return await readStripeResponse<T>(response, providerMutation);
   } catch (error) {
     if (controller.signal.aborted) {
+      if (providerMutation) {
+        throw new StripeProviderRequestError(
+          'Stripe request timed out.',
+          'indeterminate',
+          { cause: error },
+        );
+      }
       throw new Error('Stripe request timed out.', { cause: error });
+    }
+    if (providerMutation && !(error instanceof StripeProviderRequestError)) {
+      throw new StripeProviderRequestError(
+        'Stripe request outcome is indeterminate.',
+        'indeterminate',
+        { cause: error },
+      );
     }
     throw error;
   } finally {
@@ -152,7 +184,7 @@ async function stripeRequest<T extends JsonObject>(
     headers,
     body,
     cache: 'no-store',
-  });
+  }, STRIPE_PROVIDER_TIMEOUT_MS, true);
 }
 
 async function stripeDelete<T extends JsonObject>(path: string): Promise<T> {
@@ -162,7 +194,7 @@ async function stripeDelete<T extends JsonObject>(path: string): Promise<T> {
       Authorization: `Bearer ${requiredSecret('STRIPE_SECRET_KEY')}`,
       'Stripe-Version': STRIPE_API_VERSION,
     },
-  });
+  }, STRIPE_PROVIDER_TIMEOUT_MS, true);
 }
 
 async function stripeGet<T extends JsonObject>(
@@ -198,7 +230,12 @@ async function ensureStripeCustomer(userId: string, email: string) {
     `girapphe-customer:${userId}`,
   );
   const createdId = stringValue(customer.id);
-  if (!createdId) throw new Error('Stripe did not return a customer id.');
+  if (!createdId) {
+    throw new StripeProviderRequestError(
+      'Stripe did not return a customer id.',
+      'indeterminate',
+    );
+  }
 
   // A Toss-created billing customer row may already exist with a NULL Stripe id.
   // COALESCE in saveStripeCustomer fills that row without replacing an existing mapping.
@@ -233,7 +270,9 @@ async function findOpenCheckoutUrl(customerId: string, userId: string) {
     status: 'open',
     limit: '10',
   }));
-  if (!Array.isArray(sessions.data)) return null;
+  if (!Array.isArray(sessions.data)) {
+    throw new Error('Stripe did not return a Checkout Session list.');
+  }
   const nowSeconds = Math.floor(Date.now() / 1000);
   for (const candidate of sessions.data) {
     if (!isObject(candidate)) continue;
@@ -260,7 +299,9 @@ async function hasBlockingStripeSubscription(customerId: string) {
     status: 'all',
     limit: '100',
   }));
-  if (!Array.isArray(subscriptions.data)) return false;
+  if (!Array.isArray(subscriptions.data)) {
+    throw new Error('Stripe did not return a subscription list.');
+  }
   const blockingStatuses = new Set([
     'incomplete',
     'trialing',
@@ -283,9 +324,10 @@ export async function createStripeCheckout(input: {
   requestUrl: string;
 }) {
   const priceId = priceForPlan(input.plan);
-  const operationId = `checkout-create:${input.userId}`;
-  const operationClaim = await claimWebhookEvent('stripe', operationId, 'checkout.session.create');
-  if (operationClaim !== 'claimed') throw new Error('A checkout session is already being created.');
+  const lease = await claimAccountBillingOperation(input.userId, 'stripe', 'checkout');
+  if (!lease) throw new Error('A checkout session is already being created.');
+  let releaseLease = true;
+  let claimedAtIso: string | null = null;
   try {
     if (await hasBlockingSubscription(input.userId)) {
       throw new ExistingSubscriptionError('An ad-free subscription already needs management.');
@@ -300,7 +342,7 @@ export async function createStripeCheckout(input: {
     }
 
     const claimedAt = await claimTrial(input.userId);
-    const claimedAtIso = claimedAt?.toISOString() ?? null;
+    claimedAtIso = claimedAt?.toISOString() ?? null;
     const baseUrl = checkoutBaseUrl(input.requestUrl);
     const body = new URLSearchParams({
       mode: 'subscription',
@@ -324,21 +366,31 @@ export async function createStripeCheckout(input: {
     }
 
     const idempotencyWindow = claimedAtIso ?? Math.floor(Date.now() / 600_000).toString();
-    try {
-      const session = await stripeRequest<JsonObject>(
-        'checkout/sessions',
-        body,
-        `girapphe-checkout:${input.userId}:${input.plan}:${idempotencyWindow}`,
+    const session = await stripeRequest<JsonObject>(
+      'checkout/sessions',
+      body,
+      `girapphe-checkout:${input.userId}:${input.plan}:${idempotencyWindow}`,
+    );
+    const url = stringValue(session.url);
+    if (!url) {
+      throw new StripeProviderRequestError(
+        'Stripe did not return a Checkout URL.',
+        'indeterminate',
       );
-      const url = stringValue(session.url);
-      if (!url) throw new Error('Stripe did not return a Checkout URL.');
-      return url;
-    } catch (error) {
-      if (claimedAtIso) await releaseTrialClaim(input.userId, claimedAtIso);
-      throw error;
     }
+    return url;
+  } catch (error) {
+    if (error instanceof StripeProviderRequestError && error.outcome === 'indeterminate') {
+      releaseLease = false;
+    }
+    if (claimedAtIso && releaseLease) {
+      await releaseTrialClaim(input.userId, claimedAtIso);
+    }
+    throw error;
   } finally {
-    await releaseWebhookEvent('stripe', operationId).catch(() => undefined);
+    if (releaseLease) {
+      await releaseAccountBillingOperation(lease).catch(() => undefined);
+    }
   }
 }
 
@@ -360,10 +412,56 @@ export async function createStripePortal(input: { userId: string; requestUrl: st
   return url;
 }
 
+async function expireOwnedOpenStripeCheckoutSessions(customerId: string, userId: string) {
+  let startingAfter: string | null = null;
+  let expired = 0;
+
+  for (let page = 0; page < 100; page += 1) {
+    const query = new URLSearchParams({
+      customer: customerId,
+      status: 'open',
+      limit: '100',
+    });
+    if (startingAfter) query.set('starting_after', startingAfter);
+    const sessions = await stripeGet<JsonObject>('checkout/sessions', query);
+    if (!Array.isArray(sessions.data)) {
+      throw new Error('Stripe did not return a Checkout Session list.');
+    }
+    const data = sessions.data.filter(isObject);
+
+    for (const candidate of data) {
+      const id = stringValue(candidate.id);
+      const metadata = metadataOf(candidate.metadata);
+      if (
+        id
+        && candidate.mode === 'subscription'
+        && metadata.user_id === userId
+        && metadata.entitlement === AD_FREE_ENTITLEMENT
+      ) {
+        await stripeRequest<JsonObject>(
+          `checkout/sessions/${encodeURIComponent(id)}/expire`,
+          new URLSearchParams(),
+        );
+        expired += 1;
+      }
+    }
+
+    if (sessions.has_more !== true) return expired;
+    const nextCursor = stringValue(data.at(-1)?.id);
+    if (!nextCursor || nextCursor === startingAfter) {
+      throw new Error('Stripe Checkout pagination did not advance.');
+    }
+    startingAfter = nextCursor;
+  }
+
+  throw new Error('Stripe Checkout pagination exceeded the cleanup limit.');
+}
+
 export async function cancelStripeSubscriptionsForAccountDeletion(userId: string) {
   const customerId = await getStripeCustomerId(userId);
   if (!customerId) return 0;
 
+  await expireOwnedOpenStripeCheckoutSessions(customerId, userId);
   const monthlyPriceId = requiredSecret('STRIPE_PRICE_AD_FREE_MONTHLY');
   const annualPriceId = requiredSecret('STRIPE_PRICE_AD_FREE_ANNUAL');
   const appPriceIds = new Set([monthlyPriceId, annualPriceId]);
@@ -373,7 +471,9 @@ export async function cancelStripeSubscriptionsForAccountDeletion(userId: string
     status: 'all',
     limit: '100',
   }));
-  if (!Array.isArray(subscriptions.data)) return 0;
+  if (!Array.isArray(subscriptions.data)) {
+    throw new Error('Stripe did not return a subscription list.');
+  }
 
   const cancellable = subscriptions.data.filter((candidate): candidate is JsonObject => {
     if (!isObject(candidate)) return false;
@@ -497,21 +597,34 @@ async function processSubscription(object: JsonObject, providerEventAt: Date) {
 
   const userId = await resolveStripeUserId(object);
   if (!userId) throw new Error('Unable to map Stripe subscription to a Clerk user.');
+  let reconciledObject = object;
+  let effectiveProviderEventAt = providerEventAt;
+  const incomingStatus = normalizeStripeStatus(object.status);
+  if (
+    !['canceled', 'expired'].includes(incomingStatus)
+    && await isAccountDeletionMarked(userId)
+  ) {
+    reconciledObject = await stripeDelete<JsonObject>(
+      `subscriptions/${encodeURIComponent(providerSubscriptionId)}`,
+    );
+    effectiveProviderEventAt = new Date();
+  }
+  const reconciledStatus = normalizeStripeStatus(reconciledObject.status);
   await upsertSubscription({
     provider: 'stripe',
     providerSubscriptionId,
     userId,
     store: 'web',
     plan,
-    status: normalizeStripeStatus(object.status),
+    status: reconciledStatus,
     entitlement: AD_FREE_ENTITLEMENT,
-    currentPeriodStart: subscriptionPeriod(object, 'current_period_start'),
-    currentPeriodEnd: subscriptionPeriod(object, 'current_period_end'),
-    trialEnd: timestampToDate(object.trial_end),
-    cancelAtPeriodEnd: object.cancel_at_period_end === true,
-    providerEventAt,
+    currentPeriodStart: subscriptionPeriod(reconciledObject, 'current_period_start'),
+    currentPeriodEnd: subscriptionPeriod(reconciledObject, 'current_period_end'),
+    trialEnd: timestampToDate(reconciledObject.trial_end),
+    cancelAtPeriodEnd: reconciledObject.cancel_at_period_end === true,
+    providerEventAt: effectiveProviderEventAt,
   });
-  if (normalizeStripeStatus(object.status) === 'trialing') {
+  if (reconciledStatus === 'trialing') {
     await consumeTrialFromWebhook(userId);
   }
 }

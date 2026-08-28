@@ -36,10 +36,13 @@ export {
   type ClaimEvidenceBundleContent,
   type ComparisonBundleContent,
   type ConceptBundleContent,
+  type DecisionBundleContent,
+  type EventBundleContent,
   type KnowledgeBundleContent,
   type KnowledgeBundleType,
   type KnowledgeBundleV1,
   type MechanismBundleContent,
   type ProcedureBundleContent,
+  type QuestionBundleContent,
   type StructureBundleContent,
 } from './knowledge-bundles';

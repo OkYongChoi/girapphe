@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import db from '@/lib/db';
 import {
+  claimAccountBillingOperation,
   moveVerifiedRevenueCatSubscription,
+  releaseAccountBillingOperation,
   requireAdFreeEntitlementStatus,
 } from './database';
 
@@ -34,6 +36,50 @@ test('strict entitlement reads propagate query failures instead of returning fal
   }) as typeof db.query;
 
   await assert.rejects(requireAdFreeEntitlementStatus('user_123'), /query failed/);
+});
+
+test('account billing leases are guarded, anonymized, stale-reclaimable, and owner-released', async (context) => {
+  const originalAccountTransaction = db.accountTransaction;
+  const originalQuery = db.query;
+  const transactions: Array<{
+    userId: string;
+    queries: Parameters<typeof db.accountTransaction>[1];
+  }> = [];
+  const releases: Array<{ text: string; params?: unknown[] }> = [];
+  context.after(() => {
+    db.accountTransaction = originalAccountTransaction;
+    db.query = originalQuery;
+  });
+  db.accountTransaction = (async (userId, queries) => {
+    transactions.push({ userId, queries });
+    return [{ rows: [{ event_id: String(queries[0]?.params?.[1]) }] }];
+  }) as typeof db.accountTransaction;
+  db.query = (async (text: string, params?: unknown[]) => {
+    releases.push({ text, params });
+    return { rows: [] };
+  }) as typeof db.query;
+
+  const userId = 'user_sensitive_billing_owner';
+  const lease = await claimAccountBillingOperation(userId, 'stripe', 'checkout');
+  assert.ok(lease);
+  assert.equal(transactions.length, 1);
+  assert.equal(transactions[0]?.userId, userId);
+  const claim = transactions[0]?.queries[0];
+  assert.ok(claim);
+  assert.match(claim.text, /INSERT INTO billing_webhook_events/);
+  assert.match(claim.text, /created_at < NOW\(\) - INTERVAL '10 minutes'/);
+  assert.match(lease.eventId, /^account-billing:[0-9a-f]{64}$/);
+  assert.equal(lease.eventId.includes(userId), false);
+  assert.equal(lease.eventType.includes(userId), false);
+  assert.equal(claim.params?.[2], lease.eventType);
+
+  await releaseAccountBillingOperation(lease);
+  assert.equal(releases.length, 1);
+  assert.match(releases[0]!.text, /event_type = \$3/);
+  assert.deepEqual(releases[0]!.params, ['stripe', lease.eventId, lease.eventType]);
+
+  db.accountTransaction = (async () => [{ rows: [] }]) as typeof db.accountTransaction;
+  assert.equal(await claimAccountBillingOperation(userId, 'stripe', 'checkout'), null);
 });
 
 test('verified RevenueCat transfer uses one exact-row atomic upsert', async (context) => {

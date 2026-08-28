@@ -9,11 +9,12 @@ import { LocalizedLink } from '@/i18n/navigation';
 const NAV_ITEMS = [
   { href: '/practice', label: 'nav.practice' },
   { href: '/saved', label: 'nav.reviewQueue' },
-  { href: '/knowledge', label: 'nav.knowledgeMap' },
+  { href: '/knowledge', label: 'nav.atlas' },
   { href: '/grid', label: 'nav.concepts' },
   { href: '/dashboard', label: 'nav.dashboard' },
   { href: '/my-knowledge', label: 'nav.myNotes' },
-  { href: '/knowledge-inbox', label: 'nav.knowledgeInbox' },
+  { href: '/topics', label: 'nav.topics', authOnly: true },
+  { href: '/knowledge-inbox', label: 'nav.knowledgeInbox', authOnly: true },
   { href: '/ranking', label: 'nav.ranking' },
 ] as const;
 
@@ -38,38 +39,33 @@ export default function NavLinks({
   const navListRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
-    let animationFrame = 0;
-    const keepActiveLinkVisible = () => {
+    const alignActiveLinkToLogicalStart = () => {
       const activeLink = activeLinkRef.current;
       const navList = navListRef.current;
       if (!activeLink || !navList) return;
 
       const activeRect = activeLink.getBoundingClientRect();
       const listRect = navList.getBoundingClientRect();
-      const isClipped = activeRect.left < listRect.left || activeRect.right > listRect.right;
+      const isRtl = getComputedStyle(navList).direction === 'rtl';
+      const offset = isRtl
+        ? activeRect.right - listRect.right
+        : activeRect.left - listRect.left;
 
-      if (isClipped) {
-        activeLink.scrollIntoView({ block: 'nearest', inline: 'start' });
-      }
+      if (Math.abs(offset) > 1) navList.scrollBy({ left: offset, behavior: 'auto' });
     };
-    const scheduleActiveLinkAlignment = () => {
-      cancelAnimationFrame(animationFrame);
-      animationFrame = requestAnimationFrame(keepActiveLinkVisible);
-    };
-    scheduleActiveLinkAlignment();
+    alignActiveLinkToLogicalStart();
 
-    window.addEventListener('resize', scheduleActiveLinkAlignment, { passive: true });
+    window.addEventListener('resize', alignActiveLinkToLogicalStart, { passive: true });
 
     const navList = navListRef.current;
     let resizeObserver: ResizeObserver | null = null;
     if (navList && typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(scheduleActiveLinkAlignment);
+      resizeObserver = new ResizeObserver(alignActiveLinkToLogicalStart);
       resizeObserver.observe(navList);
     }
 
     return () => {
-      cancelAnimationFrame(animationFrame);
-      window.removeEventListener('resize', scheduleActiveLinkAlignment);
+      window.removeEventListener('resize', alignActiveLinkToLogicalStart);
       resizeObserver?.disconnect();
     };
   }, [pathname]);
@@ -77,7 +73,7 @@ export default function NavLinks({
   return (
     <nav aria-label={t('nav.main')} className="min-w-0 overflow-hidden">
       <ul ref={navListRef} className={`no-scrollbar flex w-full min-w-0 items-center gap-1 overflow-x-auto rounded-lg p-1 text-sm font-medium ${isHome ? 'bg-white/[0.06] text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
-        {NAV_ITEMS.filter((item) => item.href !== '/knowledge-inbox' || isAuthenticated).map((item) => {
+        {NAV_ITEMS.filter((item) => !('authOnly' in item) || !item.authOnly || isAuthenticated).map((item) => {
           const active = isActive(pathname, item.href);
           return (
             <li key={item.href} className="shrink-0">

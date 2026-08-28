@@ -9,9 +9,11 @@ import {
 } from '@/actions/knowledge-ingestion-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import SubmitButton from '@/components/submit-button';
+import { useI18n } from '@/i18n/client';
 
 export default function DraftReviewMcpConnections({ tokens }: { tokens: McpAccessToken[] }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [rawToken, setRawToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,12 +32,12 @@ export default function DraftReviewMcpConnections({ tokens }: { tokens: McpAcces
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">Authenticated ingestion</p>
           <h2 id="mcp-connections-title" className="mt-1 text-xl font-bold text-slate-950">MCP Connections</h2>
           <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
-            Create a bearer-header token for a header-capable or programmatic MCP client. Connect it to <code className="break-all rounded bg-slate-100 px-1 py-0.5 text-xs">{endpointUrl}</code>; its only scope is <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">knowledge:drafts:create</code>.
+            {t('mcp.scope.description')} <code className="break-all rounded bg-slate-100 px-1 py-0.5 text-xs">{endpointUrl}</code>
           </p>
-          <p className="mt-1 text-xs text-slate-500">OAuth-native connectors use the same endpoint and Girapphe sign-in after Clerk MCP OAuth is enabled for the deployment.</p>
+          <p className="mt-1 text-xs text-slate-500">{t('mcp.scope.note')}</p>
         </div>
         <form
-          className="flex w-full max-w-sm gap-2"
+          className="grid w-full max-w-lg gap-3 rounded-xl border border-violet-100 bg-violet-50/40 p-3"
           action={async (formData) => {
             setError(null);
             setCopied(false);
@@ -48,19 +50,32 @@ export default function DraftReviewMcpConnections({ tokens }: { tokens: McpAcces
             }
           }}
         >
-          <label htmlFor="mcp-token-label" className="sr-only">Connection label</label>
-          <input
-            id="mcp-token-label"
-            name="label"
-            required
-            maxLength={80}
-            placeholder="e.g., Claude desktop"
-            className="min-h-10 min-w-0 flex-1 rounded-lg border px-3 text-sm outline-none focus:ring-2 focus:ring-violet-400"
-          />
+          <label htmlFor="mcp-token-label" className="grid gap-1 text-xs font-bold text-slate-700">
+            Connection label
+            <input
+              id="mcp-token-label"
+              name="label"
+              required
+              maxLength={80}
+              placeholder="e.g., Claude desktop"
+              className="min-h-10 min-w-0 rounded-lg border bg-white px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-violet-400"
+            />
+          </label>
+          <fieldset className="grid gap-2">
+            <legend className="text-xs font-bold text-slate-700">{t('mcp.scope.legend')}</legend>
+            <label className="flex items-start gap-2 rounded-lg border bg-white p-2.5 text-xs text-slate-700">
+              <input type="checkbox" name="scope" value="knowledge:drafts:create" defaultChecked className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-700 focus:ring-violet-500" />
+              <span><strong className="block text-slate-900">{t('mcp.scope.draftsTitle')}</strong><code>knowledge:drafts:create</code> · {t('mcp.scope.draftsBody')}</span>
+            </label>
+            <label className="flex items-start gap-2 rounded-lg border bg-white p-2.5 text-xs text-slate-700">
+              <input type="checkbox" name="scope" value="knowledge:context:read" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-cyan-700 focus:ring-cyan-500" />
+              <span><strong className="block text-slate-900">{t('mcp.scope.contextTitle')}</strong><code>knowledge:context:read</code> · {t('mcp.scope.contextBody')}</span>
+            </label>
+          </fieldset>
           <SubmitButton
             label="Create token"
             loadingLabel="Creating…"
-            className="min-h-10 shrink-0 rounded-lg bg-violet-700 px-4 text-sm font-bold text-white hover:bg-violet-800 disabled:opacity-60"
+            className="min-h-10 justify-self-end rounded-lg bg-violet-700 px-4 text-sm font-bold text-white hover:bg-violet-800 disabled:opacity-60"
           />
         </form>
       </div>
@@ -134,7 +149,7 @@ export default function DraftReviewMcpConnections({ tokens }: { tokens: McpAcces
                       <input type="hidden" name="token_id" value={token.id} />
                       <ConfirmDeleteButton
                         label="Revoke"
-                        confirmMessage={`Revoke MCP connection "${token.label}"? The client will immediately lose draft-creation access.`}
+                        confirmMessage={`Revoke MCP connection "${token.label}"? The client will immediately lose every listed knowledge capability.`}
                         className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50"
                       />
                     </form>

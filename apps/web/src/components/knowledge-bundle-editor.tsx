@@ -156,5 +156,31 @@ function BundleFields({ content, update, t }: {
       {area(t('bundle.field.limitations'), listValue(content.limitations), (value) => update({ ...content, limitations: textLines(value) }))}
       <label className="grid gap-1 text-xs font-medium text-slate-700">{t('bundle.field.confidence')}<select className={fieldClass} value={content.confidence ?? ''} onChange={(event) => update({ ...content, confidence: event.target.value ? event.target.value as 'low' | 'medium' | 'high' : undefined })}><option value="">—</option><option value="low">{t('bundle.confidence.low')}</option><option value="medium">{t('bundle.confidence.medium')}</option><option value="high">{t('bundle.confidence.high')}</option></select></label>
     </>;
+    case 'question': return <>
+      {area(t('bundle.field.question'), content.question, (value) => update({ ...content, question: value }))}
+      {area(t('bundle.field.context'), content.context, (value) => update({ ...content, context: value }))}
+      {area(t('bundle.field.knownFacts'), listValue(content.known_facts), (value) => update({ ...content, known_facts: textLines(value) }))}
+      {area(t('bundle.field.hypotheses'), listValue(content.hypotheses), (value) => update({ ...content, hypotheses: textLines(value) }))}
+      {area(t('bundle.field.nextSteps'), listValue(content.next_steps), (value) => update({ ...content, next_steps: textLines(value) }))}
+      {area(t('bundle.field.answerSummary'), content.answer_summary, (value) => update({ ...content, answer_summary: value }))}
+      <label className="grid gap-1 text-xs font-medium text-slate-700">{t('bundle.field.status')}<select className={fieldClass} value={content.status} onChange={(event) => update({ ...content, status: event.target.value as 'open' | 'answered' })}><option value="open">{t('bundle.status.open')}</option><option value="answered">{t('bundle.status.answered')}</option></select></label>
+    </>;
+    case 'decision': return <>
+      {area(t('bundle.field.decision'), content.decision, (value) => update({ ...content, decision: value }))}
+      {area(t('bundle.field.context'), content.context, (value) => update({ ...content, context: value }))}
+      {area(t('bundle.field.options'), pairValue(content.options, 'name', 'tradeoffs'), (value) => update({ ...content, options: pairLines(value, 'name', 'tradeoffs') as typeof content.options }), t('bundle.pairHelp'))}
+      {area(t('bundle.field.criteria'), listValue(content.criteria), (value) => update({ ...content, criteria: textLines(value) }))}
+      {area(t('bundle.field.rationale'), listValue(content.rationale), (value) => update({ ...content, rationale: textLines(value) }))}
+      {area(t('bundle.field.reconsiderWhen'), listValue(content.reconsider_when), (value) => update({ ...content, reconsider_when: textLines(value) }))}
+      {area(t('bundle.field.outcome'), content.outcome, (value) => update({ ...content, outcome: value }))}
+    </>;
+    case 'event': return <>
+      {area(t('bundle.field.event'), content.event, (value) => update({ ...content, event: value }))}
+      {area(t('bundle.field.occurredAt'), content.occurred_at, (value) => update({ ...content, occurred_at: value }))}
+      {area(t('bundle.field.context'), content.context, (value) => update({ ...content, context: value }))}
+      {area(t('bundle.field.changes'), listValue(content.changes), (value) => update({ ...content, changes: textLines(value) }))}
+      {area(t('bundle.field.causes'), listValue(content.causes), (value) => update({ ...content, causes: textLines(value) }))}
+      {area(t('bundle.field.consequences'), listValue(content.consequences), (value) => update({ ...content, consequences: textLines(value) }))}
+    </>;
   }
 }

@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { LOCALE_META } from '@stem-brain/shared';
 import { METADATA_COPY } from '@/i18n/metadata-copy';
-import { getServerLocale } from '@/i18n/server';
+import { getServerLocale } from '@/i18n/locale-server';
 
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
   const locale = await getServerLocale();

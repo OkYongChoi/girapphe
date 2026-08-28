@@ -1,5 +1,6 @@
 import {
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
+  KNOWLEDGE_BUNDLE_TYPES,
 } from '@stem-brain/shared';
 import { z } from 'zod';
 
@@ -124,6 +125,41 @@ const claimEvidenceContentSchema = z.object({
   confidence: z.enum(['low', 'medium', 'high']).optional(),
 }).strict();
 
+const questionContentSchema = z.object({
+  type: z.literal('question'),
+  question: detailText.default(''),
+  context: detailText.default(''),
+  known_facts: detailTextList,
+  hypotheses: detailTextList,
+  next_steps: detailTextList,
+  answer_summary: detailText.default(''),
+  status: z.enum(['open', 'answered']).default('open'),
+}).strict();
+
+const decisionContentSchema = z.object({
+  type: z.literal('decision'),
+  decision: detailText.default(''),
+  context: detailText.default(''),
+  options: z.array(z.object({
+    name: shortText.min(1),
+    tradeoffs: detailText.default(''),
+  }).strict()).max(24).default([]),
+  criteria: detailTextList,
+  rationale: detailTextList,
+  reconsider_when: detailTextList,
+  outcome: detailText.default(''),
+}).strict();
+
+const eventContentSchema = z.object({
+  type: z.literal('event'),
+  event: detailText.default(''),
+  occurred_at: shortText.default(''),
+  context: detailText.default(''),
+  changes: detailTextList,
+  causes: detailTextList,
+  consequences: detailTextList,
+}).strict();
+
 export const knowledgeBundleContentSchema = z.discriminatedUnion('type', [
   conceptContentSchema,
   procedureContentSchema,
@@ -131,10 +167,13 @@ export const knowledgeBundleContentSchema = z.discriminatedUnion('type', [
   mechanismContentSchema,
   structureContentSchema,
   claimEvidenceContentSchema,
+  questionContentSchema,
+  decisionContentSchema,
+  eventContentSchema,
 ]);
 
 export const knowledgeBundleFieldsSchema = z.object({
-  knowledge_type: z.enum(['concept', 'procedure', 'comparison', 'mechanism', 'structure', 'claim_evidence']),
+  knowledge_type: z.enum(KNOWLEDGE_BUNDLE_TYPES),
   central_question: z.string().trim().min(1).max(500),
   structured_content: knowledgeBundleContentSchema,
   bundle_schema_version: z.literal(KNOWLEDGE_BUNDLE_SCHEMA_VERSION).default(KNOWLEDGE_BUNDLE_SCHEMA_VERSION),

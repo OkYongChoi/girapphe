@@ -169,6 +169,44 @@ function parseContent(value: unknown): KnowledgeBundleContent | null {
       if (claim === null || !evidence || !counterevidence || !scope || !limitations || (confidence !== undefined && confidence !== 'low' && confidence !== 'medium' && confidence !== 'high')) return null;
       return { type, claim, evidence, counterevidence, scope, limitations, ...(confidence ? { confidence } : {}) };
     }
+    case 'question': {
+      const item = objectWithKeys(value, ['type', 'question', 'context', 'known_facts', 'hypotheses', 'next_steps', 'answer_summary', 'status']);
+      if (!item) return null;
+      const question = text(item.question, 4000);
+      const context = text(item.context, 4000);
+      const knownFacts = textList(item.known_facts, 24, 6000);
+      const hypotheses = textList(item.hypotheses, 24, 6000);
+      const nextSteps = textList(item.next_steps, 24, 6000);
+      const answerSummary = text(item.answer_summary, 4000);
+      const status = item.status ?? 'open';
+      if (question === null || context === null || !knownFacts || !hypotheses || !nextSteps || answerSummary === null || (status !== 'open' && status !== 'answered')) return null;
+      return { type, question, context, known_facts: knownFacts, hypotheses, next_steps: nextSteps, answer_summary: answerSummary, status };
+    }
+    case 'decision': {
+      const item = objectWithKeys(value, ['type', 'decision', 'context', 'options', 'criteria', 'rationale', 'reconsider_when', 'outcome']);
+      if (!item) return null;
+      const decision = text(item.decision, 4000);
+      const context = text(item.context, 4000);
+      const options = records(item.options, 24, (entry) => pair(entry, 'name', 'tradeoffs', 4000, false));
+      const criteria = textList(item.criteria, 24, 6000);
+      const rationale = textList(item.rationale, 24, 6000);
+      const reconsiderWhen = textList(item.reconsider_when, 24, 6000);
+      const outcome = text(item.outcome, 4000);
+      if (decision === null || context === null || !options || !criteria || !rationale || !reconsiderWhen || outcome === null) return null;
+      return { type, decision, context, options: options as Array<{ name: string; tradeoffs: string }>, criteria, rationale, reconsider_when: reconsiderWhen, outcome };
+    }
+    case 'event': {
+      const item = objectWithKeys(value, ['type', 'event', 'occurred_at', 'context', 'changes', 'causes', 'consequences']);
+      if (!item) return null;
+      const event = text(item.event, 4000);
+      const occurredAt = text(item.occurred_at, 500);
+      const context = text(item.context, 4000);
+      const changes = textList(item.changes, 24, 6000);
+      const causes = textList(item.causes, 24, 6000);
+      const consequences = textList(item.consequences, 24, 6000);
+      if (event === null || occurredAt === null || context === null || !changes || !causes || !consequences) return null;
+      return { type, event, occurred_at: occurredAt, context, changes, causes, consequences };
+    }
   }
 }
 

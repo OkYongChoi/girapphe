@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createMemoryKnowledgeItemForUser,
   createMcpAccessTokenForUser,
   getKnowledgeDraftBatchesForUser,
+  MCP_CONTEXT_READ_SCOPE,
 } from '@/lib/knowledge-ingestion';
+import { getTopicKnowledgeHubForUser } from '@/lib/topic-knowledge-hub';
 import {
   createCardDraftsInputSchema,
   MAX_MCP_REQUEST_BYTES,
@@ -148,4 +151,73 @@ test('accepts a cookie-less scoped token and creates only a pending review batch
   assert.equal(batches.length, 1);
   assert.equal(batches[0].status, 'pending');
   assert.equal(batches[0].approved_count, 0);
+});
+
+test('returns only owner-scoped confirmed context and records explicit MCP reuse', async () => {
+  const userId = `user_context_route_${crypto.randomUUID()}`;
+  const otherUserId = `user_context_route_other_${crypto.randomUUID()}`;
+  const ownItem = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Owner-only release decision',
+    summary: 'Use the protected release path.',
+    content: 'This is confirmed canonical knowledge, not a transcript.',
+    topic: 'Release context',
+    knowledgeType: 'decision',
+  });
+  const otherItem = createMemoryKnowledgeItemForUser(otherUserId, {
+    title: 'Another owner private decision',
+    content: 'This must never cross the owner boundary.',
+    topic: 'Release context',
+  });
+  const { token } = await createMcpAccessTokenForUser(
+    userId,
+    'Context route integration',
+    [MCP_CONTEXT_READ_SCOPE],
+  );
+
+  const listed = await POST(mcpRequest(token, 10, 'tools/list', {}));
+  const listedPayload = await readMcpResponse(listed);
+  const tools = (listedPayload.result as { tools?: Array<{ name?: string }> }).tools ?? [];
+  assert.deepEqual(tools.map((tool) => tool.name), ['get_topic_context']);
+
+  const foreignSelection = await POST(mcpRequest(token, 11, 'tools/call', {
+    name: 'get_topic_context',
+    arguments: {
+      topic: 'Release context',
+      format: 'json',
+      selection: { type: 'items', item_ids: [otherItem.id] },
+    },
+  }));
+  const foreignPayload = await readMcpResponse(foreignSelection);
+  assert.equal((foreignPayload.result as { isError?: boolean }).isError, true);
+  assert.doesNotMatch(JSON.stringify(foreignPayload), new RegExp(otherItem.title, 'u'));
+
+  const ownSelection = await POST(mcpRequest(token, 12, 'tools/call', {
+    name: 'get_topic_context',
+    arguments: {
+      topic: 'Release context',
+      format: 'json',
+      selection: { type: 'items', item_ids: [ownItem.id] },
+    },
+  }));
+  assert.equal(ownSelection.status, 200);
+  const ownPayload = await readMcpResponse(ownSelection);
+  const result = ownPayload.result as {
+    structuredContent?: Record<string, unknown>;
+    content?: Array<{ type?: string; text?: string }>;
+  };
+  assert.equal(result.structuredContent?.status, 'confirmed_context');
+  assert.equal(result.structuredContent?.item_count, 1);
+  const contextText = result.content?.[0]?.text ?? '';
+  assert.match(contextText, new RegExp(ownItem.title, 'u'));
+  assert.doesNotMatch(contextText, new RegExp(otherItem.title, 'u'));
+  assert.doesNotMatch(contextText, /raw[_ -]?transcript/i);
+
+  const hub = await getTopicKnowledgeHubForUser(userId, 'Release context');
+  const reuse = hub.activity.find((entry) => entry.activity_type === 'reused');
+  assert.deepEqual(reuse?.metadata, {
+    topic: 'release-context',
+    format: 'json',
+    selection_type: 'items',
+    count: 1,
+  });
 });

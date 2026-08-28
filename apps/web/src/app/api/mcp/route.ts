@@ -1,8 +1,10 @@
 import {
   authenticateMcpAccessToken,
   createKnowledgeDraftBatchForUser,
+  McpDeletedAccountError,
   McpRequestRateLimitError,
   rateLimitMcpOAuthPrincipal,
+  recordKnowledgeReuseForUser,
 } from '@/lib/knowledge-ingestion';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
 import {
@@ -14,11 +16,57 @@ import {
   toMcpAuthInfo,
   type McpDraftPrincipal,
 } from '@/lib/mcp/mcp-server';
+import {
+  MCP_CONTEXT_READ_SCOPE,
+  type TopicContextPackInput,
+} from '@/lib/mcp/get-topic-context-schema';
+import {
+  buildTopicKnowledgeContextPackForUser,
+  MAX_CONTEXT_PACK_BYTES,
+  serializeTopicKnowledgeHub,
+} from '@/lib/topic-knowledge-hub';
+import { isContextPackPayloadWithinLimit } from '@/lib/context-pack-request';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const mcpHandler = createDraftMcpHandler(createKnowledgeDraftBatchForUser);
+async function getContextPackForMcp(userId: string, input: TopicContextPackInput) {
+  const explicitItemIds = input.selection.type === 'items' ? input.selection.itemIds : null;
+  const pack = await buildTopicKnowledgeContextPackForUser(
+    userId,
+    input.topic,
+    input.selection.type === 'items'
+      ? { itemIds: input.selection.itemIds }
+      : { maxItems: input.selection.limit },
+  );
+  if (pack.items.length === 0
+    || (explicitItemIds && pack.items.length !== explicitItemIds.length)) {
+    throw new Error('The selected confirmed knowledge is unavailable.');
+  }
+  const content = serializeTopicKnowledgeHub(pack, input.format);
+  if (!isContextPackPayloadWithinLimit(content, MAX_CONTEXT_PACK_BYTES)) {
+    throw new Error('The selected context pack exceeds the size limit.');
+  }
+  const reusedCount = await recordKnowledgeReuseForUser(
+    userId,
+    pack.items.map((item) => item.id),
+    {
+      topic: pack.topic,
+      format: input.format,
+      count: pack.items.length,
+      selectionType: input.selection.type,
+    },
+  );
+  if (reusedCount !== pack.items.length) {
+    throw new Error('The selected confirmed knowledge changed before reuse was recorded.');
+  }
+  return { content, itemCount: pack.items.length };
+}
+
+const mcpHandler = createDraftMcpHandler(
+  createKnowledgeDraftBatchForUser,
+  getContextPackForMcp,
+);
 
 function appendVary(headers: Headers, value: string) {
   const current = headers.get('vary');
@@ -80,10 +128,8 @@ function getBearerToken(value: string | null) {
 
 async function authenticateMcpPrincipal(bearerToken: string): Promise<McpDraftPrincipal | null> {
   if (bearerToken.startsWith('girapphe_mcp_')) {
-    const principal = await authenticateMcpAccessToken(
-      `Bearer ${bearerToken}`,
-      MCP_DRAFT_CREATE_SCOPE
-    );
+    const principal = await authenticateMcpAccessToken(`Bearer ${bearerToken}`, MCP_DRAFT_CREATE_SCOPE)
+      ?? await authenticateMcpAccessToken(`Bearer ${bearerToken}`, MCP_CONTEXT_READ_SCOPE);
     return principal
       ? {
           userId: principal.userId,
@@ -162,6 +208,7 @@ async function handleMcpRequest(request: Request) {
   try {
     principal = await authenticateMcpPrincipal(bearerToken);
   } catch (error) {
+    if (error instanceof McpDeletedAccountError) return unauthorized(request);
     if (error instanceof McpRequestRateLimitError) {
       return jsonError(429, 'rate_limited', { 'Retry-After': '60' });
     }

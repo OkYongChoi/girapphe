@@ -1,10 +1,10 @@
 import { useCallback, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Alert, FlatList, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AuthRequired } from '@/components/auth-required';
 import { mobileApi, type PersonalNote } from '@/api';
 import { useI18n } from '@/i18n';
-import { buildMobileKnowledgeBundle, mobileKnowledgeBundleEditValues } from '@/knowledge-bundle-ui';
+import { buildMobileKnowledgeBundle, knowledgeBundleQuestionStatusLabel, knowledgeBundleTypeLabel, mobileKnowledgeBundleEditValues } from '@/knowledge-bundle-ui';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
 import {
   KNOWLEDGE_BUNDLE_TYPES,
@@ -14,8 +14,8 @@ import {
 
 const BUNDLE_COPY: Record<Locale, {
   format: string; quick: string; question: string; questionPlaceholder: string; summary: string; tags: string;
-  primary: Record<KnowledgeBundleType, string>; secondary: Record<KnowledgeBundleType, string>; tertiary: Record<KnowledgeBundleType, string>;
-  types: Record<KnowledgeBundleType, string>; lines: string;
+  primary: Partial<Record<KnowledgeBundleType, string>>; secondary: Partial<Record<KnowledgeBundleType, string>>; tertiary: Partial<Record<KnowledgeBundleType, string>>;
+  types: Partial<Record<KnowledgeBundleType, string>>; lines: string;
 }> = {
   en: { format: 'Knowledge format', quick: 'Quick note', question: 'Central question', questionPlaceholder: 'What should you be able to explain?', summary: 'Summary', tags: 'Tags, separated by commas', lines: 'One item per line', types: { concept: 'Concept', procedure: 'Procedure', comparison: 'Comparison', mechanism: 'Mechanism', structure: 'Structure', claim_evidence: 'Claim & evidence' }, primary: { concept: 'Definition', procedure: 'Goal', comparison: 'Targets', mechanism: 'Causes', structure: 'Purpose', claim_evidence: 'Claim' }, secondary: { concept: 'Key points', procedure: 'Steps', comparison: 'Differences', mechanism: 'Process stages', structure: 'Components', claim_evidence: 'Evidence' }, tertiary: { concept: 'Examples', procedure: 'Done when', comparison: 'Commonalities', mechanism: 'Results', structure: 'Boundaries', claim_evidence: 'Limitations' } },
   ja: { format: '知識形式', quick: 'クイックメモ', question: '中心となる問い', questionPlaceholder: '何を説明できるようにしますか？', summary: '要約', tags: 'タグ（カンマ区切り）', lines: '1行に1項目', types: { concept: '概念', procedure: '手順', comparison: '比較', mechanism: '仕組み', structure: '構造', claim_evidence: '主張と根拠' }, primary: { concept: '定義', procedure: '目標', comparison: '比較対象', mechanism: '原因', structure: '目的', claim_evidence: '主張' }, secondary: { concept: '要点', procedure: '手順', comparison: '相違点', mechanism: '進行段階', structure: '構成要素', claim_evidence: '根拠' }, tertiary: { concept: '例', procedure: '完了条件', comparison: '共通点', mechanism: '結果', structure: '境界', claim_evidence: '限界' } },
@@ -26,12 +26,30 @@ const BUNDLE_COPY: Record<Locale, {
 };
 
 const BUNDLE_FIELD_COPY: Record<Locale, Record<KnowledgeBundleType, string[]>> = {
-  en: { concept: ['Definition', 'Key points', 'Examples', 'Non-examples', 'Misconceptions :: corrections'], procedure: ['Goal', 'Prerequisites', 'Steps :: details', 'Branch condition :: action', 'Failure symptom :: response', 'Done when'], comparison: ['Targets', 'Criterion :: values separated by |', 'Commonalities', 'Differences', 'Choice condition :: recommendation'], mechanism: ['Causes', 'Process stage :: detail', 'Results', 'Conditions', 'Exceptions'], structure: ['Purpose', 'Components: id :: label :: role :: parent id', 'Relations: source id :: target id :: relationship', 'Boundaries'], claim_evidence: ['Claim', 'Evidence :: source', 'Counterevidence', 'Scope', 'Limitations', 'Confidence: low, medium, or high'] },
-  ja: { concept: ['定義', '要点', '例', '反例', '誤解 :: 訂正'], procedure: ['目標', '前提条件', '手順 :: 詳細', '分岐条件 :: 対応', '失敗症状 :: 対応', '完了条件'], comparison: ['比較対象', '基準 :: | で区切った値', '共通点', '相違点', '選択条件 :: 推奨'], mechanism: ['原因', '進行段階 :: 詳細', '結果', '条件', '例外'], structure: ['目的', '構成要素：ID :: 名前 :: 役割 :: 親ID', '関係：元ID :: 先ID :: 関係', '境界'], claim_evidence: ['主張', '根拠 :: 出典', '反証', '適用範囲', '限界', '確信度：low、medium、high'] },
-  'zh-CN': { concept: ['定义', '要点', '示例', '反例', '误解 :: 纠正'], procedure: ['目标', '前置条件', '步骤 :: 详情', '分支条件 :: 操作', '失败症状 :: 处理', '完成标准'], comparison: ['比较对象', '标准 :: 用 | 分隔的值', '共同点', '差异', '选择条件 :: 建议'], mechanism: ['原因', '过程阶段 :: 详情', '结果', '条件', '例外'], structure: ['目的', '组成部分：ID :: 名称 :: 角色 :: 父ID', '关系：源ID :: 目标ID :: 关系', '边界'], claim_evidence: ['主张', '证据 :: 来源', '反证', '范围', '限制', '可信度：low、medium、high'] },
-  es: { concept: ['Definición', 'Puntos clave', 'Ejemplos', 'Contraejemplos', 'Error :: corrección'], procedure: ['Objetivo', 'Requisitos', 'Paso :: detalle', 'Condición de rama :: acción', 'Síntoma de fallo :: respuesta', 'Criterio de finalización'], comparison: ['Objetivos', 'Criterio :: valores separados por |', 'Similitudes', 'Diferencias', 'Condición :: recomendación'], mechanism: ['Causas', 'Etapa :: detalle', 'Resultados', 'Condiciones', 'Excepciones'], structure: ['Propósito', 'Componentes: id :: nombre :: función :: id superior', 'Relaciones: id origen :: id destino :: relación', 'Límites'], claim_evidence: ['Afirmación', 'Evidencia :: fuente', 'Contraevidencia', 'Alcance', 'Limitaciones', 'Confianza: low, medium o high'] },
-  ar: { concept: ['التعريف', 'النقاط الأساسية', 'أمثلة', 'أمثلة مضادة', 'مفهوم خاطئ :: تصحيح'], procedure: ['الهدف', 'المتطلبات', 'الخطوة :: التفاصيل', 'شرط التفرع :: الإجراء', 'عرض الفشل :: الاستجابة', 'معيار الاكتمال'], comparison: ['عناصر المقارنة', 'المعيار :: قيم مفصولة بـ |', 'أوجه التشابه', 'الاختلافات', 'الشرط :: التوصية'], mechanism: ['الأسباب', 'المرحلة :: التفاصيل', 'النتائج', 'الشروط', 'الاستثناءات'], structure: ['الغرض', 'المكونات: المعرف :: الاسم :: الدور :: معرف الأصل', 'العلاقات: المصدر :: الهدف :: العلاقة', 'الحدود'], claim_evidence: ['الادعاء', 'الدليل :: المصدر', 'الدليل المضاد', 'النطاق', 'القيود', 'الثقة: low أو medium أو high'] },
-  hi: { concept: ['परिभाषा', 'मुख्य बिंदु', 'उदाहरण', 'प्रतिउदाहरण', 'गलत धारणा :: सुधार'], procedure: ['लक्ष्य', 'पूर्वापेक्षाएँ', 'चरण :: विवरण', 'शाखा शर्त :: कार्रवाई', 'विफलता लक्षण :: प्रतिक्रिया', 'पूर्ण होने की शर्त'], comparison: ['तुलना लक्ष्य', 'मानदंड :: | से अलग मान', 'समानताएँ', 'अंतर', 'शर्त :: अनुशंसा'], mechanism: ['कारण', 'प्रक्रिया चरण :: विवरण', 'परिणाम', 'शर्तें', 'अपवाद'], structure: ['उद्देश्य', 'घटक: id :: नाम :: भूमिका :: parent id', 'संबंध: स्रोत id :: लक्ष्य id :: संबंध', 'सीमाएँ'], claim_evidence: ['दावा', 'प्रमाण :: स्रोत', 'विपरीत प्रमाण', 'दायरा', 'सीमाएँ', 'विश्वास: low, medium या high'] },
+  en: { concept: ['Definition', 'Key points', 'Examples', 'Non-examples', 'Misconceptions :: corrections'], procedure: ['Goal', 'Prerequisites', 'Steps :: details', 'Branch condition :: action', 'Failure symptom :: response', 'Done when'], comparison: ['Targets', 'Criterion :: values separated by |', 'Commonalities', 'Differences', 'Choice condition :: recommendation'], mechanism: ['Causes', 'Process stage :: detail', 'Results', 'Conditions', 'Exceptions'], structure: ['Purpose', 'Components: id :: label :: role :: parent id', 'Relations: source id :: target id :: relationship', 'Boundaries'], claim_evidence: ['Claim', 'Evidence :: source', 'Counterevidence', 'Scope', 'Limitations', 'Confidence: low, medium, or high'], question: ['Question', 'Context', 'Known facts', 'Hypotheses', 'Next steps', 'Answer summary', 'Status: open or answered'], decision: ['Decision', 'Context', 'Option :: tradeoffs', 'Criteria', 'Rationale', 'Reconsider when', 'Outcome'], event: ['Event', 'Occurred at', 'Context', 'Changes', 'Causes', 'Consequences'] },
+  ja: { concept: ['定義', '要点', '例', '反例', '誤解 :: 訂正'], procedure: ['目標', '前提条件', '手順 :: 詳細', '分岐条件 :: 対応', '失敗症状 :: 対応', '完了条件'], comparison: ['比較対象', '基準 :: | で区切った値', '共通点', '相違点', '選択条件 :: 推奨'], mechanism: ['原因', '進行段階 :: 詳細', '結果', '条件', '例外'], structure: ['目的', '構成要素：ID :: 名前 :: 役割 :: 親ID', '関係：元ID :: 先ID :: 関係', '境界'], claim_evidence: ['主張', '根拠 :: 出典', '反証', '適用範囲', '限界', '確信度：low、medium、high'], question: ['質問', '背景', '既知の事実', '仮説', '次の手順', '回答の要約', '状態：open または answered'], decision: ['決定', '背景', '選択肢 :: トレードオフ', '基準', '理由', '再検討条件', '結果'], event: ['出来事', '発生日時', '背景', '変化', '原因', '結果'] },
+  'zh-CN': { concept: ['定义', '要点', '示例', '反例', '误解 :: 纠正'], procedure: ['目标', '前置条件', '步骤 :: 详情', '分支条件 :: 操作', '失败症状 :: 处理', '完成标准'], comparison: ['比较对象', '标准 :: 用 | 分隔的值', '共同点', '差异', '选择条件 :: 建议'], mechanism: ['原因', '过程阶段 :: 详情', '结果', '条件', '例外'], structure: ['目的', '组成部分：ID :: 名称 :: 角色 :: 父ID', '关系：源ID :: 目标ID :: 关系', '边界'], claim_evidence: ['主张', '证据 :: 来源', '反证', '范围', '限制', '可信度：low、medium、high'], question: ['问题', '背景', '已知事实', '假设', '下一步', '答案摘要', '状态：open 或 answered'], decision: ['决策', '背景', '选项 :: 权衡', '标准', '理由', '重新考虑的条件', '结果'], event: ['事件', '发生时间', '背景', '变化', '原因', '后果'] },
+  es: { concept: ['Definición', 'Puntos clave', 'Ejemplos', 'Contraejemplos', 'Error :: corrección'], procedure: ['Objetivo', 'Requisitos', 'Paso :: detalle', 'Condición de rama :: acción', 'Síntoma de fallo :: respuesta', 'Criterio de finalización'], comparison: ['Objetivos', 'Criterio :: valores separados por |', 'Similitudes', 'Diferencias', 'Condición :: recomendación'], mechanism: ['Causas', 'Etapa :: detalle', 'Resultados', 'Condiciones', 'Excepciones'], structure: ['Propósito', 'Componentes: id :: nombre :: función :: id superior', 'Relaciones: id origen :: id destino :: relación', 'Límites'], claim_evidence: ['Afirmación', 'Evidencia :: fuente', 'Contraevidencia', 'Alcance', 'Limitaciones', 'Confianza: low, medium o high'], question: ['Pregunta', 'Contexto', 'Hechos conocidos', 'Hipótesis', 'Próximos pasos', 'Resumen de la respuesta', 'Estado: open o answered'], decision: ['Decisión', 'Contexto', 'Opción :: contraprestaciones', 'Criterios', 'Justificación', 'Reconsiderar cuando', 'Resultado'], event: ['Evento', 'Ocurrió en', 'Contexto', 'Cambios', 'Causas', 'Consecuencias'] },
+  ar: { concept: ['التعريف', 'النقاط الأساسية', 'أمثلة', 'أمثلة مضادة', 'مفهوم خاطئ :: تصحيح'], procedure: ['الهدف', 'المتطلبات', 'الخطوة :: التفاصيل', 'شرط التفرع :: الإجراء', 'عرض الفشل :: الاستجابة', 'معيار الاكتمال'], comparison: ['عناصر المقارنة', 'المعيار :: قيم مفصولة بـ |', 'أوجه التشابه', 'الاختلافات', 'الشرط :: التوصية'], mechanism: ['الأسباب', 'المرحلة :: التفاصيل', 'النتائج', 'الشروط', 'الاستثناءات'], structure: ['الغرض', 'المكونات: المعرف :: الاسم :: الدور :: معرف الأصل', 'العلاقات: المصدر :: الهدف :: العلاقة', 'الحدود'], claim_evidence: ['الادعاء', 'الدليل :: المصدر', 'الدليل المضاد', 'النطاق', 'القيود', 'الثقة: low أو medium أو high'], question: ['السؤال', 'السياق', 'الحقائق المعروفة', 'الفرضيات', 'الخطوات التالية', 'ملخص الإجابة', 'الحالة: open أو answered'], decision: ['القرار', 'السياق', 'الخيار :: المفاضلات', 'المعايير', 'المبررات', 'إعادة النظر عند', 'النتيجة'], event: ['الحدث', 'وقت الحدوث', 'السياق', 'التغييرات', 'الأسباب', 'العواقب'] },
+  hi: { concept: ['परिभाषा', 'मुख्य बिंदु', 'उदाहरण', 'प्रतिउदाहरण', 'गलत धारणा :: सुधार'], procedure: ['लक्ष्य', 'पूर्वापेक्षाएँ', 'चरण :: विवरण', 'शाखा शर्त :: कार्रवाई', 'विफलता लक्षण :: प्रतिक्रिया', 'पूर्ण होने की शर्त'], comparison: ['तुलना लक्ष्य', 'मानदंड :: | से अलग मान', 'समानताएँ', 'अंतर', 'शर्त :: अनुशंसा'], mechanism: ['कारण', 'प्रक्रिया चरण :: विवरण', 'परिणाम', 'शर्तें', 'अपवाद'], structure: ['उद्देश्य', 'घटक: id :: नाम :: भूमिका :: parent id', 'संबंध: स्रोत id :: लक्ष्य id :: संबंध', 'सीमाएँ'], claim_evidence: ['दावा', 'प्रमाण :: स्रोत', 'विपरीत प्रमाण', 'दायरा', 'सीमाएँ', 'विश्वास: low, medium या high'], question: ['प्रश्न', 'संदर्भ', 'ज्ञात तथ्य', 'परिकल्पनाएँ', 'अगले कदम', 'उत्तर सारांश', 'स्थिति: open या answered'], decision: ['निर्णय', 'संदर्भ', 'विकल्प :: समझौते', 'मानदंड', 'तर्क', 'पुनर्विचार कब', 'परिणाम'], event: ['घटना', 'घटित होने का समय', 'संदर्भ', 'बदलाव', 'कारण', 'परिणाम'] },
+};
+
+const CANDIDATE_INBOX_COPY: Record<Locale, string> = {
+  en: 'Review conversation candidates',
+  ja: '会話からの候補を確認',
+  'zh-CN': '审核对话候选知识',
+  es: 'Revisar candidatos de conversaciones',
+  ar: 'مراجعة مرشحي المحادثات',
+  hi: 'बातचीत के उम्मीदवारों की समीक्षा करें',
+};
+
+const OPEN_TOPIC_COPY: Record<Locale, string> = {
+  en: 'Open topic',
+  ja: 'トピックを開く',
+  'zh-CN': '打开主题',
+  es: 'Abrir tema',
+  ar: 'فتح الموضوع',
+  hi: 'विषय खोलें',
 };
 
 export default function NotesScreen() {
@@ -39,6 +57,7 @@ export default function NotesScreen() {
 }
 
 function NotesContent() {
+  const router = useRouter();
   const { direction, formatDate, formatNumber, locale, t } = useI18n();
   const [items, setItems] = useState<PersonalNote[]>([]);
   const [title, setTitle] = useState('');
@@ -48,7 +67,7 @@ function NotesContent() {
   const [summary, setSummary] = useState('');
   const [knowledgeType, setKnowledgeType] = useState<KnowledgeBundleType | null>(null);
   const [centralQuestion, setCentralQuestion] = useState('');
-  const [bundleFields, setBundleFields] = useState<string[]>(['', '', '', '', '', '']);
+  const [bundleFields, setBundleFields] = useState<string[]>(['', '', '', '', '', '', '']);
   const [query, setQuery] = useState('');
   const [selectedTopic, setSelectedTopic] = useState('all');
   const [sortBy, setSortBy] = useState<'created' | 'updated' | 'title'>('created');
@@ -69,7 +88,7 @@ function NotesContent() {
 
   function resetEditor() {
     setTitle(''); setTopic(''); setContent(''); setTags(''); setSummary(''); setKnowledgeType(null);
-    setCentralQuestion(''); setBundleFields(['', '', '', '', '', '']);
+    setCentralQuestion(''); setBundleFields(['', '', '', '', '', '', '']);
     setEditing(null);
   }
 
@@ -87,7 +106,7 @@ function NotesContent() {
         summary, knowledge_type: '', central_question: '', structured_content: null, bundle_schema_version: null,
       };
       if (editing) {
-        await mobileApi.mutate({ action: 'update-note', id: editing.id, title, topic, content, tags: tags.split(',').map((value) => value.trim()).filter(Boolean), ...typedFields });
+        await mobileApi.mutate({ action: 'update-note', id: editing.id, version: editing.version, title, topic, content, tags: tags.split(',').map((value) => value.trim()).filter(Boolean), ...typedFields });
       } else {
         await mobileApi.mutate({ action: 'create-note', title, topic, content, tags: tags.split(',').map((value) => value.trim()).filter(Boolean), requestId: `${Date.now()}-${Math.random()}`, ...typedFields });
       }
@@ -113,7 +132,7 @@ function NotesContent() {
     setBundleFields(mobileKnowledgeBundleEditValues(note.structured_content, note.content));
   }
   function chooseType(nextType: KnowledgeBundleType | null) {
-    if (nextType !== knowledgeType) setBundleFields([!knowledgeType && content.trim() ? content : bundleFields[0] ?? '', '', '', '', '', '']);
+    if (nextType !== knowledgeType) setBundleFields([!knowledgeType && content.trim() ? content : bundleFields[0] ?? '', '', '', '', '', '', '']);
     setKnowledgeType(nextType);
   }
   function updateBundleField(index: number, value: string) {
@@ -130,6 +149,9 @@ function NotesContent() {
       <FlatList data={visibleItems} keyExtractor={(item) => item.id} contentContainerStyle={styles.content}
         ListHeaderComponent={<View>
           <Text style={styles.kicker}>{t('notes.private')}</Text><Text style={styles.title}>{t('notes.title')}</Text>
+          <Pressable accessibilityRole="link" onPress={() => router.push('/candidate-inbox')} style={styles.candidateInboxLink}>
+            <Text style={styles.candidateInboxLinkText}>{CANDIDATE_INBOX_COPY[locale]} →</Text>
+          </Pressable>
           <View style={styles.tabs}><Pressable accessibilityRole="tab" accessibilityState={{ selected: !isTrash }} onPress={() => void changeView(false)} style={[styles.tab, !isTrash && styles.activeTab]}><Text>{t('notes.myNotes')}</Text></Pressable><Pressable accessibilityRole="tab" accessibilityState={{ selected: isTrash }} onPress={() => void changeView(true)} style={[styles.tab, isTrash && styles.activeTab]}><Text>{t('notes.trash')}</Text></Pressable></View>
           {!isTrash ? (
             <View style={styles.form}>
@@ -144,14 +166,24 @@ function NotesContent() {
                 </Pressable>
                 {KNOWLEDGE_BUNDLE_TYPES.map((value) => (
                   <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: knowledgeType === value }} onPress={() => chooseType(value)} style={[styles.typeButton, knowledgeType === value && styles.typeButtonActive]}>
-                    <Text style={[styles.typeButtonText, knowledgeType === value && styles.typeButtonTextActive]}>{BUNDLE_COPY[locale].types[value]}</Text>
+                    <Text style={[styles.typeButtonText, knowledgeType === value && styles.typeButtonTextActive]}>{knowledgeBundleTypeLabel(locale, value)}</Text>
                   </Pressable>
                 ))}
               </View>
               {knowledgeType ? (
                 <>
                   <TextInput accessibilityLabel={BUNDLE_COPY[locale].question} value={centralQuestion} onChangeText={setCentralQuestion} placeholder={BUNDLE_COPY[locale].questionPlaceholder} style={styles.input} />
-                  {BUNDLE_FIELD_COPY[locale][knowledgeType].map((label, index) => (
+                  {BUNDLE_FIELD_COPY[locale][knowledgeType].map((label, index) => knowledgeType === 'question' && index === 6 ? (
+                    <View key="question-status" style={styles.statusEditor}>
+                      <Text style={styles.fieldLabel}>{label}</Text>
+                      <View style={styles.typeGrid}>
+                        {(['open', 'answered'] as const).map((status) => {
+                          const selected = (bundleFields[6] || 'open') === status;
+                          return <Pressable key={status} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => updateBundleField(6, status)} style={[styles.typeButton, selected && styles.typeButtonActive]}><Text style={[styles.typeButtonText, selected && styles.typeButtonTextActive]}>{knowledgeBundleQuestionStatusLabel(locale, status)}</Text></Pressable>;
+                        })}
+                      </View>
+                    </View>
+                  ) : (
                     <TextInput
                       key={`${knowledgeType}-${index}`}
                       accessibilityLabel={label}
@@ -183,9 +215,16 @@ function NotesContent() {
           <View style={styles.note}>
             <View style={styles.noteHeader}>
               <Text style={styles.noteTitle}>{item.title}</Text>
-              {item.knowledge_type ? <Text style={styles.typeBadge}>{BUNDLE_COPY[locale].types[item.knowledge_type]}</Text> : null}
+              {item.knowledge_type ? <Text style={styles.typeBadge}>{knowledgeBundleTypeLabel(locale, item.knowledge_type)}</Text> : null}
             </View>
-            <Text style={styles.meta}>{item.topic ? `${item.topic} · ` : ''}{formatDate(item.updated_at)}</Text>
+            <View style={styles.noteMetaRow}>
+              {item.topic && !isTrash ? (
+                <Pressable accessibilityRole="link" accessibilityLabel={`${OPEN_TOPIC_COPY[locale]}: ${item.topic}`} onPress={() => router.push(`/knowledge-topic/${encodeURIComponent(item.topic)}`)}>
+                  <Text style={styles.topicLink}>{item.topic} ↗</Text>
+                </Pressable>
+              ) : item.topic ? <Text style={styles.meta}>{item.topic}</Text> : null}
+              <Text style={styles.meta}>{formatDate(item.updated_at)}</Text>
+            </View>
             {item.central_question ? <Text style={styles.centralQuestion}>{item.central_question}</Text> : null}
             {item.summary || item.content ? <Text style={styles.noteContent}>{item.summary || item.content}</Text> : null}
             {item.structured_content ? <View style={styles.bundleAnswer}><MobileKnowledgeBundleView content={item.structured_content} locale={locale} /></View> : null}
@@ -203,6 +242,8 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 32, gap: 12 },
   kicker: { color: '#47606f', fontSize: 13, fontWeight: '800', textTransform: 'uppercase' },
   title: { color: '#111827', fontSize: 32, fontWeight: '800', marginBottom: 14 },
+  candidateInboxLink: { alignSelf: 'flex-start', backgroundColor: '#eef2ff', borderColor: '#a5b4fc', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12 },
+  candidateInboxLinkText: { color: '#3730a3', fontSize: 13, fontWeight: '800' },
   tabs: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   tab: { backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },
   activeTab: { backgroundColor: '#dbeafe', borderColor: '#2563eb' },
@@ -210,6 +251,7 @@ const styles = StyleSheet.create({
   filter: { backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
   form: { backgroundColor: '#fff', borderRadius: 12, padding: 14, gap: 10, marginBottom: 14 },
   fieldLabel: { color: '#374151', fontSize: 13, fontWeight: '800' },
+  statusEditor: { gap: 8 },
   typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   typeButton: { backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 8 },
   typeButtonActive: { backgroundColor: '#111827', borderColor: '#111827' },
@@ -223,6 +265,8 @@ const styles = StyleSheet.create({
   addButtonText: { color: '#fff', fontWeight: '800', textAlign: 'center' },
   note: { backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 6 },
   noteHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  noteMetaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  topicLink: { color: '#1d4ed8', fontSize: 13, fontWeight: '800' },
   noteTitle: { color: '#111827', fontSize: 17, fontWeight: '800', flex: 1 },
   typeBadge: { color: '#6b21a8', backgroundColor: '#f3e8ff', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, fontSize: 11, fontWeight: '800', overflow: 'hidden' },
   centralQuestion: { color: '#111827', fontSize: 15, lineHeight: 22, fontWeight: '800' },

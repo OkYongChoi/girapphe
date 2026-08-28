@@ -1308,22 +1308,25 @@ export async function saveCardState(cardId: string, status: CardStatus) {
         due_at = ${dueAt},
         last_seen = NOW();
     `;
-    await pool.query(query, [
-      user.id,
-      cardId,
-      status,
-      selfReportLabel,
-      isBookmarked,
-      mappedKnowledgeState,
-      mappedProgressState,
-    ]);
+    await pool.accountTransaction(user.id, [{
+      text: query,
+      params: [
+        user.id,
+        cardId,
+        status,
+        selfReportLabel,
+        isBookmarked,
+        mappedKnowledgeState,
+        mappedProgressState,
+      ],
+    }]);
 
     // Sync knowledge graph — secondary operation, failure must not block card save
     try {
       const nodeId = normalizeGraphNodeId(cardId);
       const mapped = mapCardStatusToKnowledge(status);
-      await pool.query(
-        `
+      await pool.accountTransaction(user.id, [{
+        text: `
         INSERT INTO user_knowledge_states (
           user_id,
           node_id,
@@ -1363,10 +1366,10 @@ export async function saveCardState(cardId: string, status: CardStatus) {
             ELSE user_knowledge_states.first_known_at
           END;
         `,
-        [user.id, nodeId, mapped.knowledge, mapped.confidence]
-      );
-      await pool.query(
-        `
+        params: [user.id, nodeId, mapped.knowledge, mapped.confidence],
+      }]);
+      await pool.accountTransaction(user.id, [{
+        text: `
         INSERT INTO user_knowledge_evidence (
           user_id,
           node_id,
@@ -1379,15 +1382,15 @@ export async function saveCardState(cardId: string, status: CardStatus) {
         )
         VALUES ($1, $2, $3, 'self_report', 'rated_card', $4, $5, $6::jsonb)
         `,
-        [
+        params: [
           user.id,
           nodeId,
           cardId,
           mapped.knowledge,
           mapped.confidence,
           JSON.stringify({ status, self_report_label: selfReportLabel, progress_state: mappedProgressState }),
-        ]
-      );
+        ],
+      }]);
     } catch (knowledgeErr) {
       // Non-critical: log but don't fail the whole save
       console.warn('Knowledge graph sync skipped:', knowledgeErr);

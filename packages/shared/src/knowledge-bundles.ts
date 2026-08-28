@@ -5,6 +5,9 @@ export const KNOWLEDGE_BUNDLE_TYPES = [
   'mechanism',
   'structure',
   'claim_evidence',
+  'question',
+  'decision',
+  'event',
 ] as const;
 
 export type KnowledgeBundleType = (typeof KNOWLEDGE_BUNDLE_TYPES)[number];
@@ -70,13 +73,48 @@ export type ClaimEvidenceBundleContent = {
   confidence?: 'low' | 'medium' | 'high';
 };
 
+export type QuestionBundleContent = {
+  type: 'question';
+  question: string;
+  context: string;
+  known_facts: string[];
+  hypotheses: string[];
+  next_steps: string[];
+  answer_summary: string;
+  status: 'open' | 'answered';
+};
+
+export type DecisionBundleContent = {
+  type: 'decision';
+  decision: string;
+  context: string;
+  options: Array<{ name: string; tradeoffs: string }>;
+  criteria: string[];
+  rationale: string[];
+  reconsider_when: string[];
+  outcome: string;
+};
+
+export type EventBundleContent = {
+  type: 'event';
+  event: string;
+  occurred_at: string;
+  context: string;
+  changes: string[];
+  causes: string[];
+  consequences: string[];
+};
+
 export type KnowledgeBundleContent =
   | ConceptBundleContent
   | ProcedureBundleContent
   | ComparisonBundleContent
   | MechanismBundleContent
   | StructureBundleContent
-  | ClaimEvidenceBundleContent;
+  | ClaimEvidenceBundleContent
+  | QuestionBundleContent
+  | DecisionBundleContent
+  | EventBundleContent;
 
 export type KnowledgeBundleV1 = {
   title: string;
@@ -107,6 +145,12 @@ export function createEmptyKnowledgeBundleContent(type: KnowledgeBundleType): Kn
       return { type, purpose: '', components: [], relations: [], boundaries: [] };
     case 'claim_evidence':
       return { type, claim: '', evidence: [], counterevidence: [], scope: [], limitations: [] };
+    case 'question':
+      return { type, question: '', context: '', known_facts: [], hypotheses: [], next_steps: [], answer_summary: '', status: 'open' };
+    case 'decision':
+      return { type, decision: '', context: '', options: [], criteria: [], rationale: [], reconsider_when: [], outcome: '' };
+    case 'event':
+      return { type, event: '', occurred_at: '', context: '', changes: [], causes: [], consequences: [] };
   }
 }
 
@@ -130,6 +174,9 @@ export function createKnowledgeBundleContentFromLegacy(
     case 'mechanism': return { ...empty, causes: [content] };
     case 'structure': return { ...empty, purpose: content };
     case 'claim_evidence': return { ...empty, claim: content };
+    case 'question': return { ...empty, question: content };
+    case 'decision': return { ...empty, decision: content };
+    case 'event': return { ...empty, event: content };
   }
 }
 
@@ -224,6 +271,43 @@ export function projectKnowledgeBundleContent(
         lines('Scope', content.scope),
         lines('Limitations', content.limitations),
         content.confidence ? ['Confidence', content.confidence] : [],
+      );
+      break;
+    case 'question':
+      fallbackSummary = content.answer_summary || content.question || content.next_steps[0] || '';
+      sections.push(
+        content.question ? ['Question', content.question] : [],
+        content.context ? ['Context', content.context] : [],
+        lines('Known facts', content.known_facts),
+        lines('Hypotheses', content.hypotheses),
+        lines('Next steps', content.next_steps),
+        content.answer_summary ? ['Answer summary', content.answer_summary] : [],
+        ['Status', content.status],
+      );
+      break;
+    case 'decision':
+      fallbackSummary = content.decision || content.outcome || content.rationale[0] || '';
+      sections.push(
+        content.decision ? ['Decision', content.decision] : [],
+        content.context ? ['Context', content.context] : [],
+        content.options.length > 0
+          ? ['Options', ...content.options.map((item) => `- ${item.name}: ${item.tradeoffs}`)]
+          : [],
+        lines('Criteria', content.criteria),
+        lines('Rationale', content.rationale),
+        lines('Reconsider when', content.reconsider_when),
+        content.outcome ? ['Outcome', content.outcome] : [],
+      );
+      break;
+    case 'event':
+      fallbackSummary = content.event || content.changes[0] || content.consequences[0] || '';
+      sections.push(
+        content.event ? ['Event', content.event] : [],
+        content.occurred_at ? ['Occurred at', content.occurred_at] : [],
+        content.context ? ['Context', content.context] : [],
+        lines('Changes', content.changes),
+        lines('Causes', content.causes),
+        lines('Consequences', content.consequences),
       );
       break;
   }

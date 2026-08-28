@@ -50,7 +50,12 @@ Mobile feature code should be organized around user flows, not platform names:
 - Browse: searchable and filterable topic discovery.
 - Practice: guest/local fallback plus authenticated, server-synced review using tri-state ratings.
 - My Knowledge: quick notes plus full-field version-one concept, procedure,
-  comparison, mechanism, structure, and claim/evidence bundles.
+  comparison, mechanism, structure, claim/evidence, question, decision, and
+  event bundles.
+- Candidate Inbox: quick save-as-new or ignore for explicitly submitted
+  current-conversation candidates.
+- Topic Hub: compact approved knowledge, open questions, relations, timeline,
+  and source-position views.
 - Topic detail: explanation plus prerequisite/dependent/related navigation.
 
 Do not create separate iOS-only or Android-only versions of these flows unless
@@ -99,7 +104,15 @@ Typed personal items retain the flat note fields for compatibility. Mobile
 renders their type badge and central question, supports full-field create/edit
 and explicit legacy-note conversion, filters personal graph nodes by type, and
 reuses the existing reveal/rating/review schedule with a type-specific recall
-prompt. MCP pending review remains web-only.
+prompt.
+
+Candidate review is intentionally split by interaction depth. Mobile supports
+quick save-as-new and ignore; a possible duplicate links to the web review
+surface. Web owns side-by-side comparison, full editing, merge/update, evidence
+selection, lifecycle actions, local graph/history, and context-pack export.
+Mobile Topic Hub views remain compact while consuming the same owner-scoped
+canonical data. Neither app retains raw conversation text: provenance is
+selector-only.
 
 ## Platform Rules
 

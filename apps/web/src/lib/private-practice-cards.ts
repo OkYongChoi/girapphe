@@ -292,8 +292,8 @@ export async function savePrivatePracticeCardState(
   knowledgeItemId: string,
   status: PrivatePracticeStatus,
 ): Promise<boolean> {
-  const result = await db.query<{ knowledge_item_id: string }>(`
-    INSERT INTO user_private_card_states (
+  const [result] = await db.accountTransaction<{ knowledge_item_id: string }>(userId, [{
+    text: `INSERT INTO user_private_card_states (
       user_id,
       knowledge_item_id,
       status,
@@ -321,8 +321,9 @@ export async function savePrivatePracticeCardState(
       progress_state = EXCLUDED.progress_state,
       due_at = EXCLUDED.due_at,
       last_seen = EXCLUDED.last_seen
-    RETURNING knowledge_item_id
-  `, [userId, knowledgeItemId, status]);
+    RETURNING knowledge_item_id`,
+    params: [userId, knowledgeItemId, status],
+  }]);
 
   return result.rows.length === 1;
 }

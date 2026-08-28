@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import { localizePathname } from '@stem-brain/shared';
-import { getServerLocale } from '@/i18n/server';
+import { getServerLocale } from '@/i18n/locale-server';
 
 export async function logoutAction() {
   const locale = await getServerLocale();

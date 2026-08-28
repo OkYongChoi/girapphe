@@ -39,7 +39,7 @@ test('guest knowledge admission bounds identifiers, writes, rows, and retention'
   assert.match(source, /GUEST_KNOWLEDGE_ITEM_LIMIT/);
   assert.match(source, /GUEST_KNOWLEDGE_RETENTION_DAYS/);
   assert.match(source, /cf-connecting-ip/);
-  assert.match(source, /pool\.transaction<\{ id: string \}>/);
+  assert.match(source, /pool\.accountTransaction<\{ id: string \}>\(user\.id/);
   assert.match(source, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
   assert.match(source, /guest-knowledge:\$\{user\.id\}/);
 

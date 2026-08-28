@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { KnowledgeBundleContent } from '@stem-brain/shared';
-import { buildMobileKnowledgeBundle, knowledgeBundleAnswerLines, mobileKnowledgeBundleEditValues } from './knowledge-bundle-ui';
+import { KNOWLEDGE_BUNDLE_TYPES, SUPPORTED_LOCALES, type KnowledgeBundleContent } from '@stem-brain/shared';
+import { buildMobileKnowledgeBundle, knowledgeBundleAnswerLines, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, mobileKnowledgeBundleEditValues } from './knowledge-bundle-ui';
 
 const bundles: KnowledgeBundleContent[] = [
   { type: 'concept', definition: 'Definition', key_points: ['Point'], examples: ['Example'], non_examples: ['Counterexample'], misconceptions: [{ claim: 'Wrong', correction: 'Right' }] },
@@ -10,6 +10,9 @@ const bundles: KnowledgeBundleContent[] = [
   { type: 'mechanism', causes: ['Cause'], stages: [{ title: 'Stage', detail: 'Detail' }], results: ['Result'], conditions: ['Condition'], exceptions: ['Exception'] },
   { type: 'structure', purpose: 'Purpose', components: [{ id: 'root', label: 'Root', role: 'Parent' }, { id: 'child', label: 'Child', role: 'Part', parent_id: 'root' }], relations: [{ source_id: 'root', target_id: 'child', label: 'contains' }], boundaries: ['Boundary'] },
   { type: 'claim_evidence', claim: 'Claim', evidence: [{ statement: 'Evidence', source: 'Source' }], counterevidence: ['Counter'], scope: ['Scope'], limitations: ['Limit'], confidence: 'high' },
+  { type: 'question', question: 'Question', context: 'Context', known_facts: ['Fact'], hypotheses: ['Hypothesis'], next_steps: ['Next'], answer_summary: 'Answer', status: 'answered' },
+  { type: 'decision', decision: 'Decision', context: 'Context', options: [{ name: 'Option', tradeoffs: 'Tradeoffs' }], criteria: ['Criterion'], rationale: ['Rationale'], reconsider_when: ['Trigger'], outcome: 'Outcome' },
+  { type: 'event', event: 'Event', occurred_at: '2026-08-28', context: 'Context', changes: ['Change'], causes: ['Cause'], consequences: ['Consequence'] },
 ];
 
 test('mobile full-field editors round-trip every version-one bundle type without data loss', () => {
@@ -27,4 +30,16 @@ test('mobile structured answers expose every populated field', () => {
   assert.match(knowledgeBundleAnswerLines(bundles[1]!).join('\n'), /Recover/);
   assert.match(knowledgeBundleAnswerLines(bundles[4]!).join('\n'), /contains/);
   assert.match(knowledgeBundleAnswerLines(bundles[5]!).join('\n'), /Source/);
+  assert.match(knowledgeBundleAnswerLines(bundles[6]!).join('\n'), /Answered/);
+  assert.match(knowledgeBundleAnswerLines(bundles[7]!).join('\n'), /Tradeoffs/);
+  assert.match(knowledgeBundleAnswerLines(bundles[8]!).join('\n'), /2026-08-28/);
+});
+
+test('mobile exposes localized type labels and recall prompts for every supported bundle type', () => {
+  for (const locale of SUPPORTED_LOCALES) {
+    for (const type of KNOWLEDGE_BUNDLE_TYPES) {
+      assert.notEqual(knowledgeBundleTypeLabel(locale, type).trim(), '');
+      assert.notEqual(knowledgeBundleRecallPrompt(locale, type).trim(), '');
+    }
+  }
 });

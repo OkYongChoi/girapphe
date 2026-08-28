@@ -4,8 +4,10 @@ import { redirect } from 'next/navigation';
 import {
   createKnowledgeItem,
   deleteKnowledgeItem,
+  getArchivedKnowledgeItems,
   getDeletedKnowledgeItems,
   getUserKnowledgeItems,
+  restoreArchivedKnowledgeItem,
   restoreKnowledgeItem,
   updateKnowledgeItem,
 } from '@/actions/user-knowledge-actions';
@@ -24,7 +26,7 @@ import { getServerI18n } from '@/i18n/server';
 import type { Translate } from '@/i18n/core';
 import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
 import KnowledgeBundleView from '@/components/knowledge-bundle-view';
-import { isKnowledgeBundleType } from '@stem-brain/shared';
+import { isKnowledgeBundleType, KNOWLEDGE_BUNDLE_TYPES } from '@stem-brain/shared';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,8 +39,10 @@ type MyKnowledgePageProps = {
     start?: string;
     end?: string;
     group?: 'none' | 'week' | 'month';
-    view?: 'active' | 'trash';
+    view?: 'active' | 'archive' | 'trash';
     linkStatus?: 'created' | 'invalid' | 'cycle_or_duplicate';
+    editStatus?: 'stale' | 'missing';
+    archiveStatus?: 'stale';
     type?: string;
   }>;
 };
@@ -96,6 +100,20 @@ async function createPrivateKnowledgeEdgeAction(formData: FormData) {
   redirect(`/my-knowledge?linkStatus=${result.created ? 'created' : result.reason ?? 'invalid'}`);
 }
 
+async function restoreArchivedKnowledgeItemAction(formData: FormData) {
+  'use server';
+  const result = await restoreArchivedKnowledgeItem(formData);
+  if (result.stale || result.version === null) {
+    redirect('/my-knowledge?view=archive&archiveStatus=stale');
+  }
+}
+
+async function updateKnowledgeItemAction(formData: FormData) {
+  'use server';
+  const result = await updateKnowledgeItem(formData);
+  if (!result.updated) redirect(`/my-knowledge?editStatus=${'stale' in result ? 'stale' : 'missing'}`);
+}
+
 export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageProps) {
   const { locale, t, formatDate } = await getServerI18n();
   const params = (await searchParams) ?? {};
@@ -105,14 +123,17 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
   const sortBy = params.sort === 'title' ? 'title' : params.sort === 'updated' ? 'updated' : 'created';
   const period = ['today', 'week', 'month', 'custom'].includes(params.period ?? '') ? params.period! : 'all';
   const groupBy = params.group === 'week' || params.group === 'month' ? params.group : 'none';
-  const isTrash = params.view === 'trash';
+  const view = params.view === 'trash' || params.view === 'archive' ? params.view : 'active';
+  const isTrash = view === 'trash';
+  const isArchive = view === 'archive';
+  const isActive = view === 'active';
   const actor = await getCurrentActor();
-  const clearFiltersHref = isTrash ? '/my-knowledge?view=trash' : '/my-knowledge';
+  const clearFiltersHref = view === 'active' ? '/my-knowledge' : `/my-knowledge?view=${view}`;
 
   const [items, linkTargets, privateGraph] = await Promise.all([
-    isTrash ? getDeletedKnowledgeItems() : getUserKnowledgeItems(),
-    isTrash || actor.isGuest ? Promise.resolve([]) : getKnowledgeLinkTargets(),
-    isTrash || actor.isGuest ? Promise.resolve({ nodes: [], edges: [] }) : getPrivateKnowledgeGraph(),
+    isTrash ? getDeletedKnowledgeItems() : isArchive ? getArchivedKnowledgeItems() : getUserKnowledgeItems(),
+    !isActive || actor.isGuest ? Promise.resolve([]) : getKnowledgeLinkTargets(),
+    !isActive || actor.isGuest ? Promise.resolve({ nodes: [], edges: [] }) : getPrivateKnowledgeGraph(),
   ]);
   const linkTargetLabel = new Map(linkTargets.map((target) => [target.id, target.label]));
   const topics = Array.from(new Set(items.map((item) => item.topic))).sort();
@@ -149,19 +170,26 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
       <section className="mx-auto w-full max-w-4xl p-4 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{isTrash ? t('notes.trashTitle') : t('notes.title')}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{isTrash ? t('notes.trashTitle') : isArchive ? t('notes.archiveTitle') : t('notes.title')}</h1>
             <p className="mt-1 text-sm text-gray-600">
               {isTrash
                 ? t('notes.trashSubtitle', { days: PERSONAL_CARD_RETENTION_DAYS })
-                : t('notes.subtitle')}
+                : isArchive ? t('notes.archiveSubtitle') : t('notes.subtitle')}
             </p>
           </div>
-          <div className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-600">
-            {t('notes.count', {
-              filtered: filteredItems.length,
-              total: items.length,
-              kind: isTrash ? t('notes.deleted') : t('notes.personal'),
-            })}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {!actor.isGuest && isActive ? (
+              <LocalizedLink href="/topics" className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700">
+                {t('notes.topicHubs')}
+              </LocalizedLink>
+            ) : null}
+            <div className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-600">
+              {t('notes.count', {
+                filtered: filteredItems.length,
+                total: items.length,
+                kind: isTrash ? t('notes.deleted') : isArchive ? t('notes.archive') : t('notes.personal'),
+              })}
+            </div>
           </div>
         </div>
 
@@ -175,9 +203,23 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
           </div>
         ) : null}
 
+        {params.editStatus ? (
+          <div role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950">
+            {params.editStatus === 'stale'
+              ? 'This knowledge item changed in another session. Reloaded values are shown; review them before saving again.'
+              : 'This knowledge item is no longer available to edit.'}
+          </div>
+        ) : null}
+
+        {params.archiveStatus === 'stale' ? (
+          <div role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950">
+            {t('notes.archiveStale')}
+          </div>
+        ) : null}
+
         {/* Filter form */}
         <form role="search" aria-label={t('notes.filterAria')} className="mt-4 rounded-xl border bg-white p-3">
-          <input type="hidden" name="view" value={isTrash ? 'trash' : 'active'} />
+          <input type="hidden" name="view" value={view} />
           <div className="grid gap-2 lg:grid-cols-[minmax(12rem,1fr)_auto_auto_auto_auto_auto_auto]">
             <div className="flex flex-col gap-1">
               <label htmlFor="knowledge-search" className="sr-only">
@@ -196,7 +238,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
             <select name="type" defaultValue={typeFilter} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('bundle.format')}>
               <option value="all">{t('common.allStatus')}</option>
               <option value="legacy">{t('bundle.quickNote')}</option>
-              {(['concept', 'procedure', 'comparison', 'mechanism', 'structure', 'claim_evidence'] as const).map((value) => <option key={value} value={value}>{t(`bundle.type.${value}`)}</option>)}
+              {KNOWLEDGE_BUNDLE_TYPES.map((value) => <option key={value} value={value}>{t(`bundle.type.${value}`)}</option>)}
             </select>
 
             <div className="flex flex-col gap-1">
@@ -271,11 +313,12 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
         </form>
 
         <div className="mt-3 flex items-center gap-2 text-sm">
-          <LocalizedLink href="/my-knowledge" className={`rounded-lg border px-3 py-1.5 ${!isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.title')}</LocalizedLink>
+          <LocalizedLink href="/my-knowledge" className={`rounded-lg border px-3 py-1.5 ${isActive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.title')}</LocalizedLink>
+          {!actor.isGuest ? <LocalizedLink href="/my-knowledge?view=archive" className={`rounded-lg border px-3 py-1.5 ${isArchive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.archive')}</LocalizedLink> : null}
           <LocalizedLink href="/my-knowledge?view=trash" className={`rounded-lg border px-3 py-1.5 ${isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.trash')}</LocalizedLink>
         </div>
 
-        {!isTrash && linkTargets.length > 0 ? (
+        {isActive && linkTargets.length > 0 ? (
           <datalist id="knowledge-relation-targets">
             {linkTargets.map((target) => (
               <option key={target.id} value={target.id}>{target.label} ({target.scope})</option>
@@ -283,7 +326,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
           </datalist>
         ) : null}
 
-        {!isTrash && <form action={createKnowledgeItem} className="mt-6 rounded-xl border bg-white p-4 md:p-6">
+        {isActive && <form action={createKnowledgeItem} className="mt-6 rounded-xl border bg-white p-4 md:p-6">
           <input type="hidden" name="request_id" value={createRequestId} />
           <h2 className="text-base font-semibold">{t('notes.addHeading')}</h2>
           <p className="mt-1 text-xs text-gray-500">{t('notes.addHelp')}</p>
@@ -391,9 +434,9 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
           {items.length === 0 ? (
             <div className="rounded-xl border bg-white p-8 text-center">
               <p className="text-2xl">📝</p>
-              <p className="mt-2 font-semibold text-gray-800">{isTrash ? t('notes.trashEmpty') : t('notes.empty')}</p>
+              <p className="mt-2 font-semibold text-gray-800">{isTrash ? t('notes.trashEmpty') : isArchive ? t('notes.archiveEmpty') : t('notes.empty')}</p>
               <p className="mt-1 text-sm text-gray-500">
-                {isTrash ? t('notes.trashEmptyBody') : t('notes.emptyBody')}
+                {isTrash ? t('notes.trashEmptyBody') : isArchive ? t('notes.archiveEmptyBody') : t('notes.emptyBody')}
               </p>
             </div>
           ) : filteredItems.length === 0 ? (
@@ -416,13 +459,23 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
               {groupedItems.map((item) => (
                 <li key={item.id}>
                   <details suppressHydrationWarning className="rounded-xl border bg-white p-4 md:p-5 group">
-                    <summary className="flex cursor-pointer items-start justify-between gap-3 list-none">
+                    <summary
+                      aria-label={t('notes.itemAction', {
+                        action: isTrash ? t('notes.restoreCard') : isArchive ? t('notes.restoreArchived') : t('common.edit'),
+                        title: item.title,
+                      })}
+                      className="flex cursor-pointer items-start justify-between gap-3 list-none"
+                    >
                       <div className="min-w-0 flex-1">
                         <h3 className="font-semibold text-gray-900">{item.title}</h3>
                         <p className="mt-0.5 text-xs text-gray-500">
-                          <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 font-medium">
-                            {item.topic}
-                          </span>
+                          {!actor.isGuest && isActive ? (
+                            <LocalizedLink href={`/topics/${encodeURIComponent(item.topic)}`} className="inline-block rounded bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700 hover:bg-blue-100 hover:underline">
+                              {item.topic} ↗
+                            </LocalizedLink>
+                          ) : (
+                            <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 font-medium">{item.topic}</span>
+                          )}
                           <span className="ms-2">{t('notes.added', { date: formatDate(item.created_at) })}</span>
                           <span className="ms-2">{t('notes.updated', { date: formatDate(item.updated_at) })}</span>
                         </p>
@@ -444,7 +497,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                         className="shrink-0 rounded border px-2 py-1 text-xs text-gray-500 group-open:hidden hover:bg-gray-50"
                         aria-hidden="true"
                       >
-                        {t('common.edit')} ✎
+                        {isTrash ? t('notes.restoreCard') : isArchive ? t('notes.restoreArchived') : t('common.edit')} ✎
                       </span>
                       <span
                         className="hidden shrink-0 rounded border px-2 py-1 text-xs text-gray-500 group-open:inline hover:bg-gray-50"
@@ -460,8 +513,9 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                       </div>
                     ) : null}
 
-                    {!isTrash && <><form action={updateKnowledgeItem} className="mt-4 grid gap-3">
+                    {isActive && <><form action={updateKnowledgeItemAction} className="mt-4 grid gap-3">
                       <input type="hidden" name="id" value={item.id} />
+                      <input type="hidden" name="version" value={item.version} />
 
                       <div className="flex flex-col gap-1">
                         <label htmlFor={`title-${item.id}`} className="text-xs font-medium text-gray-700">
@@ -604,6 +658,11 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                       <input type="hidden" name="id" value={item.id} />
                       <SubmitButton label={t('notes.restoreCard')} loadingLabel={t('notes.restoring')} className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50" />
                       {item.purge_at && <p className="mt-2 text-xs text-gray-500">{t('notes.purgeAfter', { date: formatDate(item.purge_at) })}</p>}
+                    </form>}
+                    {isArchive && <form action={restoreArchivedKnowledgeItemAction} className="mt-3 border-t pt-3">
+                      <input type="hidden" name="id" value={item.id} />
+                      <input type="hidden" name="version" value={item.version} />
+                      <SubmitButton label={t('notes.restoreArchived')} loadingLabel={t('notes.restoringArchived')} className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50" />
                     </form>}
                   </details>
                 </li>

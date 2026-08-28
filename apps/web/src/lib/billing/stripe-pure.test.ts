@@ -3,12 +3,102 @@ import test from 'node:test';
 import db from '@/lib/db';
 import {
   cancelStripeSubscriptionsForAccountDeletion,
+  createStripeCheckout,
   isStripeCheckoutConfigured,
   parseStripeEvent,
   processStripeEvent,
   requestHasTrustedOrigin,
+  StripeProviderRequestError,
   STRIPE_PROVIDER_TIMEOUT_MS,
 } from './stripe';
+
+test('Stripe Checkout releases a successful lease but retains an indeterminate mutation lease', async (context) => {
+  const originalQuery = db.query;
+  const originalAccountTransaction = db.accountTransaction;
+  const originalFetch = globalThis.fetch;
+  const previous = new Map([
+    ['DATABASE_URL', process.env.DATABASE_URL],
+    ['STRIPE_SECRET_KEY', process.env.STRIPE_SECRET_KEY],
+    ['STRIPE_PRICE_AD_FREE_MONTHLY', process.env.STRIPE_PRICE_AD_FREE_MONTHLY],
+    ['STRIPE_PRICE_AD_FREE_ANNUAL', process.env.STRIPE_PRICE_AD_FREE_ANNUAL],
+    ['APP_BASE_URL', process.env.APP_BASE_URL],
+  ]);
+  context.after(() => {
+    db.query = originalQuery;
+    db.accountTransaction = originalAccountTransaction;
+    globalThis.fetch = originalFetch;
+    restoreEnvironment(previous);
+  });
+  process.env.DATABASE_URL = 'postgresql://test.invalid/girapphe';
+  process.env.STRIPE_SECRET_KEY = 'sk_test_checkout_lease';
+  process.env.STRIPE_PRICE_AD_FREE_MONTHLY = 'price_monthly';
+  process.env.STRIPE_PRICE_AD_FREE_ANNUAL = 'price_annual';
+  process.env.APP_BASE_URL = 'https://app.example.com';
+
+  const databaseCalls: Array<{ text: string; params?: unknown[] }> = [];
+  db.accountTransaction = (async (_userId, queries) => [{
+    rows: [{ event_id: queries[0]?.params?.[1] }],
+  }]) as typeof db.accountTransaction;
+  db.query = (async (text: string, params?: unknown[]) => {
+    databaseCalls.push({ text, params });
+    if (text.includes('AS blocked')) return { rows: [{ blocked: false }] };
+    if (text.includes('SELECT stripe_customer_id')) {
+      return { rows: [{ stripe_customer_id: 'cus_checkout_lease' }] };
+    }
+    if (text.includes('SET trial_consumed_at = date_trunc')) {
+      return { rows: [{ trial_consumed_at: new Date('2030-01-01T00:00:00.000Z') }] };
+    }
+    return { rows: [] };
+  }) as typeof db.query;
+
+  let checkoutCreates = 0;
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'GET' && url.includes('/checkout/sessions?')) {
+      return Response.json({ data: [] });
+    }
+    if (init?.method === 'GET' && url.includes('/subscriptions?')) {
+      return Response.json({ data: [] });
+    }
+    if (init?.method === 'POST' && url.endsWith('/checkout/sessions')) {
+      checkoutCreates += 1;
+      if (checkoutCreates === 1) {
+        return Response.json({ url: 'https://checkout.stripe.test/session-success' });
+      }
+      throw new TypeError('simulated lost Checkout response');
+    }
+    throw new Error(`Unexpected Stripe request: ${init?.method ?? 'GET'} ${url}`);
+  }) as typeof fetch;
+
+  assert.equal(await createStripeCheckout({
+    userId: 'user_checkout_success',
+    email: 'success@example.com',
+    plan: 'monthly',
+    requestUrl: 'https://app.example.com/subscription',
+  }), 'https://checkout.stripe.test/session-success');
+  const releasesAfterSuccess = databaseCalls.filter(({ text }) => (
+    text.includes('DELETE FROM billing_webhook_events')
+  )).length;
+  assert.equal(releasesAfterSuccess, 1);
+
+  await assert.rejects(
+    createStripeCheckout({
+      userId: 'user_checkout_indeterminate',
+      email: 'lost@example.com',
+      plan: 'monthly',
+      requestUrl: 'https://app.example.com/subscription',
+    }),
+    (error: unknown) => error instanceof StripeProviderRequestError
+      && error.outcome === 'indeterminate',
+  );
+  assert.equal(databaseCalls.filter(({ text }) => (
+    text.includes('DELETE FROM billing_webhook_events')
+  )).length, releasesAfterSuccess);
+  assert.equal(databaseCalls.some(({ text, params }) => (
+    text.includes('SET trial_consumed_at = NULL')
+    && params?.[0] === 'user_checkout_indeterminate'
+  )), false);
+});
 
 test('account deletion cancels current and retired Girapphe Stripe subscriptions', async (context) => {
   const originalQuery = db.query;
@@ -42,6 +132,36 @@ test('account deletion cancels current and retired Girapphe Stripe subscriptions
   globalThis.fetch = (async (input, init) => {
     const url = String(input);
     requests.push({ url, method: init?.method ?? 'GET' });
+    if (url.includes('/checkout/sessions?')) {
+      const cursor = new URL(url).searchParams.get('starting_after');
+      if (!cursor) {
+        return Response.json({
+          data: [
+            {
+              id: 'cs_owned_first', mode: 'subscription',
+              metadata: { user_id: 'user_delete', entitlement: 'ad_free' },
+            },
+            {
+              id: 'cs_other_user', mode: 'subscription',
+              metadata: { user_id: 'user_other', entitlement: 'ad_free' },
+            },
+            { id: 'cs_page_cursor', mode: 'payment', metadata: {} },
+          ],
+          has_more: true,
+        });
+      }
+      assert.equal(cursor, 'cs_page_cursor');
+      return Response.json({
+        data: [{
+          id: 'cs_owned_second', mode: 'subscription',
+          metadata: { user_id: 'user_delete', entitlement: 'ad_free' },
+        }],
+        has_more: false,
+      });
+    }
+    if (url.includes('/checkout/sessions/') && url.endsWith('/expire')) {
+      return Response.json({ id: url.split('/').at(-2), status: 'expired' });
+    }
     if (url.includes('/subscriptions?')) {
       return Response.json({
         data: [
@@ -62,12 +182,23 @@ test('account deletion cancels current and retired Girapphe Stripe subscriptions
   }) as typeof fetch;
 
   assert.equal(await cancelStripeSubscriptionsForAccountDeletion('user_delete'), 3);
+  const expiredUrls = requests
+    .filter(({ method, url }) => method === 'POST' && url.endsWith('/expire'))
+    .map(({ url }) => url);
+  assert.equal(expiredUrls.length, 2);
+  assert.ok(expiredUrls.some((url) => /checkout\/sessions\/cs_owned_first\/expire$/.test(url)));
+  assert.ok(expiredUrls.some((url) => /checkout\/sessions\/cs_owned_second\/expire$/.test(url)));
+  assert.ok(expiredUrls.every((url) => !url.includes('cs_other_user')));
   const deletedUrls = requests.filter(({ method }) => method === 'DELETE').map(({ url }) => url);
   assert.equal(deletedUrls.length, 3);
   assert.ok(deletedUrls.some((url) => /subscriptions\/sub_girapphe$/.test(url)));
   assert.ok(deletedUrls.some((url) => /subscriptions\/sub_retired$/.test(url)));
   assert.ok(deletedUrls.some((url) => /subscriptions\/sub_metadata$/.test(url)));
   assert.ok(deletedUrls.every((url) => !/subscriptions\/sub_other$/.test(url)));
+  const lastExpiry = Math.max(...requests
+    .map((request, index) => request.method === 'POST' && request.url.endsWith('/expire') ? index : -1));
+  const subscriptionList = requests.findIndex(({ url }) => url.includes('/subscriptions?'));
+  assert.ok(lastExpiry >= 0 && lastExpiry < subscriptionList);
 });
 
 const STRIPE_CONFIGURATION_KEYS = [
@@ -101,6 +232,74 @@ test('parses a Stripe event and converts its Unix timestamp from seconds', () =>
   assert.equal(event.type, 'customer.subscription.updated');
   assert.equal(event.createdAt.toISOString(), '2023-11-14T22:13:20.000Z');
   assert.strictEqual(event.data.object, object);
+});
+
+test('a late active Stripe subscription for a deleted account is canceled and stored as canceled', async (context) => {
+  const originalQuery = db.query;
+  const originalFetch = globalThis.fetch;
+  const previous = new Map([
+    ['DATABASE_URL', process.env.DATABASE_URL],
+    ['STRIPE_SECRET_KEY', process.env.STRIPE_SECRET_KEY],
+    ['STRIPE_PRICE_AD_FREE_MONTHLY', process.env.STRIPE_PRICE_AD_FREE_MONTHLY],
+    ['STRIPE_PRICE_AD_FREE_ANNUAL', process.env.STRIPE_PRICE_AD_FREE_ANNUAL],
+  ]);
+  context.after(() => {
+    db.query = originalQuery;
+    globalThis.fetch = originalFetch;
+    restoreEnvironment(previous);
+  });
+  process.env.DATABASE_URL = 'postgresql://test.invalid/girapphe';
+  process.env.STRIPE_SECRET_KEY = 'sk_test_deleted_webhook';
+  process.env.STRIPE_PRICE_AD_FREE_MONTHLY = 'price_deleted_monthly';
+  process.env.STRIPE_PRICE_AD_FREE_ANNUAL = 'price_deleted_annual';
+
+  const writes: Array<{ text: string; params?: unknown[] }> = [];
+  db.query = (async (text: string, params?: unknown[]) => {
+    writes.push({ text, params });
+    if (text.includes('WHERE stripe_customer_id = $1')) {
+      return { rows: [{ user_id: 'user_deleted_webhook' }] };
+    }
+    if (text.includes('INSERT INTO billing_customers')) {
+      return { rows: [{ stripe_customer_id: 'cus_deleted_webhook' }] };
+    }
+    if (text.includes('FROM mcp_deleted_account_markers')) {
+      return { rows: [{ deleted: true }] };
+    }
+    return { rows: [] };
+  }) as typeof db.query;
+
+  const providerMethods: string[] = [];
+  const subscription = {
+    id: 'sub_deleted_webhook',
+    customer: 'cus_deleted_webhook',
+    status: 'active',
+    metadata: { user_id: 'user_deleted_webhook', entitlement: 'ad_free' },
+    items: { data: [{ price: { id: 'price_deleted_monthly' } }] },
+    current_period_start: 1_900_000_000,
+    current_period_end: 1_902_678_400,
+  };
+  globalThis.fetch = (async (_input, init) => {
+    providerMethods.push(init?.method ?? 'GET');
+    if (init?.method === 'DELETE') {
+      return Response.json({ ...subscription, status: 'canceled' });
+    }
+    return Response.json(subscription);
+  }) as typeof fetch;
+
+  const event = parseStripeEvent({
+    id: 'evt_deleted_webhook',
+    type: 'customer.subscription.updated',
+    created: 1_900_000_001,
+    data: { object: { id: subscription.id } },
+  });
+  assert.ok(event);
+  await processStripeEvent(event);
+
+  assert.deepEqual(providerMethods, ['GET', 'DELETE']);
+  const upsert = writes.find(({ text }) => text.includes('INSERT INTO billing_subscriptions'));
+  assert.ok(upsert);
+  assert.equal(upsert.params?.[1], 'user_deleted_webhook');
+  assert.equal(upsert.params?.[6], 'canceled');
 });
 
 test('rejects malformed Stripe event envelopes and timestamps', () => {

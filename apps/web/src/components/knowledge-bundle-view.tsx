@@ -47,12 +47,18 @@ export default function KnowledgeBundleView({ type, centralQuestion, content, co
 }
 
 function BundleCompact({ content }: { content: KnowledgeBundleContent }) {
-  const values = content.type === 'concept' ? [content.definition, ...content.key_points]
-    : content.type === 'procedure' ? [content.goal, ...content.steps.map((step) => step.title)]
-    : content.type === 'comparison' ? [...content.targets, ...content.differences]
-    : content.type === 'mechanism' ? [...content.causes, ...content.stages.map((stage) => stage.title), ...content.results]
-    : content.type === 'structure' ? [content.purpose, ...content.components.map((item) => `${item.label}: ${item.role}`)]
-    : [content.claim, ...content.evidence.map((item) => item.statement), ...content.limitations];
+  let values: string[];
+  switch (content.type) {
+    case 'concept': values = [content.definition, ...content.key_points]; break;
+    case 'procedure': values = [content.goal, ...content.steps.map((step) => step.title)]; break;
+    case 'comparison': values = [...content.targets, ...content.differences]; break;
+    case 'mechanism': values = [...content.causes, ...content.stages.map((stage) => stage.title), ...content.results]; break;
+    case 'structure': values = [content.purpose, ...content.components.map((item) => `${item.label}: ${item.role}`)]; break;
+    case 'claim_evidence': values = [content.claim, ...content.evidence.map((item) => item.statement), ...content.limitations]; break;
+    case 'question': values = [content.question, content.answer_summary, ...content.known_facts, ...content.next_steps]; break;
+    case 'decision': values = [content.decision, content.outcome, ...content.rationale, ...content.reconsider_when]; break;
+    case 'event': values = [content.event, content.occurred_at, ...content.changes, ...content.consequences]; break;
+  }
   return <ul className="list-disc space-y-1 ps-5 text-sm text-slate-700">{values.filter(Boolean).slice(0, 8).map((value, index) => <li key={`${index}-${value}`}>{value}</li>)}</ul>;
 }
 
@@ -77,5 +83,25 @@ function BundleBody({ content, t }: { content: KnowledgeBundleContent; t: Return
     case 'mechanism': return <div className="space-y-3"><List title={t('bundle.field.causes')} values={content.causes} />{content.stages.length ? <ol className="flex flex-col gap-2 md:flex-row md:items-stretch">{content.stages.map((stage, index) => <li key={index} className="flex min-w-0 flex-1 items-center gap-2"><div className={`${panel} h-full flex-1`}><strong className="text-sm">{stage.title}</strong>{stage.detail ? <p className="mt-1 text-sm text-slate-600">{stage.detail}</p> : null}</div>{index < content.stages.length - 1 ? <span aria-hidden="true" className="text-blue-500">→</span> : null}</li>)}</ol> : null}<List title={t('bundle.field.results')} values={content.results} /><div className="grid gap-3 md:grid-cols-2"><List title={t('bundle.field.conditions')} values={content.conditions} /><List title={t('bundle.field.exceptions')} values={content.exceptions} /></div></div>;
     case 'structure': return <div className="space-y-3">{content.purpose ? <p className={`${panel} text-sm text-slate-800`}>{content.purpose}</p> : null}{content.components.length ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.components')}</h4><ul className="mt-2 space-y-2">{content.components.map((item) => <li key={item.id} className="border-s-2 border-blue-200 ps-3" style={{ marginInlineStart: `${structureDepth(content, item.id) * 1.25}rem` }}><strong className="text-sm text-slate-900">{item.label}</strong>{item.role ? <p className="text-sm text-slate-600">{item.role}</p> : null}</li>)}</ul></section> : null}<PairList title={t('bundle.field.internalRelations')} values={content.relations.map((item) => ({ label: `${item.source_id} → ${item.target_id}`, detail: item.label }))} /><List title={t('bundle.field.boundaries')} values={content.boundaries} /></div>;
     case 'claim_evidence': return <div className="space-y-3">{content.claim ? <blockquote className="rounded-lg border-s-4 border-blue-500 bg-blue-50 p-4 font-semibold text-slate-900">{content.claim}</blockquote> : null}{content.evidence.length ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.evidence')}</h4><ul className="mt-2 space-y-2">{content.evidence.map((item, index) => <li key={index} className="text-sm text-slate-700">{item.statement}{item.source ? <span className="ms-2 text-xs text-blue-700">{item.source}</span> : null}</li>)}</ul></section> : null}<div className="grid gap-3 md:grid-cols-2"><List title={t('bundle.field.counterevidence')} values={content.counterevidence} /><List title={t('bundle.field.scope')} values={content.scope} /><List title={t('bundle.field.limitations')} values={content.limitations} />{content.confidence ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.confidence')}</h4><p className="mt-2 text-sm font-semibold text-slate-800">{t(`bundle.confidence.${content.confidence}`)}</p></section> : null}</div></div>;
+    case 'question': return <div className="space-y-3">
+      {content.question ? <blockquote className="rounded-lg border-s-4 border-violet-500 bg-violet-50 p-4 font-semibold text-slate-900">{content.question}</blockquote> : null}
+      {content.context ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.context')}</h4><p className="mt-2 text-sm text-slate-800">{content.context}</p></section> : null}
+      <div className="grid gap-3 md:grid-cols-2"><List title={t('bundle.field.knownFacts')} values={content.known_facts} /><List title={t('bundle.field.hypotheses')} values={content.hypotheses} /><List title={t('bundle.field.nextSteps')} values={content.next_steps} /></div>
+      {content.answer_summary ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.answerSummary')}</h4><p className="mt-2 text-sm text-slate-800">{content.answer_summary}</p></section> : null}
+      <p className="inline-flex rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-800">{t(`bundle.status.${content.status}`)}</p>
+    </div>;
+    case 'decision': return <div className="space-y-3">
+      {content.decision ? <blockquote className="rounded-lg border-s-4 border-amber-500 bg-amber-50 p-4 font-semibold text-slate-900">{content.decision}</blockquote> : null}
+      {content.context ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.context')}</h4><p className="mt-2 text-sm text-slate-800">{content.context}</p></section> : null}
+      <PairList title={t('bundle.field.options')} values={content.options.map((item) => ({ label: item.name, detail: item.tradeoffs }))} />
+      <div className="grid gap-3 md:grid-cols-2"><List title={t('bundle.field.criteria')} values={content.criteria} /><List title={t('bundle.field.rationale')} values={content.rationale} /><List title={t('bundle.field.reconsiderWhen')} values={content.reconsider_when} /></div>
+      {content.outcome ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.outcome')}</h4><p className="mt-2 text-sm text-slate-800">{content.outcome}</p></section> : null}
+    </div>;
+    case 'event': return <div className="space-y-3">
+      {content.event ? <blockquote className="rounded-lg border-s-4 border-emerald-500 bg-emerald-50 p-4 font-semibold text-slate-900">{content.event}</blockquote> : null}
+      {content.occurred_at ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.occurredAt')}</h4><p className="mt-2 text-sm text-slate-800">{content.occurred_at}</p></section> : null}
+      {content.context ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.context')}</h4><p className="mt-2 text-sm text-slate-800">{content.context}</p></section> : null}
+      <div className="grid gap-3 md:grid-cols-3"><List title={t('bundle.field.changes')} values={content.changes} /><List title={t('bundle.field.causes')} values={content.causes} /><List title={t('bundle.field.consequences')} values={content.consequences} /></div>
+    </div>;
   }
 }
