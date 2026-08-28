@@ -305,6 +305,7 @@ function deterministicGeneratedAt(collections: TopicKnowledgeHubCollections): st
     ...collections.supersessions.map((entry) => entry.created_at),
     ...collections.evidence_selectors.flatMap((entry) => [entry.created_at, entry.confirmed_at]),
   ].filter((value): value is string => Boolean(value));
+  if (timestamps.length === 0) return new Date().toISOString();
   return timestamps.reduce((latest, value) => value > latest ? value : latest, EPOCH_ISO);
 }
 

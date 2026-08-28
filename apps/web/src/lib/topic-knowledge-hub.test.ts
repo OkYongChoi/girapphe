@@ -41,6 +41,20 @@ test('topic page uses the already-decoded Next.js route parameter exactly once',
   assert.match(topicPage, /getTopicKnowledgeHubForUser\(user\.id, topicParam\)/);
 });
 
+test('an empty topic hub reports the current request time instead of the Unix epoch', async () => {
+  const beforeRequest = Date.now();
+  const hub = await getTopicKnowledgeHubForUser(
+    `user_empty_topic_${crypto.randomUUID()}`,
+    'Empty topic',
+  );
+  const afterRequest = Date.now();
+  const generatedAt = Date.parse(hub.generated_at);
+
+  assert.deepEqual(hub.items, []);
+  assert.ok(generatedAt >= beforeRequest);
+  assert.ok(generatedAt <= afterRequest);
+});
+
 test('duplicate suggestions are deterministic, advisory, and owner scoped', async () => {
   const userId = `user_duplicate_owner_${crypto.randomUUID()}`;
   const otherUserId = `user_duplicate_other_${crypto.randomUUID()}`;
