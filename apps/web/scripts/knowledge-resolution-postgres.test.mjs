@@ -281,6 +281,8 @@ test('PostgreSQL reuse validation rejects a selection that expires behind the ac
     await blocker.query('SELECT pg_sleep(0.35)');
     await blocker.query('COMMIT');
     blockerTransaction = false;
+    blocker.release();
+    blocker = undefined;
 
     assert.equal(await reusePromise, 0);
     assert.equal((await pool.query(
