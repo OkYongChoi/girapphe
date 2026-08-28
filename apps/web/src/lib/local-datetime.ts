@@ -35,6 +35,28 @@ export function normalizeLocalDateTimeFields(formData: FormData, fieldNames: str
   }
 }
 
+export function localDateTimeInputValue(value: string | null | undefined) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+/**
+ * An unchanged verification field means "keep the exact current schedule".
+ * A cleared prefilled value remains present so the server can distinguish an
+ * explicit clear from an untouched value.
+ */
+export function prepareKnowledgeVerificationFormData(formData: FormData, initialReviewAt: string) {
+  const reviewAt = formData.get('review_at');
+  if (typeof reviewAt === 'string' && reviewAt === initialReviewAt) {
+    formData.delete('review_at');
+    return;
+  }
+  normalizeLocalDateTimeFields(formData, ['review_at']);
+}
+
 export const KNOWLEDGE_LIFECYCLE_FIELDS = [
   'observed_at',
   'review_at',

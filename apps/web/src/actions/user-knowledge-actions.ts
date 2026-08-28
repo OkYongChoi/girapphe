@@ -47,7 +47,10 @@ import {
 } from '@/lib/knowledge-ingestion';
 import { parseKnowledgeBundleFields, projectKnowledgeBundle, type KnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
 import { KNOWLEDGE_ITEM_UPDATE_QUERY } from '@/lib/knowledge-item-update-query';
-import { readKnowledgeResolutionTimestampField } from '@/lib/local-datetime';
+import {
+  readKnowledgeResolutionTimestampField,
+  readOptionalTimestampPatchField,
+} from '@/lib/local-datetime';
 import { getTopicKnowledgeHubForUser, type TopicKnowledgeHub } from '@/lib/topic-knowledge-hub';
 
 export type UserKnowledgeItem = {
@@ -107,14 +110,6 @@ function readPositiveIntegerField(formData: FormData, name: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`Invalid ${name}.`);
   return parsed;
-}
-
-function readOptionalTimestampField(formData: FormData, name: string): string | null {
-  const value = readStringField(formData, name, 100);
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new Error(`Invalid ${name}.`);
-  return parsed.toISOString();
 }
 
 function readEvidenceSelectors(formData: FormData): KnowledgeEvidenceSelector[] {
@@ -1006,7 +1001,7 @@ export async function verifyKnowledgeItem(formData: FormData) {
   const user = await requireCurrentActor();
   const itemId = readIdentifierField(formData, 'id');
   const expectedVersion = readPositiveIntegerField(formData, 'version');
-  const reviewAt = readOptionalTimestampField(formData, 'review_at');
+  const reviewAt = readOptionalTimestampPatchField(formData, 'review_at');
   const result = await verifyKnowledgeItemForUser(user.id, itemId, expectedVersion, reviewAt);
   revalidateResolvedKnowledge();
   return result;

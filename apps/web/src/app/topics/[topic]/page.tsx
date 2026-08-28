@@ -266,6 +266,7 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
                         itemId={item.id}
                         version={item.version}
                         lastVerifiedAt={item.last_verified_at}
+                        reviewAt={item.review_at}
                         replacements={hub.items.filter((candidate) => candidate.id !== item.id).map((candidate) => ({ id: candidate.id, title: candidate.title }))}
                       />
                     </article>

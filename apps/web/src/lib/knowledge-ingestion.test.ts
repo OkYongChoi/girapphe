@@ -1178,6 +1178,45 @@ test('archive and unarchive are optimistic versioned transitions with restored a
   assert.ok(restoredHub.activity.some((entry) => entry.activity_type === 'restored'));
 });
 
+test('verification preserves a scheduled review unless a replacement value is supplied', async () => {
+  const userId = `user_verify_review_schedule_${crypto.randomUUID()}`;
+  const reviewAt = '2026-09-28T04:05:06.789Z';
+  const item = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Scheduled runbook',
+    content: 'Review this runbook on schedule.',
+    topic: 'Operations',
+    reviewAt,
+  });
+
+  assert.deepEqual(await verifyKnowledgeItemForUser(userId, item.id, 1), {
+    verified: true,
+    version: 2,
+  });
+  assert.equal(
+    getMemoryKnowledgeItemsForUser(userId).find((candidate) => candidate.id === item.id)?.review_at,
+    reviewAt,
+  );
+
+  const replacementReviewAt = '2026-10-05T00:00:00.000Z';
+  assert.deepEqual(await verifyKnowledgeItemForUser(userId, item.id, 2, replacementReviewAt), {
+    verified: true,
+    version: 3,
+  });
+  assert.equal(
+    getMemoryKnowledgeItemsForUser(userId).find((candidate) => candidate.id === item.id)?.review_at,
+    replacementReviewAt,
+  );
+
+  assert.deepEqual(await verifyKnowledgeItemForUser(userId, item.id, 3, null), {
+    verified: true,
+    version: 4,
+  });
+  assert.equal(
+    getMemoryKnowledgeItemsForUser(userId).find((candidate) => candidate.id === item.id)?.review_at,
+    null,
+  );
+});
+
 test('approves a typed bundle atomically as one private item and one graph node', async () => {
   const userId = `user_typed_bundle_approval_${crypto.randomUUID()}`;
   const structuredContent = {

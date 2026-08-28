@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   localDateTimeToIso,
+  localDateTimeInputValue,
   prepareKnowledgeLifecycleFormData,
+  prepareKnowledgeVerificationFormData,
   readCompatibleTimestampPatchField,
   readKnowledgeResolutionTimestampField,
   readOptionalTimestampPatchField,
@@ -104,6 +106,25 @@ test('timestamp patch parsing distinguishes omitted fields from explicit clears'
   assert.equal(readOptionalTimestampPatchField(formData, 'review_at'), '2026-08-28T03:02:19.456Z');
   formData.set('review_at', 'not-a-date');
   assert.throws(() => readOptionalTimestampPatchField(formData, 'review_at'), /Invalid review_at/);
+});
+
+test('verification preserves an unchanged schedule while retaining explicit clear and set patches', () => {
+  const initialReviewAt = localDateTimeInputValue('2026-09-28T04:05:06.789Z');
+  const untouched = new FormData();
+  untouched.set('review_at', initialReviewAt);
+  prepareKnowledgeVerificationFormData(untouched, initialReviewAt);
+  assert.equal(untouched.has('review_at'), false);
+
+  const cleared = new FormData();
+  cleared.set('review_at', '');
+  prepareKnowledgeVerificationFormData(cleared, initialReviewAt);
+  assert.equal(cleared.get('review_at'), '');
+  assert.equal(readOptionalTimestampPatchField(cleared, 'review_at'), null);
+
+  const scheduled = new FormData();
+  scheduled.set('review_at', '2026-09-28T09:30');
+  prepareKnowledgeVerificationFormData(scheduled, '');
+  assert.equal(scheduled.get('review_at'), new Date(2026, 8, 28, 9, 30).toISOString());
 });
 
 test('legacy resolution forms preserve blank target timestamps while marked forms can clear them', () => {

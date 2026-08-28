@@ -5,7 +5,10 @@ import { useFormStatus } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { archiveKnowledgeItem, supersedeKnowledgeItem, verifyKnowledgeItem } from '@/actions/user-knowledge-actions';
 import { useI18n } from '@/i18n/client';
-import { normalizeLocalDateTimeFields } from '@/lib/local-datetime';
+import {
+  localDateTimeInputValue,
+  prepareKnowledgeVerificationFormData,
+} from '@/lib/local-datetime';
 
 type ReplacementItem = { id: string; title: string };
 
@@ -18,21 +21,24 @@ export default function KnowledgeLifecycleControls({
   itemId,
   version,
   lastVerifiedAt,
+  reviewAt,
   replacements,
 }: {
   itemId: string;
   version: number;
   lastVerifiedAt: string | null;
+  reviewAt: string | null;
   replacements: ReplacementItem[];
 }) {
   const router = useRouter();
   const { t } = useI18n();
   const [error, setError] = useState<string | null>(null);
+  const initialReviewAt = localDateTimeInputValue(reviewAt);
 
   const verify = async (formData: FormData) => {
     setError(null);
     try {
-      normalizeLocalDateTimeFields(formData, ['review_at']);
+      prepareKnowledgeVerificationFormData(formData, initialReviewAt);
       const result = await verifyKnowledgeItem(formData);
       if (!result.verified) setError(result.stale ? t('topic.lifecycle.verifyChanged') : t('topic.lifecycle.verifyError'));
       router.refresh();
@@ -74,7 +80,7 @@ export default function KnowledgeLifecycleControls({
           <input type="hidden" name="version" value={version} />
           <p className="text-sm font-bold text-slate-900">{t('topic.lifecycle.verifyTitle')}</p>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">{t('topic.lifecycle.verifyBody')}</p>
-          <label className="mt-3 grid gap-1 text-xs font-semibold text-slate-600">{t('topic.lifecycle.reviewAt')}<input type="datetime-local" name="review_at" className="min-h-10 rounded-lg border px-3 text-sm font-normal" /></label>
+          <label className="mt-3 grid gap-1 text-xs font-semibold text-slate-600">{t('topic.lifecycle.reviewAt')}<input type="datetime-local" name="review_at" defaultValue={initialReviewAt} className="min-h-10 rounded-lg border px-3 text-sm font-normal" /></label>
           <PendingButton idle={lastVerifiedAt ? t('topic.lifecycle.verifyAgain') : t('topic.lifecycle.markVerified')} busy={t('topic.lifecycle.verifying')} className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50" />
         </form>
 
