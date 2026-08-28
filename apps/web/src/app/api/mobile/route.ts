@@ -15,6 +15,7 @@ import {
 import {
   createKnowledgeItem,
   deleteKnowledgeItem,
+  getArchivedKnowledgeItems,
   getDeletedKnowledgeItems,
   getUserKnowledgeItems,
   restoreKnowledgeItem,
@@ -35,6 +36,21 @@ import { readBoundedJson } from '@/lib/billing/bounded-json';
 import { handlePublicContentRequest } from '@/lib/public-content-api';
 import { parseContentLocale } from '@/lib/content-localization';
 import { parseKnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
+import { getTopicKnowledgeHubForUser } from '@/lib/topic-knowledge-hub';
+import {
+  getKnowledgeDraftBatch,
+  getKnowledgeDraftBatches,
+} from '@/actions/knowledge-ingestion-actions';
+import {
+  getKnowledgeDraftResolutionContext,
+  ignoreKnowledgeDraft,
+  resolveKnowledgeDraft,
+} from '@/actions/user-knowledge-actions';
+import {
+  getActiveKnowledgeItemVersionForUser,
+  getKnowledgeDuplicateSuggestionsForDraftsForUser,
+} from '@/lib/knowledge-ingestion';
+import { resolveMobileNoteUpdateVersion } from '@/lib/mobile-note-update-version';
 
 const MAX_JSON_BYTES = 16_384;
 
@@ -75,6 +91,7 @@ function toMobileNote(item: UserKnowledgeItem) {
     central_question: item.central_question,
     structured_content: item.structured_content,
     bundle_schema_version: item.bundle_schema_version,
+    version: item.version,
     created_at: item.created_at,
     updated_at: item.updated_at,
     deleted_at: item.deleted_at,
@@ -156,7 +173,8 @@ function mutationResponse(result: { success?: boolean; error?: string }) {
 export async function GET(request: NextRequest) {
   const resource = request.nextUrl.searchParams.get('resource');
   if (resource === 'content') return handlePublicContentRequest(request);
-  if (!await requireMobileUser()) return unauthorized();
+  const mobileUser = await requireMobileUser();
+  if (!mobileUser) return unauthorized();
   const explicitLocale = request.nextUrl.searchParams.get('locale');
   const localeInput = explicitLocale
     ?? request.headers.get('x-girapphe-locale')
@@ -177,8 +195,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ users: await getAdminUsers() });
     case 'notes': {
       const view = request.nextUrl.searchParams.get('view');
-      const items = view === 'trash' ? await getDeletedKnowledgeItems() : await getUserKnowledgeItems();
+      const items = view === 'trash'
+        ? await getDeletedKnowledgeItems()
+        : view === 'archive'
+          ? await getArchivedKnowledgeItems()
+          : await getUserKnowledgeItems();
       return privateJson({ items: items.map(toMobileNote) });
+    }
+    case 'topic-hub': {
+      const topic = request.nextUrl.searchParams.get('topic')?.trim() ?? '';
+      if (!topic || topic.length > 120) return invalid('A bounded topic is required.', 'INVALID_TOPIC');
+      return privateJson({ hub: await getTopicKnowledgeHubForUser(mobileUser.id, topic) });
+    }
+    case 'candidate-inbox':
+      return privateJson({ batches: await getKnowledgeDraftBatches() });
+    case 'candidate-batch': {
+      const batchId = request.nextUrl.searchParams.get('batchId')?.trim() ?? '';
+      if (!batchId || batchId.length > 240 || !/^[A-Za-z0-9._:-]+$/.test(batchId)) return invalid('A valid batch id is required.', 'INVALID_BATCH');
+      const result = await getKnowledgeDraftBatch(batchId);
+      if (!result) return NextResponse.json({ error: 'The candidate batch was not found.', code: 'BATCH_NOT_FOUND' }, { status: 404 });
+      const pending = result.drafts.filter((draft) => draft.status === 'pending');
+      const duplicateSuggestions = await getKnowledgeDuplicateSuggestionsForDraftsForUser(mobileUser.id, pending);
+      return privateJson({
+        batch: result.batch,
+        drafts: pending.map((draft) => ({
+          ...draft,
+          duplicate_suggestions: duplicateSuggestions[draft.id] ?? [],
+        })),
+      });
     }
     case 'graph': {
       const [cards, personalItems] = await Promise.all([
@@ -219,7 +263,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!await requireMobileUser()) return unauthorized();
+  const mobileUser = await requireMobileUser();
+  if (!mobileUser) return unauthorized();
   const parsedBody = await readBody(request);
   if (!parsedBody.ok) {
     return NextResponse.json(
@@ -270,6 +315,59 @@ export async function POST(request: NextRequest) {
 
   if (action === 'reset-progress') return mutationResponse(await resetUserCardProgress());
 
+  if (action === 'approve-candidate' || action === 'ignore-candidate') {
+    const batchId = stringField(body.batchId, 240);
+    const draftId = stringField(body.draftId, 240);
+    const draftVersion = body.draftVersion;
+    if (!batchId || !draftId || !Number.isSafeInteger(draftVersion) || (draftVersion as number) <= 0) return invalid('A valid candidate and version are required.');
+    const context = await getKnowledgeDraftResolutionContext(draftId);
+    if (!context || context.draft.batch_id !== batchId || context.draft.status !== 'pending') {
+      return NextResponse.json({ error: 'The candidate is no longer pending.', code: 'CANDIDATE_STALE' }, { status: 409 });
+    }
+    const candidateForm = toFormData({
+      batch_id: batchId,
+      draft_id: draftId,
+      draft_version: String(draftVersion),
+    });
+    if (action === 'ignore-candidate') {
+      const result = await ignoreKnowledgeDraft(candidateForm);
+      return result.resolved ? NextResponse.json(result) : NextResponse.json({ ...result, error: 'The candidate changed before it was ignored.' }, { status: 409 });
+    }
+    const draft = context.draft;
+    candidateForm.set('resolution_action', 'create');
+    candidateForm.set('title', draft.title);
+    candidateForm.set('summary', draft.summary);
+    candidateForm.set('content', draft.explanation);
+    candidateForm.set('topic', draft.topic);
+    candidateForm.set('tags', draft.tags.join(','));
+    candidateForm.set('knowledge_type', draft.knowledge_type ?? '');
+    candidateForm.set('central_question', draft.central_question ?? '');
+    candidateForm.set('structured_content', draft.structured_content ? JSON.stringify(draft.structured_content) : '');
+    candidateForm.set('bundle_schema_version', draft.bundle_schema_version ? String(draft.bundle_schema_version) : '');
+    candidateForm.set('evidence_selectors_json', JSON.stringify(draft.proposed_evidence));
+    candidateForm.set('lifecycle_patch_semantics', 'tri_state_v1');
+    if (draft.structured_content?.type === 'event') {
+      const occurredAt = new Date(draft.structured_content.occurred_at);
+      if (!Number.isNaN(occurredAt.getTime())) {
+        candidateForm.set('observed_at', occurredAt.toISOString());
+      }
+    }
+    const result = await resolveKnowledgeDraft(candidateForm);
+    if (result.resolved) return NextResponse.json(result);
+    if (result.pendingDependency) {
+      return NextResponse.json({
+        ...result,
+        error: 'A related candidate must be approved first.',
+        code: 'CANDIDATE_DEPENDENCY_PENDING',
+      }, { status: 409 });
+    }
+    return NextResponse.json({
+      ...result,
+      error: 'The candidate changed before it was saved.',
+      code: 'CANDIDATE_STALE',
+    }, { status: 409 });
+  }
+
   const id = stringField(body.id, 160);
   if (action === 'create-note') {
     const title = stringField(body.title, 240);
@@ -299,10 +397,27 @@ export async function POST(request: NextRequest) {
     if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
     const tags = parseMobileTags(body.tags);
     if (!tags) return invalid('Tags must contain at most 12 non-empty values.', 'INVALID_TAGS');
-    await updateKnowledgeItem(toFormData({ id, title, summary, content, topic, tags: tags.join(','), bundle_mode_present: '1',
+    const resolvedVersion = await resolveMobileNoteUpdateVersion(
+      body.version,
+      () => getActiveKnowledgeItemVersionForUser(mobileUser.id, id),
+    );
+    if (!resolvedVersion.ok && resolvedVersion.reason === 'invalid') {
+      return invalid('A valid note version is required.', 'INVALID_NOTE_VERSION');
+    }
+    if (!resolvedVersion.ok) {
+      return NextResponse.json({ error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
+    }
+    const version = resolvedVersion.version;
+    const result = await updateKnowledgeItem(toFormData({ id, version: String(version), title, summary, content, topic, tags: tags.join(','), bundle_mode_present: '1',
       knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
       bundle_schema_version: bundle.knowledgeType ? '1' : '' }));
-    return NextResponse.json({ success: true });
+    if (!result.updated && 'stale' in result) {
+      return NextResponse.json({ ...result, error: 'The note changed before this edit was saved.', code: 'NOTE_STALE' }, { status: 409 });
+    }
+    if (!result.updated) {
+      return NextResponse.json({ ...result, error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
+    }
+    return NextResponse.json({ success: true, version: result.version });
   }
   if (action === 'delete-note') {
     await deleteKnowledgeItem(toFormData({ id }));

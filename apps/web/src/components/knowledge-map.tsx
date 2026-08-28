@@ -62,7 +62,7 @@ type MapCard = KnowledgeCard & {
 
 type KnowledgeMapPersonalItem = Pick<
   UserKnowledgeItem,
-  'id' | 'title' | 'summary' | 'content' | 'topic' | 'tags' | 'created_at' | 'updated_at'
+  'id' | 'title' | 'summary' | 'content' | 'topic' | 'tags' | 'version' | 'created_at' | 'updated_at'
 >;
 
 type EditableCardValues = {
@@ -420,14 +420,18 @@ export default function KnowledgeMap({
     formData.set('tags', values.tags);
 
     if (card.personalItemId) {
+      const currentItem = personalItemById.get(card.personalItemId);
+      if (!currentItem) throw new Error('The private knowledge item is no longer available.');
       formData.set('id', card.personalItemId);
-      await updateKnowledgeItem(formData);
+      formData.set('version', String(currentItem.version));
+      const result = await updateKnowledgeItem(formData);
+      if (!result.updated) throw new Error('The private knowledge item changed before this edit was saved.');
     } else {
       await createKnowledgeItem(formData);
     }
 
     setCurrentPersonalItems(await getUserKnowledgeItems());
-  }, []);
+  }, [personalItemById]);
 
   return (
     <div className="w-full h-full">

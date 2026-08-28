@@ -1,8 +1,8 @@
 import type { MessageCatalog } from '../messages';
-import { EXTRA_MESSAGES } from './extended';
+import { EXTRA_JA_MESSAGES } from './extended/ja';
 
 export const JA_MESSAGES = {
-  ...EXTRA_MESSAGES.ja,
+  ...EXTRA_JA_MESSAGES,
   "locale.label": "言語",
   "locale.select": "言語を選択",
   "locale.changed": "言語を{language}に変更しました",
@@ -417,6 +417,9 @@ export const JA_MESSAGES = {
   "graph.directionHint": "移動中の粒子と矢印の先端が向きを示します。",
   "notes.title": "マイノート",
   "notes.trashTitle": "知識ゴミ箱",
+  "notes.archiveTitle": "ナレッジアーカイブ",
+  "notes.archive": "アーカイブ",
+  "notes.archiveSubtitle": "非アクティブな正規ナレッジと履歴を保持し、アクティブなトピック表示から除外します。",
   "notes.subtitle": "自分のノート、フレームワーク、概念を保存します。ここの内容はブラウザまたはアカウント内で非公開です。",
   "notes.trashSubtitle": "完全に削除される前の{days}日以内に、削除したカードを復元できます。",
   "notes.count": "{total}枚中{filtered}枚の{kind}カード",
@@ -471,6 +474,8 @@ export const JA_MESSAGES = {
   "notes.restore": "復元",
   "notes.restoreCard": "カードを復元",
   "notes.restoring": "復元中…",
+  "notes.restoreArchived": "アクティブなナレッジに復元",
+  "notes.restoringArchived": "アクティブなナレッジに復元中…",
   "notes.purgeAfter": "{date}以降に完全に削除されます。",
   "notes.itemsAria": "あなたの知識アイテム",
   "notes.clearFilters": "フィルターをクリア",
@@ -480,6 +485,8 @@ export const JA_MESSAGES = {
   "notes.emptyBody": "上から最初の非公開ノートを追加しましょう。",
   "notes.trashEmpty": "ゴミ箱は空です",
   "notes.trashEmptyBody": "削除されたノートは、完全削除までここに表示されます。",
+  "notes.archiveEmpty": "アーカイブは空です",
+  "notes.archiveEmptyBody": "トピックからアーカイブした項目は、復元するまでここに表示されます。",
   "notes.noMatches": "一致する項目がありません",
   "notes.noMatchesBody": "別の検索語またはトピックフィルターをお試しください。",
   "admin.title": "管理",

@@ -36,17 +36,28 @@ const exclusiveProviderKeys = [
 
 function configureTossEnvironment(context: TestContext) {
   const previous = new Map<string, string | undefined>();
+  const originalAccountTransaction = db.accountTransaction;
   for (const name of [...Object.keys(tossEnvironment), ...exclusiveProviderKeys]) {
     previous.set(name, process.env[name]);
   }
   for (const [name, value] of Object.entries(tossEnvironment)) process.env[name] = value;
   for (const name of exclusiveProviderKeys) delete process.env[name];
   context.after(() => {
+    db.accountTransaction = originalAccountTransaction;
     for (const [name, value] of previous) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
   });
+  db.accountTransaction = (async (
+    _userId: string,
+    queries: Parameters<typeof db.accountTransaction>[1],
+  ) => {
+    if (queries[0]?.text.includes('INSERT INTO billing_webhook_events')) {
+      return [{ rows: [{ event_id: 'test-account-operation' }] }];
+    }
+    return Promise.all(queries.map(({ text, params }) => db.query(text, params)));
+  }) as typeof db.accountTransaction;
 }
 
 test('scheduled recovery retries a lost issue response with the durable idempotency key', async (context) => {

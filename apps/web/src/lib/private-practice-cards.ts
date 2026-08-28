@@ -54,8 +54,10 @@ export type PrivatePracticeEligibilityRecord = {
   central_question?: string | null;
   structured_content?: unknown;
   bundle_schema_version?: number | null;
+  archived_at: Date | string | null;
   deleted_at: Date | string | null;
   purge_at: Date | string | null;
+  is_superseded: boolean;
 };
 
 type PrivatePracticeCardRow = PrivatePracticeEligibilityRecord & {
@@ -141,7 +143,8 @@ export function isEligiblePrivatePracticeRecord(
     && record.batch_source_type === 'conversation'
     && record.source_type === 'conversation';
   return record.item_user_id === actorUserId && (typedManual || approvedConversation)
-    && record.deleted_at === null && record.purge_at === null;
+    && record.archived_at === null && record.deleted_at === null && record.purge_at === null
+    && record.is_superseded === false;
 }
 
 const ELIGIBLE_PRIVATE_CARD_FROM = `
@@ -164,10 +167,19 @@ const ELIGIBLE_PRIVATE_CARD_FROM = `
    AND src.source_type = 'conversation'
 `;
 
+const SUPERSEDED_OWNER_PREDICATE = `EXISTS (
+  SELECT 1
+  FROM knowledge_item_supersessions supersession
+  WHERE supersession.user_id = i.user_id
+    AND supersession.superseded_item_id = i.id
+)`;
+
 const ACTIVE_OWNER_PREDICATE = `
   i.user_id = $1
+  AND i.archived_at IS NULL
   AND i.deleted_at IS NULL
   AND i.purge_at IS NULL
+  AND NOT ${SUPERSEDED_OWNER_PREDICATE}
 `;
 
 const APPROVED_CONVERSATION_SOURCE_PREDICATE = `
@@ -269,8 +281,10 @@ export async function getEligiblePrivatePracticeCards(
       b.status AS batch_status,
       b.source_type AS batch_source_type,
       src.source_type,
+      i.archived_at,
       i.deleted_at,
-      i.purge_at
+      i.purge_at,
+      ${SUPERSEDED_OWNER_PREDICATE} AS is_superseded
     ${ELIGIBLE_PRIVATE_CARD_FROM}
     LEFT JOIN user_private_card_states s
       ON s.knowledge_item_id = i.id
@@ -292,8 +306,8 @@ export async function savePrivatePracticeCardState(
   knowledgeItemId: string,
   status: PrivatePracticeStatus,
 ): Promise<boolean> {
-  const result = await db.query<{ knowledge_item_id: string }>(`
-    INSERT INTO user_private_card_states (
+  const [result] = await db.accountTransaction<{ knowledge_item_id: string }>(userId, [{
+    text: `INSERT INTO user_private_card_states (
       user_id,
       knowledge_item_id,
       status,
@@ -321,8 +335,9 @@ export async function savePrivatePracticeCardState(
       progress_state = EXCLUDED.progress_state,
       due_at = EXCLUDED.due_at,
       last_seen = EXCLUDED.last_seen
-    RETURNING knowledge_item_id
-  `, [userId, knowledgeItemId, status]);
+    RETURNING knowledge_item_id`,
+    params: [userId, knowledgeItemId, status],
+  }]);
 
   return result.rows.length === 1;
 }
@@ -353,8 +368,10 @@ export async function getSavedPrivatePracticeCards(userId: string): Promise<Priv
       b.status AS batch_status,
       b.source_type AS batch_source_type,
       src.source_type,
+      i.archived_at,
       i.deleted_at,
-      i.purge_at
+      i.purge_at,
+      ${SUPERSEDED_OWNER_PREDICATE} AS is_superseded
     ${ELIGIBLE_PRIVATE_CARD_FROM}
     JOIN user_private_card_states s
       ON s.knowledge_item_id = i.id

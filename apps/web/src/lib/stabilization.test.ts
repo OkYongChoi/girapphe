@@ -183,11 +183,13 @@ test('the memory quiz path rejects unknown graph node IDs', async () => {
 test('unknown database quiz nodes consume cooldown before later graph queries', async (context) => {
   const previousDatabaseUrl = process.env.DATABASE_URL;
   const originalQuery = db.query;
+  const originalAccountTransaction = db.accountTransaction;
   const calls: Array<{ text: string; params?: unknown[] }> = [];
   let claimCalls = 0;
 
   context.after(() => {
     db.query = originalQuery;
+    db.accountTransaction = originalAccountTransaction;
     if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previousDatabaseUrl;
   });
@@ -203,6 +205,10 @@ test('unknown database quiz nodes consume cooldown before later graph queries', 
     }
     return { rows: [] };
   }) as typeof db.query;
+  db.accountTransaction = (async (
+    _userId: string,
+    queries: Parameters<typeof db.accountTransaction>[1],
+  ) => Promise.all(queries.map(({ text, params }) => db.query(text, params))) as never) as typeof db.accountTransaction;
 
   await assert.rejects(
     submitDbQuizResult('stabilization-test-user', 'not_a_real_graph_node', 1),

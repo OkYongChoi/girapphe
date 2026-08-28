@@ -4,7 +4,7 @@ import Navbar from '@/components/navbar';
 import { getCurrentActor } from '@/lib/auth';
 import { getUserKnowledgeItems } from '@/actions/user-knowledge-actions';
 import { getKnowledgeLinkTargets, getPrivateKnowledgeGraph } from '@/actions/knowledge-ingestion-actions';
-import { getServerLocale } from '@/i18n/server';
+import { getServerLocale } from '@/i18n/locale-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,8 +17,8 @@ export default async function GridPage() {
     actor.isGuest ? Promise.resolve([]) : getKnowledgeLinkTargets(),
   ]);
   const personalMapItems = personalItems.map(({
-    id, title, summary, content, topic, tags, created_at, updated_at,
-  }) => ({ id, title, summary, content, topic, tags, created_at, updated_at }));
+    id, title, summary, content, topic, tags, version, created_at, updated_at,
+  }) => ({ id, title, summary, content, topic, tags, version, created_at, updated_at }));
 
   return (
     <main className="min-h-screen bg-gray-50 flex flex-col">

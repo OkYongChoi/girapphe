@@ -39,9 +39,24 @@ test('guest knowledge admission bounds identifiers, writes, rows, and retention'
   assert.match(source, /GUEST_KNOWLEDGE_ITEM_LIMIT/);
   assert.match(source, /GUEST_KNOWLEDGE_RETENTION_DAYS/);
   assert.match(source, /cf-connecting-ip/);
-  assert.match(source, /pool\.transaction<\{ id: string \}>/);
+  assert.match(source, /pool\.accountTransaction<\{ id: string \}>\(user\.id/);
   assert.match(source, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
   assert.match(source, /guest-knowledge:\$\{user\.id\}/);
+
+  const archiveRead = source.slice(
+    source.indexOf('export async function getArchivedKnowledgeItems'),
+    source.indexOf('export async function getUserKnowledgeOverview'),
+  );
+  assert.match(archiveRead, /purgeMemoryKnowledgeItemsForUser\(user\.id\)/);
+  assert.match(archiveRead, /!item\.purge_at \|\| new Date\(item\.purge_at\)\.getTime\(\) > now/);
+  assert.match(archiveRead, /i\.purge_at IS NULL OR i\.purge_at > NOW\(\)/);
+
+  const overviewRead = source.slice(
+    source.indexOf('export async function getUserKnowledgeOverview'),
+    source.indexOf('export async function createKnowledgeItem'),
+  );
+  assert.match(overviewRead, /purgeMemoryKnowledgeItemsForUser\(user\.id\)/);
+  assert.match(overviewRead, /purge_at IS NULL OR purge_at > NOW\(\)/);
 
   const purgeSource = readFileSync(new URL('./personal-knowledge.ts', import.meta.url), 'utf8');
   assert.match(purgeSource, /DELETE FROM user_knowledge_create_requests/);

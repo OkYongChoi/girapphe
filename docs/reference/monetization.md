@@ -28,7 +28,11 @@
 
 `POST /api/billing/checkout` creates or reuses a Checkout Session after same-origin and
 Clerk checks. Customer mapping, an open-session mutex, provider idempotency, and existing
-subscription checks prevent parallel subscriptions. `POST /api/billing/portal` opens the
+subscription checks prevent parallel subscriptions. The mutex is an anonymized, owner-tokened
+account lease acquired under the permanent account-deletion lock; an indeterminate provider
+mutation keeps the lease until its bounded stale-recovery window. Account deletion cannot
+overtake that lease, and it paginates and expires every owned open Checkout Session before
+listing and canceling subscriptions. `POST /api/billing/portal` opens the
 Stripe Customer Portal for the mapped customer. It atomically limits each Clerk user to ten
 portal creation attempts per ten-minute database window; excess attempts return HTTP 429 with
 `Retry-After: 600` before any Stripe request is sent.
@@ -47,6 +51,12 @@ The browser requests card billing authorization with a short-lived, single-use s
 nonce bound to the signed-in user, Toss customer, and selected plan. The callback consumes
 that state before exchanging the one-time authorization value, then immediately redirects
 to a clean subscription URL. Billing keys are AES-GCM encrypted at rest.
+
+Prepare, callback activation, and each scheduled renewal acquire the same anonymized
+per-account Toss lease used by account deletion. Pending-session writes also recheck the
+permanent account marker inside their database transaction. Recovery of an already-issued
+key, accepted-payment reconciliation, cancellation, and key cleanup deliberately remain
+available after deletion starts so external financial state is not stranded.
 
 Every charge first creates a unique `toss_billing_charges` row containing the persisted
 billing-cycle and order key. A provider retry therefore reuses the same Toss order. A

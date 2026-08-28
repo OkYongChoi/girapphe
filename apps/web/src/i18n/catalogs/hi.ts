@@ -1,8 +1,8 @@
 import type { MessageCatalog } from '../messages';
-import { EXTRA_MESSAGES } from './extended';
+import { EXTRA_HI_MESSAGES } from './extended/hi';
 
 export const HI_MESSAGES = {
-  ...EXTRA_MESSAGES.hi,
+  ...EXTRA_HI_MESSAGES,
   "locale.label": "भाषा",
   "locale.select": "भाषा चुनें",
   "locale.changed": "भाषा बदलकर {language} की गई",
@@ -432,6 +432,9 @@ export const HI_MESSAGES = {
   "graph.directionHint": "गतिशील कण और तीर के सिरे दिशा दिखाते हैं।",
   "notes.title": "मेरे नोट्स",
   "notes.trashTitle": "ज्ञान ट्रैश",
+  "notes.archiveTitle": "ज्ञान संग्रह",
+  "notes.archive": "संग्रह",
+  "notes.archiveSubtitle": "निष्क्रिय प्रमाणित ज्ञान और उसका इतिहास रखें, लेकिन उसे सक्रिय विषय दृश्य में न दिखाएँ।",
   "notes.subtitle": "अपने नोट्स, रूपरेखाएँ और अवधारणाएँ सहेजें। यहाँ की हर चीज़ आपके ब्राउज़र या खाते तक निजी रहती है।",
   "notes.trashSubtitle": "मिटाए गए कार्ड को स्थायी रूप से हटने से पहले {days} दिनों के भीतर पुनर्स्थापित करें।",
   "notes.count": "कुल {total} {kind} कार्ड में से {filtered}",
@@ -486,6 +489,8 @@ export const HI_MESSAGES = {
   "notes.restore": "पुनर्स्थापित करें",
   "notes.restoreCard": "कार्ड पुनर्स्थापित करें",
   "notes.restoring": "पुनर्स्थापित किया जा रहा है…",
+  "notes.restoreArchived": "सक्रिय ज्ञान में पुनर्स्थापित करें",
+  "notes.restoringArchived": "सक्रिय ज्ञान में पुनर्स्थापित किया जा रहा है…",
   "notes.purgeAfter": "{date} के बाद स्थायी रूप से हटा दिया जाएगा।",
   "notes.itemsAria": "आपकी ज्ञान सामग्री",
   "notes.clearFilters": "फ़िल्टर हटाएँ",
@@ -495,6 +500,8 @@ export const HI_MESSAGES = {
   "notes.emptyBody": "ऊपर अपना पहला निजी नोट जोड़ें।",
   "notes.trashEmpty": "ट्रैश खाली है",
   "notes.trashEmptyBody": "मिटाए गए नोट स्थायी रूप से हटने तक यहाँ दिखाई देंगे।",
+  "notes.archiveEmpty": "संग्रह खाली है",
+  "notes.archiveEmptyBody": "किसी विषय से संग्रहित आइटम पुनर्स्थापित करने तक यहाँ दिखाई देंगे।",
   "notes.noMatches": "कोई मिलान नहीं मिला",
   "notes.noMatchesBody": "कोई दूसरा खोज शब्द या विषय फ़िल्टर आज़माएँ।",
   "admin.title": "प्रशासन",

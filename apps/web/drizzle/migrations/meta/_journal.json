@@ -92,6 +92,20 @@
       "when": 1787875200000,
       "tag": "0015_typed_knowledge_bundles",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1787895228000,
+      "tag": "0016_conversation_knowledge_hub",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1787926651902,
+      "tag": "0017_supersession_replacement_tombstones",
+      "breakpoints": true
     }
   ]
 }

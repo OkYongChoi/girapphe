@@ -70,12 +70,15 @@ Returns health and storage mode:
 
 ### `POST /api/mcp`
 
-Streamable HTTP MCP endpoint exposing `create_knowledge_bundle_drafts` and the
-compatible `create_card_drafts` tool under the same narrow scope.
+Streamable HTTP MCP endpoint exposing `create_knowledge_bundle_drafts`, the
+compatible `create_card_drafts` tool, and owner-scoped `get_topic_context`.
 It accepts structured concepts from the current ChatGPT, Claude, Gemini, or
 other conversation and creates a private review batch; it never auto-approves
 items or writes to the public graph. Structured drafts support concept,
-procedure, comparison, mechanism, structure, and claim/evidence bundles. See
+procedure, comparison, mechanism, structure, claim/evidence, question,
+decision, and event bundles. Context reuse requires the separate
+`knowledge:context:read` PAT scope and an explicit item selection or bounded
+recent selection. See
 [`docs/reference/mcp-card-ingestion.md`](docs/reference/mcp-card-ingestion.md).
 
 ### `POST /api/quiz_result`
@@ -113,10 +116,25 @@ Core routes:
 - `/knowledge`
 - `/my-knowledge`
 - `/knowledge-inbox`
+- `/topics`
 - `/subscription`
 - `/dashboard`
 - `/ranking`
 - `/admin` (admin-only, PostgreSQL required)
+
+### Reviewed conversation knowledge
+
+Girapphe turns only user-selected content from the current AI conversation into
+pending candidates. Each candidate stays non-canonical until the user
+explicitly chooses save as new, merge, update, or ignore. Confirmed items then
+appear in a private Topic Hub with overview, open-question, local-graph,
+timeline, lifecycle-history, provenance, and context-pack views.
+
+Provenance retains source selectors and metadata, never raw transcript text.
+Context-pack downloads likewise contain only selected canonical knowledge and
+selector-only provenance. Web owns full comparison, editing, merge/update,
+graph, history, evidence, and export workflows; mobile provides quick
+save-as-new/ignore review and a compact Topic Hub.
 
 Quality commands:
 

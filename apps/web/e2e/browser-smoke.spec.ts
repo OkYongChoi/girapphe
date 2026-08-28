@@ -99,6 +99,19 @@ test.describe('browser smoke', () => {
     });
   });
 
+  test('context packs require an explicit authenticated POST', async ({ request }) => {
+    const passive = await request.get('/api/knowledge/context-pack');
+    expect(passive.status()).toBe(405);
+    expect(passive.headers().allow).toBe('POST');
+    expect(passive.headers()['cache-control']).toContain('no-store');
+
+    const unauthenticated = await request.post('/api/knowledge/context-pack', {
+      data: { topic: 'release', format: 'json', itemIds: ['private-item-1'] },
+    });
+    expect(unauthenticated.status()).toBe(401);
+    expect(unauthenticated.headers()['cache-control']).toContain('no-store');
+  });
+
   test('personal knowledge purge rejects unauthenticated callers', async ({ request }) => {
     const response = await request.post('/api/internal/personal-knowledge-purge');
     expect(response.status()).toBe(401);
@@ -529,7 +542,7 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
-  test('structured knowledge exposes all six editors and round-trips a procedure', async ({ page }) => {
+  test('structured knowledge exposes all nine editors and round-trips a procedure', async ({ page }) => {
     test.slow();
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
     const title = `Typed release procedure ${Date.now()}`;
@@ -544,6 +557,9 @@ test.describe('browser smoke', () => {
       ['mechanism', 'Causes'],
       ['structure', 'Purpose'],
       ['claim_evidence', 'Claim'],
+      ['question', 'Question'],
+      ['decision', 'Decision'],
+      ['event', 'Event'],
     ] as const;
     for (const [type, field] of typeFields) {
       await format.selectOption(type);

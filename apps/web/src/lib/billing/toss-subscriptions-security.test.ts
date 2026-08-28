@@ -22,16 +22,27 @@ const tossEnvironment: Record<string, string> = {
 
 function configureTossEnvironment(context: TestContext) {
   const previous = new Map<string, string | undefined>();
+  const originalAccountTransaction = db.accountTransaction;
   for (const [name, value] of Object.entries(tossEnvironment)) {
     previous.set(name, process.env[name]);
     process.env[name] = value;
   }
   context.after(() => {
+    db.accountTransaction = originalAccountTransaction;
     for (const [name, value] of previous) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
   });
+  db.accountTransaction = (async (
+    _userId: string,
+    queries: Parameters<typeof db.accountTransaction>[1],
+  ) => {
+    if (queries[0]?.text.includes('INSERT INTO billing_webhook_events')) {
+      return [{ rows: [{ event_id: 'test-account-operation' }] }];
+    }
+    return Promise.all(queries.map(({ text, params }) => db.query(text, params)));
+  }) as typeof db.accountTransaction;
 }
 
 test('Toss prepare rejects the bounded eleventh request before session mutation', async (context) => {
@@ -54,13 +65,14 @@ test('Toss prepare rejects the bounded eleventh request before session mutation'
       && error.code === 'TOSS_PREPARE_RATE_LIMITED',
   );
 
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   assert.match(calls[1], /ON CONFLICT \(user_id\) DO UPDATE/);
   assert.match(calls[1], /request_count < 10/);
   assert.match(calls[1], /INTERVAL '10 minutes'/);
   assert.match(calls[1], /RETURNING user_id/);
   assert.match(calls[1], /INSERT INTO toss_billing_sessions/);
   assert.match(calls[1], /ON CONFLICT \(user_id\) WHERE status = 'pending' DO UPDATE SET/);
+  assert.match(calls[2], /DELETE FROM billing_webhook_events/);
   assert.equal(calls.some((query) => query.includes('DELETE FROM toss_billing_sessions')), false);
 });
 
@@ -91,12 +103,54 @@ test('Toss prepare atomically consumes one rate slot and replaces the pending se
       if (text.includes('INSERT INTO billing_customers')) return 'customer';
       if (text.includes('INSERT INTO toss_prepare_rate_limits')
         && text.includes('INSERT INTO toss_billing_sessions')) return 'rate+session';
+      if (text.includes('DELETE FROM billing_webhook_events')) return 'lease-release';
       return 'unexpected';
     }),
-    ['customer', 'rate+session'],
+    ['customer', 'rate+session', 'lease-release'],
   );
   assert.match(calls[1].text, /token_hash = EXCLUDED\.token_hash/);
   assert.deepEqual(calls[1].params?.slice(0, 1), ['user_allowed']);
+});
+
+test('a denied account lease prevents Toss prepare and activation before database or provider mutation', async (context) => {
+  configureTossEnvironment(context);
+  const originalQuery = db.query;
+  const originalFetch = globalThis.fetch;
+  let databaseMutations = 0;
+  let providerCalls = 0;
+  context.after(() => {
+    db.query = originalQuery;
+    globalThis.fetch = originalFetch;
+  });
+  db.accountTransaction = (async () => [{ rows: [] }]) as typeof db.accountTransaction;
+  db.query = (async () => {
+    databaseMutations += 1;
+    return { rows: [] };
+  }) as typeof db.query;
+  globalThis.fetch = (async () => {
+    providerCalls += 1;
+    throw new Error('a denied Toss operation must not reach the provider');
+  }) as typeof fetch;
+
+  await assert.rejects(
+    prepareTossBilling('user_deleted_prepare', 'monthly'),
+    (error: unknown) => error instanceof TossBillingError
+      && error.code === 'TOSS_OPERATION_IN_PROGRESS',
+  );
+  await assert.rejects(
+    activateTossBilling({
+      userId: 'user_deleted_activation',
+      authKey: 'auth_deleted_activation',
+      customerKey: 'girapphe_deleted_activation_customer',
+      plan: 'monthly',
+      checkoutTokenHash: 'deleted-activation-token',
+    }),
+    (error: unknown) => error instanceof TossBillingError
+      && error.code === 'TOSS_OPERATION_IN_PROGRESS',
+  );
+
+  assert.equal(databaseMutations, 0);
+  assert.equal(providerCalls, 0);
 });
 
 test('Toss session cleanup is batch-bounded and fences live processing sessions', async (context) => {

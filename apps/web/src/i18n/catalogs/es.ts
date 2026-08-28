@@ -1,8 +1,8 @@
 import type { MessageCatalog } from '../messages';
-import { EXTRA_MESSAGES } from './extended';
+import { EXTRA_ES_MESSAGES } from './extended/es';
 
 export const ES_MESSAGES = {
-  ...EXTRA_MESSAGES.es,
+  ...EXTRA_ES_MESSAGES,
   "locale.label": "Idioma",
   "locale.select": "Elegir idioma",
   "locale.changed": "Idioma cambiado a {language}",
@@ -432,6 +432,9 @@ export const ES_MESSAGES = {
   "graph.directionHint": "Las partículas móviles y las puntas de flecha muestran la dirección.",
   "notes.title": "Mis notas",
   "notes.trashTitle": "Papelera de conocimiento",
+  "notes.archiveTitle": "Archivo de conocimiento",
+  "notes.archive": "Archivo",
+  "notes.archiveSubtitle": "Conserva el conocimiento canónico inactivo y su historial sin mostrarlo en los temas activos.",
   "notes.subtitle": "Guarda tus propias notas, marcos y conceptos. Todo lo que aparece aquí es privado en tu navegador o cuenta.",
   "notes.trashSubtitle": "Restaura las tarjetas eliminadas durante {days} días antes de que se borren definitivamente.",
   "notes.count": "{filtered} de {total} tarjetas: {kind}",
@@ -486,6 +489,8 @@ export const ES_MESSAGES = {
   "notes.restore": "Restaurar",
   "notes.restoreCard": "Restaurar tarjeta",
   "notes.restoring": "Restaurando…",
+  "notes.restoreArchived": "Restaurar como conocimiento activo",
+  "notes.restoringArchived": "Restaurando como conocimiento activo…",
   "notes.purgeAfter": "Se eliminará definitivamente después del {date}.",
   "notes.itemsAria": "Tus elementos de conocimiento",
   "notes.clearFilters": "Borrar filtros",
@@ -495,6 +500,8 @@ export const ES_MESSAGES = {
   "notes.emptyBody": "Añade arriba tu primera nota privada.",
   "notes.trashEmpty": "La papelera está vacía",
   "notes.trashEmptyBody": "Las notas eliminadas aparecerán aquí hasta que se borren definitivamente.",
+  "notes.archiveEmpty": "El archivo está vacío",
+  "notes.archiveEmptyBody": "Los elementos archivados desde un tema aparecerán aquí hasta que los restaures.",
   "notes.noMatches": "No se encontraron coincidencias",
   "notes.noMatchesBody": "Prueba con otro término de búsqueda o filtro de tema.",
   "admin.title": "Administración",

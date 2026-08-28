@@ -163,10 +163,38 @@ CREATE TABLE IF NOT EXISTS user_knowledge_items (
   central_question TEXT,
   structured_content JSONB,
   bundle_schema_version INTEGER,
+  version INTEGER NOT NULL DEFAULT 1
+    CONSTRAINT user_knowledge_items_version_check CHECK (version >= 1),
+  dedupe_key TEXT
+    CONSTRAINT user_knowledge_items_dedupe_key_check
+      CHECK (dedupe_key IS NULL OR char_length(dedupe_key) BETWEEN 1 AND 128),
+  observed_at TIMESTAMP WITH TIME ZONE,
+  valid_from TIMESTAMP WITH TIME ZONE,
+  valid_to TIMESTAMP WITH TIME ZONE,
+  last_verified_at TIMESTAMP WITH TIME ZONE,
+  review_at TIMESTAMP WITH TIME ZONE,
+  archived_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   deleted_at TIMESTAMP WITH TIME ZONE,
-  purge_at TIMESTAMP WITH TIME ZONE
+  purge_at TIMESTAMP WITH TIME ZONE,
+  CONSTRAINT user_knowledge_items_valid_range_check
+    CHECK (valid_from IS NULL OR valid_to IS NULL OR valid_to >= valid_from),
+  CONSTRAINT user_knowledge_items_bundle_shape_check CHECK (COALESCE(
+    (knowledge_type IS NULL AND central_question IS NULL
+      AND structured_content IS NULL AND bundle_schema_version IS NULL)
+    OR (
+      knowledge_type IN (
+        'concept', 'procedure', 'comparison', 'mechanism', 'structure',
+        'claim_evidence', 'question', 'decision', 'event'
+      )
+      AND central_question IS NOT NULL AND btrim(central_question) <> ''
+      AND jsonb_typeof(structured_content) = 'object'
+      AND structured_content ->> 'type' = knowledge_type
+      AND bundle_schema_version = 1
+    ),
+    FALSE
+  ))
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_user
@@ -192,7 +220,22 @@ CREATE TABLE IF NOT EXISTS knowledge_ingestion_batches (
   provider TEXT NOT NULL CHECK (provider IN ('chatgpt', 'claude', 'gemini', 'other')),
   scope TEXT NOT NULL DEFAULT 'current_conversation' CHECK (scope = 'current_conversation'),
   request_id TEXT NOT NULL,
-  conversation_ref TEXT,
+  conversation_ref TEXT
+    CONSTRAINT knowledge_ingestion_batches_conversation_ref_check
+      CHECK (conversation_ref IS NULL OR (
+        char_length(conversation_ref) BETWEEN 1 AND 240
+        AND conversation_ref !~* '^[a-z][a-z0-9+.-]*://'
+      )),
+  source_url TEXT
+    CONSTRAINT knowledge_ingestion_batches_source_url_check
+      CHECK (source_url IS NULL OR (
+        char_length(source_url) BETWEEN 1 AND 2048
+        AND source_url ~ '^https://[^/?#[:space:]]+'
+        AND source_url !~ '^https://[^/?#]*@'
+        AND position('?' in source_url) = 0
+        AND position('#' in source_url) = 0
+      )),
+  discussed_at TIMESTAMP WITH TIME ZONE,
   mcp_token_id TEXT,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'partial', 'approved', 'discarded')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -217,13 +260,62 @@ CREATE TABLE IF NOT EXISTS knowledge_card_drafts (
   central_question TEXT,
   structured_content JSONB,
   bundle_schema_version INTEGER,
+  dedupe_key TEXT
+    CONSTRAINT knowledge_card_drafts_dedupe_key_check
+      CHECK (dedupe_key IS NULL OR char_length(dedupe_key) BETWEEN 1 AND 128),
+  resolution_action TEXT
+    CONSTRAINT knowledge_card_drafts_resolution_action_check
+      CHECK (resolution_action IS NULL OR resolution_action IN ('create', 'merge', 'update', 'ignore')),
+  target_knowledge_item_id TEXT REFERENCES user_knowledge_items(id) ON DELETE CASCADE,
+  resolved_at TIMESTAMP WITH TIME ZONE,
+  proposed_evidence JSONB,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
   version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
   knowledge_item_id TEXT REFERENCES user_knowledge_items(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   approved_at TIMESTAMP WITH TIME ZONE,
-  UNIQUE (batch_id, client_card_id)
+  UNIQUE (batch_id, client_card_id),
+  CONSTRAINT knowledge_card_drafts_target_owner_fk
+    FOREIGN KEY (target_knowledge_item_id, user_id)
+    REFERENCES user_knowledge_items(id, user_id) ON DELETE CASCADE,
+  CONSTRAINT knowledge_card_drafts_resolution_target_check CHECK (
+    resolution_action IS NULL
+    OR (
+      resolved_at IS NOT NULL
+      AND (
+        (resolution_action IN ('create', 'ignore') AND target_knowledge_item_id IS NULL)
+        OR (resolution_action IN ('merge', 'update') AND target_knowledge_item_id IS NOT NULL)
+      )
+    )
+  ),
+  CONSTRAINT knowledge_card_drafts_proposed_evidence_check CHECK (
+    proposed_evidence IS NULL
+    OR (
+      jsonb_typeof(proposed_evidence) = 'array'
+      AND jsonb_array_length(proposed_evidence) <= 32
+      AND octet_length(proposed_evidence::text) <= 32768
+      AND proposed_evidence::text
+        !~* '"(excerpt|transcript|raw_text|raw_transcript|content|text|exact|quote|prefix|suffix)"[[:space:]]*:'
+      AND proposed_evidence::text
+        !~* '"(sourceRef|source_ref)"[[:space:]]*:[[:space:]]*"([^" ]*[?#]|https://[^"/?#]*@)'
+    )
+  ),
+  CONSTRAINT knowledge_card_drafts_bundle_shape_check CHECK (COALESCE(
+    (knowledge_type IS NULL AND central_question IS NULL
+      AND structured_content IS NULL AND bundle_schema_version IS NULL)
+    OR (
+      knowledge_type IN (
+        'concept', 'procedure', 'comparison', 'mechanism', 'structure',
+        'claim_evidence', 'question', 'decision', 'event'
+      )
+      AND central_question IS NOT NULL AND btrim(central_question) <> ''
+      AND jsonb_typeof(structured_content) = 'object'
+      AND structured_content ->> 'type' = knowledge_type
+      AND bundle_schema_version = 1
+    ),
+    FALSE
+  ))
 );
 
 CREATE TABLE IF NOT EXISTS user_graph_nodes (
@@ -248,10 +340,13 @@ CREATE TABLE IF NOT EXISTS user_graph_edges (
   source_public_node_id TEXT REFERENCES graph_nodes(id) ON DELETE CASCADE,
   target_private_node_id TEXT REFERENCES user_graph_nodes(id) ON DELETE CASCADE,
   target_public_node_id TEXT REFERENCES graph_nodes(id) ON DELETE CASCADE,
-  type TEXT NOT NULL DEFAULT 'related'
-    CHECK (type IN ('prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to')),
+  type TEXT NOT NULL DEFAULT 'related',
   weight REAL NOT NULL DEFAULT 1 CHECK (weight > 0 AND weight <= 1),
   origin TEXT NOT NULL DEFAULT 'manual' CHECK (origin IN ('manual', 'conversation')),
+  relation_origin TEXT DEFAULT 'explicit_user'
+    CONSTRAINT user_graph_edges_relation_origin_check
+      CHECK (relation_origin IN ('explicit_user', 'extracted_from_source', 'model_inferred')),
+  confirmed_at TIMESTAMP WITH TIME ZONE,
   source_batch_id TEXT REFERENCES knowledge_ingestion_batches(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   deleted_at TIMESTAMP WITH TIME ZONE,
@@ -259,7 +354,13 @@ CREATE TABLE IF NOT EXISTS user_graph_edges (
   CHECK (num_nonnulls(source_private_node_id, source_public_node_id) = 1),
   CHECK (num_nonnulls(target_private_node_id, target_public_node_id) = 1),
   CHECK ((source_private_node_id IS NULL OR source_private_node_id IS DISTINCT FROM target_private_node_id)
-    AND (source_public_node_id IS NULL OR source_public_node_id IS DISTINCT FROM target_public_node_id))
+    AND (source_public_node_id IS NULL OR source_public_node_id IS DISTINCT FROM target_public_node_id)),
+  CONSTRAINT user_graph_edges_type_check CHECK (
+    type IN (
+      'prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to',
+      'supersedes', 'answers', 'supports', 'contradicts'
+    )
+  )
 );
 
 CREATE TABLE IF NOT EXISTS knowledge_card_sources (
@@ -270,9 +371,145 @@ CREATE TABLE IF NOT EXISTS knowledge_card_sources (
   draft_id TEXT REFERENCES knowledge_card_drafts(id) ON DELETE SET NULL,
   source_type TEXT NOT NULL DEFAULT 'conversation',
   provider TEXT NOT NULL,
-  conversation_ref TEXT,
+  conversation_ref TEXT
+    CONSTRAINT knowledge_card_sources_conversation_ref_check
+      CHECK (conversation_ref IS NULL OR (
+        char_length(conversation_ref) BETWEEN 1 AND 240
+        AND conversation_ref !~* '^[a-z][a-z0-9+.-]*://'
+      )),
+  source_url TEXT
+    CONSTRAINT knowledge_card_sources_source_url_check
+      CHECK (source_url IS NULL OR (
+        char_length(source_url) BETWEEN 1 AND 2048
+        AND source_url ~ '^https://[^/?#[:space:]]+'
+        AND source_url !~ '^https://[^/?#]*@'
+        AND position('?' in source_url) = 0
+        AND position('#' in source_url) = 0
+      )),
+  source_locator JSONB
+    CONSTRAINT knowledge_card_sources_locator_check
+      CHECK (source_locator IS NULL OR jsonb_typeof(source_locator) = 'object'),
+  discussed_at TIMESTAMP WITH TIME ZONE,
+  relation_origin TEXT DEFAULT 'extracted_from_source'
+    CONSTRAINT knowledge_card_sources_relation_origin_check
+      CHECK (relation_origin IN ('explicit_user', 'extracted_from_source', 'model_inferred')),
+  confirmed_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE (knowledge_item_id, draft_id)
+  UNIQUE (knowledge_item_id, draft_id),
+  CONSTRAINT knowledge_card_sources_item_owner_fk
+    FOREIGN KEY (knowledge_item_id, user_id)
+    REFERENCES user_knowledge_items(id, user_id)
+    ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_card_sources_id_user_item
+ON knowledge_card_sources(id, user_id, knowledge_item_id);
+
+CREATE TABLE IF NOT EXISTS knowledge_item_revisions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  knowledge_item_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version >= 1),
+  snapshot JSONB NOT NULL CHECK (jsonb_typeof(snapshot) = 'object'),
+  change_reason TEXT,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT knowledge_item_revisions_item_owner_fk
+    FOREIGN KEY (knowledge_item_id, user_id)
+    REFERENCES user_knowledge_items(id, user_id)
+    ON DELETE CASCADE,
+  CONSTRAINT knowledge_item_revisions_item_version_key
+    UNIQUE (knowledge_item_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_item_activity (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  knowledge_item_id TEXT NOT NULL,
+  activity_type TEXT NOT NULL
+    CHECK (activity_type IN (
+      'confirmed', 'connected', 'verified', 'reused',
+      'revised', 'superseded', 'archived', 'restored'
+    )),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(metadata) = 'object'),
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT knowledge_item_activity_item_owner_fk
+    FOREIGN KEY (knowledge_item_id, user_id)
+    REFERENCES user_knowledge_items(id, user_id)
+    ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_item_supersessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  superseded_item_id TEXT NOT NULL,
+  replacement_item_id TEXT NOT NULL,
+  replacement_live_item_id TEXT,
+  replacement_live_user_id TEXT,
+  reason TEXT,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT knowledge_item_supersessions_old_owner_fk
+    FOREIGN KEY (superseded_item_id, user_id)
+    REFERENCES user_knowledge_items(id, user_id)
+    ON DELETE CASCADE,
+  CONSTRAINT knowledge_item_supersessions_new_owner_fk
+    FOREIGN KEY (replacement_live_item_id, replacement_live_user_id)
+    REFERENCES user_knowledge_items(id, user_id)
+    ON DELETE SET NULL,
+  CONSTRAINT knowledge_item_supersessions_old_key
+    UNIQUE (user_id, superseded_item_id),
+  CONSTRAINT knowledge_item_supersessions_distinct_check
+    CHECK (superseded_item_id <> replacement_item_id),
+  CONSTRAINT knowledge_item_supersessions_live_replacement_check
+    CHECK (
+      (replacement_live_item_id IS NULL AND replacement_live_user_id IS NULL)
+      OR (replacement_live_item_id IS NOT NULL
+        AND replacement_live_user_id IS NOT NULL
+        AND replacement_live_item_id = replacement_item_id
+        AND replacement_live_user_id = user_id)
+    )
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_evidence_spans (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  knowledge_item_id TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  selector_type TEXT NOT NULL
+    CHECK (selector_type IN ('message', 'text_position', 'line_range', 'external_ref')),
+  selector JSONB NOT NULL,
+  polarity TEXT NOT NULL DEFAULT 'supports' CHECK (polarity IN ('supports', 'contradicts')),
+  quality TEXT NOT NULL DEFAULT 'unknown' CHECK (quality IN ('unknown', 'low', 'medium', 'high')),
+  relation_origin TEXT NOT NULL DEFAULT 'extracted_from_source'
+    CHECK (relation_origin IN ('explicit_user', 'extracted_from_source', 'model_inferred')),
+  confirmed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT knowledge_evidence_spans_source_owner_item_fk
+    FOREIGN KEY (source_id, user_id, knowledge_item_id)
+    REFERENCES knowledge_card_sources(id, user_id, knowledge_item_id)
+    ON DELETE CASCADE,
+  CONSTRAINT knowledge_evidence_spans_selector_check CHECK (
+    jsonb_typeof(selector) = 'object'
+    AND octet_length(selector::text) <= 4096
+    AND selector::text
+      !~* '"(excerpt|transcript|raw_text|raw_transcript|content|text|exact|quote|prefix|suffix)"[[:space:]]*:'
+    AND (
+      selector_type <> 'external_ref'
+      OR (
+        selector ? 'source_ref'
+        AND jsonb_typeof(selector -> 'source_ref') = 'string'
+        AND char_length(selector ->> 'source_ref') BETWEEN 1 AND 2048
+        AND position('?' in (selector ->> 'source_ref')) = 0
+        AND position('#' in (selector ->> 'source_ref')) = 0
+        AND (
+          (selector ->> 'source_ref') !~* '^[a-z][a-z0-9+.-]*://'
+          OR (
+            (selector ->> 'source_ref') ~ '^https://[^/?#[:space:]]+'
+            AND (selector ->> 'source_ref') !~ '^https://[^/?#]*@'
+          )
+        )
+      )
+    )
+  )
 );
 
 -- Approved conversation cards keep their practice state separate from the
@@ -325,6 +562,11 @@ CREATE TABLE IF NOT EXISTS mcp_request_rate_limits (
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS mcp_deleted_account_markers (
+  scope_key TEXT PRIMARY KEY CHECK (scope_key ~ '^[0-9a-f]{64}$'),
+  deleted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_knowledge_ingestion_batches_user_created
 ON knowledge_ingestion_batches(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_ingestion_batches_token_created
@@ -337,8 +579,23 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_card_drafts_batch
 ON knowledge_card_drafts(batch_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_card_drafts_user_type
 ON knowledge_card_drafts(user_id, knowledge_type) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_knowledge_card_drafts_user_dedupe
+ON knowledge_card_drafts(user_id, dedupe_key)
+WHERE status = 'pending' AND dedupe_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_knowledge_card_drafts_target_item
+ON knowledge_card_drafts(user_id, target_knowledge_item_id)
+WHERE target_knowledge_item_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_user_type
 ON user_knowledge_items(user_id, knowledge_type) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_user_dedupe
+ON user_knowledge_items(user_id, dedupe_key)
+WHERE deleted_at IS NULL AND dedupe_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_user_review
+ON user_knowledge_items(user_id, review_at)
+WHERE deleted_at IS NULL AND archived_at IS NULL AND review_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_user_knowledge_items_user_observed
+ON user_knowledge_items(user_id, observed_at)
+WHERE deleted_at IS NULL AND observed_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_user_graph_nodes_user_active
 ON user_graph_nodes(user_id, created_at DESC) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_user_graph_nodes_purge_at
@@ -373,6 +630,25 @@ ON user_graph_edges(
 ) WHERE deleted_at IS NULL AND type IN ('related', 'equivalent_to');
 CREATE INDEX IF NOT EXISTS idx_knowledge_card_sources_user_item
 ON knowledge_card_sources(user_id, knowledge_item_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_card_sources_user_discussed
+ON knowledge_card_sources(user_id, discussed_at)
+WHERE discussed_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_knowledge_item_revisions_user_item
+ON knowledge_item_revisions(user_id, knowledge_item_id, version);
+CREATE INDEX IF NOT EXISTS idx_knowledge_item_activity_user_item_created
+ON knowledge_item_activity(user_id, knowledge_item_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_knowledge_item_activity_user_type_created
+ON knowledge_item_activity(user_id, activity_type, created_at);
+CREATE INDEX IF NOT EXISTS idx_knowledge_item_supersessions_user_old
+ON knowledge_item_supersessions(user_id, superseded_item_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_item_supersessions_user_new
+ON knowledge_item_supersessions(user_id, replacement_item_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_item_supersessions_live_replacement
+ON knowledge_item_supersessions(replacement_live_item_id, replacement_live_user_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_spans_user_item
+ON knowledge_evidence_spans(user_id, knowledge_item_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_spans_user_source
+ON knowledge_evidence_spans(user_id, source_id);
 CREATE INDEX IF NOT EXISTS idx_mcp_access_tokens_user
 ON mcp_access_tokens(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mcp_access_tokens_active_hash

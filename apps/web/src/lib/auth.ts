@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
 import { GUEST_ID_COOKIE, isServerIssuedGuestId } from '@/lib/guest';
-import { getServerLocale } from '@/i18n/server';
+import { getServerLocale } from '@/i18n/locale-server';
 import { localizePathname } from '@stem-brain/shared';
 
 export type AuthUser = {

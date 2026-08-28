@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { SUPPORTED_LOCALES, type Locale } from '@stem-brain/shared';
 import { MESSAGE_CATALOGS, type MessageValue } from './messages';
@@ -11,6 +12,33 @@ const SCRIPT_PATTERNS: Partial<Record<Locale, RegExp>> = {
 };
 
 const GENERATOR_ARTIFACT_PATTERN = /__(?:GPHOLD|PLACEHOLDER|PROTECTED)_[A-Za-z0-9_]*__/u;
+
+test('server message loading stays locale-lazy', () => {
+  const serverSource = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(serverSource, /MESSAGE_CATALOGS/u);
+  assert.doesNotMatch(serverSource, /^import\s+.+from\s+['"]\.\/catalogs\//mu);
+
+  for (const catalog of ['en', 'ja', 'zh-CN', 'es', 'ar', 'hi']) {
+    assert.match(
+      serverSource,
+      new RegExp(`import\\(['"]\\./catalogs/${catalog}['"]\\)`, 'u'),
+      `${catalog} must be loaded through its own dynamic import`,
+    );
+
+    const catalogSource = readFileSync(new URL(`./catalogs/${catalog}.ts`, import.meta.url), 'utf8');
+    assert.doesNotMatch(
+      catalogSource,
+      /from\s+['"]\.\/extended['"]/u,
+      `${catalog} must not initialize the aggregate extended catalog`,
+    );
+    assert.match(
+      catalogSource,
+      new RegExp(`from\\s+['"]\\./extended/${catalog}['"]`, 'u'),
+      `${catalog} must import only its locale extension`,
+    );
+  }
+});
 
 function variants(message: MessageValue): string[] {
   return typeof message === 'string'

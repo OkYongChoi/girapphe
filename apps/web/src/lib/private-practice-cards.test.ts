@@ -3,8 +3,12 @@ import test from 'node:test';
 import db from '@/lib/db';
 import {
   getEligiblePrivatePracticeCards,
+  getPrivatePracticeDomainProgress,
+  getPrivatePracticeStats,
+  getSavedPrivatePracticeCards,
   isEligiblePrivatePracticeRecord,
   parsePersonalCardId,
+  removePrivatePracticeCardState,
   savePrivatePracticeCardState,
   toPersonalCardId,
   type PrivatePracticeEligibilityRecord,
@@ -25,8 +29,10 @@ function eligibilityRecord(
     batch_status: 'approved',
     batch_source_type: 'conversation',
     source_type: 'conversation',
+    archived_at: null,
     deleted_at: null,
     purge_at: null,
+    is_superseded: false,
     ...overrides,
   };
 }
@@ -70,8 +76,10 @@ test('admits only active owner-approved conversation records', () => {
     eligibilityRecord({ batch_status: 'discarded' }),
     eligibilityRecord({ batch_source_type: 'manual' }),
     eligibilityRecord({ source_type: 'manual' }),
+    eligibilityRecord({ archived_at: new Date() }),
     eligibilityRecord({ deleted_at: new Date() }),
     eligibilityRecord({ purge_at: new Date() }),
+    eligibilityRecord({ is_superseded: true }),
     eligibilityRecord({ item_user_id: 'user_other' }),
     eligibilityRecord({ draft_user_id: 'user_other' }),
     eligibilityRecord({ batch_user_id: 'user_other' }),
@@ -128,20 +136,30 @@ test('practice selection filters pending, deleted, manual, and cross-owner rows 
   assert.match(calls[0].text, /d\.status = 'approved'/);
   assert.match(calls[0].text, /d\.approved_at IS NOT NULL/);
   assert.match(calls[0].text, /source_type = 'conversation'/);
+  assert.match(calls[0].text, /i\.archived_at IS NULL/);
   assert.match(calls[0].text, /i\.deleted_at IS NULL/);
   assert.match(calls[0].text, /i\.purge_at IS NULL/);
+  assert.match(calls[0].text, /NOT EXISTS \(\s*SELECT 1\s*FROM knowledge_item_supersessions supersession/);
   assert.doesNotMatch(calls[0].text, /\bknowledge_cards\b/);
   assert.doesNotMatch(calls[0].text, /\buser_card_states\b/);
 });
 
 test('private ratings use one owner-gated insert and never write shared cards or graph state', async (context) => {
   const originalQuery = db.query;
+  const originalAccountTransaction = db.accountTransaction;
   const calls: Array<{ text: string; params?: unknown[] }> = [];
-  context.after(() => { db.query = originalQuery; });
+  context.after(() => {
+    db.query = originalQuery;
+    db.accountTransaction = originalAccountTransaction;
+  });
   db.query = (async (text: string, params?: unknown[]) => {
     calls.push({ text, params });
     return { rows: [{ knowledge_item_id: params?.[1] }] };
   }) as typeof db.query;
+  db.accountTransaction = (async (
+    _userId: string,
+    queries: Parameters<typeof db.accountTransaction>[1],
+  ) => Promise.all(queries.map(({ text, params }) => db.query(text, params))) as never) as typeof db.accountTransaction;
 
   const saved = await savePrivatePracticeCardState(
     ACTOR_ID,
@@ -164,4 +182,40 @@ test('private ratings use one owner-gated insert and never write shared cards or
   assert.doesNotMatch(calls[0].text, /INSERT INTO knowledge_cards/);
   assert.doesNotMatch(calls[0].text, /user_knowledge_states/);
   assert.doesNotMatch(calls[0].text, /user_knowledge_evidence/);
+});
+
+test('every private-practice query excludes archived and superseded knowledge', async (context) => {
+  const originalQuery = db.query;
+  const originalAccountTransaction = db.accountTransaction;
+  const calls: Array<{ text: string; params?: unknown[] }> = [];
+  context.after(() => {
+    db.query = originalQuery;
+    db.accountTransaction = originalAccountTransaction;
+  });
+  db.query = (async (text: string, params?: unknown[]) => {
+    calls.push({ text, params });
+    return { rows: [] };
+  }) as typeof db.query;
+  db.accountTransaction = (async (
+    _userId: string,
+    queries: Parameters<typeof db.accountTransaction>[1],
+  ) => Promise.all(queries.map(({ text, params }) => db.query(text, params))) as never) as typeof db.accountTransaction;
+
+  await getEligiblePrivatePracticeCards(ACTOR_ID, 'new');
+  await savePrivatePracticeCardState(ACTOR_ID, 'eligible-item', 'saved');
+  await getSavedPrivatePracticeCards(ACTOR_ID);
+  await removePrivatePracticeCardState(ACTOR_ID, 'eligible-item');
+  await getPrivatePracticeStats(ACTOR_ID);
+  await getPrivatePracticeDomainProgress(ACTOR_ID);
+
+  assert.equal(calls.length, 6);
+  for (const call of calls) {
+    assert.match(call.text, /i\.user_id = \$1/);
+    assert.match(call.text, /i\.archived_at IS NULL/);
+    assert.match(call.text, /i\.deleted_at IS NULL/);
+    assert.match(call.text, /i\.purge_at IS NULL/);
+    assert.match(call.text, /NOT EXISTS \(\s*SELECT 1\s*FROM knowledge_item_supersessions supersession/);
+    assert.match(call.text, /supersession\.user_id = i\.user_id/);
+    assert.match(call.text, /supersession\.superseded_item_id = i\.id/);
+  }
 });

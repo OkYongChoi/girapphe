@@ -1,5 +1,10 @@
 import db from '@/lib/db';
 import {
+  claimAccountBillingOperation,
+  releaseAccountBillingOperation,
+  type AccountBillingOperationLease,
+} from './database';
+import {
   addTossBillingPeriod,
   chargeTossBillingKey,
   createTossCheckoutState,
@@ -13,6 +18,7 @@ import {
   issueTossBillingKey,
   sha256Fingerprint,
   TossBillingError,
+  TossProviderRequestError,
   verifyTossPayment,
   type TossBillingPlan,
 } from './toss';
@@ -105,6 +111,29 @@ function addTrialPeriod(date: Date) {
 
 function retryAt(date: Date) {
   return new Date(date.getTime() + 86_400_000);
+}
+
+async function claimTossAccountOperation(
+  userId: string,
+  operation: 'prepare' | 'activation' | 'renewal',
+) {
+  const lease = await claimAccountBillingOperation(userId, 'toss', operation);
+  if (!lease) {
+    throw new TossBillingError(
+      'Another Toss billing operation is already in progress.',
+      'TOSS_OPERATION_IN_PROGRESS',
+    );
+  }
+  return lease;
+}
+
+function shouldRetainTossOperationLease(error: unknown) {
+  return error instanceof TossProviderRequestError
+    && error.outcome === 'indeterminate';
+}
+
+async function releaseTossAccountOperation(lease: AccountBillingOperationLease) {
+  await releaseAccountBillingOperation(lease).catch(() => undefined);
 }
 
 function activeActivation(row: ExistingTossAgreementRow | undefined, now: Date): TossBillingActivation | null {
@@ -994,8 +1023,9 @@ async function createRateLimitedTossBillingSession(input: {
   customerKey: string;
   plan: TossBillingPlan;
 }) {
-  const created = await db.query<{ token_hash: string }>(
-    `WITH rate_slot AS (
+  const [created] = await db.accountTransaction<{ token_hash: string }>(input.userId, [
+    {
+      text: `WITH rate_slot AS (
        INSERT INTO toss_prepare_rate_limits (
        user_id, window_started_at, request_count, updated_at
        ) VALUES ($1, NOW(), 1, NOW())
@@ -1028,9 +1058,10 @@ async function createRateLimitedTossBillingSession(input: {
        consumed_at = NULL,
        updated_at = NOW()
      RETURNING token_hash`,
-    [input.userId, input.tokenHash, input.customerKey, input.plan]
-  );
-  if (created.rows.length === 0) {
+      params: [input.userId, input.tokenHash, input.customerKey, input.plan],
+    },
+  ]);
+  if (!created || created.rows.length === 0) {
     throw new TossBillingError(
       'Too many Toss checkout preparations. Try again later.',
       'TOSS_PREPARE_RATE_LIMITED'
@@ -1090,22 +1121,27 @@ export async function cleanupTossPrepareRateLimits(limit = 100) {
 export async function prepareTossBilling(userId: string, plan: TossBillingPlan) {
   if (!isPlan(plan)) throw new Error('Unsupported billing plan.');
   const config = getTossBillingConfig();
-  const customer = await getBillingCustomer(userId);
-  const checkoutState = createTossCheckoutState();
-  const tokenHash = await sha256Fingerprint(checkoutState);
-  await createRateLimitedTossBillingSession({
-    userId,
-    tokenHash,
-    customerKey: customer.toss_customer_key,
-    plan,
-  });
-  return {
-    clientKey: config.clientKey,
-    customerKey: customer.toss_customer_key,
-    amount: getTossPlanAmount(plan),
-    trialEligible: !customer.trial_consumed_at,
-    checkoutState,
-  };
+  const lease = await claimTossAccountOperation(userId, 'prepare');
+  try {
+    const customer = await getBillingCustomer(userId);
+    const checkoutState = createTossCheckoutState();
+    const tokenHash = await sha256Fingerprint(checkoutState);
+    await createRateLimitedTossBillingSession({
+      userId,
+      tokenHash,
+      customerKey: customer.toss_customer_key,
+      plan,
+    });
+    return {
+      clientKey: config.clientKey,
+      customerKey: customer.toss_customer_key,
+      amount: getTossPlanAmount(plan),
+      trialEligible: !customer.trial_consumed_at,
+      checkoutState,
+    };
+  } finally {
+    await releaseTossAccountOperation(lease);
+  }
 }
 
 export async function claimTossBillingSession(input: {
@@ -1115,15 +1151,17 @@ export async function claimTossBillingSession(input: {
 }): Promise<TossBillingSession> {
   getTossBillingConfig();
   const tokenHash = await sha256Fingerprint(input.checkoutState);
-  const claimed = await db.query<{ plan: TossBillingPlan }>(
-    `UPDATE toss_billing_sessions SET status = 'processing',
+  const [claimed] = await db.accountTransaction<{ plan: TossBillingPlan }>(input.userId, [
+    {
+      text: `UPDATE toss_billing_sessions SET status = 'processing',
        processing_started_at = NOW(), updated_at = NOW()
      WHERE token_hash = $1 AND user_id = $2 AND customer_key = $3
        AND status = 'pending' AND expires_at > NOW()
      RETURNING plan`,
-    [tokenHash, input.userId, input.customerKey]
-  );
-  const session = claimed.rows[0];
+      params: [tokenHash, input.userId, input.customerKey],
+    },
+  ]);
+  const session = claimed?.rows[0];
   if (!session || !isPlan(session.plan)) {
     throw new TossBillingError('Toss checkout session is invalid or expired.', 'TOSS_CHECKOUT_STATE_INVALID');
   }
@@ -1543,16 +1581,18 @@ async function reconcilePriorTossChargesForActivation(
   return null;
 }
 
-export async function activateTossBilling(input: {
+type TossBillingActivationInput = {
   userId: string;
   email?: string;
   authKey: string;
   customerKey: string;
   plan: TossBillingPlan;
   checkoutTokenHash: string;
-}): Promise<TossBillingActivation> {
-  if (!isPlan(input.plan)) throw new Error('Unsupported billing plan.');
-  getTossBillingConfig();
+};
+
+async function activateTossBillingWithLease(
+  input: TossBillingActivationInput,
+): Promise<TossBillingActivation> {
   const customer = await getBillingCustomer(input.userId);
   if (customer.toss_customer_key !== input.customerKey) throw new Error('Billing identity mismatch.');
 
@@ -1702,6 +1742,23 @@ export async function activateTossBilling(input: {
       cancelAtPeriodEnd: wasCanceled,
     });
     throw error;
+  }
+}
+
+export async function activateTossBilling(
+  input: TossBillingActivationInput,
+): Promise<TossBillingActivation> {
+  if (!isPlan(input.plan)) throw new Error('Unsupported billing plan.');
+  getTossBillingConfig();
+  const lease = await claimTossAccountOperation(input.userId, 'activation');
+  let releaseLease = true;
+  try {
+    return await activateTossBillingWithLease(input);
+  } catch (error) {
+    if (shouldRetainTossOperationLease(error)) releaseLease = false;
+    throw error;
+  } finally {
+    if (releaseLease) await releaseTossAccountOperation(lease);
   }
 }
 
@@ -1893,6 +1950,34 @@ export async function processDueTossBilling(limit = 5) {
   };
 
   for (const agreement of due) {
+    let operationLease: AccountBillingOperationLease | null = null;
+    try {
+      operationLease = await claimAccountBillingOperation(
+        agreement.user_id,
+        'toss',
+        'renewal',
+      );
+    } catch {
+      await db.query(
+        `UPDATE toss_billing_agreements SET processing_started_at = NULL,
+           processing_token = NULL, updated_at = NOW()
+         WHERE id = $1 AND processing_token = $2`,
+        [agreement.id, agreement.processing_token],
+      ).catch(() => undefined);
+      results.failed += 1;
+      continue;
+    }
+    if (!operationLease) {
+      await db.query(
+        `UPDATE toss_billing_agreements SET processing_started_at = NULL,
+           processing_token = NULL, updated_at = NOW()
+         WHERE id = $1 AND processing_token = $2`,
+        [agreement.id, agreement.processing_token],
+      ).catch(() => undefined);
+      continue;
+    }
+
+    let releaseLease = true;
     let charge: TossChargeRow | null = null;
     try {
       const billingKey = await decryptTossBillingKey(agreement.billing_key_ciphertext);
@@ -1913,7 +1998,8 @@ export async function processDueTossBilling(limit = 5) {
         processingToken: agreement.processing_token,
       });
       results.paid += 1;
-    } catch {
+    } catch (error) {
+      if (shouldRetainTossOperationLease(error)) releaseLease = false;
       const durableCharge = charge
         ? await readTossCharge(charge.order_id).catch(() => null)
         : null;
@@ -1966,6 +2052,8 @@ export async function processDueTossBilling(limit = 5) {
       );
       results.failed += 1;
       if (paused) results.paused += 1;
+    } finally {
+      if (releaseLease) await releaseTossAccountOperation(operationLease);
     }
   }
 

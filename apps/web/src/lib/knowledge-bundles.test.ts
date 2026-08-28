@@ -15,9 +15,12 @@ const contents: Record<(typeof KNOWLEDGE_BUNDLE_TYPES)[number], KnowledgeBundleC
   mechanism: { type: 'mechanism', causes: ['Input'], stages: [{ title: 'Transform', detail: 'Process input.' }], results: ['Output'], conditions: [], exceptions: [] },
   structure: { type: 'structure', purpose: 'Organize parts.', components: [{ id: 'root', label: 'Root', role: 'Contains children.' }], relations: [], boundaries: ['Private item'] },
   claim_evidence: { type: 'claim_evidence', claim: 'The result is repeatable.', evidence: [{ statement: 'Three independent runs matched.', source: 'run-log' }], counterevidence: [], scope: ['Test data'], limitations: [], confidence: 'high' },
+  question: { type: 'question', question: 'What remains unknown?', context: 'A result needs follow-up.', known_facts: ['The first run passed.'], hypotheses: ['The input matters.'], next_steps: ['Run another test.'], answer_summary: '', status: 'open' },
+  decision: { type: 'decision', decision: 'Use the protected release flow.', context: 'The change affects production.', options: [{ name: 'Protected PR', tradeoffs: 'Slower but verifiable.' }], criteria: ['Safety'], rationale: ['Checks and ancestry are recorded.'], reconsider_when: ['The release path changes.'], outcome: 'Production is verified.' },
+  event: { type: 'event', event: 'The release completed.', occurred_at: '2026-08-28T03:02:19Z', context: 'The exact main revision deployed.', changes: ['The new bundle types became available.'], causes: ['The protected workflow completed.'], consequences: ['Users can create typed knowledge.'] },
 };
 
-test('parses all six version-one bundle discriminators and partial optional fields', () => {
+test('parses all nine version-one bundle discriminators and partial optional fields', () => {
   for (const type of KNOWLEDGE_BUNDLE_TYPES) {
     const parsed = parseKnowledgeBundleFields({
       knowledge_type: type,
@@ -64,4 +67,10 @@ test('rejects mismatched types, invalid nested references, unknown fields, and u
   assert.equal(parseKnowledgeBundleFields(cyclicStructure), null);
   assert.equal(parseKnowledgeBundleFields({ ...mismatch, extra: 'rejected' }), null);
   assert.equal(parseKnowledgeBundleFields({ ...mismatch, knowledge_type: 'procedure', bundle_schema_version: 2 }), null);
+  assert.equal(parseKnowledgeBundleFields({
+    knowledge_type: 'question',
+    central_question: 'What remains unknown?',
+    structured_content: { ...contents.question, status: 'pending' },
+    bundle_schema_version: 1,
+  }), null);
 });

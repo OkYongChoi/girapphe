@@ -69,6 +69,7 @@ export type PersonalNote = {
   central_question: string | null;
   structured_content: KnowledgeBundleContent | null;
   bundle_schema_version: number | null;
+  version: number;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -90,6 +91,117 @@ export type PersonalNoteSummary = Pick<PersonalNote,
   | 'updated_at'
 >;
 export type GraphCardSummary = Pick<MobileCard, 'id' | 'title' | 'status'>;
+
+export type MobileTopicHubItem = PersonalNoteSummary & {
+  version: number;
+  observed_at: string | null;
+  valid_from: string | null;
+  valid_to: string | null;
+  last_verified_at: string | null;
+  review_at: string | null;
+};
+
+export type MobileTopicHub = {
+  topic: string;
+  generated_at: string;
+  items: MobileTopicHubItem[];
+  sources: Array<{
+    id: string;
+    knowledge_item_id: string;
+    source_type: string;
+    provider: string;
+    conversation_ref: string | null;
+    source_url: string | null;
+    source_locator: Record<string, unknown> | null;
+    discussed_at: string | null;
+    relation_origin: 'explicit_user' | 'extracted_from_source' | 'model_inferred';
+    confirmed_at: string | null;
+    created_at: string;
+  }>;
+  activity: Array<{
+    id: string;
+    knowledge_item_id: string;
+    activity_type: 'confirmed' | 'connected' | 'verified' | 'reused' | 'revised' | 'superseded' | 'archived' | 'restored';
+    metadata: Record<string, unknown>;
+    created_at: string;
+  }>;
+  relations: Array<{
+    id: string;
+    source: string;
+    target: string;
+    type: string;
+    relation_origin: 'explicit_user' | 'extracted_from_source' | 'model_inferred';
+    confirmed_at: string | null;
+  }>;
+};
+
+export type MobileCandidateBatch = {
+  id: string;
+  source_type: 'conversation';
+  provider: string;
+  scope: 'current_conversation';
+  conversation_ref: string | null;
+  source_url: string | null;
+  discussed_at: string | null;
+  status: 'pending' | 'partial' | 'approved' | 'discarded';
+  draft_count: number;
+  pending_count: number;
+  approved_count: number;
+  created_at: string;
+  updated_at: string;
+  committed_at: string | null;
+};
+
+export type MobileCandidateDraft = {
+  id: string;
+  batch_id: string;
+  title: string;
+  summary: string;
+  explanation: string;
+  topic: string;
+  tags: string[];
+  knowledge_type: KnowledgeBundleType | null;
+  central_question: string | null;
+  structured_content: KnowledgeBundleContent | null;
+  bundle_schema_version: number | null;
+  status: 'pending' | 'approved' | 'rejected';
+  version: number;
+  duplicate_suggestions: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    topic: string;
+    knowledge_type: KnowledgeBundleType | null;
+    central_question: string | null;
+    version: number;
+    match: 'exact' | 'similar';
+    score: number;
+  }>;
+};
+
+export type MobileCandidateResolutionResult = {
+  resolved: boolean;
+  action: 'create' | 'ignore';
+  knowledgeItemId: string | null;
+  version: number | null;
+  skippedEdges?: number;
+};
+
+export class MobileApiRequestError extends Error {
+  readonly code: string | null;
+
+  constructor(message: string, code: string | null) {
+    super(message);
+    this.name = 'MobileApiRequestError';
+    this.code = code;
+  }
+}
+
+function readApiErrorCode(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object' || !('code' in payload)) return null;
+  const code = (payload as { code?: unknown }).code;
+  return typeof code === 'string' && /^[A-Z0-9_]{1,80}$/.test(code) ? code : null;
+}
 
 function getBaseUrl() {
   if (!apiBaseUrl) throw new Error(translate(getActiveLocale(), 'api.missingUrl'));
@@ -128,9 +240,14 @@ async function authenticatedFetch(path: string, init?: RequestInit): Promise<Res
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const locale = getActiveLocale();
   const response = await authenticatedFetch(path, init);
-  const payload = await response.json().catch(() => ({})) as T;
-  if (!response.ok) throw new Error(translate(locale, 'api.requestFailed', { status: new Intl.NumberFormat(locale).format(response.status) }));
-  return payload;
+  const payload: unknown = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new MobileApiRequestError(
+      translate(locale, 'api.requestFailed', { status: new Intl.NumberFormat(locale).format(response.status) }),
+      readApiErrorCode(payload),
+    );
+  }
+  return payload as T;
 }
 
 async function publicRequest<T>(path: string): Promise<T> {
@@ -165,6 +282,9 @@ export const mobileApi = {
     return publicRequest<ContentResponse>(withLocale(`/api/mobile?resource=content&ids=${query}`));
   },
   notes: (view: 'active' | 'trash' = 'active') => request<{ items: PersonalNote[] }>(withLocale(`/api/mobile?resource=notes&view=${view}`)),
+  topicHub: (topic: string) => request<{ hub: MobileTopicHub }>(withLocale(`/api/mobile?resource=topic-hub&topic=${encodeURIComponent(topic)}`)),
+  candidateInbox: () => request<{ batches: MobileCandidateBatch[] }>(withLocale('/api/mobile?resource=candidate-inbox')),
+  candidateBatch: (batchId: string) => request<{ batch: MobileCandidateBatch; drafts: MobileCandidateDraft[] }>(withLocale(`/api/mobile?resource=candidate-batch&batchId=${encodeURIComponent(batchId)}`)),
   graph: () => request<{ cards: GraphCardSummary[]; personalItems: PersonalNoteSummary[] }>(withLocale('/api/mobile?resource=graph')),
   practice: (mode: 'new' | 'review', exclude: string[] = []) => request<{ card: MobileCard | null; stats: { explainable: number; unclear: number } }>(withLocale(`/api/mobile?resource=practice&mode=${mode}${exclude.map((id) => `&exclude=${encodeURIComponent(id)}`).join('')}`)),
   saved: () => request<{ cards: MobileCard[] }>(withLocale('/api/mobile?resource=saved')),

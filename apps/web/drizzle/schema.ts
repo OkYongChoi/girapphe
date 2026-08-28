@@ -174,6 +174,14 @@ export const userKnowledgeItems = pgTable("user_knowledge_items", {
   centralQuestion: text("central_question"),
   structuredContent: jsonb("structured_content").$type<KnowledgeBundleContent>(),
   bundleSchemaVersion: integer("bundle_schema_version"),
+  version: integer("version").notNull().default(1),
+  dedupeKey: text("dedupe_key"),
+  observedAt: timestamp("observed_at", { withTimezone: true }),
+  validFrom: timestamp("valid_from", { withTimezone: true }),
+  validTo: timestamp("valid_to", { withTimezone: true }),
+  lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+  reviewAt: timestamp("review_at", { withTimezone: true }),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -183,6 +191,26 @@ export const userKnowledgeItems = pgTable("user_knowledge_items", {
   index("idx_user_knowledge_items_user").on(t.userId),
   index("idx_user_knowledge_items_active_created").on(t.userId, t.createdAt).where(sql`${t.deletedAt} IS NULL`),
   index("idx_user_knowledge_items_purge_at").on(t.purgeAt).where(sql`${t.purgeAt} IS NOT NULL`),
+  index("idx_user_knowledge_items_user_dedupe").on(t.userId, t.dedupeKey)
+    .where(sql`${t.deletedAt} IS NULL AND ${t.dedupeKey} IS NOT NULL`),
+  index("idx_user_knowledge_items_user_review").on(t.userId, t.reviewAt)
+    .where(sql`${t.deletedAt} IS NULL AND ${t.archivedAt} IS NULL AND ${t.reviewAt} IS NOT NULL`),
+  index("idx_user_knowledge_items_user_observed").on(t.userId, t.observedAt)
+    .where(sql`${t.deletedAt} IS NULL AND ${t.observedAt} IS NOT NULL`),
+  check("user_knowledge_items_version_check", sql`${t.version} >= 1`),
+  check("user_knowledge_items_dedupe_key_check", sql`${t.dedupeKey} IS NULL OR char_length(${t.dedupeKey}) BETWEEN 1 AND 128`),
+  check("user_knowledge_items_valid_range_check", sql`${t.validFrom} IS NULL OR ${t.validTo} IS NULL OR ${t.validTo} >= ${t.validFrom}`),
+  check("user_knowledge_items_bundle_shape_check", sql`COALESCE(
+    (${t.knowledgeType} IS NULL AND ${t.centralQuestion} IS NULL AND ${t.structuredContent} IS NULL AND ${t.bundleSchemaVersion} IS NULL)
+    OR (
+      ${t.knowledgeType} IN ('concept', 'procedure', 'comparison', 'mechanism', 'structure', 'claim_evidence', 'question', 'decision', 'event')
+      AND ${t.centralQuestion} IS NOT NULL AND btrim(${t.centralQuestion}) <> ''
+      AND jsonb_typeof(${t.structuredContent}) = 'object'
+      AND ${t.structuredContent} ->> 'type' = ${t.knowledgeType}
+      AND ${t.bundleSchemaVersion} = 1
+    ),
+    FALSE
+  )`),
 ]);
 
 export const guestKnowledgeWriteLimits = pgTable("guest_knowledge_write_limits", {
@@ -234,6 +262,8 @@ export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", 
   scope: text("scope").notNull().default("current_conversation"),
   requestId: text("request_id").notNull(),
   conversationRef: text("conversation_ref"),
+  sourceUrl: text("source_url"),
+  discussedAt: timestamp("discussed_at", { withTimezone: true }),
   mcpTokenId: text("mcp_token_id"),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -248,6 +278,17 @@ export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", 
   check("knowledge_ingestion_batches_provider_check", sql`${t.provider} IN ('chatgpt', 'claude', 'gemini', 'other')`),
   check("knowledge_ingestion_batches_scope_check", sql`${t.scope} IN ('current_conversation')`),
   check("knowledge_ingestion_batches_status_check", sql`${t.status} IN ('pending', 'partial', 'approved', 'discarded')`),
+  check("knowledge_ingestion_batches_source_url_check", sql`${t.sourceUrl} IS NULL OR (
+    char_length(${t.sourceUrl}) BETWEEN 1 AND 2048
+    AND ${t.sourceUrl} ~ '^https://[^/?#[:space:]]+'
+    AND ${t.sourceUrl} !~ '^https://[^/?#]*@'
+    AND position('?' in ${t.sourceUrl}) = 0
+    AND position('#' in ${t.sourceUrl}) = 0
+  )`),
+  check("knowledge_ingestion_batches_conversation_ref_check", sql`${t.conversationRef} IS NULL OR (
+    char_length(${t.conversationRef}) BETWEEN 1 AND 240
+    AND ${t.conversationRef} !~* '^[a-z][a-z0-9+.-]*://'
+  )`),
 ]);
 
 export const knowledgeCardDrafts = pgTable("knowledge_card_drafts", {
@@ -265,6 +306,16 @@ export const knowledgeCardDrafts = pgTable("knowledge_card_drafts", {
   centralQuestion: text("central_question"),
   structuredContent: jsonb("structured_content").$type<KnowledgeBundleContent>(),
   bundleSchemaVersion: integer("bundle_schema_version"),
+  dedupeKey: text("dedupe_key"),
+  resolutionAction: text("resolution_action"),
+  targetKnowledgeItemId: text("target_knowledge_item_id").references(() => userKnowledgeItems.id, { onDelete: "cascade" }),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  proposedEvidence: jsonb("proposed_evidence").$type<Array<{
+    selector_type: string;
+    selector: Record<string, unknown>;
+    polarity?: "supports" | "contradicts";
+    quality?: "unknown" | "low" | "medium" | "high";
+  }>>(),
   status: text("status").notNull().default("pending"),
   version: integer("version").notNull().default(1),
   knowledgeItemId: text("knowledge_item_id").references(() => userKnowledgeItems.id, { onDelete: "set null" }),
@@ -276,8 +327,52 @@ export const knowledgeCardDrafts = pgTable("knowledge_card_drafts", {
   index("idx_knowledge_card_drafts_user_status").on(t.userId, t.status),
   index("idx_knowledge_card_drafts_user_created").on(t.userId, t.createdAt),
   index("idx_knowledge_card_drafts_batch").on(t.batchId),
+  index("idx_knowledge_card_drafts_user_dedupe").on(t.userId, t.dedupeKey)
+    .where(sql`${t.status} = 'pending' AND ${t.dedupeKey} IS NOT NULL`),
+  index("idx_knowledge_card_drafts_target_item").on(t.userId, t.targetKnowledgeItemId)
+    .where(sql`${t.targetKnowledgeItemId} IS NOT NULL`),
+  foreignKey({
+    columns: [t.targetKnowledgeItemId, t.userId],
+    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
+    name: "knowledge_card_drafts_target_owner_fk",
+  }).onDelete("cascade"),
   check("knowledge_card_drafts_status_check", sql`${t.status} IN ('pending', 'approved', 'rejected')`),
   check("knowledge_card_drafts_version_check", sql`${t.version} >= 1`),
+  check("knowledge_card_drafts_dedupe_key_check", sql`${t.dedupeKey} IS NULL OR char_length(${t.dedupeKey}) BETWEEN 1 AND 128`),
+  check("knowledge_card_drafts_resolution_action_check", sql`${t.resolutionAction} IS NULL OR ${t.resolutionAction} IN ('create', 'merge', 'update', 'ignore')`),
+  check("knowledge_card_drafts_resolution_target_check", sql`
+    ${t.resolutionAction} IS NULL
+    OR (
+      ${t.resolvedAt} IS NOT NULL
+      AND (
+        (${t.resolutionAction} IN ('create', 'ignore') AND ${t.targetKnowledgeItemId} IS NULL)
+        OR (${t.resolutionAction} IN ('merge', 'update') AND ${t.targetKnowledgeItemId} IS NOT NULL)
+      )
+    )
+  `),
+  check("knowledge_card_drafts_proposed_evidence_check", sql`
+    ${t.proposedEvidence} IS NULL
+    OR (
+      jsonb_typeof(${t.proposedEvidence}) = 'array'
+      AND jsonb_array_length(${t.proposedEvidence}) <= 32
+      AND octet_length(${t.proposedEvidence}::text) <= 32768
+      AND ${t.proposedEvidence}::text
+        !~* '"(excerpt|transcript|raw_text|raw_transcript|content|text|exact|quote|prefix|suffix)"[[:space:]]*:'
+      AND ${t.proposedEvidence}::text
+        !~* '"(sourceRef|source_ref)"[[:space:]]*:[[:space:]]*"([^" ]*[?#]|https://[^"/?#]*@)'
+    )
+  `),
+  check("knowledge_card_drafts_bundle_shape_check", sql`COALESCE(
+    (${t.knowledgeType} IS NULL AND ${t.centralQuestion} IS NULL AND ${t.structuredContent} IS NULL AND ${t.bundleSchemaVersion} IS NULL)
+    OR (
+      ${t.knowledgeType} IN ('concept', 'procedure', 'comparison', 'mechanism', 'structure', 'claim_evidence', 'question', 'decision', 'event')
+      AND ${t.centralQuestion} IS NOT NULL AND btrim(${t.centralQuestion}) <> ''
+      AND jsonb_typeof(${t.structuredContent}) = 'object'
+      AND ${t.structuredContent} ->> 'type' = ${t.knowledgeType}
+      AND ${t.bundleSchemaVersion} = 1
+    ),
+    FALSE
+  )`),
 ]);
 
 export const userGraphNodes = pgTable("user_graph_nodes", {
@@ -309,6 +404,8 @@ export const userGraphEdges = pgTable("user_graph_edges", {
   type: text("type").notNull().default("related"),
   weight: real("weight").notNull().default(1),
   origin: text("origin").notNull().default("manual"),
+  relationOrigin: text("relation_origin").default("explicit_user"),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
   sourceBatchId: text("source_batch_id").references(() => knowledgeIngestionBatches.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -333,8 +430,9 @@ export const userGraphEdges = pgTable("user_graph_edges", {
   check("user_graph_edges_source_exactly_one_check", sql`num_nonnulls(${t.sourcePrivateNodeId}, ${t.sourcePublicNodeId}) = 1`),
   check("user_graph_edges_target_exactly_one_check", sql`num_nonnulls(${t.targetPrivateNodeId}, ${t.targetPublicNodeId}) = 1`),
   check("user_graph_edges_no_self_check", sql`(${t.sourcePrivateNodeId} IS NULL OR ${t.sourcePrivateNodeId} IS DISTINCT FROM ${t.targetPrivateNodeId}) AND (${t.sourcePublicNodeId} IS NULL OR ${t.sourcePublicNodeId} IS DISTINCT FROM ${t.targetPublicNodeId})`),
-  check("user_graph_edges_type_check", sql`${t.type} IN ('prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to')`),
+  check("user_graph_edges_type_check", sql`${t.type} IN ('prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to', 'supersedes', 'answers', 'supports', 'contradicts')`),
   check("user_graph_edges_origin_check", sql`${t.origin} IN ('manual', 'conversation')`),
+  check("user_graph_edges_relation_origin_check", sql`${t.relationOrigin} IN ('explicit_user', 'extracted_from_source', 'model_inferred')`),
   check("user_graph_edges_weight_check", sql`${t.weight} > 0 AND ${t.weight} <= 1`),
 ]);
 
@@ -347,10 +445,158 @@ export const knowledgeCardSources = pgTable("knowledge_card_sources", {
   sourceType: text("source_type").notNull().default("conversation"),
   provider: text("provider").notNull(),
   conversationRef: text("conversation_ref"),
+  sourceUrl: text("source_url"),
+  sourceLocator: jsonb("source_locator").$type<Record<string, unknown>>(),
+  discussedAt: timestamp("discussed_at", { withTimezone: true }),
+  relationOrigin: text("relation_origin").default("extracted_from_source"),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 }, (t) => [
   unique("knowledge_card_sources_item_draft_key").on(t.knowledgeItemId, t.draftId),
+  uniqueIndex("idx_knowledge_card_sources_id_user_item").on(t.id, t.userId, t.knowledgeItemId),
+  foreignKey({
+    columns: [t.knowledgeItemId, t.userId],
+    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
+    name: "knowledge_card_sources_item_owner_fk",
+  }).onDelete("cascade"),
   index("idx_knowledge_card_sources_user_item").on(t.userId, t.knowledgeItemId),
+  index("idx_knowledge_card_sources_user_discussed").on(t.userId, t.discussedAt)
+    .where(sql`${t.discussedAt} IS NOT NULL`),
+  check("knowledge_card_sources_source_url_check", sql`${t.sourceUrl} IS NULL OR (
+    char_length(${t.sourceUrl}) BETWEEN 1 AND 2048
+    AND ${t.sourceUrl} ~ '^https://[^/?#[:space:]]+'
+    AND ${t.sourceUrl} !~ '^https://[^/?#]*@'
+    AND position('?' in ${t.sourceUrl}) = 0
+    AND position('#' in ${t.sourceUrl}) = 0
+  )`),
+  check("knowledge_card_sources_conversation_ref_check", sql`${t.conversationRef} IS NULL OR (
+    char_length(${t.conversationRef}) BETWEEN 1 AND 240
+    AND ${t.conversationRef} !~* '^[a-z][a-z0-9+.-]*://'
+  )`),
+  check("knowledge_card_sources_locator_check", sql`${t.sourceLocator} IS NULL OR jsonb_typeof(${t.sourceLocator}) = 'object'`),
+  check("knowledge_card_sources_relation_origin_check", sql`${t.relationOrigin} IN ('explicit_user', 'extracted_from_source', 'model_inferred')`),
+]);
+
+export const knowledgeItemRevisions = pgTable("knowledge_item_revisions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  knowledgeItemId: text("knowledge_item_id").notNull(),
+  version: integer("version").notNull(),
+  snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+  changeReason: text("change_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  foreignKey({
+    columns: [t.knowledgeItemId, t.userId],
+    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
+    name: "knowledge_item_revisions_item_owner_fk",
+  }).onDelete("cascade"),
+  unique("knowledge_item_revisions_item_version_key").on(t.knowledgeItemId, t.version),
+  index("idx_knowledge_item_revisions_user_item").on(t.userId, t.knowledgeItemId, t.version),
+  check("knowledge_item_revisions_version_check", sql`${t.version} >= 1`),
+  check("knowledge_item_revisions_snapshot_check", sql`jsonb_typeof(${t.snapshot}) = 'object'`),
+]);
+
+export const knowledgeItemActivity = pgTable("knowledge_item_activity", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  knowledgeItemId: text("knowledge_item_id").notNull(),
+  activityType: text("activity_type").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  foreignKey({
+    columns: [t.knowledgeItemId, t.userId],
+    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
+    name: "knowledge_item_activity_item_owner_fk",
+  }).onDelete("cascade"),
+  index("idx_knowledge_item_activity_user_item_created").on(t.userId, t.knowledgeItemId, t.createdAt),
+  index("idx_knowledge_item_activity_user_type_created").on(t.userId, t.activityType, t.createdAt),
+  check("knowledge_item_activity_type_check", sql`${t.activityType} IN ('confirmed', 'connected', 'verified', 'reused', 'revised', 'superseded', 'archived', 'restored')`),
+  check("knowledge_item_activity_metadata_check", sql`jsonb_typeof(${t.metadata}) = 'object'`),
+]);
+
+export const knowledgeItemSupersessions = pgTable("knowledge_item_supersessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  supersededItemId: text("superseded_item_id").notNull(),
+  replacementItemId: text("replacement_item_id").notNull(),
+  replacementLiveItemId: text("replacement_live_item_id"),
+  replacementLiveUserId: text("replacement_live_user_id"),
+  reason: text("reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  foreignKey({
+    columns: [t.supersededItemId, t.userId],
+    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
+    name: "knowledge_item_supersessions_old_owner_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [t.replacementLiveItemId, t.replacementLiveUserId],
+    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
+    name: "knowledge_item_supersessions_new_owner_fk",
+  }).onDelete("set null"),
+  unique("knowledge_item_supersessions_old_key").on(t.userId, t.supersededItemId),
+  index("idx_knowledge_item_supersessions_user_old").on(t.userId, t.supersededItemId),
+  index("idx_knowledge_item_supersessions_user_new").on(t.userId, t.replacementItemId),
+  index("idx_knowledge_item_supersessions_live_replacement").on(t.replacementLiveItemId, t.replacementLiveUserId),
+  check("knowledge_item_supersessions_distinct_check", sql`${t.supersededItemId} <> ${t.replacementItemId}`),
+  check("knowledge_item_supersessions_live_replacement_check", sql`(
+    (${t.replacementLiveItemId} IS NULL AND ${t.replacementLiveUserId} IS NULL)
+    OR (${t.replacementLiveItemId} IS NOT NULL
+      AND ${t.replacementLiveUserId} IS NOT NULL
+      AND ${t.replacementLiveItemId} = ${t.replacementItemId}
+      AND ${t.replacementLiveUserId} = ${t.userId})
+  )`),
+]);
+
+export const knowledgeEvidenceSpans = pgTable("knowledge_evidence_spans", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  knowledgeItemId: text("knowledge_item_id").notNull(),
+  sourceId: text("source_id").notNull(),
+  selectorType: text("selector_type").notNull(),
+  selector: jsonb("selector").$type<Record<string, unknown>>().notNull(),
+  polarity: text("polarity").notNull().default("supports"),
+  quality: text("quality").notNull().default("unknown"),
+  relationOrigin: text("relation_origin").notNull().default("extracted_from_source"),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  foreignKey({
+    columns: [t.sourceId, t.userId, t.knowledgeItemId],
+    foreignColumns: [knowledgeCardSources.id, knowledgeCardSources.userId, knowledgeCardSources.knowledgeItemId],
+    name: "knowledge_evidence_spans_source_owner_item_fk",
+  }).onDelete("cascade"),
+  index("idx_knowledge_evidence_spans_user_item").on(t.userId, t.knowledgeItemId),
+  index("idx_knowledge_evidence_spans_user_source").on(t.userId, t.sourceId),
+  check("knowledge_evidence_spans_selector_type_check", sql`${t.selectorType} IN ('message', 'text_position', 'line_range', 'external_ref')`),
+  check("knowledge_evidence_spans_selector_check", sql`
+    jsonb_typeof(${t.selector}) = 'object'
+    AND octet_length(${t.selector}::text) <= 4096
+    AND ${t.selector}::text
+      !~* '"(excerpt|transcript|raw_text|raw_transcript|content|text|exact|quote|prefix|suffix)"[[:space:]]*:'
+    AND (
+      ${t.selectorType} <> 'external_ref'
+      OR (
+        ${t.selector} ? 'source_ref'
+        AND jsonb_typeof(${t.selector} -> 'source_ref') = 'string'
+        AND char_length(${t.selector} ->> 'source_ref') BETWEEN 1 AND 2048
+        AND position('?' in (${t.selector} ->> 'source_ref')) = 0
+        AND position('#' in (${t.selector} ->> 'source_ref')) = 0
+        AND (
+          (${t.selector} ->> 'source_ref') !~* '^[a-z][a-z0-9+.-]*://'
+          OR (
+            (${t.selector} ->> 'source_ref') ~ '^https://[^/?#[:space:]]+'
+            AND (${t.selector} ->> 'source_ref') !~ '^https://[^/?#]*@'
+          )
+        )
+      )
+    )
+  `),
+  check("knowledge_evidence_spans_polarity_check", sql`${t.polarity} IN ('supports', 'contradicts')`),
+  check("knowledge_evidence_spans_quality_check", sql`${t.quality} IN ('unknown', 'low', 'medium', 'high')`),
+  check("knowledge_evidence_spans_relation_origin_check", sql`${t.relationOrigin} IN ('explicit_user', 'extracted_from_source', 'model_inferred')`),
 ]);
 
 export const mcpAccessTokens = pgTable("mcp_access_tokens", {
@@ -378,6 +624,13 @@ export const mcpRequestRateLimits = pgTable("mcp_request_rate_limits", {
   index("idx_mcp_request_rate_limits_stale_credentials").on(t.updatedAt, t.scopeKey)
     .where(sql`${t.scopeKey} LIKE 'credential:%'`),
   check("mcp_request_rate_limits_count_check", sql`${t.requestCount} >= 0`),
+]);
+
+export const mcpDeletedAccountMarkers = pgTable("mcp_deleted_account_markers", {
+  scopeKey: text("scope_key").primaryKey(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check("mcp_deleted_account_markers_scope_key_check", sql`${t.scopeKey} ~ '^[0-9a-f]{64}$'`),
 ]);
 
 export const billingCustomers = pgTable("billing_customers", {
