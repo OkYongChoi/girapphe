@@ -617,14 +617,24 @@ export async function getTopicKnowledgeHubForUser(
       : []
   )))];
   const evidenceResult = await pool.query<Record<string, unknown>>(
-    `SELECT id, knowledge_item_id, source_id, selector_type, selector,
-       polarity, quality, relation_origin, confirmed_at, created_at
-     FROM knowledge_evidence_spans
-     WHERE user_id = $1 AND (
-       knowledge_item_id = ANY($2::text[]) OR id = ANY($3::text[])
+    `WITH referenced_evidence AS (
+       SELECT id, knowledge_item_id, source_id, selector_type, selector,
+         polarity, quality, relation_origin, confirmed_at, created_at
+       FROM knowledge_evidence_spans
+       WHERE user_id = $1 AND id = ANY($3::text[])
+     ), topic_evidence AS (
+       SELECT id, knowledge_item_id, source_id, selector_type, selector,
+         polarity, quality, relation_origin, confirmed_at, created_at
+       FROM knowledge_evidence_spans
+       WHERE user_id = $1 AND knowledge_item_id = ANY($2::text[])
+         AND NOT (id = ANY($3::text[]))
+       ORDER BY created_at, id
+       LIMIT 1000
      )
-     ORDER BY created_at, id
-     LIMIT 1000`,
+     SELECT * FROM referenced_evidence
+     UNION ALL
+     SELECT * FROM topic_evidence
+     ORDER BY created_at, id`,
     [userId, itemIds, relationEvidenceIds],
   );
 

@@ -518,6 +518,11 @@ test('PostgreSQL topic hubs load selectors referenced by cross-topic relations',
     }
     if (text.includes('FROM knowledge_evidence_spans')) {
       assert.deepEqual(params, ['database-cross-topic-user', ['topic-item'], ['cross-topic-evidence']]);
+      assert.match(text, /WITH referenced_evidence AS/u);
+      assert.match(text, /WHERE user_id = \$1 AND id = ANY\(\$3::text\[\]\)/u);
+      assert.match(text, /topic_evidence AS/u);
+      assert.match(text, /AND NOT \(id = ANY\(\$3::text\[\]\)\)[\s\S]*LIMIT 1000/u);
+      assert.match(text, /SELECT \* FROM referenced_evidence[\s\S]*UNION ALL[\s\S]*SELECT \* FROM topic_evidence/u);
       return { rows: [{
         id: 'cross-topic-evidence',
         knowledge_item_id: 'other-topic-item',

@@ -41,6 +41,7 @@ import {
 } from '@/lib/knowledge-map-grouping';
 import type { Locale } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
+import { isPrivateKnowledgeMapEdgeType } from '@/lib/knowledge-map-private-edges';
 
 const KnowledgeGraph3D = dynamic(() => import('./knowledge-graph-3d'), {
   ssr: false,
@@ -89,7 +90,6 @@ type Props = {
   locale: Locale;
 };
 
-const EDGE_TYPES = new Set(['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to']);
 const INITIAL_VISIBLE_CONCEPT_CARDS = 24;
 const EMPTY_GRAPH_CARDS: MapCard[] = [];
 
@@ -246,14 +246,14 @@ export default function KnowledgeMap({
       const source = readString(record, 'source', 'source_node_id');
       const target = readString(record, 'target', 'target_node_id');
       const type = readString(record, 'type', 'relation_type');
-      if (!source || !target || !EDGE_TYPES.has(type)) return [];
+      if (!source || !target || !isPrivateKnowledgeMapEdgeType(type)) return [];
       const rawWeight = record.weight;
 
       return [{
         id: readString(record, 'id') || `personal-edge:${type}:${source}:${target}`,
         source,
         target,
-        type: type as KnowledgeGraphEdgeView['type'],
+        type,
         weight: typeof rawWeight === 'number' ? rawWeight : 1,
         scope: 'private' as const,
       }];
