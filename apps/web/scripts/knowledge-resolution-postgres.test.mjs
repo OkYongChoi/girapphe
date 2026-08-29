@@ -153,6 +153,7 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
         centralQuestion: null,
         structuredContent: null,
         bundleSchemaVersion: null,
+        relations: mergeDraft.relations,
       },
     });
     assert.deepEqual(merged, {

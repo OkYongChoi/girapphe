@@ -91,4 +91,16 @@ test('rejects mismatched types, invalid nested references, unknown fields, and u
     knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
     structured_content: { ...contents.expression, language: '' },
   }), null);
+  for (const language of ['x-pig-latin', 'i-klingon', 'sl-rozaj-biske-1994', 'en-a-myext-b-another']) {
+    assert.equal(parseKnowledgeBundleFields({
+      knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
+      structured_content: { ...contents.expression, language },
+    })?.structured_content.type, 'expression');
+  }
+  for (const language of ['en-US-US', 'sl-rozaj-rozaj', 'en-a-one-a-two']) {
+    assert.equal(parseKnowledgeBundleFields({
+      knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
+      structured_content: { ...contents.expression, language },
+    }), null);
+  }
 });

@@ -402,11 +402,61 @@ export function projectKnowledgeBundleContent(
   };
 }
 
+const GRANDFATHERED_LANGUAGE_TAGS = new Set([
+  'art-lojban', 'cel-gaulish', 'en-gb-oed', 'i-ami', 'i-bnn', 'i-default', 'i-enochian',
+  'i-hak', 'i-klingon', 'i-lux', 'i-mingo', 'i-navajo', 'i-pwn', 'i-tao', 'i-tay',
+  'i-tsu', 'no-bok', 'no-nyn', 'sgn-be-fr', 'sgn-be-nl', 'sgn-ch-de', 'zh-guoyu',
+  'zh-hakka', 'zh-min', 'zh-min-nan', 'zh-xiang',
+]);
+
 export function isKnowledgeLanguageTag(value: unknown): value is string {
-  return typeof value === 'string'
-    && value.length >= 2
-    && value.length <= 35
-    && /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(value);
+  if (typeof value !== 'string' || value.length < 2 || value.length > 255) return false;
+  const normalized = value.toLowerCase();
+  if (GRANDFATHERED_LANGUAGE_TAGS.has(normalized)) return true;
+
+  const subtags = normalized.split('-');
+  if (subtags.some((subtag) => !/^[a-z0-9]{1,8}$/.test(subtag))) return false;
+  if (subtags[0] === 'x') return subtags.length > 1;
+
+  const language = subtags[0] ?? '';
+  if (!/^[a-z]{2,8}$/.test(language)) return false;
+  let index = 1;
+  if (language.length <= 3) {
+    let extlangCount = 0;
+    while (extlangCount < 3 && /^[a-z]{3}$/.test(subtags[index] ?? '')) {
+      extlangCount += 1;
+      index += 1;
+    }
+  }
+  if (/^[a-z]{4}$/.test(subtags[index] ?? '')) index += 1;
+  if (/^(?:[a-z]{2}|[0-9]{3})$/.test(subtags[index] ?? '')) index += 1;
+
+  const variants = new Set<string>();
+  while (/^(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3})$/.test(subtags[index] ?? '')) {
+    const variant = subtags[index]!;
+    if (variants.has(variant)) return false;
+    variants.add(variant);
+    index += 1;
+  }
+
+  const extensionSingletons = new Set<string>();
+  while (/^[0-9a-wy-z]$/.test(subtags[index] ?? '')) {
+    const singleton = subtags[index]!;
+    if (extensionSingletons.has(singleton)) return false;
+    extensionSingletons.add(singleton);
+    index += 1;
+    const extensionStart = index;
+    while (/^[a-z0-9]{2,8}$/.test(subtags[index] ?? '')) index += 1;
+    if (index === extensionStart) return false;
+  }
+
+  if (subtags[index] === 'x') {
+    index += 1;
+    const privateUseStart = index;
+    while (/^[a-z0-9]{1,8}$/.test(subtags[index] ?? '')) index += 1;
+    if (index === privateUseStart) return false;
+  }
+  return index === subtags.length;
 }
 
 /** Converts BCE/CE points to one monotonically increasing integer without relying on Date parsing. */

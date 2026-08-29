@@ -103,14 +103,15 @@ function historicalPoint(era: string, year: string, month: string, day: string):
   return { year: parsedYear, era, ...(parsedMonth !== undefined ? { month: parsedMonth } : {}), ...(parsedDay !== undefined ? { day: parsedDay } : {}) };
 }
 
-export function parseMobileChronology(value: string): EventChronology | undefined {
+export function parseMobileChronology(value: string): EventChronology | null | undefined {
+  if (!value.trim()) return undefined;
   const [precision = '', startEra = '', startYear = '', startMonth = '', startDay = '', endEra = '', endYear = '', endMonth = '', endDay = ''] = segments(value);
-  if (!EVENT_TIME_PRECISIONS.includes(precision as EventChronology['precision'])) return undefined;
+  if (!EVENT_TIME_PRECISIONS.includes(precision as EventChronology['precision'])) return null;
   const start = historicalPoint(startEra.toLowerCase(), startYear, startMonth, startDay);
-  if (!start) return undefined;
+  if (!start) return null;
   if (precision !== 'range') return { precision: precision as EventChronology['precision'], start };
   const end = historicalPoint(endEra.toLowerCase(), endYear, endMonth, endDay);
-  return end && historicalTimePointKey(end) >= historicalTimePointKey(start) ? { precision: 'range', start, end } : undefined;
+  return end && historicalTimePointKey(end) >= historicalTimePointKey(start) ? { precision: 'range', start, end } : null;
 }
 
 export function serializeMobileChronology(value?: EventChronology) {
@@ -165,6 +166,7 @@ export function buildMobileKnowledgeBundle(type: KnowledgeBundleType, fields: st
   if (type === 'decision') return { type, decision: one.trim(), context: two.trim(), options: pairs(three).map(([name, tradeoffs]) => ({ name, tradeoffs })), criteria: lines(four), rationale: lines(five), reconsider_when: lines(six), outcome: seven.trim() };
   if (type === 'event') {
     const chronology = parseMobileChronology(seven);
+    if (chronology === null) throw new Error('Enter a valid event chronology or leave it blank.');
     return { type, event: one.trim(), occurred_at: two.trim(), context: three.trim(), changes: lines(four), causes: lines(five), consequences: lines(six), ...(chronology ? { chronology } : {}) };
   }
   if (type === 'expression') return { type, expression: one.trim(), language: two.trim(), pronunciation: three.trim(), meanings: lines(four), translations: pairs(five).filter(([language, text]) => language && text).map(([language, text]) => ({ language, text })), register: six.trim(), nuance: seven.trim(), usage_contexts: lines(eight), examples: lines(nine).map((line) => { const [text = '', translation = '', note = ''] = segments(line); return { text, ...(translation ? { translation } : {}), ...(note ? { note } : {}) }; }).filter((item) => item.text), contrasts: pairs(ten).filter(([, difference]) => difference).map(([expression, difference]) => ({ expression, difference })), common_mistakes: pairs(eleven).filter(([, correction]) => correction).map(([incorrect, correction]) => ({ incorrect, correction })) };

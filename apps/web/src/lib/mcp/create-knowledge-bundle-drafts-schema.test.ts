@@ -103,6 +103,25 @@ test('accepts the exact question, decision, event, and expression version-one sh
     assert.equal(parsed.bundles[0]?.knowledge_type, structuredContent.type);
     assert.equal(parsed.bundles[0]?.structured_content.type, structuredContent.type);
   }
+  const expression = newTypes[3];
+  for (const language of ['x-pig-latin', 'i-klingon', 'sl-rozaj-biske-1994']) {
+    assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse({
+      ...validInput,
+      bundles: [{
+        ...validInput.bundles[0],
+        knowledge_type: 'expression',
+        structured_content: { ...expression, language },
+      }],
+    }).success, true);
+  }
+  assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse({
+    ...validInput,
+    bundles: [{
+      ...validInput.bundles[0],
+      knowledge_type: 'expression',
+      structured_content: { ...expression, language: 'en-US-US' },
+    }],
+  }).success, false);
 });
 
 test('requires selected evidence for causal relationship suggestions', () => {

@@ -35,6 +35,7 @@ import {
   sanitizeKnowledgeContent,
   sanitizeKnowledgeTags,
   sanitizeKnowledgeTitle,
+  sanitizeProposedRelations,
   softDeleteMemoryKnowledgeItemForUser,
   supersedeKnowledgeItemForUser,
   updateMemoryKnowledgeItemForUser,
@@ -130,6 +131,22 @@ function readEvidenceSelectors(formData: FormData): KnowledgeEvidenceSelector[] 
   return selectors;
 }
 
+function readReviewedRelations(formData: FormData) {
+  const value = formData.get('relations_json');
+  if (value === null || value === '') return [];
+  if (typeof value !== 'string' || value.length > 64_000) throw new Error('Invalid reviewed relationships.');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error('Invalid reviewed relationships.');
+  }
+  if (!Array.isArray(parsed) || parsed.length > 12) throw new Error('Invalid reviewed relationships.');
+  const relations = sanitizeProposedRelations(parsed);
+  if (relations.length !== parsed.length) throw new Error('Invalid reviewed relationships.');
+  return relations;
+}
+
 function readReviewedKnowledgePayload(
   formData: FormData,
   action: 'create' | 'merge' | 'update',
@@ -182,6 +199,7 @@ function readReviewedKnowledgePayload(
     validTo,
     reviewAt: readLifecycleField('review_at'),
     evidenceSelectors: readEvidenceSelectors(formData),
+    relations: readReviewedRelations(formData),
   };
 }
 

@@ -218,6 +218,7 @@ export type ReviewedKnowledgePayload = {
   validTo?: string | null;
   reviewAt?: string | null;
   evidenceSelectors?: KnowledgeEvidenceSelector[];
+  relations?: ProposedKnowledgeRelation[];
 };
 
 export type ResolveKnowledgeDraftInput = {
@@ -3753,6 +3754,7 @@ type SanitizedReviewedKnowledgePayload = {
   valid_to: string | null | undefined;
   review_at: string | null | undefined;
   evidence_selectors: KnowledgeEvidenceSelector[];
+  relations: ProposedKnowledgeRelation[];
 };
 
 function strictOptionalTimestamp(value: string | null | undefined, fieldName: string): string | null | undefined {
@@ -3785,6 +3787,11 @@ function sanitizeReviewedKnowledgePayload(input: ReviewedKnowledgePayload): Sani
   if (evidenceSelectors.length !== rawSelectors.length) {
     throw new Error('One or more evidence selectors are invalid or contain source text.');
   }
+  const rawRelations = input.relations ?? [];
+  const relations = sanitizeProposedRelations(rawRelations);
+  if (relations.length !== rawRelations.length) {
+    throw new Error('One or more reviewed relationships are invalid.');
+  }
   const topic = normalizeKnowledgeTopic(input.topic);
   const observedAt = strictOptionalTimestamp(input.observedAt, 'observedAt');
   const validFrom = strictOptionalTimestamp(input.validFrom, 'validFrom');
@@ -3814,6 +3821,7 @@ function sanitizeReviewedKnowledgePayload(input: ReviewedKnowledgePayload): Sani
     valid_to: validTo,
     review_at: reviewAt,
     evidence_selectors: evidenceSelectors,
+    relations,
   };
 }
 
@@ -3829,6 +3837,7 @@ function reviewedPayloadFromDraft(draft: KnowledgeCardDraft): SanitizedReviewedK
     structuredContent: draft.structured_content,
     bundleSchemaVersion: draft.bundle_schema_version,
     evidenceSelectors: draft.proposed_evidence,
+    relations: draft.relations,
   });
 }
 
@@ -3869,6 +3878,36 @@ function evidenceSelectorsAreExactSubset(
   }
   for (const selector of selected) {
     const fingerprint = evidenceSelectorFingerprint(selector);
+    const count = remaining.get(fingerprint) ?? 0;
+    if (count < 1) return false;
+    remaining.set(fingerprint, count - 1);
+  }
+  return true;
+}
+
+function relationFingerprint(relation: ProposedKnowledgeRelation): string {
+  return JSON.stringify([
+    relation.targetKind,
+    relation.targetId,
+    relation.type,
+    relation.direction ?? 'outgoing',
+    relation.weight ?? 1,
+    relation.relationOrigin ?? 'model_inferred',
+    relation.evidenceSelectorIndexes ?? [],
+  ]);
+}
+
+function relationsAreExactSubset(
+  selected: ProposedKnowledgeRelation[],
+  proposed: ProposedKnowledgeRelation[],
+): boolean {
+  const remaining = new Map<string, number>();
+  for (const relation of proposed) {
+    const fingerprint = relationFingerprint(relation);
+    remaining.set(fingerprint, (remaining.get(fingerprint) ?? 0) + 1);
+  }
+  for (const relation of selected) {
+    const fingerprint = relationFingerprint(relation);
     const count = remaining.get(fingerprint) ?? 0;
     if (count < 1) return false;
     remaining.set(fingerprint, count - 1);
@@ -4094,6 +4133,22 @@ export async function resolveKnowledgeDraftForUser(
     && !evidenceSelectorsAreExactSubset(payload.evidence_selectors, draft.proposed_evidence)) {
     throw new Error('Reviewed evidence selectors must be an exact subset of the persisted draft evidence.');
   }
+  if (input.reviewed && !relationsAreExactSubset(payload.relations, draft.relations)) {
+    throw new Error('Reviewed relationships must be an exact subset of the persisted draft relationships.');
+  }
+  if (input.reviewed) {
+    const reviewedEvidenceFingerprints = new Set(payload.evidence_selectors.map(evidenceSelectorFingerprint));
+    const causalRelationMissingEvidence = payload.relations.some((relation) => (
+      (CAUSAL_KNOWLEDGE_RELATION_TYPES as readonly string[]).includes(relation.type)
+      && !(relation.evidenceSelectorIndexes ?? []).some((index) => {
+        const selector = draft.proposed_evidence[index];
+        return selector ? reviewedEvidenceFingerprints.has(evidenceSelectorFingerprint(selector)) : false;
+      })
+    ));
+    if (causalRelationMissingEvidence) {
+      throw new Error('Every reviewed causal relationship must retain at least one mapped evidence selector.');
+    }
+  }
   const itemId = input.action === 'create' ? randomUUID() : input.targetKnowledgeItemId!;
   const nextVersion = input.action === 'create' ? 1 : input.expectedTargetVersion! + 1;
   const selectors = input.reviewed ? payload.evidence_selectors : draft.proposed_evidence;
@@ -4116,7 +4171,13 @@ export async function resolveKnowledgeDraftForUser(
       draftByReference.set(candidate.id, candidate);
       draftByReference.set(candidate.client_card_id, candidate);
     }
-    for (const relation of persistedDraft.relations) {
+    const reviewedRelations = input.reviewed
+      ? payload.relations
+      : persistedDraft.relations.filter((relation) => (
+        !(CAUSAL_KNOWLEDGE_RELATION_TYPES as readonly string[]).includes(relation.type)
+      ));
+    invalidRelations += persistedDraft.relations.length - reviewedRelations.length;
+    for (const relation of reviewedRelations) {
       if (relation.targetKind !== 'draft') continue;
       const dependency = draftByReference.get(relation.targetId.replace(/^draft:/, ''));
       if (dependency && dependency.id !== persistedDraft.id && dependency.status === 'pending') {
@@ -4137,7 +4198,7 @@ export async function resolveKnowledgeDraftForUser(
       key: `pending:${itemId}`,
     };
     const plannedNodes = new Map<string, ResolvedEndpoint>([[persistedDraft.id, plannedSource]]);
-    for (const relation of persistedDraft.relations) {
+    for (const relation of reviewedRelations) {
       const other = await resolveDraftRelationTarget(
         userId,
         relation,

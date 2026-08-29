@@ -124,6 +124,10 @@ test('mobile candidate resolution preserves structured error codes and event lif
     mobileRoute,
     /mobileCandidateApprovalRequiresCapability\(draft, capabilities\)[\s\S]*?KNOWLEDGE_CAPABILITY_REQUIRED/,
   );
+  assert.match(
+    mobileRoute,
+    /mobileCandidateRequiresDetailedCausalReview\(draft\)[\s\S]*?CAUSAL_REVIEW_REQUIRED/,
+  );
 });
 
 test('finishing one candidate action keeps every other candidate pending', () => {

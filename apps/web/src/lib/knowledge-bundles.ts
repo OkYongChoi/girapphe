@@ -3,6 +3,7 @@ import {
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
   KNOWLEDGE_BUNDLE_TYPES,
   historicalTimePointKey,
+  isKnowledgeLanguageTag,
 } from '@stem-brain/shared';
 import { z } from 'zod';
 
@@ -10,7 +11,7 @@ const shortText = z.string().trim().max(500);
 const detailText = z.string().trim().max(4000);
 const shortTextList = z.array(shortText.min(1)).max(24).default([]);
 const detailTextList = z.array(z.string().trim().min(1).max(6000)).max(24).default([]);
-const languageTag = z.string().trim().min(2).max(35).regex(/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/);
+const languageTag = z.string().trim().min(2).max(255).refine(isKnowledgeLanguageTag, 'Invalid BCP 47 language tag.');
 
 function daysInHistoricalMonth(year: number, era: 'bce' | 'ce', month: number) {
   if (month === 2) {

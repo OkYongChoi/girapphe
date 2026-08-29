@@ -64,3 +64,9 @@ export function mobileCandidateApprovalRequiresCapability(
     && draft?.relations?.some((relation) => MOBILE_CAUSAL_RELATION_TYPES.has(relation.type)),
   );
 }
+
+export function mobileCandidateRequiresDetailedCausalReview(
+  draft: { relations?: Array<{ type: string }> } | null | undefined,
+): boolean {
+  return Boolean(draft?.relations?.some((relation) => MOBILE_CAUSAL_RELATION_TYPES.has(relation.type)));
+}

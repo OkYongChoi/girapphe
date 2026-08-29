@@ -42,6 +42,8 @@ import {
   supersedeKnowledgeItemForUser,
   updateMemoryKnowledgeItemForUser,
   verifyKnowledgeItemForUser,
+  type KnowledgeEvidenceSelector,
+  type ProposedKnowledgeRelation,
 } from './knowledge-ingestion';
 import { deriveMcpDeletedAccountScopeKey } from './mcp-account-lifecycle';
 import { resolveMobileNoteUpdateVersion } from './mobile-note-update-version';
@@ -1298,6 +1300,19 @@ test('database per-draft resolution locks, resolves the actual node, inserts edg
     draftId,
     expectedDraftVersion: 1,
     action: 'create',
+    reviewed: {
+      title: draftRow.title,
+      summary: draftRow.summary,
+      content: draftRow.explanation,
+      topic: draftRow.topic,
+      tags: draftRow.tags,
+      knowledgeType: null,
+      centralQuestion: null,
+      structuredContent: null,
+      bundleSchemaVersion: null,
+      evidenceSelectors: draftRow.proposed_evidence as KnowledgeEvidenceSelector[],
+      relations: draftRow.proposed_relations as ProposedKnowledgeRelation[],
+    },
   });
   assert.equal(result.resolved, true);
   assert.equal(result.skippedEdges, 0);
@@ -1987,11 +2002,44 @@ test('per-draft create persists reviewed conversation relations with direction, 
     }],
   });
   const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  const reviewed = {
+    title: draft.title,
+    summary: draft.summary,
+    content: draft.explanation,
+    topic: draft.topic,
+    tags: draft.tags,
+    knowledgeType: draft.knowledge_type,
+    centralQuestion: draft.central_question,
+    structuredContent: draft.structured_content,
+    bundleSchemaVersion: draft.bundle_schema_version,
+    evidenceSelectors: draft.proposed_evidence,
+    relations: draft.relations,
+  };
+  await assert.rejects(resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: draft.id,
+    expectedDraftVersion: draft.version,
+    action: 'create',
+    reviewed: {
+      ...reviewed,
+      relations: draft.relations.map((relation, index) => index === 2
+        ? { ...relation, targetId: 'graph_physics' }
+        : relation),
+    },
+  }), /exact subset/i);
+  await assert.rejects(resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: draft.id,
+    expectedDraftVersion: draft.version,
+    action: 'create',
+    reviewed: { ...reviewed, evidenceSelectors: [] },
+  }), /retain at least one mapped evidence selector/i);
   const result = await resolveKnowledgeDraftForUser(userId, {
     batchId: created.batchId,
     draftId: draft.id,
     expectedDraftVersion: draft.version,
     action: 'create',
+    reviewed,
   });
   assert.equal(result.resolved, true);
   assert.equal(result.skippedEdges, 0);
@@ -2096,6 +2144,7 @@ test('per-draft merge and update connect through one canonical graph node', asyn
         centralQuestion: null,
         structuredContent: null,
         bundleSchemaVersion: null,
+        relations: draft.relations,
       },
     });
     assert.equal(result.resolved, true);
@@ -2159,6 +2208,7 @@ test('per-draft merge and update restore a missing canonical graph node before a
         centralQuestion: null,
         structuredContent: null,
         bundleSchemaVersion: null,
+        relations: draft.relations,
       },
     });
 

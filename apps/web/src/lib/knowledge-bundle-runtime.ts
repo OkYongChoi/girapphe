@@ -256,13 +256,13 @@ function parseContent(value: unknown): KnowledgeBundleContent | null {
       ]);
       if (!item) return null;
       const expression = text(item.expression, 4000);
-      const language = text(item.language, 35, true);
+      const language = text(item.language, 255, true);
       const pronunciation = text(item.pronunciation, 500);
       const meanings = textList(item.meanings, 24, 6000);
       const translations = records(item.translations, 24, (entry) => {
         const translation = objectWithKeys(entry, ['language', 'text']);
         if (!translation) return null;
-        const targetLanguage = text(translation.language, 35, true);
+        const targetLanguage = text(translation.language, 255, true);
         const translatedText = text(translation.text, 4000, true);
         return targetLanguage && isKnowledgeLanguageTag(targetLanguage) && translatedText
           ? { language: targetLanguage, text: translatedText }

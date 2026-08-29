@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { KNOWLEDGE_BUNDLE_TYPES, SUPPORTED_LOCALES, type KnowledgeBundleContent } from '@stem-brain/shared';
-import { buildMobileKnowledgeBundle, expressionRecallCue, knowledgeBundleAnswerLines, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, mobileKnowledgeBundleEditValues } from './knowledge-bundle-ui';
+import { buildMobileKnowledgeBundle, expressionRecallCue, knowledgeBundleAnswerLines, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, mobileKnowledgeBundleEditValues, parseMobileChronology } from './knowledge-bundle-ui';
 
 const bundles: KnowledgeBundleContent[] = [
   { type: 'concept', definition: 'Definition', key_points: ['Point'], examples: ['Example'], non_examples: ['Counterexample'], misconceptions: [{ claim: 'Wrong', correction: 'Right' }] },
@@ -21,6 +21,15 @@ test('mobile full-field editors round-trip every version-one bundle type without
     const fields = mobileKnowledgeBundleEditValues(bundle);
     assert.deepEqual(buildMobileKnowledgeBundle(bundle.type, fields), bundle);
   }
+});
+
+test('mobile rejects invalid non-empty chronology instead of silently deleting it', () => {
+  assert.equal(parseMobileChronology(''), undefined);
+  assert.equal(parseMobileChronology('range :: ce :: 2026 :: 2 :: 29 :: ce :: 2025'), null);
+  assert.throws(
+    () => buildMobileKnowledgeBundle('event', ['Event', '', '', '', '', '', 'range :: ce :: 2026 :: 1 :: 1 :: ce :: 2025 :: 1 :: 1']),
+    /valid event chronology/,
+  );
 });
 
 test('mobile structured answers expose every populated field', () => {

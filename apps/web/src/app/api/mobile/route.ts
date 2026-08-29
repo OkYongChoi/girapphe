@@ -53,6 +53,7 @@ import {
 import { resolveMobileNoteUpdateVersion } from '@/lib/mobile-note-update-version';
 import {
   mobileCandidateApprovalRequiresCapability,
+  mobileCandidateRequiresDetailedCausalReview,
   mobileKnowledgeEditRequiresCapability,
   readMobileKnowledgeCapabilities,
   withMobileKnowledgeCompatibility,
@@ -363,6 +364,12 @@ export async function POST(request: NextRequest) {
         code: 'KNOWLEDGE_CAPABILITY_REQUIRED',
       }, { status: 409 });
     }
+    if (mobileCandidateRequiresDetailedCausalReview(draft)) {
+      return NextResponse.json({
+        error: 'Review causal relationship targets, directions, and evidence in the detailed web review before approval.',
+        code: 'CAUSAL_REVIEW_REQUIRED',
+      }, { status: 409 });
+    }
     candidateForm.set('resolution_action', 'create');
     candidateForm.set('title', draft.title);
     candidateForm.set('summary', draft.summary);
@@ -373,7 +380,8 @@ export async function POST(request: NextRequest) {
     candidateForm.set('central_question', draft.central_question ?? '');
     candidateForm.set('structured_content', draft.structured_content ? JSON.stringify(draft.structured_content) : '');
     candidateForm.set('bundle_schema_version', draft.bundle_schema_version ? String(draft.bundle_schema_version) : '');
-    candidateForm.set('evidence_selectors_json', JSON.stringify(draft.proposed_evidence));
+    candidateForm.set('evidence_selectors_json', '[]');
+    candidateForm.set('relations_json', '[]');
     candidateForm.set('lifecycle_patch_semantics', 'tri_state_v1');
     if (draft.structured_content?.type === 'event') {
       const occurredAt = new Date(draft.structured_content.occurred_at);
