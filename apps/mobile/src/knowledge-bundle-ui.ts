@@ -2,7 +2,9 @@ import {
   EVENT_TIME_PRECISIONS,
   historicalTimePointKey,
   parseExpressionBundleExamples,
+  parseStringTuplePairs,
   serializeExpressionBundleExamples,
+  serializeStringTuplePairs,
   type EventChronology,
   type HistoricalTimePoint,
   type KnowledgeBundleContent,
@@ -181,7 +183,15 @@ export function buildMobileKnowledgeBundle(type: KnowledgeBundleType, fields: st
     if (chronology === null) throw new Error('Enter a valid event chronology or leave it blank.');
     return { type, event: one.trim(), occurred_at: two.trim(), context: three.trim(), changes: lines(four), causes: lines(five), consequences: lines(six), ...(chronology ? { chronology } : {}) };
   }
-  if (type === 'expression') return { type, expression: one.trim(), language: two.trim(), pronunciation: three.trim(), meanings: lines(four), translations: pairs(five).filter(([language, text]) => language && text).map(([language, text]) => ({ language, text })), register: six.trim(), nuance: seven.trim(), usage_contexts: lines(eight), examples: parseExpressionBundleExamples(nine), contrasts: pairs(ten).filter(([, difference]) => difference).map(([expression, difference]) => ({ expression, difference })), common_mistakes: pairs(eleven).filter(([, correction]) => correction).map(([incorrect, correction]) => ({ incorrect, correction })) };
+  if (type === 'expression') {
+    const translations = parseStringTuplePairs(five);
+    const contrasts = parseStringTuplePairs(ten);
+    const commonMistakes = parseStringTuplePairs(eleven);
+    if ([...translations, ...contrasts, ...commonMistakes].some(([left, right]) => !left || !right)) {
+      throw new Error('Enter expression pairs as JSON tuples or complete legacy pairs.');
+    }
+    return { type, expression: one.trim(), language: two.trim(), pronunciation: three.trim(), meanings: lines(four), translations: translations.map(([language, text]) => ({ language, text })), register: six.trim(), nuance: seven.trim(), usage_contexts: lines(eight), examples: parseExpressionBundleExamples(nine), contrasts: contrasts.map(([expression, difference]) => ({ expression, difference })), common_mistakes: commonMistakes.map(([incorrect, correction]) => ({ incorrect, correction })) };
+  }
   const confidence = six.trim().toLowerCase();
   return { type, claim: one.trim(), evidence: pairs(two).map(([statement, source]) => ({ statement, ...(source ? { source } : {}) })), counterevidence: lines(three), scope: lines(four), limitations: lines(five), ...(['low', 'medium', 'high'].includes(confidence) ? { confidence: confidence as 'low' | 'medium' | 'high' } : {}) };
 }
@@ -196,6 +206,6 @@ export function mobileKnowledgeBundleEditValues(value: KnowledgeBundleContent | 
   if (value.type === 'question') return [value.question, value.context, value.known_facts.join('\n'), value.hypotheses.join('\n'), value.next_steps.join('\n'), value.answer_summary, value.status];
   if (value.type === 'decision') return [value.decision, value.context, value.options.map((item) => `${item.name}${item.tradeoffs ? ` :: ${item.tradeoffs}` : ''}`).join('\n'), value.criteria.join('\n'), value.rationale.join('\n'), value.reconsider_when.join('\n'), value.outcome];
   if (value.type === 'event') return [value.event, value.occurred_at, value.context, value.changes.join('\n'), value.causes.join('\n'), value.consequences.join('\n'), serializeMobileChronology(value.chronology)];
-  if (value.type === 'expression') return [value.expression, value.language, value.pronunciation, value.meanings.join('\n'), value.translations.map((item) => `${item.language} :: ${item.text}`).join('\n'), value.register, value.nuance, value.usage_contexts.join('\n'), serializeExpressionBundleExamples(value.examples), value.contrasts.map((item) => `${item.expression} :: ${item.difference}`).join('\n'), value.common_mistakes.map((item) => `${item.incorrect} :: ${item.correction}`).join('\n')];
+  if (value.type === 'expression') return [value.expression, value.language, value.pronunciation, value.meanings.join('\n'), serializeStringTuplePairs(value.translations.map((item) => [item.language, item.text])), value.register, value.nuance, value.usage_contexts.join('\n'), serializeExpressionBundleExamples(value.examples), serializeStringTuplePairs(value.contrasts.map((item) => [item.expression, item.difference])), serializeStringTuplePairs(value.common_mistakes.map((item) => [item.incorrect, item.correction]))];
   return [value.claim, value.evidence.map((item) => `${item.statement}${item.source ? ` :: ${item.source}` : ''}`).join('\n'), value.counterevidence.join('\n'), value.scope.join('\n'), value.limitations.join('\n'), value.confidence ?? ''];
 }

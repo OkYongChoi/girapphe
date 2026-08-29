@@ -39,10 +39,11 @@ function historicalPointLabel(point: { year: number; era: 'bce' | 'ce'; month?: 
 }
 
 function chronologyLabel(content: Extract<KnowledgeBundleContent, { type: 'event' }>) {
-  if (content.occurred_at) return content.occurred_at;
-  if (!content.chronology) return '';
-  const start = historicalPointLabel(content.chronology.start);
-  return content.chronology.end ? `${start} – ${historicalPointLabel(content.chronology.end)}` : start;
+  if (content.chronology) {
+    const start = historicalPointLabel(content.chronology.start);
+    return content.chronology.end ? `${start} – ${historicalPointLabel(content.chronology.end)}` : start;
+  }
+  return content.occurred_at;
 }
 
 export default function KnowledgeBundleView({ type, centralQuestion, content, compact = false }: KnowledgeBundleViewProps) {

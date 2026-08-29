@@ -39,7 +39,10 @@ test('mobile expression examples preserve literal delimiters and structured fiel
   if (!expression || expression.type !== 'expression') return;
   const withDelimiters: KnowledgeBundleContent = {
     ...expression,
+    translations: [{ language: 'ko', text: '경로 :: 이름' }],
     examples: [{ text: 'namespace :: name', translation: '경로 :: 이름', note: 'C:\\names :: note' }],
+    contrasts: [{ expression: 'namespace :: value', difference: 'distinction :: detail' }],
+    common_mistakes: [{ incorrect: 'name :: space', correction: 'name :: value' }],
   };
   assert.deepEqual(
     buildMobileKnowledgeBundle('expression', mobileKnowledgeBundleEditValues(withDelimiters)),

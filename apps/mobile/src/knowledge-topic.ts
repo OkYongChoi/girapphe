@@ -1,9 +1,13 @@
 import type { MobileTopicHubItem } from './api';
 import { historicalTimePointKey } from '@stem-brain/shared';
+import { eventChronologyLabel } from './knowledge-bundle-ui';
 
 type TimelineEventItem = Pick<MobileTopicHubItem, 'created_at' | 'observed_at' | 'structured_content'>;
 
 export function eventTimelineDate(item: TimelineEventItem) {
+  if (item.structured_content?.type === 'event' && item.structured_content.chronology) {
+    return eventChronologyLabel(item.structured_content.chronology);
+  }
   if (item.structured_content?.type === 'event' && item.structured_content.occurred_at) {
     const occurred = new Date(item.structured_content.occurred_at);
     if (!Number.isNaN(occurred.getTime())) return occurred.toISOString();

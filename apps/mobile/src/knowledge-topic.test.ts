@@ -26,6 +26,12 @@ test('event timeline dates use valid occurrence timestamps and fall back safely'
   assert.equal(eventTimelineDate(eventItem('2026-08-28T09:30:00.000Z')), '2026-08-28T09:30:00.000Z');
   assert.equal(eventTimelineDate(eventItem('sometime after the launch')), '2026-08-28T08:00:00.000Z');
   assert.equal(eventTimelineDate(eventItem('not-a-date', null)), '2026-08-27T08:00:00.000Z');
+  const historical = eventItem('2026-08-28T09:30:00.000Z');
+  assert.equal(historical.structured_content?.type, 'event');
+  if (historical.structured_content?.type === 'event') {
+    historical.structured_content.chronology = { precision: 'century', start: { era: 'bce', year: 5 } };
+  }
+  assert.equal(eventTimelineDate(historical), 'BCE 5');
 });
 
 test('event timeline sort keys place BCE chronology before CE chronology', () => {

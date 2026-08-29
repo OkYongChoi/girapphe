@@ -8,6 +8,7 @@ export const EXTRA_AR_MESSAGES = {
   "bundle.quickNoteHelp": "تحافظ الملاحظة السريعة على التنسيق الحالي.",
   "bundle.pairHelp": "زوج واحد في كل سطر: العنصر :: الشرح",
   "bundle.exampleTupleHelp": "مصفوفة JSON واحدة في كل سطر: [\"النص\", \"الترجمة\", \"الملاحظة\"]",
+  "bundle.pairTupleHelp": "زوج JSON مكتمل في كل سطر: [\"العنصر\", \"الشرح\"]",
   "bundle.criteriaHelp": "معيار في كل سطر: المعيار :: القيمة الأولى | الثانية",
   "bundle.componentsHelp": "سطر واحد: المعرف :: الاسم :: الدور :: معرف الأصل اختياري",
   "bundle.relationsHelp": "سطر واحد: المصدر :: الهدف :: العلاقة",

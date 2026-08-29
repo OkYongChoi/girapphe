@@ -8,7 +8,9 @@ import {
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
   KNOWLEDGE_BUNDLE_TYPES,
   parseExpressionBundleExamples,
+  parseStringTuplePairs,
   serializeExpressionBundleExamples,
+  serializeStringTuplePairs,
   type KnowledgeBundleContent,
   type KnowledgeBundleType,
   type EventChronology,
@@ -63,6 +65,33 @@ function ExpressionExamplesArea({ examples, onChange, t }: {
         }}
       />
       <span className="font-normal text-slate-500">{t('bundle.exampleTupleHelp')}</span>
+    </label>
+  );
+}
+
+function TuplePairsArea({ label, pairs, onChange, t }: {
+  label: string;
+  pairs: Array<[string, string]>;
+  onChange: (pairs: Array<[string, string]>) => void;
+  t: Translate;
+}) {
+  const [draft, setDraft] = useState(() => serializeStringTuplePairs(pairs));
+  return (
+    <label className="grid gap-1 text-xs font-medium text-slate-700">
+      {label}
+      <textarea
+        className={areaClass}
+        value={draft}
+        onChange={(event) => {
+          const nextDraft = event.target.value;
+          const nextPairs = parseStringTuplePairs(nextDraft);
+          const valid = nextPairs.every(([left, right]) => Boolean(left && right));
+          event.currentTarget.setCustomValidity(valid ? '' : t('bundle.pairTupleHelp'));
+          setDraft(nextDraft);
+          if (valid) onChange(nextPairs);
+        }}
+      />
+      <span className="font-normal text-slate-500">{t('bundle.pairTupleHelp')}</span>
     </label>
   );
 }
@@ -220,13 +249,13 @@ function BundleFields({ content, update, t }: {
       {area(t('bundle.field.language'), content.language, (value) => update({ ...content, language: value }), undefined, true)}
       {area(t('bundle.field.pronunciation'), content.pronunciation, (value) => update({ ...content, pronunciation: value }))}
       {area(t('bundle.field.meanings'), listValue(content.meanings), (value) => update({ ...content, meanings: textLines(value) }))}
-      {area(t('bundle.field.translations'), pairValue(content.translations, 'language', 'text'), (value) => update({ ...content, translations: pairLines(value, 'language', 'text') as typeof content.translations }), t('bundle.pairHelp'))}
+      <TuplePairsArea label={t('bundle.field.translations')} pairs={content.translations.map((item) => [item.language, item.text])} onChange={(pairs) => update({ ...content, translations: pairs.map(([language, text]) => ({ language, text })) })} t={t} />
       {area(t('bundle.field.register'), content.register, (value) => update({ ...content, register: value }))}
       {area(t('bundle.field.nuance'), content.nuance, (value) => update({ ...content, nuance: value }))}
       {area(t('bundle.field.usageContexts'), listValue(content.usage_contexts), (value) => update({ ...content, usage_contexts: textLines(value) }))}
       <ExpressionExamplesArea examples={content.examples} onChange={(examples) => update({ ...content, examples })} t={t} />
-      {area(t('bundle.field.contrasts'), pairValue(content.contrasts, 'expression', 'difference'), (value) => update({ ...content, contrasts: pairLines(value, 'expression', 'difference') as typeof content.contrasts }), t('bundle.pairHelp'))}
-      {area(t('bundle.field.commonMistakes'), pairValue(content.common_mistakes, 'incorrect', 'correction'), (value) => update({ ...content, common_mistakes: pairLines(value, 'incorrect', 'correction') as typeof content.common_mistakes }), t('bundle.pairHelp'))}
+      <TuplePairsArea label={t('bundle.field.contrasts')} pairs={content.contrasts.map((item) => [item.expression, item.difference])} onChange={(pairs) => update({ ...content, contrasts: pairs.map(([expression, difference]) => ({ expression, difference })) })} t={t} />
+      <TuplePairsArea label={t('bundle.field.commonMistakes')} pairs={content.common_mistakes.map((item) => [item.incorrect, item.correction])} onChange={(pairs) => update({ ...content, common_mistakes: pairs.map(([incorrect, correction]) => ({ incorrect, correction })) })} t={t} />
     </>;
   }
 }

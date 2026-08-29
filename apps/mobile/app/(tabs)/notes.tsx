@@ -173,27 +173,32 @@ function NotesContent() {
               {knowledgeType ? (
                 <>
                   <TextInput accessibilityLabel={BUNDLE_COPY[locale].question} value={centralQuestion} onChangeText={setCentralQuestion} placeholder={BUNDLE_COPY[locale].questionPlaceholder} style={styles.input} />
-                  {BUNDLE_FIELD_COPY[locale][knowledgeType].map((label, index) => knowledgeType === 'question' && index === 6 ? (
-                    <View key="question-status" style={styles.statusEditor}>
-                      <Text style={styles.fieldLabel}>{label}</Text>
-                      <View style={styles.typeGrid}>
-                        {(['open', 'answered'] as const).map((status) => {
-                          const selected = (bundleFields[6] || 'open') === status;
-                          return <Pressable key={status} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => updateBundleField(6, status)} style={[styles.typeButton, selected && styles.typeButtonActive]}><Text style={[styles.typeButtonText, selected && styles.typeButtonTextActive]}>{knowledgeBundleQuestionStatusLabel(locale, status)}</Text></Pressable>;
-                        })}
+                  {BUNDLE_FIELD_COPY[locale][knowledgeType].map((label, index) => {
+                    const fieldLabel = knowledgeType === 'expression' && [4, 9, 10].includes(index)
+                      ? `${label} · ["…", "…"]`
+                      : label;
+                    return knowledgeType === 'question' && index === 6 ? (
+                      <View key="question-status" style={styles.statusEditor}>
+                        <Text style={styles.fieldLabel}>{fieldLabel}</Text>
+                        <View style={styles.typeGrid}>
+                          {(['open', 'answered'] as const).map((status) => {
+                            const selected = (bundleFields[6] || 'open') === status;
+                            return <Pressable key={status} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => updateBundleField(6, status)} style={[styles.typeButton, selected && styles.typeButtonActive]}><Text style={[styles.typeButtonText, selected && styles.typeButtonTextActive]}>{knowledgeBundleQuestionStatusLabel(locale, status)}</Text></Pressable>;
+                          })}
+                        </View>
                       </View>
-                    </View>
-                  ) : (
-                    <TextInput
-                      key={`${knowledgeType}-${index}`}
-                      accessibilityLabel={label}
-                      value={bundleFields[index] ?? ''}
-                      onChangeText={(value) => updateBundleField(index, value)}
-                      placeholder={`${label} · ${BUNDLE_COPY[locale].lines}`}
-                      multiline
-                      style={[styles.input, styles.contentInput]}
-                    />
-                  ))}
+                    ) : (
+                      <TextInput
+                        key={`${knowledgeType}-${index}`}
+                        accessibilityLabel={fieldLabel}
+                        value={bundleFields[index] ?? ''}
+                        onChangeText={(value) => updateBundleField(index, value)}
+                        placeholder={`${fieldLabel} · ${BUNDLE_COPY[locale].lines}`}
+                        multiline
+                        style={[styles.input, styles.contentInput]}
+                      />
+                    );
+                  })}
                 </>
               ) : (
                 <TextInput accessibilityLabel={t('notes.contentPlaceholder')} value={content} onChangeText={setContent} placeholder={t('notes.contentPlaceholder')} multiline style={[styles.input, styles.contentInput]} />

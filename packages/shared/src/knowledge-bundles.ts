@@ -169,6 +169,25 @@ export function serializeExpressionBundleExamples(examples: ExpressionBundleExam
   return examples.map((item) => JSON.stringify([item.text, item.translation ?? '', item.note ?? ''])).join('\n');
 }
 
+export function parseStringTuplePairs(value: string): Array<[string, string]> {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (Array.isArray(parsed) && parsed.length === 2 && parsed.every((item) => typeof item === 'string')) {
+        return [parsed[0], parsed[1]];
+      }
+    } catch {
+      // Retain the legacy "left :: right" input format for compatibility.
+    }
+    const [left = '', ...rest] = line.split('::');
+    return [left.trim(), rest.join('::').trim()];
+  });
+}
+
+export function serializeStringTuplePairs(pairs: ReadonlyArray<readonly [string, string]>): string {
+  return pairs.map((pair) => JSON.stringify(pair)).join('\n');
+}
+
 export type KnowledgeBundleContent =
   | ConceptBundleContent
   | ProcedureBundleContent

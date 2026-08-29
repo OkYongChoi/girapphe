@@ -8,6 +8,7 @@ export const EXTRA_EN_MESSAGES = {
   "bundle.quickNoteHelp": "Quick notes keep the existing title, summary, and content format.",
   "bundle.pairHelp": "One pair per line: item :: explanation",
   "bundle.exampleTupleHelp": "One JSON tuple per line: [\"text\", \"translation\", \"note\"]",
+  "bundle.pairTupleHelp": "One complete JSON pair per line: [\"item\", \"explanation\"]",
   "bundle.criteriaHelp": "One criterion per line: criterion :: first value | second value",
   "bundle.componentsHelp": "One per line: id :: label :: role :: optional parent id",
   "bundle.relationsHelp": "One per line: source id :: target id :: relationship",

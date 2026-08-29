@@ -57,11 +57,12 @@ function historicalPointLabel(point: { year: number; era: 'bce' | 'ce'; month?: 
 
 function eventTimeLabel(item: TopicKnowledgeHubItem) {
   if (item.structured_content?.type !== 'event') return '';
-  if (item.structured_content.occurred_at) return item.structured_content.occurred_at;
   const chronology = item.structured_content.chronology;
-  if (!chronology) return '';
-  const start = historicalPointLabel(chronology.start);
-  return chronology.end ? `${start} – ${historicalPointLabel(chronology.end)}` : start;
+  if (chronology) {
+    const start = historicalPointLabel(chronology.start);
+    return chronology.end ? `${start} – ${historicalPointLabel(chronology.end)}` : start;
+  }
+  return item.structured_content.occurred_at;
 }
 
 function lifecycleStage(item: TopicKnowledgeHubItem, activity: TopicKnowledgeActivity[]) {

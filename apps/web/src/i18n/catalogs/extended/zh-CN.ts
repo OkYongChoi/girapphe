@@ -8,6 +8,7 @@ export const EXTRA_ZH_CN_MESSAGES = {
   "bundle.quickNoteHelp": "快速笔记保留原有标题、摘要和正文格式。",
   "bundle.pairHelp": "每行一组：项目 :: 说明",
   "bundle.exampleTupleHelp": "每行一个 JSON 数组：[\"原文\", \"翻译\", \"注释\"]",
+  "bundle.pairTupleHelp": "每行一个完整 JSON 对：[\"项目\", \"说明\"]",
   "bundle.criteriaHelp": "每行一个标准：标准 :: 值一 | 值二",
   "bundle.componentsHelp": "每行：ID :: 名称 :: 角色 :: 可选父ID",
   "bundle.relationsHelp": "每行：源ID :: 目标ID :: 关系",

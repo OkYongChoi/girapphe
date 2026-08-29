@@ -4,8 +4,10 @@ import {
   KNOWLEDGE_BUNDLE_TYPES,
   createKnowledgeBundleContentFromLegacy,
   parseExpressionBundleExamples,
+  parseStringTuplePairs,
   projectKnowledgeBundleContent,
   serializeExpressionBundleExamples,
+  serializeStringTuplePairs,
   type KnowledgeBundleContent,
 } from '@stem-brain/shared';
 import { parseKnowledgeBundleFields, projectKnowledgeBundle } from './knowledge-bundle-runtime';
@@ -63,6 +65,12 @@ test('expression example editor tuples preserve delimiters and optional fields',
   }];
   assert.deepEqual(parseExpressionBundleExamples(serializeExpressionBundleExamples(examples)), examples);
   assert.deepEqual(parseExpressionBundleExamples('namespace :: name'), [{ text: 'namespace :: name' }]);
+  const pairs: Array<[string, string]> = [
+    ['namespace :: name', 'distinction :: detail'],
+    ['incorrect :: value', 'correct :: value'],
+  ];
+  assert.deepEqual(parseStringTuplePairs(serializeStringTuplePairs(pairs)), pairs);
+  assert.deepEqual(parseStringTuplePairs('legacy :: pair :: detail'), [['legacy', 'pair :: detail']]);
 });
 
 test('rejects mismatched types, invalid nested references, unknown fields, and unsupported versions', () => {
