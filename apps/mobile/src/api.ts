@@ -3,6 +3,7 @@ import type { KnowledgeBundleContent, KnowledgeBundleType, Locale } from '@stem-
 import { getActiveLocale, translate } from '@/i18n';
 
 const apiBaseUrl = (process.env.EXPO_PUBLIC_APP_BASE_URL ?? '').replace(/\/$/, '');
+export const MOBILE_KNOWLEDGE_CAPABILITIES = 'expression-v1,event-chronology-v1,causal-relations-v1';
 
 export type CardStatus = 'known' | 'saved';
 export type TranslationStatus = 'source' | 'machine' | 'reviewed' | 'human' | 'failed' | 'partial' | 'fallback';
@@ -132,6 +133,7 @@ export type MobileTopicHub = {
     type: string;
     relation_origin: 'explicit_user' | 'extracted_from_source' | 'model_inferred';
     confirmed_at: string | null;
+    evidence_span_ids: string[];
   }>;
 };
 
@@ -227,6 +229,7 @@ async function authenticatedFetch(path: string, init?: RequestInit): Promise<Res
         Accept: 'application/json',
         'Accept-Language': locale,
         'X-Girapphe-Locale': locale,
+        'X-Girapphe-Knowledge-Capabilities': MOBILE_KNOWLEDGE_CAPABILITIES,
         ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
         ...init?.headers,
       },
@@ -259,6 +262,7 @@ async function publicRequest<T>(path: string): Promise<T> {
         Accept: 'application/json',
         'Accept-Language': locale,
         'X-Girapphe-Locale': locale,
+        'X-Girapphe-Knowledge-Capabilities': MOBILE_KNOWLEDGE_CAPABILITIES,
       },
     });
   } catch {

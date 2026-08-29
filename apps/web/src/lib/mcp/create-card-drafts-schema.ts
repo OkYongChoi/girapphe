@@ -61,9 +61,11 @@ export const proposedRelationSchema = z
     type: z.enum([
       'related', 'prerequisite', 'generalizes', 'derived_from', 'equivalent_to',
       'supersedes', 'answers', 'supports', 'contradicts',
+      'causes', 'contributes_to', 'enables', 'inhibits',
     ]),
     direction: z.enum(['outgoing', 'incoming']).optional(),
     weight: z.number().finite().positive().max(1).optional(),
+    evidence_selector_indexes: z.array(z.number().int().min(0).max(23)).max(24).optional(),
   })
   .strict();
 
@@ -190,6 +192,21 @@ export const createCardDraftsInputSchema = z
             message: 'A draft card cannot relate to itself.',
           });
         }
+        const indexes = relation.evidence_selector_indexes ?? [];
+        if (new Set(indexes).size !== indexes.length || indexes.some((index) => index >= (card.evidence_selectors?.length ?? 0))) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['cards', cardIndex, 'relations', relationIndex, 'evidence_selector_indexes'],
+            message: 'Relation evidence indexes must be unique and reference this card evidence_selectors array.',
+          });
+        }
+        if (['causes', 'contributes_to', 'enables', 'inhibits'].includes(relation.type) && indexes.length === 0) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['cards', cardIndex, 'relations', relationIndex, 'evidence_selector_indexes'],
+            message: 'Conversation-derived causal relations require at least one evidence selector.',
+          });
+        }
       }
     }
 
@@ -221,9 +238,10 @@ export type KnowledgeDraftBatchInput = {
     relations?: Array<{
       targetKind: 'public' | 'private' | 'draft';
       targetId: string;
-      type: 'related' | 'prerequisite' | 'generalizes' | 'derived_from' | 'equivalent_to' | 'supersedes' | 'answers' | 'supports' | 'contradicts';
+      type: 'related' | 'prerequisite' | 'generalizes' | 'derived_from' | 'equivalent_to' | 'supersedes' | 'answers' | 'supports' | 'contradicts' | 'causes' | 'contributes_to' | 'enables' | 'inhibits';
       direction?: 'outgoing' | 'incoming';
       weight?: number;
+      evidenceSelectorIndexes?: number[];
     }>;
     proposedEvidence?: Array<{
       selectorType: 'message' | 'external_ref' | 'text_position' | 'line_range';
@@ -266,6 +284,7 @@ export function toKnowledgeDraftBatchInput(input: CreateCardDraftsToolInput): Kn
           type: relation.type,
           direction: relation.direction,
           weight: relation.weight,
+          ...(relation.evidence_selector_indexes ? { evidenceSelectorIndexes: relation.evidence_selector_indexes } : {}),
         })),
         ...(card.evidence_selectors ? { proposedEvidence: card.evidence_selectors.map((evidence) => ({
           selectorType: evidence.selector_type,

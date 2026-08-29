@@ -26,6 +26,10 @@ const RELATION_TYPES = [
   'answers',
   'supports',
   'contradicts',
+  'causes',
+  'contributes_to',
+  'enables',
+  'inhibits',
 ] as const;
 
 type DraftLinkTarget = {
@@ -40,6 +44,7 @@ type EditableRelation = {
   type: (typeof RELATION_TYPES)[number];
   direction: 'outgoing' | 'incoming';
   weight: number;
+  evidenceSelectorIndexes: number[];
 };
 
 type DraftReviewPanelProps = {
@@ -141,6 +146,7 @@ function readRelations(record: Record<string, unknown>): EditableRelation[] {
     if (!targetId) return [];
     const rawTargetKind = relation.target_kind ?? relation.targetKind;
     const weight = Number(relation.weight);
+    const evidenceSelectorIndexes = (relation.evidence_selector_indexes ?? relation.evidenceSelectorIndexes);
     return [{
       targetId,
       targetKind: rawTargetKind === 'draft' || rawTargetKind === 'private' || rawTargetKind === 'public'
@@ -149,6 +155,9 @@ function readRelations(record: Record<string, unknown>): EditableRelation[] {
       type: normalizeRelationType(relation.type ?? relation.relation_type),
       direction: relation.direction === 'incoming' ? 'incoming' : 'outgoing',
       weight: Number.isFinite(weight) && weight >= 0.05 && weight <= 1 ? weight : 1,
+      evidenceSelectorIndexes: Array.isArray(evidenceSelectorIndexes)
+        ? [...new Set(evidenceSelectorIndexes.filter((index): index is number => Number.isInteger(index) && index >= 0))]
+        : [],
     }];
   });
 }
@@ -186,6 +195,7 @@ function DraftRelationsEditor({
           type: relation.type,
           direction: relation.direction,
           weight: relation.weight,
+          evidence_selector_indexes: relation.evidenceSelectorIndexes,
         })))}
       />
       {relations.length === 0 ? (
@@ -195,7 +205,7 @@ function DraftRelationsEditor({
       ) : (
         <div className="space-y-2">
           {relations.map((relation, index) => (
-            <div key={`${draftId}-${index}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_8rem_7rem_auto]">
+            <div key={`${draftId}-${index}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_8rem_7rem_9rem_auto]">
               <label className="sr-only" htmlFor={`${draftId}-relation-target-${index}`}>Relationship target</label>
               <input
                 id={`${draftId}-relation-target-${index}`}
@@ -208,6 +218,23 @@ function DraftRelationsEditor({
                     : item));
                 }}
                 placeholder="graph_concept_id or personal:item-id"
+                className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              <label className="sr-only" htmlFor={`${draftId}-relation-evidence-${index}`}>Evidence selector indexes</label>
+              <input
+                id={`${draftId}-relation-evidence-${index}`}
+                value={relation.evidenceSelectorIndexes.join(', ')}
+                onChange={(event) => {
+                  onDirty();
+                  const indexes = [...new Set(event.target.value.split(',')
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                    .map(Number)
+                    .filter((value) => Number.isInteger(value) && value >= 0))];
+                  setRelations((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, evidenceSelectorIndexes: indexes } : item));
+                }}
+                placeholder="Evidence: 0, 1"
+                title="Zero-based evidence selector indexes. Causal relationships require at least one."
                 className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               />
               <label className="sr-only" htmlFor={`${draftId}-relation-type-${index}`}>Relationship type</label>
@@ -284,6 +311,7 @@ function DraftRelationsEditor({
             type: 'related',
             direction: 'outgoing',
             weight: 1,
+            evidenceSelectorIndexes: [],
           }]);
         }}
         className="mt-3 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"

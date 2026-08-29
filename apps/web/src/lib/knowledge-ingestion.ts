@@ -50,7 +50,18 @@ export const KNOWLEDGE_RELATION_TYPES = [
   'answers',
   'supports',
   'contradicts',
+  'causes',
+  'contributes_to',
+  'enables',
+  'inhibits',
 ] as const;
+
+export const CAUSAL_KNOWLEDGE_RELATION_TYPES = [
+  'causes',
+  'contributes_to',
+  'enables',
+  'inhibits',
+] as const satisfies readonly KnowledgeRelationType[];
 
 export type KnowledgeProvider = (typeof KNOWLEDGE_PROVIDERS)[number];
 export type KnowledgeRelationType = (typeof KNOWLEDGE_RELATION_TYPES)[number];
@@ -79,6 +90,7 @@ export type ProposedKnowledgeRelation = {
   direction?: 'outgoing' | 'incoming';
   weight?: number;
   relationOrigin?: KnowledgeRelationOrigin;
+  evidenceSelectorIndexes?: number[];
 };
 
 export type CreateKnowledgeDraftCardInput = {
@@ -267,6 +279,7 @@ export type PrivateKnowledgeEdge = {
   origin: 'manual' | 'conversation';
   relation_origin: KnowledgeRelationOrigin;
   confirmed_at: string | null;
+  evidence_span_ids: string[];
   created_at: string;
 };
 
@@ -629,6 +642,14 @@ export function sanitizeProposedRelations(input: unknown): ProposedKnowledgeRela
       ? originValue
       : 'model_inferred';
     const numericWeight = Number(record.weight ?? 1);
+    const rawEvidenceIndexes = record.evidenceSelectorIndexes ?? record.evidence_selector_indexes;
+    const evidenceSelectorIndexes = rawEvidenceIndexes === undefined
+      ? []
+      : Array.isArray(rawEvidenceIndexes)
+        && rawEvidenceIndexes.length <= 24
+        && rawEvidenceIndexes.every((index) => typeof index === 'number' && Number.isInteger(index))
+        ? rawEvidenceIndexes
+        : [-1];
     if (!['public', 'private', 'draft'].includes(targetKind) || !targetId || !isKnowledgeRelationType(type)
       || !Number.isFinite(numericWeight) || numericWeight <= 0 || numericWeight > 1) continue;
     result.push({
@@ -638,9 +659,21 @@ export function sanitizeProposedRelations(input: unknown): ProposedKnowledgeRela
       direction,
       weight: numericWeight,
       relationOrigin,
+      evidenceSelectorIndexes,
     });
   }
   return result;
+}
+
+function relationsReferenceValidEvidence(
+  relations: ProposedKnowledgeRelation[],
+  evidenceCount: number,
+): boolean {
+  return relations.every((relation) => {
+    const indexes = relation.evidenceSelectorIndexes ?? [];
+    if (new Set(indexes).size !== indexes.length || indexes.some((index) => index < 0 || index >= evidenceCount)) return false;
+    return !(CAUSAL_KNOWLEDGE_RELATION_TYPES as readonly string[]).includes(relation.type) || indexes.length > 0;
+  });
 }
 
 function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayload[] {
@@ -669,6 +702,13 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
     const projected = bundle
       ? projectKnowledgeBundle(bundle, preferredSummary)
       : { summary: preferredSummary, content: sanitizeKnowledgeContent(String(card.explanation ?? ''), 6000) };
+    const relations = sanitizeProposedRelations(card.relations);
+    const proposedEvidence = sanitizeKnowledgeEvidenceSelectors(card.proposedEvidence);
+    if (relations.length !== (card.relations?.length ?? 0)
+      || proposedEvidence.length !== (card.proposedEvidence?.length ?? 0)
+      || !relationsReferenceValidEvidence(relations, proposedEvidence.length)) {
+      throw new Error(`Card ${index + 1} has invalid relationships or relationship evidence.`);
+    }
     return {
       id: randomUUID(),
       client_card_id: clientCardId,
@@ -677,7 +717,7 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
       explanation: sanitizeKnowledgeContent(projected.content || String(card.explanation ?? ''), 6000),
       topic: normalizeKnowledgeTopic(String(card.topic ?? '')),
       tags: sanitizeKnowledgeTags(card.tags),
-      relations: sanitizeProposedRelations(card.relations),
+      relations,
       knowledge_type: bundle?.knowledge_type ?? null,
       central_question: bundle?.central_question ?? null,
       structured_content: bundle?.structured_content ?? null,
@@ -688,7 +728,7 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
         knowledgeType: bundle?.knowledge_type,
         centralQuestion: bundle?.central_question,
       }),
-      proposed_evidence: sanitizeKnowledgeEvidenceSelectors(card.proposedEvidence),
+      proposed_evidence: proposedEvidence,
     };
   });
 }
@@ -806,7 +846,8 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           CONSTRAINT user_graph_edges_type_check CHECK (
             type IN (
               'prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to',
-              'supersedes', 'answers', 'supports', 'contradicts'
+              'supersedes', 'answers', 'supports', 'contradicts',
+              'causes', 'contributes_to', 'enables', 'inhibits'
             )
           ),
           CHECK (origin IN ('manual', 'conversation')),
@@ -868,7 +909,7 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           OR (
             knowledge_type IN (
               'concept', 'procedure', 'comparison', 'mechanism', 'structure',
-              'claim_evidence', 'question', 'decision', 'event'
+              'claim_evidence', 'question', 'decision', 'event', 'expression'
             )
             AND central_question IS NOT NULL AND btrim(central_question) <> ''
             AND jsonb_typeof(structured_content) = 'object'
@@ -940,7 +981,7 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           OR (
             knowledge_type IN (
               'concept', 'procedure', 'comparison', 'mechanism', 'structure',
-              'claim_evidence', 'question', 'decision', 'event'
+              'claim_evidence', 'question', 'decision', 'event', 'expression'
             )
             AND central_question IS NOT NULL AND btrim(central_question) <> ''
             AND jsonb_typeof(structured_content) = 'object'
@@ -956,7 +997,8 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
         ADD CONSTRAINT user_graph_edges_type_check CHECK (
           type IN (
             'prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to',
-            'supersedes', 'answers', 'supports', 'contradicts'
+            'supersedes', 'answers', 'supports', 'contradicts',
+            'causes', 'contributes_to', 'enables', 'inhibits'
           )
         ) NOT VALID,
         ADD CONSTRAINT user_graph_edges_relation_origin_check
@@ -1139,6 +1181,25 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
             )
           )
         ) NOT VALID`);
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_graph_edges_id_user
+        ON user_graph_edges(id, user_id)`);
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_evidence_spans_id_user
+        ON knowledge_evidence_spans(id, user_id)`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS knowledge_relation_evidence (
+          edge_id TEXT NOT NULL, evidence_span_id TEXT NOT NULL, user_id TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT knowledge_relation_evidence_pk PRIMARY KEY(edge_id, evidence_span_id),
+          CONSTRAINT knowledge_relation_evidence_edge_owner_fk
+            FOREIGN KEY (edge_id, user_id) REFERENCES user_graph_edges(id, user_id) ON DELETE CASCADE,
+          CONSTRAINT knowledge_relation_evidence_span_owner_fk
+            FOREIGN KEY (evidence_span_id, user_id) REFERENCES knowledge_evidence_spans(id, user_id) ON DELETE CASCADE
+        );
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_knowledge_relation_evidence_user_edge
+        ON knowledge_relation_evidence(user_id, edge_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_knowledge_relation_evidence_user_span
+        ON knowledge_relation_evidence(user_id, evidence_span_id)`);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS mcp_access_tokens (
           id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, last_four TEXT NOT NULL,
@@ -2362,6 +2423,7 @@ function insertResolvedMemoryEdgeForUser(
   weight: number,
   origin: 'manual' | 'conversation',
   relationOrigin: KnowledgeRelationOrigin,
+  evidenceSpanIds: string[] = [],
 ): boolean {
   const [source, target] = normalizeSymmetricEndpoints(rawSource, rawTarget, type);
   if (source.key === target.key) return false;
@@ -2382,6 +2444,7 @@ function insertResolvedMemoryEdgeForUser(
     origin,
     relation_origin: relationOrigin,
     confirmed_at: new Date().toISOString(),
+    evidence_span_ids: evidenceSpanIds,
     created_at: new Date().toISOString(),
   });
   memoryEdges.set(userId, edges);
@@ -2510,6 +2573,7 @@ async function insertResolvedEdgeForUser(
       weight,
       origin,
       relationOrigin,
+      [],
     );
   }
 
@@ -2668,7 +2732,12 @@ export async function getPrivateKnowledgeGraphForUser(userId: string): Promise<P
     pool.query<Record<string, unknown>>(
       `SELECT e.id, e.source_private_node_id, e.source_public_node_id, e.target_private_node_id, e.target_public_node_id,
         sn.knowledge_item_id AS source_item_id, tn.knowledge_item_id AS target_item_id,
-        e.type, e.weight, e.origin, e.relation_origin, e.confirmed_at::text, e.created_at::text
+        e.type, e.weight, e.origin, e.relation_origin, e.confirmed_at::text, e.created_at::text,
+        COALESCE((
+          SELECT array_agg(re.evidence_span_id ORDER BY re.evidence_span_id)
+          FROM knowledge_relation_evidence re
+          WHERE re.edge_id = e.id AND re.user_id = e.user_id
+        ), ARRAY[]::text[]) AS evidence_span_ids
        FROM user_graph_edges e
        LEFT JOIN user_graph_nodes sn ON sn.id = e.source_private_node_id AND sn.user_id = e.user_id AND sn.deleted_at IS NULL
        LEFT JOIN user_graph_nodes tn ON tn.id = e.target_private_node_id AND tn.user_id = e.user_id AND tn.deleted_at IS NULL
@@ -2739,6 +2808,9 @@ export async function getPrivateKnowledgeGraphForUser(userId: string): Promise<P
     origin: row.origin as PrivateKnowledgeEdge['origin'],
     relation_origin: (row.relation_origin ?? (row.origin === 'manual' ? 'explicit_user' : 'extracted_from_source')) as KnowledgeRelationOrigin,
     confirmed_at: row.confirmed_at ? new Date(String(row.confirmed_at)).toISOString() : null,
+    evidence_span_ids: Array.isArray(row.evidence_span_ids)
+      ? row.evidence_span_ids.filter((value): value is string => typeof value === 'string')
+      : [],
     created_at: new Date(String(row.created_at)).toISOString(),
   }));
   return { nodes, edges };
@@ -3126,6 +3198,9 @@ export async function updateKnowledgeDraftForUser(
     }),
     proposed_evidence: sanitizeKnowledgeEvidenceSelectors(input.proposedEvidence),
   };
+  if (payload.relations.length !== input.relations.length
+    || payload.proposed_evidence.length !== (input.proposedEvidence?.length ?? 0)
+    || !relationsReferenceValidEvidence(payload.relations, payload.proposed_evidence.length)) return false;
   if (!process.env.DATABASE_URL) {
     for (const [batchId, drafts] of memoryDrafts.entries()) {
       const index = drafts.findIndex((draft) => draft.id === draftId && draft.status === 'pending');
@@ -3179,9 +3254,11 @@ async function resolveDraftRelationTarget(
 }
 
 type DraftResolutionRelationCandidate = {
+  edgeId: string;
   source: LogicalResolvedEndpoint;
   target: LogicalResolvedEndpoint;
   relation: ProposedKnowledgeRelation;
+  evidenceSpanIds: string[];
 };
 
 export const DRAFT_RESOLUTION_EDGE_INSERT_SQL = `
@@ -3325,7 +3402,13 @@ export async function approveKnowledgeDraftsForUser(
     key: `private:${nodeId}`,
   } satisfies ResolvedEndpoint]));
 
-  const candidates: Array<{ source: ResolvedEndpoint; target: ResolvedEndpoint; relation: ProposedKnowledgeRelation }> = [];
+  const candidates: Array<{
+    edgeId: string;
+    source: ResolvedEndpoint;
+    target: ResolvedEndpoint;
+    relation: ProposedKnowledgeRelation;
+    evidenceSpanIds: string[];
+  }> = [];
   let invalidRelations = 0;
   for (const plan of planned) {
     const current = plannedNodes.get(plan.draft.id)!;
@@ -3338,7 +3421,13 @@ export async function approveKnowledgeDraftsForUser(
       const source = relation.direction === 'incoming' ? other : current;
       const target = relation.direction === 'incoming' ? current : other;
       const [normalizedSource, normalizedTarget] = normalizeSymmetricEndpoints(source, target, relation.type);
-      candidates.push({ source: normalizedSource, target: normalizedTarget, relation });
+      candidates.push({
+        edgeId: randomUUID(),
+        source: normalizedSource,
+        target: normalizedTarget,
+        relation,
+        evidenceSpanIds: (relation.evidenceSelectorIndexes ?? []).flatMap((index) => plan.evidenceIds[index] ? [plan.evidenceIds[index]!] : []),
+      });
     }
   }
 
@@ -3371,7 +3460,7 @@ export async function approveKnowledgeDraftsForUser(
       const plannedEndpoint = plannedNodes.get(plan.draft.id)!;
       plannedEndpoint.privateNodeId = node.graph_node_id;
       plannedEndpoint.key = `private:${node.graph_node_id}`;
-      recordMemoryConversationSource(userId, item.id, batch, plan.draft, plan.draft.proposed_evidence);
+      recordMemoryConversationSource(userId, item.id, batch, plan.draft, plan.draft.proposed_evidence, plan.evidenceIds);
     }
     for (const candidate of candidates) {
       if (insertResolvedMemoryEdgeForUser(
@@ -3382,6 +3471,7 @@ export async function approveKnowledgeDraftsForUser(
         candidate.relation.weight ?? 1,
         'conversation',
         candidate.relation.relationOrigin ?? 'model_inferred',
+        candidate.evidenceSpanIds,
       )) insertedEdges += 1;
     }
     let approved = 0;
@@ -3451,7 +3541,8 @@ export async function approveKnowledgeDraftsForUser(
       ))
     ON CONFLICT DO NOTHING RETURNING id`;
 
-  const resultOffsets = { edgeStart: 0, updateStart: 0 };
+  const edgeResultIndexes: number[] = [];
+  let updateStart = 0;
   const resultSets = await sql.transaction((tx) => {
     const queries = [
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
@@ -3566,16 +3657,27 @@ export async function approveKnowledgeDraftsForUser(
         ));
       }
     }
-    resultOffsets.edgeStart = queries.length;
     for (const candidate of candidates) {
+      edgeResultIndexes.push(queries.length);
       queries.push(tx.query(edgeInsertSql, [
-        randomUUID(), userId, candidate.source.privateNodeId, candidate.source.publicNodeId,
+        candidate.edgeId, userId, candidate.source.privateNodeId, candidate.source.publicNodeId,
         candidate.target.privateNodeId, candidate.target.publicNodeId, candidate.relation.type,
         Math.max(0.05, Math.min(1, candidate.relation.weight ?? 1)), batchId, candidate.target.key, candidate.source.key,
         candidate.relation.relationOrigin ?? 'model_inferred',
       ]));
+      for (const evidenceSpanId of candidate.evidenceSpanIds) {
+        queries.push(tx.query(
+          `INSERT INTO knowledge_relation_evidence (edge_id, evidence_span_id, user_id)
+           SELECT $1, $2, $3
+           WHERE EXISTS (SELECT 1 FROM user_graph_edges e WHERE e.id = $1 AND e.user_id = $3)
+             AND EXISTS (SELECT 1 FROM knowledge_evidence_spans s WHERE s.id = $2 AND s.user_id = $3)
+           ON CONFLICT DO NOTHING
+           RETURNING edge_id`,
+          [candidate.edgeId, evidenceSpanId, userId],
+        ));
+      }
     }
-    resultOffsets.updateStart = queries.length;
+    updateStart = queries.length;
     for (const plan of planned) {
       queries.push(tx.query(
         `UPDATE knowledge_card_drafts SET status = 'approved', knowledge_item_id = $1,
@@ -3601,8 +3703,8 @@ export async function approveKnowledgeDraftsForUser(
     return queries;
   }, { isolationLevel: 'ReadCommitted' });
 
-  const edgeResults = resultSets.slice(resultOffsets.edgeStart, resultOffsets.edgeStart + candidates.length);
-  const updateResults = resultSets.slice(resultOffsets.updateStart, resultOffsets.updateStart + planned.length);
+  const edgeResults = edgeResultIndexes.map((index) => resultSets[index]);
+  const updateResults = resultSets.slice(updateStart, updateStart + planned.length);
   const resultRowCount = (rows: unknown) => Array.isArray(rows) ? rows.length : 0;
   const insertedEdges = edgeResults.reduce((sum, rows) => sum + resultRowCount(rows), 0);
   const approved = updateResults.reduce((sum, rows) => sum + resultRowCount(rows), 0);
@@ -3789,7 +3891,8 @@ function recordMemoryConversationSource(
   batch: MemoryBatchRecord,
   draft: KnowledgeCardDraft,
   selectors: KnowledgeEvidenceSelector[],
-) {
+  plannedEvidenceIds: string[] = [],
+): string[] {
   const sources = memoryKnowledgeSources.get(userId) ?? [];
   const existing = sources.find((source) => source.knowledge_item_id === itemId
     && source.source_locator?.draft_id === draft.id);
@@ -3815,9 +3918,12 @@ function recordMemoryConversationSource(
     memoryKnowledgeSources.set(userId, sources);
   }
   const evidence = memoryEvidenceSelectors.get(userId) ?? [];
-  for (const selector of selectors) {
+  const evidenceIds: string[] = [];
+  for (const [index, selector] of selectors.entries()) {
+    const evidenceId = plannedEvidenceIds[index] ?? randomUUID();
+    evidenceIds.push(evidenceId);
     evidence.push({
-      id: randomUUID(),
+      id: evidenceId,
       knowledge_item_id: itemId,
       source_id: source.id,
       selector,
@@ -3825,6 +3931,7 @@ function recordMemoryConversationSource(
     });
   }
   memoryEvidenceSelectors.set(userId, evidence);
+  return evidenceIds;
 }
 
 const UPDATE_BATCH_AFTER_RESOLUTION_SQL = `
@@ -3986,6 +4093,10 @@ export async function resolveKnowledgeDraftForUser(
   const itemId = input.action === 'create' ? randomUUID() : input.targetKnowledgeItemId!;
   const nextVersion = input.action === 'create' ? 1 : input.expectedTargetVersion! + 1;
   const selectors = input.reviewed ? payload.evidence_selectors : draft.proposed_evidence;
+  const evidenceIds = selectors.map(() => randomUUID());
+  const selectedEvidenceIdByFingerprint = new Map(
+    selectors.map((selector, index) => [evidenceSelectorFingerprint(selector), evidenceIds[index]!] as const),
+  );
   const relationCandidates: DraftResolutionRelationCandidate[] = [];
   let invalidRelations = 0;
   if (draft.relations.length > 0) {
@@ -4033,10 +4144,21 @@ export async function resolveKnowledgeDraftForUser(
         invalidRelations += 1;
         continue;
       }
+      const evidenceSpanIds = (relation.evidenceSelectorIndexes ?? []).flatMap((index) => {
+        const selector = draft.proposed_evidence[index];
+        const evidenceId = selector ? selectedEvidenceIdByFingerprint.get(evidenceSelectorFingerprint(selector)) : undefined;
+        return evidenceId ? [evidenceId] : [];
+      });
+      if ((CAUSAL_KNOWLEDGE_RELATION_TYPES as readonly string[]).includes(relation.type) && evidenceSpanIds.length === 0) {
+        invalidRelations += 1;
+        continue;
+      }
       relationCandidates.push({
+        edgeId: randomUUID(),
         source: toLogicalResolvedEndpoint(relation.direction === 'incoming' ? other : plannedSource),
         target: toLogicalResolvedEndpoint(relation.direction === 'incoming' ? plannedSource : other),
         relation,
+        evidenceSpanIds,
       });
     }
   }
@@ -4100,7 +4222,7 @@ export async function resolveKnowledgeDraftForUser(
     }
     if (!item) return { resolved: false, action: input.action, knowledgeItemId: null, version: null };
     ensureMemoryPrivateNode(userId, item, 'conversation');
-    recordMemoryConversationSource(userId, item.id, batch, draft, selectors);
+    recordMemoryConversationSource(userId, item.id, batch, draft, selectors, evidenceIds);
     let insertedEdges = 0;
     for (const candidate of relationCandidates) {
       const source = resolveLogicalMemoryEndpointForUser(userId, candidate.source);
@@ -4114,6 +4236,7 @@ export async function resolveKnowledgeDraftForUser(
         candidate.relation.weight ?? 1,
         'conversation',
         candidate.relation.relationOrigin ?? 'model_inferred',
+        candidate.evidenceSpanIds,
       )) insertedEdges += 1;
     }
     drafts[index] = {
@@ -4149,7 +4272,7 @@ export async function resolveKnowledgeDraftForUser(
     draft_id: input.draftId,
     client_card_id: draft.client_card_id,
   });
-  let edgeResultStart = 0;
+  const edgeResultIndexes: number[] = [];
   try {
     const sql = getTransactionSql();
     const resultSets = await sql.transaction((tx) => {
@@ -4295,7 +4418,7 @@ export async function resolveKnowledgeDraftForUser(
           [sourceId, userId, itemId, input.draftId, input.batchId, sourceLocator],
         ),
       );
-      for (const selector of selectors) {
+      for (const [selectorIndex, selector] of selectors.entries()) {
         queries.push(tx.query(
           `INSERT INTO knowledge_evidence_spans (
              id, user_id, knowledge_item_id, source_id, selector_type, selector,
@@ -4303,16 +4426,16 @@ export async function resolveKnowledgeDraftForUser(
            ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, NOW())
            RETURNING id`,
           [
-            randomUUID(), userId, itemId, sourceId, selector.selectorType,
+            evidenceIds[selectorIndex], userId, itemId, sourceId, selector.selectorType,
             JSON.stringify(evidenceSelectorDocument(selector)), selector.polarity,
             selector.quality, selector.relationOrigin,
           ],
         ));
       }
-      edgeResultStart = queries.length;
       for (const candidate of relationCandidates) {
+        edgeResultIndexes.push(queries.length);
         queries.push(tx.query(DRAFT_RESOLUTION_EDGE_INSERT_SQL, [
-          randomUUID(),
+          candidate.edgeId,
           userId,
           candidate.source.knowledgeItemId,
           candidate.source.publicNodeId,
@@ -4323,6 +4446,17 @@ export async function resolveKnowledgeDraftForUser(
           input.batchId,
           candidate.relation.relationOrigin ?? 'model_inferred',
         ]));
+        for (const evidenceSpanId of candidate.evidenceSpanIds) {
+          queries.push(tx.query(
+            `INSERT INTO knowledge_relation_evidence (edge_id, evidence_span_id, user_id)
+             SELECT $1, $2, $3
+             WHERE EXISTS (SELECT 1 FROM user_graph_edges e WHERE e.id = $1 AND e.user_id = $3)
+               AND EXISTS (SELECT 1 FROM knowledge_evidence_spans s WHERE s.id = $2 AND s.user_id = $3)
+             ON CONFLICT DO NOTHING
+             RETURNING edge_id`,
+            [candidate.edgeId, evidenceSpanId, userId],
+          ));
+        }
       }
       queries.push(
         tx.query(
@@ -4350,7 +4484,7 @@ export async function resolveKnowledgeDraftForUser(
       );
       return queries;
     }, { isolationLevel: 'ReadCommitted' });
-    const edgeResults = resultSets.slice(edgeResultStart, edgeResultStart + relationCandidates.length);
+    const edgeResults = edgeResultIndexes.map((index) => resultSets[index]);
     const insertedEdges = edgeResults.reduce(
       (sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0),
       0,

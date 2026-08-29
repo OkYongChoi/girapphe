@@ -4,10 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   createEmptyKnowledgeBundleContent,
   createKnowledgeBundleContentFromLegacy,
+  EVENT_TIME_PRECISIONS,
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
   KNOWLEDGE_BUNDLE_TYPES,
   type KnowledgeBundleContent,
   type KnowledgeBundleType,
+  type EventChronology,
+  type HistoricalTimePoint,
 } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 import type { Translate } from '@/i18n/core';
@@ -177,10 +180,64 @@ function BundleFields({ content, update, t }: {
     case 'event': return <>
       {area(t('bundle.field.event'), content.event, (value) => update({ ...content, event: value }))}
       {area(t('bundle.field.occurredAt'), content.occurred_at, (value) => update({ ...content, occurred_at: value }))}
+      <ChronologyFields
+        value={content.chronology}
+        onChange={(chronology) => update({ ...content, ...(chronology ? { chronology } : { chronology: undefined }) })}
+        t={t}
+      />
       {area(t('bundle.field.context'), content.context, (value) => update({ ...content, context: value }))}
       {area(t('bundle.field.changes'), listValue(content.changes), (value) => update({ ...content, changes: textLines(value) }))}
       {area(t('bundle.field.causes'), listValue(content.causes), (value) => update({ ...content, causes: textLines(value) }))}
       {area(t('bundle.field.consequences'), listValue(content.consequences), (value) => update({ ...content, consequences: textLines(value) }))}
     </>;
+    case 'expression': return <>
+      {area(t('bundle.field.expression'), content.expression, (value) => update({ ...content, expression: value }))}
+      {area(t('bundle.field.language'), content.language, (value) => update({ ...content, language: value }))}
+      {area(t('bundle.field.pronunciation'), content.pronunciation, (value) => update({ ...content, pronunciation: value }))}
+      {area(t('bundle.field.meanings'), listValue(content.meanings), (value) => update({ ...content, meanings: textLines(value) }))}
+      {area(t('bundle.field.translations'), pairValue(content.translations, 'language', 'text'), (value) => update({ ...content, translations: pairLines(value, 'language', 'text') as typeof content.translations }), t('bundle.pairHelp'))}
+      {area(t('bundle.field.register'), content.register, (value) => update({ ...content, register: value }))}
+      {area(t('bundle.field.nuance'), content.nuance, (value) => update({ ...content, nuance: value }))}
+      {area(t('bundle.field.usageContexts'), listValue(content.usage_contexts), (value) => update({ ...content, usage_contexts: textLines(value) }))}
+      {area(t('bundle.field.examples'), content.examples.map((item) => [item.text, item.translation ?? '', item.note ?? ''].join(' :: ')).join('\n'), (value) => update({ ...content, examples: textLines(value).map((line) => { const [text = '', translation = '', note = ''] = line.split('::').map((item) => item.trim()); return { text, ...(translation ? { translation } : {}), ...(note ? { note } : {}) }; }).filter((item) => item.text) }), t('bundle.pairHelp'))}
+      {area(t('bundle.field.contrasts'), pairValue(content.contrasts, 'expression', 'difference'), (value) => update({ ...content, contrasts: pairLines(value, 'expression', 'difference') as typeof content.contrasts }), t('bundle.pairHelp'))}
+      {area(t('bundle.field.commonMistakes'), pairValue(content.common_mistakes, 'incorrect', 'correction'), (value) => update({ ...content, common_mistakes: pairLines(value, 'incorrect', 'correction') as typeof content.common_mistakes }), t('bundle.pairHelp'))}
+    </>;
   }
+}
+
+function ChronologyFields({ value, onChange, t }: {
+  value?: EventChronology;
+  onChange: (value?: EventChronology) => void;
+  t: Translate;
+}) {
+  const point = (label: string, current: HistoricalTimePoint, updatePoint: (point: HistoricalTimePoint) => void) => (
+    <fieldset className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-4">
+      <legend className="px-1 text-xs font-bold text-slate-700">{label}</legend>
+      <label className="grid gap-1 text-xs text-slate-600">{t('bundle.field.era')}<select className={fieldClass} value={current.era} onChange={(event) => updatePoint({ ...current, era: event.target.value as 'bce' | 'ce' })}><option value="ce">CE</option><option value="bce">BCE</option></select></label>
+      <label className="grid gap-1 text-xs text-slate-600">{t('bundle.field.year')}<input className={fieldClass} type="number" min={1} max={999999} value={current.year} onChange={(event) => updatePoint({ ...current, year: Math.max(1, Number(event.target.value) || 1) })} /></label>
+      <label className="grid gap-1 text-xs text-slate-600">{t('bundle.field.month')}<input className={fieldClass} type="number" min={1} max={12} value={current.month ?? ''} onChange={(event) => { const month = Number(event.target.value); updatePoint({ ...current, ...(month ? { month } : { month: undefined, day: undefined }) }); }} /></label>
+      <label className="grid gap-1 text-xs text-slate-600">{t('bundle.field.day')}<input className={fieldClass} type="number" min={1} max={31} disabled={!current.month} value={current.day ?? ''} onChange={(event) => { const day = Number(event.target.value); updatePoint({ ...current, ...(day ? { day } : { day: undefined }) }); }} /></label>
+    </fieldset>
+  );
+
+  return (
+    <fieldset className="grid gap-3 rounded-lg border border-cyan-100 bg-cyan-50/50 p-3">
+      <legend className="px-1 text-xs font-bold text-cyan-900">{t('bundle.field.chronology')}</legend>
+      <label className="grid gap-1 text-xs font-medium text-slate-700">
+        {t('bundle.field.precision')}
+        <select className={fieldClass} value={value?.precision ?? ''} onChange={(event) => {
+          const precision = event.target.value as EventChronology['precision'] | '';
+          if (!precision) { onChange(undefined); return; }
+          const start = value?.start ?? { year: 1, era: 'ce' as const };
+          onChange({ start, ...(precision === 'range' ? { end: value?.end ?? start } : {}), precision });
+        }}>
+          <option value="">—</option>
+          {EVENT_TIME_PRECISIONS.map((precision) => <option key={precision} value={precision}>{precision}</option>)}
+        </select>
+      </label>
+      {value ? point(t('bundle.field.start'), value.start, (start) => onChange({ ...value, start })) : null}
+      {value?.precision === 'range' && value.end ? point(t('bundle.field.end'), value.end, (end) => onChange({ ...value, end })) : null}
+    </fieldset>
+  );
 }

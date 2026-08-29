@@ -18,9 +18,10 @@ const contents: Record<(typeof KNOWLEDGE_BUNDLE_TYPES)[number], KnowledgeBundleC
   question: { type: 'question', question: 'What remains unknown?', context: 'A result needs follow-up.', known_facts: ['The first run passed.'], hypotheses: ['The input matters.'], next_steps: ['Run another test.'], answer_summary: '', status: 'open' },
   decision: { type: 'decision', decision: 'Use the protected release flow.', context: 'The change affects production.', options: [{ name: 'Protected PR', tradeoffs: 'Slower but verifiable.' }], criteria: ['Safety'], rationale: ['Checks and ancestry are recorded.'], reconsider_when: ['The release path changes.'], outcome: 'Production is verified.' },
   event: { type: 'event', event: 'The release completed.', occurred_at: '2026-08-28T03:02:19Z', context: 'The exact main revision deployed.', changes: ['The new bundle types became available.'], causes: ['The protected workflow completed.'], consequences: ['Users can create typed knowledge.'] },
+  expression: { type: 'expression', expression: 'break the ice', language: 'en', pronunciation: '/breɪk ði aɪs/', meanings: ['Start a friendly conversation.'], translations: [{ language: 'ko', text: '서먹함을 깨다' }], register: 'neutral', nuance: 'Used to reduce initial social tension.', usage_contexts: ['First meetings'], examples: [{ text: 'A joke helped break the ice.', translation: '농담이 서먹함을 깨는 데 도움이 됐다.' }], contrasts: [{ expression: 'get down to business', difference: 'Moves directly to the main topic.' }], common_mistakes: [{ incorrect: 'break an ice', correction: 'break the ice' }] },
 };
 
-test('parses all nine version-one bundle discriminators and partial optional fields', () => {
+test('parses all ten version-one bundle discriminators and partial optional fields', () => {
   for (const type of KNOWLEDGE_BUNDLE_TYPES) {
     const parsed = parseKnowledgeBundleFields({
       knowledge_type: type,
@@ -72,5 +73,17 @@ test('rejects mismatched types, invalid nested references, unknown fields, and u
     central_question: 'What remains unknown?',
     structured_content: { ...contents.question, status: 'pending' },
     bundle_schema_version: 1,
+  }), null);
+  assert.equal(parseKnowledgeBundleFields({
+    knowledge_type: 'event', central_question: 'When?', bundle_schema_version: 1,
+    structured_content: { ...contents.event, chronology: { precision: 'century', start: { era: 'bce', year: 5 } } },
+  })?.structured_content.type, 'event');
+  assert.equal(parseKnowledgeBundleFields({
+    knowledge_type: 'event', central_question: 'When?', bundle_schema_version: 1,
+    structured_content: { ...contents.event, chronology: { precision: 'range', start: { era: 'ce', year: 1 } } },
+  }), null);
+  assert.equal(parseKnowledgeBundleFields({
+    knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
+    structured_content: { ...contents.expression, language: 'not a language tag' },
   }), null);
 });

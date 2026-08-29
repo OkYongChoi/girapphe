@@ -25,6 +25,7 @@ import {
   getMemoryKnowledgeItemsForUser,
   getMemoryKnowledgeSupersessionsForUser,
   hasMemoryCreateRequest,
+  isKnowledgeRelationType,
   normalizeKnowledgeTopic,
   purgeMemoryKnowledgeItemsForUser,
   resolveKnowledgeDraftForUser,
@@ -41,6 +42,7 @@ import {
   type KnowledgeDraftResolutionContext,
   type KnowledgeEvidenceSelector,
   type KnowledgeItemUpdateResult,
+  type KnowledgeRelationType,
   type ResolveKnowledgeDraftResult,
   type ReviewedKnowledgePayload,
   MAX_KNOWLEDGE_ITEMS_PER_USER,
@@ -518,8 +520,8 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
     }
     if (syncGraph && relatedNodeId) {
       await createPrivateKnowledgeEdgeForUser(user.id, `personal:${item.id}`, relatedNodeId,
-        ['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to'].includes(relationType)
-          ? relationType as 'prerequisite' | 'related' | 'generalizes' | 'derived_from' | 'equivalent_to'
+        isKnowledgeRelationType(relationType)
+          ? relationType
           : 'related', relationDirection);
     }
 
@@ -645,8 +647,8 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
     }
   }
   if (result.rows[0] && syncGraph && relatedNodeId) {
-    const validRelation = ['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to'].includes(relationType)
-      ? relationType as 'prerequisite' | 'related' | 'generalizes' | 'derived_from' | 'equivalent_to'
+    const validRelation: KnowledgeRelationType = isKnowledgeRelationType(relationType)
+      ? relationType
       : 'related';
     await createPrivateKnowledgeEdgeForUser(user.id, `personal:${itemId}`, relatedNodeId, validRelation, relationDirection);
   }

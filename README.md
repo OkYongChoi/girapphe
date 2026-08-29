@@ -76,7 +76,9 @@ It accepts structured concepts from the current ChatGPT, Claude, Gemini, or
 other conversation and creates a private review batch; it never auto-approves
 items or writes to the public graph. Structured drafts support concept,
 procedure, comparison, mechanism, structure, claim/evidence, question,
-decision, and event bundles. Context reuse requires the separate
+decision, event, and language-expression bundles. Event bundles may retain
+BCE/CE chronology, and reviewed private relationships may express directional
+causality with linked evidence. Context reuse requires the separate
 `knowledge:context:read` PAT scope and an explicit item selection or bounded
 recent selection. See
 [`docs/reference/mcp-card-ingestion.md`](docs/reference/mcp-card-ingestion.md).

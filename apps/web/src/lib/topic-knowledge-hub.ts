@@ -74,6 +74,7 @@ export type TopicKnowledgeRelation = {
   type: string;
   relation_origin: 'explicit_user' | 'extracted_from_source' | 'model_inferred';
   confirmed_at: string | null;
+  evidence_span_ids: string[];
 };
 
 export type TopicKnowledgeRevision = {
@@ -432,6 +433,7 @@ export async function getTopicKnowledgeHubForUser(
           type: edge.type,
           relation_origin: relationOrigin(edge.relation_origin, edge.origin),
           confirmed_at: edge.confirmed_at,
+          evidence_span_ids: edge.evidence_span_ids,
         })),
       revisions: getMemoryKnowledgeRevisionsForUser(userId, historyItemIds)
         .map((revision) => mapRevision(revision as unknown as Record<string, unknown>)),
@@ -550,7 +552,12 @@ export async function getTopicKnowledgeHubForUser(
       `SELECT e.id,
          COALESCE('personal:' || sn.knowledge_item_id, 'public:' || e.source_public_node_id) AS source,
          COALESCE('personal:' || tn.knowledge_item_id, 'public:' || e.target_public_node_id) AS target,
-         e.type, e.origin, e.relation_origin, e.confirmed_at
+         e.type, e.origin, e.relation_origin, e.confirmed_at,
+         COALESCE((
+           SELECT array_agg(re.evidence_span_id ORDER BY re.evidence_span_id)
+           FROM knowledge_relation_evidence re
+           WHERE re.edge_id = e.id AND re.user_id = e.user_id
+         ), ARRAY[]::text[]) AS evidence_span_ids
        FROM user_graph_edges e
        LEFT JOIN user_graph_nodes sn ON sn.id = e.source_private_node_id AND sn.user_id = e.user_id
          AND sn.deleted_at IS NULL
@@ -622,6 +629,9 @@ export async function getTopicKnowledgeHubForUser(
       type: String(row.type),
       relation_origin: relationOrigin(row.relation_origin, row.origin),
       confirmed_at: iso(row.confirmed_at),
+      evidence_span_ids: Array.isArray(row.evidence_span_ids)
+        ? row.evidence_span_ids.filter((value): value is string => typeof value === 'string')
+        : [],
     })),
     revisions: revisionResult.rows.map(mapRevision),
     supersessions: supersessionResult.rows.map((row) => ({

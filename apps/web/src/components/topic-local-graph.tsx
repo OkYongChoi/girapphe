@@ -1,5 +1,6 @@
 import type {
   TopicKnowledgeHubItem,
+  TopicKnowledgeEvidenceSelector,
   TopicKnowledgeRelation,
 } from '@/lib/topic-knowledge-hub';
 import { getServerI18n } from '@/i18n/server';
@@ -40,19 +41,24 @@ function positions(items: TopicKnowledgeHubItem[]): PositionedNode[] {
   });
 }
 
-function relationLabel(relation: TopicKnowledgeRelation) {
-  return relation.type.replaceAll('_', ' ');
-}
-
 export default async function TopicLocalGraph({
   items,
   relations,
+  evidence,
 }: {
   items: TopicKnowledgeHubItem[];
   relations: TopicKnowledgeRelation[];
+  evidence: TopicKnowledgeEvidenceSelector[];
 }) {
   const { t } = await getServerI18n();
   const labels = new Map(items.map((item) => [item.id, item.title]));
+  const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+  const relationLabel = (relation: TopicKnowledgeRelation) => {
+    if (['causes', 'contributes_to', 'enables', 'inhibits'].includes(relation.type)) {
+      return t(`topic.graph.relation.${relation.type}` as MessageKey);
+    }
+    return relation.type.replaceAll('_', ' ');
+  };
   const displayEndpoint = (value: string) => {
     const itemId = privateItemId(value);
     if (itemId) return labels.get(itemId) ?? t('topic.graph.privateItem', { id: shortLabel(itemId, 14) });
@@ -158,7 +164,12 @@ export default async function TopicLocalGraph({
             {t('topic.graph.noRelations')}
           </p>
         ) : (
-          relations.map((relation) => (
+          relations.map((relation) => {
+            const linkedEvidence = relation.evidence_span_ids.flatMap((id) => {
+              const item = evidenceById.get(id);
+              return item ? [item] : [];
+            });
+            return (
             <div key={relation.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
               <span className="font-semibold text-slate-950">{displayEndpoint(relation.source)}</span>
               <span aria-hidden="true" className="text-slate-400">{isDirected(relation.type) ? '→' : '↔'}</span>
@@ -168,8 +179,10 @@ export default async function TopicLocalGraph({
               <span className={`ms-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${relation.relation_origin === 'explicit_user' ? 'bg-emerald-100 text-emerald-800' : relation.relation_origin === 'model_inferred' ? 'bg-violet-100 text-violet-800' : 'bg-blue-100 text-blue-800'}`}>
                 {t(`topic.graph.origin.${relation.relation_origin}` as MessageKey)}
               </span>
+              {linkedEvidence.length > 0 ? <span className="basis-full text-xs text-slate-500">{t('topic.graph.evidence', { count: linkedEvidence.length })}: {linkedEvidence.map((item) => `${item.selector_type} · ${item.quality}`).join(', ')}</span> : null}
             </div>
-          ))
+            );
+          })
         )}
       </div>
     </figure>

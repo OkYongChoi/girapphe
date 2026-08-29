@@ -1,6 +1,8 @@
 import {
+  EVENT_TIME_PRECISIONS,
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
   KNOWLEDGE_BUNDLE_TYPES,
+  historicalTimePointKey,
 } from '@stem-brain/shared';
 import { z } from 'zod';
 
@@ -8,6 +10,46 @@ const shortText = z.string().trim().max(500);
 const detailText = z.string().trim().max(4000);
 const shortTextList = z.array(shortText.min(1)).max(24).default([]);
 const detailTextList = z.array(z.string().trim().min(1).max(6000)).max(24).default([]);
+const languageTag = z.string().trim().min(2).max(35).regex(/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/);
+
+function daysInHistoricalMonth(year: number, era: 'bce' | 'ce', month: number) {
+  if (month === 2) {
+    const astronomicalYear = era === 'bce' ? 1 - year : year;
+    const leap = astronomicalYear % 4 === 0 && (astronomicalYear % 100 !== 0 || astronomicalYear % 400 === 0);
+    return leap ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
+const historicalTimePointSchema = z.object({
+  year: z.number().int().min(1).max(999_999),
+  era: z.enum(['bce', 'ce']),
+  month: z.number().int().min(1).max(12).optional(),
+  day: z.number().int().min(1).max(31).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.day !== undefined && value.month === undefined) {
+    ctx.addIssue({ code: 'custom', path: ['day'], message: 'A historical day requires a month.' });
+  } else if (value.day !== undefined && value.month !== undefined
+    && value.day > daysInHistoricalMonth(value.year, value.era, value.month)) {
+    ctx.addIssue({ code: 'custom', path: ['day'], message: 'The day is outside the selected historical month.' });
+  }
+});
+
+const eventChronologySchema = z.object({
+  start: historicalTimePointSchema,
+  end: historicalTimePointSchema.optional(),
+  precision: z.enum(EVENT_TIME_PRECISIONS),
+}).strict().superRefine((value, ctx) => {
+  if (value.precision === 'range' && !value.end) {
+    ctx.addIssue({ code: 'custom', path: ['end'], message: 'A range requires an end point.' });
+  }
+  if (value.precision !== 'range' && value.end) {
+    ctx.addIssue({ code: 'custom', path: ['end'], message: 'Only range precision accepts an end point.' });
+  }
+  if (value.end && historicalTimePointKey(value.end) < historicalTimePointKey(value.start)) {
+    ctx.addIssue({ code: 'custom', path: ['end'], message: 'The chronology end must not be before its start.' });
+  }
+});
 
 const conceptContentSchema = z.object({
   type: z.literal('concept'),
@@ -154,10 +196,39 @@ const eventContentSchema = z.object({
   type: z.literal('event'),
   event: detailText.default(''),
   occurred_at: shortText.default(''),
+  chronology: eventChronologySchema.optional(),
   context: detailText.default(''),
   changes: detailTextList,
   causes: detailTextList,
   consequences: detailTextList,
+}).strict();
+
+const expressionContentSchema = z.object({
+  type: z.literal('expression'),
+  expression: detailText.default(''),
+  language: z.union([z.literal(''), languageTag]).default(''),
+  pronunciation: shortText.default(''),
+  meanings: detailTextList,
+  translations: z.array(z.object({
+    language: languageTag,
+    text: detailText.min(1),
+  }).strict()).max(24).default([]),
+  register: shortText.default(''),
+  nuance: detailText.default(''),
+  usage_contexts: detailTextList,
+  examples: z.array(z.object({
+    text: detailText.min(1),
+    translation: detailText.min(1).optional(),
+    note: detailText.min(1).optional(),
+  }).strict()).max(24).default([]),
+  contrasts: z.array(z.object({
+    expression: shortText.min(1),
+    difference: detailText.min(1),
+  }).strict()).max(24).default([]),
+  common_mistakes: z.array(z.object({
+    incorrect: shortText.min(1),
+    correction: detailText.min(1),
+  }).strict()).max(24).default([]),
 }).strict();
 
 export const knowledgeBundleContentSchema = z.discriminatedUnion('type', [
@@ -170,6 +241,7 @@ export const knowledgeBundleContentSchema = z.discriminatedUnion('type', [
   questionContentSchema,
   decisionContentSchema,
   eventContentSchema,
+  expressionContentSchema,
 ]);
 
 export const knowledgeBundleFieldsSchema = z.object({

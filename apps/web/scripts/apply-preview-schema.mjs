@@ -7,6 +7,7 @@ const PREVIEW_MIGRATIONS = [
   new URL('../drizzle/migrations/0015_typed_knowledge_bundles.sql', import.meta.url),
   new URL('../drizzle/migrations/0016_conversation_knowledge_hub.sql', import.meta.url),
   new URL('../drizzle/migrations/0017_supersession_replacement_tombstones.sql', import.meta.url),
+  new URL('../drizzle/migrations/0018_expression_history_causality.sql', import.meta.url),
 ];
 
 const SAFE_STATEMENT_PREFIXES = [

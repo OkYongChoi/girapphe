@@ -132,6 +132,23 @@ test('maps the complete relation grammar and selector-only evidence without sour
   }).success, false);
 });
 
+test('requires valid evidence indexes on causal legacy-card relationships', () => {
+  const input = {
+    ...validInput,
+    cards: [{
+      ...validInput.cards[0],
+      evidence_selectors: [{ selector_type: 'message', message_ref: 'message-7' }],
+      relations: [{ target_kind: 'public', target_id: 'conditional_probability', type: 'contributes_to', evidence_selector_indexes: [0] }],
+    }],
+  };
+  const parsed = createCardDraftsInputSchema.parse(input);
+  assert.deepEqual(toKnowledgeDraftBatchInput(parsed).cards[0]?.relations?.[0]?.evidenceSelectorIndexes, [0]);
+  assert.equal(createCardDraftsInputSchema.safeParse({
+    ...input,
+    cards: [{ ...input.cards[0], relations: [{ ...input.cards[0].relations[0], evidence_selector_indexes: [] }] }],
+  }).success, false);
+});
+
 test('normalizes safe evidence URLs and rejects credential-bearing or non-HTTPS schemes', () => {
   const parsed = createCardDraftsInputSchema.parse({
     ...validInput,

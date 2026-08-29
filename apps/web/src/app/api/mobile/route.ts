@@ -51,9 +51,15 @@ import {
   getKnowledgeDuplicateSuggestionsForDraftsForUser,
 } from '@/lib/knowledge-ingestion';
 import { resolveMobileNoteUpdateVersion } from '@/lib/mobile-note-update-version';
+import {
+  mobileKnowledgeEditRequiresCapability,
+  readMobileKnowledgeCapabilities,
+  withMobileKnowledgeCompatibility,
+  withMobileRelationCompatibility,
+  type MobileKnowledgeCapabilities,
+} from '@/lib/mobile-knowledge-capabilities';
 
 const MAX_JSON_BYTES = 16_384;
-
 async function requireMobileUser() {
   const user = await getCurrentUser();
   if (!user) return null;
@@ -79,8 +85,8 @@ function privateJson(body: unknown) {
   });
 }
 
-function toMobileNote(item: UserKnowledgeItem) {
-  return {
+function toMobileNote(item: UserKnowledgeItem, capabilities: MobileKnowledgeCapabilities) {
+  return withMobileKnowledgeCompatibility({
     id: item.id,
     title: item.title,
     summary: item.summary,
@@ -96,11 +102,11 @@ function toMobileNote(item: UserKnowledgeItem) {
     updated_at: item.updated_at,
     deleted_at: item.deleted_at,
     purge_at: item.purge_at,
-  };
+  }, capabilities);
 }
 
-function toMobileConcept(item: UserKnowledgeItem) {
-  return {
+function toMobileConcept(item: UserKnowledgeItem, capabilities: MobileKnowledgeCapabilities) {
+  return withMobileKnowledgeCompatibility({
     id: item.id,
     title: item.title,
     summary: item.summary,
@@ -113,16 +119,17 @@ function toMobileConcept(item: UserKnowledgeItem) {
     bundle_schema_version: item.bundle_schema_version,
     created_at: item.created_at,
     updated_at: item.updated_at,
-  };
+  }, capabilities);
 }
 
 function stringField(value: unknown, maxLength: number) {
   return typeof value === 'string' && value.length <= maxLength ? value : null;
 }
 
-function parseMobileBundle(body: Record<string, unknown>) {
+function parseMobileBundle(body: Record<string, unknown>, capabilities: MobileKnowledgeCapabilities) {
   const knowledgeType = stringField(body.knowledge_type, 32) ?? '';
   if (!knowledgeType) return { knowledgeType: '', centralQuestion: '', structuredContent: '' };
+  if (knowledgeType === 'expression' && !capabilities.expression) return null;
   const parsed = parseKnowledgeBundleFields({
     knowledge_type: knowledgeType,
     central_question: stringField(body.central_question, 500) ?? '',
@@ -182,6 +189,7 @@ export async function GET(request: NextRequest) {
   const parsedLocale = parseContentLocale(localeInput);
   if (!parsedLocale) return invalid('The requested locale is not supported.', 'UNSUPPORTED_LOCALE');
   const locale = parsedLocale;
+  const capabilities = readMobileKnowledgeCapabilities(request.headers.get('x-girapphe-knowledge-capabilities'));
 
   switch (resource) {
     case 'admin-nodes':
@@ -200,12 +208,17 @@ export async function GET(request: NextRequest) {
         : view === 'archive'
           ? await getArchivedKnowledgeItems()
           : await getUserKnowledgeItems();
-      return privateJson({ items: items.map(toMobileNote) });
+      return privateJson({ items: items.map((item) => toMobileNote(item, capabilities)) });
     }
     case 'topic-hub': {
       const topic = request.nextUrl.searchParams.get('topic')?.trim() ?? '';
       if (!topic || topic.length > 120) return invalid('A bounded topic is required.', 'INVALID_TOPIC');
-      return privateJson({ hub: await getTopicKnowledgeHubForUser(mobileUser.id, topic) });
+      const hub = await getTopicKnowledgeHubForUser(mobileUser.id, topic);
+      return privateJson({ hub: {
+        ...hub,
+        items: hub.items.map((item) => withMobileKnowledgeCompatibility(item, capabilities)),
+        relations: withMobileRelationCompatibility(hub.relations, capabilities),
+      } });
     }
     case 'candidate-inbox':
       return privateJson({ batches: await getKnowledgeDraftBatches() });
@@ -218,10 +231,18 @@ export async function GET(request: NextRequest) {
       const duplicateSuggestions = await getKnowledgeDuplicateSuggestionsForDraftsForUser(mobileUser.id, pending);
       return privateJson({
         batch: result.batch,
-        drafts: pending.map((draft) => ({
-          ...draft,
-          duplicate_suggestions: duplicateSuggestions[draft.id] ?? [],
-        })),
+        drafts: pending.map((draft) => {
+          const compatibleDraft = withMobileKnowledgeCompatibility({
+            ...draft,
+            duplicate_suggestions: (duplicateSuggestions[draft.id] ?? []).map((suggestion) => (
+              withMobileKnowledgeCompatibility(suggestion, capabilities)
+            )),
+          }, capabilities);
+          return {
+            ...compatibleDraft,
+            relations: withMobileRelationCompatibility(compatibleDraft.relations, capabilities),
+          };
+        }),
       });
     }
     case 'graph': {
@@ -231,14 +252,14 @@ export async function GET(request: NextRequest) {
       ]);
       return privateJson({
         cards: cards.map((card) => ({ id: card.id, title: card.title, status: card.status })),
-        personalItems: personalItems.map(toMobileConcept),
+        personalItems: personalItems.map((item) => toMobileConcept(item, capabilities)),
       });
     }
     case 'practice': {
       const mode = request.nextUrl.searchParams.get('mode') === 'review' ? 'review' : 'new';
       const exclude = request.nextUrl.searchParams.getAll('exclude').filter((id) => id.length <= 160).slice(0, 100);
       const [card, stats] = await Promise.all([getNextCard(mode, exclude, locale), getUserStats()]);
-      return NextResponse.json({ card, stats });
+      return NextResponse.json({ card: card ? withMobileKnowledgeCompatibility(card, capabilities) : null, stats });
     }
     case 'saved':
       return NextResponse.json({ cards: await getSavedCards(locale) });
@@ -273,6 +294,7 @@ export async function POST(request: NextRequest) {
     );
   }
   const body = parsedBody.value;
+  const capabilities = readMobileKnowledgeCapabilities(request.headers.get('x-girapphe-knowledge-capabilities'));
 
   const action = stringField(body.action, 64);
   if (!action) return invalid('An action is required.');
@@ -376,7 +398,7 @@ export async function POST(request: NextRequest) {
     const requestId = stringField(body.requestId, 160) ?? '';
     if (!title?.trim()) return invalid('A note title is required.');
     const summary = stringField(body.summary, 500) ?? '';
-    const bundle = parseMobileBundle(body);
+    const bundle = parseMobileBundle(body, capabilities);
     if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
     const tags = parseMobileTags(body.tags);
     if (!tags) return invalid('Tags must contain at most 12 non-empty values.', 'INVALID_TAGS');
@@ -393,7 +415,7 @@ export async function POST(request: NextRequest) {
     const topic = stringField(body.topic, 120) ?? '';
     if (!title?.trim()) return invalid('A note title is required.');
     const summary = stringField(body.summary, 500) ?? '';
-    const bundle = parseMobileBundle(body);
+    const bundle = parseMobileBundle(body, capabilities);
     if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
     const tags = parseMobileTags(body.tags);
     if (!tags) return invalid('Tags must contain at most 12 non-empty values.', 'INVALID_TAGS');
@@ -406,6 +428,15 @@ export async function POST(request: NextRequest) {
     }
     if (!resolvedVersion.ok) {
       return NextResponse.json({ error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
+    }
+    if (!capabilities.expression || !capabilities.eventChronology) {
+      const currentItem = (await getUserKnowledgeItems()).find((item) => item.id === id);
+      if (mobileKnowledgeEditRequiresCapability(currentItem, capabilities)) {
+        return NextResponse.json({
+          error: 'Update the app before editing this structured note.',
+          code: 'KNOWLEDGE_CAPABILITY_REQUIRED',
+        }, { status: 409 });
+      }
     }
     const version = resolvedVersion.version;
     const result = await updateKnowledgeItem(toFormData({ id, version: String(version), title, summary, content, topic, tags: tags.join(','), bundle_mode_present: '1',

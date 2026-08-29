@@ -33,6 +33,18 @@ function structureDepth(content: Extract<KnowledgeBundleContent, { type: 'struct
   return depth;
 }
 
+function historicalPointLabel(point: { year: number; era: 'bce' | 'ce'; month?: number; day?: number }) {
+  const date = [point.year, point.month, point.day].filter((value) => value !== undefined).join('-');
+  return `${date} ${point.era.toUpperCase()}`;
+}
+
+function chronologyLabel(content: Extract<KnowledgeBundleContent, { type: 'event' }>) {
+  if (content.occurred_at) return content.occurred_at;
+  if (!content.chronology) return '';
+  const start = historicalPointLabel(content.chronology.start);
+  return content.chronology.end ? `${start} – ${historicalPointLabel(content.chronology.end)}` : start;
+}
+
 export default function KnowledgeBundleView({ type, centralQuestion, content, compact = false }: KnowledgeBundleViewProps) {
   const { t } = useI18n();
   return (
@@ -57,7 +69,8 @@ function BundleCompact({ content }: { content: KnowledgeBundleContent }) {
     case 'claim_evidence': values = [content.claim, ...content.evidence.map((item) => item.statement), ...content.limitations]; break;
     case 'question': values = [content.question, content.answer_summary, ...content.known_facts, ...content.next_steps]; break;
     case 'decision': values = [content.decision, content.outcome, ...content.rationale, ...content.reconsider_when]; break;
-    case 'event': values = [content.event, content.occurred_at, ...content.changes, ...content.consequences]; break;
+    case 'event': values = [content.event, chronologyLabel(content), ...content.changes, ...content.consequences]; break;
+    case 'expression': values = [content.expression, ...content.meanings, ...content.translations.map((item) => `${item.language}: ${item.text}`), content.nuance, ...content.usage_contexts]; break;
   }
   return <ul className="list-disc space-y-1 ps-5 text-sm text-slate-700">{values.filter(Boolean).slice(0, 8).map((value, index) => <li key={`${index}-${value}`}>{value}</li>)}</ul>;
 }
@@ -99,9 +112,18 @@ function BundleBody({ content, t }: { content: KnowledgeBundleContent; t: Return
     </div>;
     case 'event': return <div className="space-y-3">
       {content.event ? <blockquote className="rounded-lg border-s-4 border-emerald-500 bg-emerald-50 p-4 font-semibold text-slate-900">{content.event}</blockquote> : null}
-      {content.occurred_at ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.occurredAt')}</h4><p className="mt-2 text-sm text-slate-800">{content.occurred_at}</p></section> : null}
+      {chronologyLabel(content) ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.occurredAt')}</h4><p className="mt-2 text-sm text-slate-800">{chronologyLabel(content)}</p>{content.chronology ? <p className="mt-1 text-xs uppercase text-slate-500">{content.chronology.precision}</p> : null}</section> : null}
       {content.context ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.context')}</h4><p className="mt-2 text-sm text-slate-800">{content.context}</p></section> : null}
       <div className="grid gap-3 md:grid-cols-3"><List title={t('bundle.field.changes')} values={content.changes} /><List title={t('bundle.field.causes')} values={content.causes} /><List title={t('bundle.field.consequences')} values={content.consequences} /></div>
+    </div>;
+    case 'expression': return <div className="space-y-3">
+      {content.expression ? <blockquote className="rounded-lg border-s-4 border-fuchsia-500 bg-fuchsia-50 p-4 text-xl font-bold text-slate-950">{content.expression}</blockquote> : null}
+      <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-700">{content.language ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{content.language}</span> : null}{content.pronunciation ? <span className="rounded-full bg-blue-100 px-2.5 py-1">{content.pronunciation}</span> : null}{content.register ? <span className="rounded-full bg-amber-100 px-2.5 py-1">{content.register}</span> : null}</div>
+      <div className="grid gap-3 md:grid-cols-2"><List title={t('bundle.field.meanings')} values={content.meanings} /><PairList title={t('bundle.field.translations')} values={content.translations.map((item) => ({ label: item.language, detail: item.text }))} /></div>
+      {content.nuance ? <section className={panel}><h4 className="text-xs font-bold uppercase text-slate-600">{t('bundle.field.nuance')}</h4><p className="mt-2 text-sm text-slate-800">{content.nuance}</p></section> : null}
+      <List title={t('bundle.field.usageContexts')} values={content.usage_contexts} />
+      <PairList title={t('bundle.field.examples')} values={content.examples.map((item) => ({ label: item.text, detail: [item.translation, item.note].filter(Boolean).join(' · ') }))} />
+      <div className="grid gap-3 md:grid-cols-2"><PairList title={t('bundle.field.contrasts')} values={content.contrasts.map((item) => ({ label: item.expression, detail: item.difference }))} /><PairList title={t('bundle.field.commonMistakes')} values={content.common_mistakes.map((item) => ({ label: item.incorrect, detail: item.correction }))} /></div>
     </div>;
   }
 }

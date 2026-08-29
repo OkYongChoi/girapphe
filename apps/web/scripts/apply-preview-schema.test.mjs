@@ -13,6 +13,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0015_typed_knowledge_bundles.sql', 4],
     ['0016_conversation_knowledge_hub.sql', 39],
     ['0017_supersession_replacement_tombstones.sql', 7],
+    ['0018_expression_history_causality.sql', 11],
   ];
   for (const [name, expectedCount] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -111,6 +112,17 @@ test('conversation knowledge hub migration is owner-scoped and selector-only', a
   assert.ok(sql.includes(`AND position('?' in ("selector" ->> 'source_ref')) = 0`));
   assert.ok(sql.includes(`AND position('#' in ("selector" ->> 'source_ref')) = 0`));
   assert.ok(sql.includes(`AND ("selector" ->> 'source_ref') !~ '^https://[^/?#]*@'`));
+});
+
+test('expression and causality migration is additive, owner-scoped, and selector-only', async () => {
+  const sql = await readFile(new URL('../drizzle/migrations/0018_expression_history_causality.sql', import.meta.url), 'utf8');
+  assert.doesNotMatch(sql, /^\s*UPDATE\b/im);
+  assert.match(sql, /'question', 'decision', 'event', 'expression'/);
+  assert.match(sql, /'causes', 'contributes_to', 'enables', 'inhibits'/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS "knowledge_relation_evidence"/);
+  assert.match(sql, /FOREIGN KEY \("edge_id", "user_id"\)/);
+  assert.match(sql, /FOREIGN KEY \("evidence_span_id", "user_id"\)/);
+  assert.doesNotMatch(sql, /"(?:excerpt|transcript|raw_text|raw_transcript)"\s+(?:text|jsonb)/i);
 });
 
 test('supersession tombstone migration upgrades already-created hub tables safely', async () => {

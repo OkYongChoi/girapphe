@@ -542,7 +542,7 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
-  test('structured knowledge exposes all nine editors and round-trips a procedure', async ({ page }) => {
+  test('structured knowledge exposes all ten editors and round-trips a procedure', async ({ page }) => {
     test.slow();
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
     const title = `Typed release procedure ${Date.now()}`;
@@ -560,6 +560,7 @@ test.describe('browser smoke', () => {
       ['question', 'Question'],
       ['decision', 'Decision'],
       ['event', 'Event'],
+      ['expression', 'Expression'],
     ] as const;
     for (const [type, field] of typeFields) {
       await format.selectOption(type);
