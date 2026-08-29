@@ -7,7 +7,7 @@ import { TranslationFallbackNotice } from '@/components/translation-fallback-not
 import { mobileApi, type MobileCard } from '@/api';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
-import { expressionRecallCue, expressionRecallDirectionLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, type ExpressionRecallDirection } from '@/knowledge-bundle-ui';
+import { expressionHasReverseRecallCue, expressionRecallCue, expressionRecallDirectionLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, type ExpressionRecallDirection } from '@/knowledge-bundle-ui';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
 import {
   getNodeExplanation,
@@ -308,6 +308,7 @@ function SyncedPracticeScreen() {
 
   const expressionContent = card?.structured_content?.type === 'expression' ? card.structured_content : null;
   const expressionCue = expressionContent ? expressionRecallCue(expressionContent, locale, expressionDirection) : '';
+  const hasExpressionReverseCue = expressionContent ? expressionHasReverseRecallCue(expressionContent) : false;
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
@@ -343,7 +344,7 @@ function SyncedPracticeScreen() {
               {card.knowledge_type ? <Text style={styles.bundleBadge}>{knowledgeBundleTypeLabel(locale, card.knowledge_type)}</Text> : null}
               <Text style={styles.cardTitle}>{expressionContent && !isRevealed ? expressionCue : card.title}</Text>
               {!expressionContent || isRevealed ? <Text style={styles.cardSummary}>{card.central_question || card.summary}</Text> : null}
-              {expressionContent && !isRevealed ? <View style={styles.expressionDirectionRow}>{(['forward', 'reverse'] as const).map((value) => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: expressionDirection === value }} onPress={() => setExpressionDirection(value)} style={[styles.expressionDirectionButton, expressionDirection === value && styles.expressionDirectionButtonActive]}><Text style={[styles.expressionDirectionText, expressionDirection === value && styles.expressionDirectionTextActive]}>{expressionRecallDirectionLabel(locale, value)}</Text></Pressable>)}</View> : null}
+              {expressionContent && hasExpressionReverseCue && !isRevealed ? <View style={styles.expressionDirectionRow}>{(['forward', 'reverse'] as const).map((value) => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: expressionDirection === value }} onPress={() => setExpressionDirection(value)} style={[styles.expressionDirectionButton, expressionDirection === value && styles.expressionDirectionButtonActive]}><Text style={[styles.expressionDirectionText, expressionDirection === value && styles.expressionDirectionTextActive]}>{expressionRecallDirectionLabel(locale, value)}</Text></Pressable>)}</View> : null}
               {!isRevealed && card.knowledge_type ? <Text style={styles.recallPrompt}>{knowledgeBundleRecallPrompt(locale, card.knowledge_type)}</Text> : null}
               <TranslationFallbackNotice dark translation={card} />
               {isRevealed ? (

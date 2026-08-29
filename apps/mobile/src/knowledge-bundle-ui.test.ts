@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { KNOWLEDGE_BUNDLE_TYPES, SUPPORTED_LOCALES, type KnowledgeBundleContent } from '@stem-brain/shared';
-import { buildMobileKnowledgeBundle, expressionRecallCue, knowledgeBundleAnswerLines, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, mobileKnowledgeBundleEditValues, parseMobileChronology } from './knowledge-bundle-ui';
+import { buildMobileKnowledgeBundle, expressionHasReverseRecallCue, expressionRecallCue, knowledgeBundleAnswerLines, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, mobileKnowledgeBundleEditValues, parseMobileChronology } from './knowledge-bundle-ui';
 
 const bundles: KnowledgeBundleContent[] = [
   { type: 'concept', definition: 'Definition', key_points: ['Point'], examples: ['Example'], non_examples: ['Counterexample'], misconceptions: [{ claim: 'Wrong', correction: 'Right' }] },
@@ -52,6 +52,8 @@ test('expression practice chooses a locale-matched reverse cue and preserves the
   assert.equal(expressionRecallCue(expression, 'en', 'forward'), 'break the ice');
   assert.equal(expressionRecallCue(expression, 'ja', 'reverse'), '緊張をほぐす');
   assert.equal(expressionRecallCue(expression, 'zh-CN', 'reverse'), '서먹함을 깨다');
+  assert.equal(expressionHasReverseRecallCue(expression), true);
+  assert.equal(expressionHasReverseRecallCue({ ...expression, translations: [], meanings: [] }), false);
 });
 
 test('mobile exposes localized type labels and recall prompts for every supported bundle type', () => {

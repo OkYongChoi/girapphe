@@ -147,6 +147,11 @@ export function expressionRecallDirectionLabel(locale: Locale, direction: Expres
   return EXPRESSION_DIRECTION_LABELS[locale][direction];
 }
 
+export function expressionHasReverseRecallCue(content: Extract<KnowledgeBundleContent, { type: 'expression' }>) {
+  return content.translations.some((item) => item.text.trim().length > 0)
+    || content.meanings.some((meaning) => meaning.trim().length > 0);
+}
+
 export function expressionRecallCue(content: Extract<KnowledgeBundleContent, { type: 'expression' }>, locale: Locale, direction: ExpressionRecallDirection) {
   if (direction === 'forward') return content.expression;
   const preferredTranslation = content.translations.find((item) => item.language.toLowerCase() === locale.toLowerCase())
