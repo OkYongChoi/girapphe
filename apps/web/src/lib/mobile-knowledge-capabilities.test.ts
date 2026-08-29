@@ -7,6 +7,7 @@ import {
   mobileKnowledgeEditRequiresCapability,
   readMobileKnowledgeCapabilities,
   withMobileKnowledgeCompatibility,
+  withMobileKnowledgeListCompatibility,
   withMobileRelationCompatibility,
 } from './mobile-knowledge-capabilities';
 
@@ -14,14 +15,24 @@ const allCapabilities = 'expression-v1,event-chronology-v1,causal-relations-v1';
 
 test('older mobile clients receive additive knowledge as legacy-compatible data', () => {
   const legacy = readMobileKnowledgeCapabilities(null);
-  const expression = withMobileKnowledgeCompatibility({
+  const expressionInput = {
     title: 'Break the ice', summary: 'Start a conversation.', content: 'Legacy projection',
     knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
     structured_content: { type: 'expression' as const, expression: 'break the ice', language: 'en', pronunciation: '', meanings: ['Start a conversation'], translations: [], register: '', nuance: '', usage_contexts: [], examples: [], contrasts: [], common_mistakes: [] },
-  }, legacy);
+  };
+  const expression = withMobileKnowledgeCompatibility(expressionInput, legacy);
   assert.equal(expression.knowledge_type, null);
   assert.equal(expression.structured_content, null);
   assert.equal(expression.content, 'Legacy projection');
+
+  const savedCards = withMobileKnowledgeListCompatibility([expressionInput, {
+    title: 'Founded', summary: 'A historical event.', content: 'Legacy event projection',
+    knowledge_type: 'event', central_question: 'When?', bundle_schema_version: 1,
+    structured_content: { type: 'event' as const, event: 'Founded', occurred_at: '5th century BCE', chronology: { precision: 'century' as const, start: { era: 'bce' as const, year: 5 } }, context: '', changes: [], causes: [], consequences: [] },
+  }], legacy);
+  assert.equal(savedCards[0]?.knowledge_type, null);
+  assert.equal(savedCards[0]?.structured_content, null);
+  assert.equal(savedCards[1]?.structured_content?.type === 'event' ? savedCards[1].structured_content.chronology : undefined, undefined);
 
   const historicalEvent = {
     knowledge_type: 'event', central_question: 'When?', bundle_schema_version: 1,

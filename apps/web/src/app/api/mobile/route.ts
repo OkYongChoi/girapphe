@@ -57,6 +57,7 @@ import {
   mobileKnowledgeEditRequiresCapability,
   readMobileKnowledgeCapabilities,
   withMobileKnowledgeCompatibility,
+  withMobileKnowledgeListCompatibility,
   withMobileRelationCompatibility,
   type MobileKnowledgeCapabilities,
 } from '@/lib/mobile-knowledge-capabilities';
@@ -263,8 +264,10 @@ export async function GET(request: NextRequest) {
       const [card, stats] = await Promise.all([getNextCard(mode, exclude, locale), getUserStats()]);
       return NextResponse.json({ card: card ? withMobileKnowledgeCompatibility(card, capabilities) : null, stats });
     }
-    case 'saved':
-      return NextResponse.json({ cards: await getSavedCards(locale) });
+    case 'saved': {
+      const cards = await getSavedCards(locale);
+      return NextResponse.json({ cards: withMobileKnowledgeListCompatibility(cards, capabilities) });
+    }
     case 'dashboard': {
       const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress(locale)]);
       return NextResponse.json({ stats, domains });

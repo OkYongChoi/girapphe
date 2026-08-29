@@ -34,6 +34,15 @@ export function withMobileKnowledgeCompatibility<T extends {
   return item;
 }
 
+export function withMobileKnowledgeListCompatibility<T extends {
+  knowledge_type?: string | null;
+  central_question?: string | null;
+  structured_content?: KnowledgeBundleContent | null;
+  bundle_schema_version?: number | null;
+}>(items: T[], capabilities: MobileKnowledgeCapabilities): T[] {
+  return items.map((item) => withMobileKnowledgeCompatibility(item, capabilities));
+}
+
 export function withMobileRelationCompatibility<T extends { type: string }>(
   relations: T[],
   capabilities: MobileKnowledgeCapabilities,
