@@ -402,6 +402,10 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                   <option value="generalizes">generalizes</option>
                   <option value="derived_from">derived from</option>
                   <option value="equivalent_to">equivalent to</option>
+                  <option value="causes">causes</option>
+                  <option value="contributes_to">contributes to</option>
+                  <option value="enables">enables</option>
+                  <option value="inhibits">inhibits</option>
                 </select>
               </label>
               <label className="grid gap-1 text-xs font-medium text-slate-700">
@@ -590,7 +594,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                             .map((edge) => {
                               const outgoing = edge.source === `personal:${item.id}`;
                               const otherId = outgoing ? edge.target : edge.source;
-                              const directed = edge.type === 'prerequisite' || edge.type === 'generalizes' || edge.type === 'derived_from';
+                              const directed = edge.type !== 'related' && edge.type !== 'equivalent_to';
                               return (
                                 <li key={edge.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-100 bg-white px-3 py-2">
                                   <span className="min-w-0 text-xs text-slate-700">
@@ -631,6 +635,10 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                           <option value="generalizes">generalizes</option>
                           <option value="derived_from">derived from</option>
                           <option value="equivalent_to">equivalent to</option>
+                          <option value="causes">causes</option>
+                          <option value="contributes_to">contributes to</option>
+                          <option value="enables">enables</option>
+                          <option value="inhibits">inhibits</option>
                         </select>
                         <label className="sr-only" htmlFor={`relation-direction-${item.id}`}>Relationship direction</label>
                         <select id={`relation-direction-${item.id}`} name="direction" defaultValue="outgoing" className="min-h-10 rounded-lg border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">

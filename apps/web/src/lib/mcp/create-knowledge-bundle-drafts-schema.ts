@@ -62,6 +62,21 @@ export const createKnowledgeBundleDraftsInputSchema = z.object({
       if (relation.target_kind === 'draft' && effectiveId === relation.target_id) {
         ctx.addIssue({ code: 'custom', path: ['bundles', bundleIndex, 'relations', relationIndex, 'target_id'], message: 'A bundle cannot relate to itself.' });
       }
+      const indexes = relation.evidence_selector_indexes ?? [];
+      if (new Set(indexes).size !== indexes.length || indexes.some((index) => index >= (bundle.evidence_selectors?.length ?? 0))) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['bundles', bundleIndex, 'relations', relationIndex, 'evidence_selector_indexes'],
+          message: 'Relation evidence indexes must be unique and reference this bundle evidence_selectors array.',
+        });
+      }
+      if (['causes', 'contributes_to', 'enables', 'inhibits'].includes(relation.type) && indexes.length === 0) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['bundles', bundleIndex, 'relations', relationIndex, 'evidence_selector_indexes'],
+          message: 'Conversation-derived causal relations require at least one evidence selector.',
+        });
+      }
     });
   });
   const bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength;
@@ -91,6 +106,7 @@ export function toKnowledgeBundleDraftBatchInput(input: CreateKnowledgeBundleDra
         type: relation.type,
         direction: relation.direction,
         weight: relation.weight,
+        ...(relation.evidence_selector_indexes ? { evidenceSelectorIndexes: relation.evidence_selector_indexes } : {}),
       })),
       ...(bundle.evidence_selectors ? { proposedEvidence: bundle.evidence_selectors.map((evidence) => ({
         selectorType: evidence.selector_type,

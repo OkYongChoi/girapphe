@@ -90,6 +90,8 @@ the prior item does not silently become canonical again. Rows created before
 migration `0017` intentionally keep a null live-reference pair even if the
 replacement still exists; null therefore is not a universal liveness signal.
 `knowledge_evidence_spans` stores source positions without transcript text.
+`knowledge_relation_evidence` links an owner-scoped private edge to the reviewed
+selector rows that support it; it does not copy source text.
 Accepted HTTPS source URLs reject embedded credentials and drop query strings
 and fragments before persistence; opaque conversation references reject
 `scheme://` values.
@@ -108,11 +110,20 @@ older clients. Approval creates the personal card, private node, source
 record, and valid edges in one database transaction.
 
 The version-one discriminator set is `concept`, `procedure`, `comparison`,
-`mechanism`, `structure`, `claim_evidence`, `question`, `decision`, and
-`event`. Question bundles carry an explicit open/answered status, decision
+`mechanism`, `structure`, `claim_evidence`, `question`, `decision`, `event`,
+and `expression`. Question bundles carry an explicit open/answered status, decision
 bundles retain options and reconsideration conditions, and event bundles retain
-their occurrence text, changes, causes, and consequences. These remain bundle
+their occurrence text, changes, causes, and consequences. Events may also carry
+structured BCE/CE chronology (including approximate and range precision), while
+`occurred_at` remains the compatibility display label. Expression bundles retain
+their BCP 47 language, meanings, translations, pronunciation, register, nuance,
+usage contexts, examples, contrasts, and common mistakes. These remain bundle
 content fields; they do not change the database lifecycle or graph-edge model.
+
+Private graph edges additionally support the directed causal types `causes`,
+`contributes_to`, `enables`, and `inhibits`. Extracted and model-inferred causal
+suggestions must reference reviewed evidence selectors before approval. The
+public STEM graph edge vocabulary is unchanged.
 
 The private graph keeps one node per bundle. Internal steps, components, and
 evidence remain inside structured JSON. Existing public graph node types and
@@ -177,6 +188,7 @@ Private knowledge and ingestion tables:
 - `knowledge_item_activity`
 - `knowledge_item_supersessions`
 - `knowledge_evidence_spans`
+- `knowledge_relation_evidence`
 - `mcp_access_tokens`
 - `mcp_request_rate_limits`
 - `mcp_deleted_account_markers`

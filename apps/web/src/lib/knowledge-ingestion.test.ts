@@ -40,8 +40,11 @@ import {
   setKnowledgeTransactionSqlForTesting,
   softDeleteMemoryKnowledgeItemForUser,
   supersedeKnowledgeItemForUser,
+  updateKnowledgeDraftForUser,
   updateMemoryKnowledgeItemForUser,
   verifyKnowledgeItemForUser,
+  type KnowledgeEvidenceSelector,
+  type ProposedKnowledgeRelation,
 } from './knowledge-ingestion';
 import { deriveMcpDeletedAccountScopeKey } from './mcp-account-lifecycle';
 import { resolveMobileNoteUpdateVersion } from './mobile-note-update-version';
@@ -730,6 +733,35 @@ test('conversation and evidence references accept only opaque ids or bounded HTT
   );
 });
 
+test('draft ingestion rejects duplicate and out-of-range relationship evidence indexes', async () => {
+  const evidence = [{
+    selectorType: 'message' as const,
+    messageRef: 'message-causal-1',
+    polarity: 'supports' as const,
+    quality: 'high' as const,
+    relationOrigin: 'extracted_from_source' as const,
+  }];
+  const createWithIndexes = (evidenceSelectorIndexes: number[]) => createKnowledgeDraftBatchForUser(
+    `user_bad_relation_evidence_${crypto.randomUUID()}`,
+    {
+      provider: 'chatgpt',
+      requestId: `bad-relation-evidence-${crypto.randomUUID()}`,
+      cards: [{
+        title: 'Causal draft',
+        proposedEvidence: evidence,
+        relations: [{
+          targetKind: 'public',
+          targetId: 'graph_mathematics',
+          type: 'causes',
+          evidenceSelectorIndexes,
+        }],
+      }],
+    },
+  );
+  await assert.rejects(createWithIndexes([0, 0]), /invalid relationships or relationship evidence/i);
+  await assert.rejects(createWithIndexes([0, 24]), /invalid relationships or relationship evidence/i);
+});
+
 test('canonical revision clears verification and supersession consumes its optimistic version once', async () => {
   const userId = `user_lifecycle_version_${crypto.randomUUID()}`;
   const oldItem = createMemoryKnowledgeItemForUser(userId, {
@@ -1092,10 +1124,11 @@ test('database draft approval partitions dynamically queued edge and update resu
         proposed_relations: [{
           targetKind: 'public',
           targetId: `graph_${publicNodeId}`,
-          type: 'related',
+          type: 'supports',
           direction: 'outgoing',
           weight: 1,
           relationOrigin: 'model_inferred',
+          evidenceSelectorIndexes: [0],
         }],
         knowledge_type: null,
         central_question: null,
@@ -1136,8 +1169,10 @@ test('database draft approval partitions dynamically queued edge and update resu
   const edgeIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO user_graph_edges'));
   const updateIndex = transactionCalls.findIndex((call) => call.text.includes("UPDATE knowledge_card_drafts SET status = 'approved'"));
   const evidenceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_evidence_spans'));
+  const relationEvidenceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_relation_evidence'));
   assert.ok(evidenceIndex >= 0 && edgeIndex > evidenceIndex);
-  assert.equal(updateIndex, edgeIndex + 1);
+  assert.equal(relationEvidenceIndex, edgeIndex + 1);
+  assert.equal(updateIndex, relationEvidenceIndex + 1);
   assert.deepEqual(transactionCalls[edgeIndex]?.rows, []);
   assert.deepEqual(transactionCalls[updateIndex]?.rows, [{ id: draftId }]);
   assert.equal(transactionCalls[edgeIndex]?.text.match(/i\.archived_at IS NULL/g)?.length, 2);
@@ -1185,17 +1220,24 @@ test('database per-draft resolution locks, resolves the actual node, inserts edg
     proposed_relations: [{
       targetKind: 'public',
       targetId: `graph_${publicNodeId}`,
-      type: 'supports',
+      type: 'causes',
       direction: 'outgoing',
       weight: 0.65,
       relationOrigin: 'explicit_user',
+      evidenceSelectorIndexes: [0],
     }],
     knowledge_type: null,
     central_question: null,
     structured_content: null,
     bundle_schema_version: null,
     dedupe_key: 'single-resolution-edge',
-    proposed_evidence: [],
+    proposed_evidence: [{
+      selectorType: 'message',
+      messageRef: 'message-causal-resolution',
+      polarity: 'supports',
+      quality: 'high',
+      relationOrigin: 'explicit_user',
+    }],
     resolution_action: null,
     target_knowledge_item_id: null,
     resolved_at: null,
@@ -1259,6 +1301,19 @@ test('database per-draft resolution locks, resolves the actual node, inserts edg
     draftId,
     expectedDraftVersion: 1,
     action: 'create',
+    reviewed: {
+      title: draftRow.title,
+      summary: draftRow.summary,
+      content: draftRow.explanation,
+      topic: draftRow.topic,
+      tags: draftRow.tags,
+      knowledgeType: null,
+      centralQuestion: null,
+      structuredContent: null,
+      bundleSchemaVersion: null,
+      evidenceSelectors: draftRow.proposed_evidence as KnowledgeEvidenceSelector[],
+      relations: draftRow.proposed_relations as ProposedKnowledgeRelation[],
+    },
   });
   assert.equal(result.resolved, true);
   assert.equal(result.skippedEdges, 0);
@@ -1269,11 +1324,15 @@ test('database per-draft resolution locks, resolves the actual node, inserts edg
   const graphLockIndex = transactionCalls.findIndex((call) => call.params[0] === `knowledge-graph:${userId}`);
   const draftGuardIndex = transactionCalls.findIndex((call) => call.text.includes('AS draft_version_guard'));
   const nodeIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO user_graph_nodes'));
+  const evidenceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_evidence_spans'));
   const edgeIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO user_graph_edges'));
+  const relationEvidenceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_relation_evidence'));
   const approvalIndex = transactionCalls.findIndex((call) => call.text.includes('AS approval_guard'));
   assert.ok(accountLockIndex >= 0 && draftLockIndex > accountLockIndex);
   assert.ok(graphLockIndex > draftLockIndex && draftGuardIndex > graphLockIndex);
-  assert.ok(nodeIndex > draftGuardIndex && edgeIndex > nodeIndex && approvalIndex > edgeIndex);
+  assert.ok(nodeIndex > draftGuardIndex && evidenceIndex > nodeIndex && edgeIndex > evidenceIndex);
+  assert.equal(relationEvidenceIndex, edgeIndex);
+  assert.ok(approvalIndex > edgeIndex);
   assert.match(transactionCalls[draftGuardIndex]!.text, /FOR UPDATE OF d/);
   assert.match(transactionCalls[edgeIndex]!.text, /n\.user_id = \$2 AND i\.id = \$3/);
   assert.match(transactionCalls[edgeIndex]!.text, /i\.deleted_at IS NULL AND i\.archived_at IS NULL/);
@@ -1281,11 +1340,14 @@ test('database per-draft resolution locks, resolves the actual node, inserts edg
   assert.match(transactionCalls[edgeIndex]!.text, /source_batch_id, relation_origin/);
   assert.match(transactionCalls[edgeIndex]!.text, /'conversation'/);
   assert.match(transactionCalls[edgeIndex]!.text, /WITH RECURSIVE all_edges/);
+  assert.match(transactionCalls[edgeIndex]!.text, /existing_edge AS MATERIALIZED/);
+  assert.match(transactionCalls[edgeIndex]!.text, /linked_evidence AS/);
   assert.equal(transactionCalls[edgeIndex]!.params[2], result.knowledgeItemId);
   assert.equal(transactionCalls[edgeIndex]!.params[5], publicNodeId);
   assert.equal(transactionCalls[edgeIndex]!.params[7], 0.65);
   assert.equal(transactionCalls[edgeIndex]!.params[8], batchId);
   assert.equal(transactionCalls[edgeIndex]!.params[9], 'explicit_user');
+  assert.deepEqual(transactionCalls[edgeIndex]!.params[10], [transactionCalls[evidenceIndex]!.params[0]]);
   assert.match(transactionCalls[approvalIndex]!.text, /WITH approved AS MATERIALIZED/);
   assert.match(transactionCalls[approvalIndex]!.text, /THEN 1 ELSE 0 END AS approval_guard/);
 });
@@ -1835,6 +1897,105 @@ test('supports selected approval and add-all while rejecting stale versions', as
   assert.deepEqual(graph.nodes.map((node) => node.tags).sort(), [['first'], ['second']]);
 });
 
+test('bulk approval requires detailed evidence review for causal relationships', async () => {
+  const userId = `user_causal_bulk_review_${crypto.randomUUID()}`;
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'chatgpt',
+    requestId: `causal-bulk-review-${crypto.randomUUID()}`,
+    cards: [{
+      title: 'Reviewed causal claim',
+      proposedEvidence: [{
+        selectorType: 'message',
+        messageRef: 'causal-evidence-message',
+        polarity: 'supports',
+        quality: 'high',
+        relationOrigin: 'model_inferred',
+      }],
+      relations: [{
+        targetKind: 'public',
+        targetId: 'graph_mathematics',
+        type: 'causes',
+        relationOrigin: 'model_inferred',
+        evidenceSelectorIndexes: [0],
+      }],
+    }],
+  });
+  const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+
+  assert.deepEqual(await approveKnowledgeDraftsForUser(
+    userId,
+    created.batchId,
+    [draft.id],
+    { [draft.id]: draft.version },
+  ), { approved: 0, skippedEdges: 0, requiresEvidenceReview: true });
+  assert.equal(getMemoryKnowledgeItemsForUser(userId).length, 0);
+  assert.equal((await getPrivateKnowledgeGraphForUser(userId)).edges.length, 0);
+});
+
+test('batch edits preserve omitted causal evidence and distinguish an explicit clear', async () => {
+  const userId = `user_causal_edit_evidence_${crypto.randomUUID()}`;
+  const proposedEvidence = [{
+    selectorType: 'message' as const,
+    messageRef: 'causal-edit-evidence',
+    polarity: 'supports' as const,
+    quality: 'high' as const,
+    relationOrigin: 'model_inferred' as const,
+  }];
+  const relations = [{
+    targetKind: 'public' as const,
+    targetId: 'graph_mathematics',
+    type: 'causes' as const,
+    relationOrigin: 'model_inferred' as const,
+    evidenceSelectorIndexes: [0],
+  }];
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'chatgpt',
+    requestId: `causal-edit-evidence-${crypto.randomUUID()}`,
+    cards: [{ title: 'Causal draft', proposedEvidence, relations }],
+  });
+  const initial = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+
+  assert.equal(await updateKnowledgeDraftForUser(userId, initial.id, {
+    title: 'Edited causal draft',
+    summary: initial.summary,
+    explanation: initial.explanation,
+    topic: initial.topic,
+    tags: initial.tags,
+    relations: initial.relations,
+    expectedVersion: initial.version,
+  }), true);
+  const preserved = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  assert.equal(preserved.title, 'Edited causal draft');
+  assert.deepEqual(preserved.proposed_evidence, proposedEvidence);
+  assert.deepEqual(preserved.relations, initial.relations);
+
+  assert.equal(await updateKnowledgeDraftForUser(userId, preserved.id, {
+    title: preserved.title,
+    summary: preserved.summary,
+    explanation: preserved.explanation,
+    topic: preserved.topic,
+    tags: preserved.tags,
+    relations: preserved.relations,
+    expectedVersion: preserved.version,
+    proposedEvidence: [],
+  }), false);
+  assert.equal((await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0].version, preserved.version);
+
+  assert.equal(await updateKnowledgeDraftForUser(userId, preserved.id, {
+    title: preserved.title,
+    summary: preserved.summary,
+    explanation: preserved.explanation,
+    topic: preserved.topic,
+    tags: preserved.tags,
+    relations: [],
+    expectedVersion: preserved.version,
+    proposedEvidence: [],
+  }), true);
+  const cleared = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  assert.deepEqual(cleared.proposed_evidence, []);
+  assert.deepEqual(cleared.relations, []);
+});
+
 test('server approval requires pending draft dependencies so their edge is not lost', async () => {
   const userId = `user_ingestion_dependency_${crypto.randomUUID()}`;
   const created = await createKnowledgeDraftBatchForUser(userId, {
@@ -1888,6 +2049,7 @@ test('per-draft create persists reviewed conversation relations with direction, 
       clientCardId: 'relation-source',
       title: 'Reviewed relation source',
       topic: 'Relations',
+      proposedEvidence: [{ selectorType: 'message', messageRef: 'message-cause-1', polarity: 'supports', quality: 'high', relationOrigin: 'explicit_user' }],
       relations: [
         {
           targetKind: 'public', targetId: 'graph_mathematics', type: 'related',
@@ -1897,22 +2059,60 @@ test('per-draft create persists reviewed conversation relations with direction, 
           targetKind: 'private', targetId: privateTarget.id, type: 'derived_from',
           direction: 'incoming', weight: 0.75, relationOrigin: 'explicit_user',
         },
+        {
+          targetKind: 'public', targetId: 'graph_mathematics', type: 'contributes_to',
+          direction: 'outgoing', weight: 0.65, relationOrigin: 'extracted_from_source',
+          evidenceSelectorIndexes: [0],
+        },
       ],
     }],
   });
   const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  const reviewed = {
+    title: draft.title,
+    summary: draft.summary,
+    content: draft.explanation,
+    topic: draft.topic,
+    tags: draft.tags,
+    knowledgeType: draft.knowledge_type,
+    centralQuestion: draft.central_question,
+    structuredContent: draft.structured_content,
+    bundleSchemaVersion: draft.bundle_schema_version,
+    evidenceSelectors: draft.proposed_evidence,
+    relations: draft.relations,
+  };
+  await assert.rejects(resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: draft.id,
+    expectedDraftVersion: draft.version,
+    action: 'create',
+    reviewed: {
+      ...reviewed,
+      relations: draft.relations.map((relation, index) => index === 2
+        ? { ...relation, targetId: 'graph_physics' }
+        : relation),
+    },
+  }), /exact subset/i);
+  await assert.rejects(resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: draft.id,
+    expectedDraftVersion: draft.version,
+    action: 'create',
+    reviewed: { ...reviewed, evidenceSelectors: [] },
+  }), /retain at least one mapped evidence selector/i);
   const result = await resolveKnowledgeDraftForUser(userId, {
     batchId: created.batchId,
     draftId: draft.id,
     expectedDraftVersion: draft.version,
     action: 'create',
+    reviewed,
   });
   assert.equal(result.resolved, true);
   assert.equal(result.skippedEdges, 0);
   assert.ok(result.knowledgeItemId);
 
   const edges = getMemoryPrivateKnowledgeEdgesForTesting(userId);
-  assert.equal(edges.length, 2);
+  assert.equal(edges.length, 3);
   const publicEdge = edges.find((edge) => edge.type === 'related');
   assert.ok(publicEdge);
   assert.deepEqual(new Set([publicEdge.source, publicEdge.target]), new Set([
@@ -1928,6 +2128,10 @@ test('per-draft create persists reviewed conversation relations with direction, 
   assert.equal(incoming?.weight, 0.75);
   assert.equal(incoming?.origin, 'conversation');
   assert.equal(incoming?.relation_origin, 'explicit_user');
+  const causal = edges.find((edge) => edge.type === 'contributes_to');
+  const evidence = getMemoryKnowledgeEvidenceForUser(userId);
+  assert.equal(evidence.length, 1);
+  assert.deepEqual(causal?.evidence_span_ids, [evidence[0]?.id]);
 });
 
 test('concurrent memory resolutions commit one related item and one edge', async () => {
@@ -1962,7 +2166,7 @@ test('concurrent memory resolutions commit one related item and one edge', async
   assert.equal(resolvedDraft.knowledge_item_id, successful[0]?.knowledgeItemId);
 });
 
-test('per-draft merge and update connect through one canonical graph node', async () => {
+test('per-draft merge and update reuse one causal edge and retain each reviewed selector', async () => {
   const userId = `user_single_relation_revision_${crypto.randomUUID()}`;
   const target = createMemoryKnowledgeItemForUser(userId, {
     title: 'Canonical relation target', content: 'Version one.', topic: 'Relations',
@@ -1972,9 +2176,9 @@ test('per-draft merge and update connect through one canonical graph node', asyn
   assert.ok(canonicalNodeId);
 
   let expectedTargetVersion = target.version;
-  for (const [action, publicTarget] of [
-    ['merge', 'mathematics'],
-    ['update', 'computer_science'],
+  for (const [action, messageRef] of [
+    ['merge', 'causal-merge-evidence'],
+    ['update', 'causal-update-evidence'],
   ] as const) {
     const created = await createKnowledgeDraftBatchForUser(userId, {
       provider: 'claude',
@@ -1982,9 +2186,16 @@ test('per-draft merge and update connect through one canonical graph node', asyn
       cards: [{
         title: `${action} relation candidate`,
         topic: 'Relations',
+        proposedEvidence: [{
+          selectorType: 'message',
+          messageRef,
+          polarity: 'supports',
+          quality: 'high',
+          relationOrigin: 'explicit_user',
+        }],
         relations: [{
-          targetKind: 'public', targetId: `graph_${publicTarget}`, type: 'supports',
-          direction: 'outgoing', relationOrigin: 'model_inferred',
+          targetKind: 'public', targetId: 'graph_mathematics', type: 'causes',
+          direction: 'outgoing', relationOrigin: 'explicit_user', evidenceSelectorIndexes: [0],
         }],
       }],
     });
@@ -2006,6 +2217,8 @@ test('per-draft merge and update connect through one canonical graph node', asyn
         centralQuestion: null,
         structuredContent: null,
         bundleSchemaVersion: null,
+        evidenceSelectors: draft.proposed_evidence,
+        relations: draft.relations,
       },
     });
     assert.equal(result.resolved, true);
@@ -2017,13 +2230,13 @@ test('per-draft merge and update connect through one canonical graph node', asyn
   const graph = await getPrivateKnowledgeGraphForUser(userId);
   assert.equal(graph.nodes.filter((node) => node.knowledge_item_id === target.id).length, 1);
   assert.equal(graph.nodes.find((node) => node.knowledge_item_id === target.id)?.graph_node_id, canonicalNodeId);
-  assert.deepEqual(
-    new Set(graph.edges.filter((edge) => edge.type === 'supports').map((edge) => `${edge.source}->${edge.target}`)),
-    new Set([
-      `personal:${target.id}->graph_mathematics`,
-      `personal:${target.id}->graph_computer_science`,
-    ]),
-  );
+  const causalEdges = graph.edges.filter((edge) => edge.type === 'causes');
+  assert.equal(causalEdges.length, 1);
+  assert.equal(causalEdges[0]?.source, `personal:${target.id}`);
+  assert.equal(causalEdges[0]?.target, 'graph_mathematics');
+  assert.equal(causalEdges[0]?.evidence_span_ids.length, 2);
+  const evidence = getMemoryKnowledgeEvidenceForUser(userId);
+  assert.deepEqual(new Set(causalEdges[0]?.evidence_span_ids), new Set(evidence.map((entry) => entry.id)));
 });
 
 test('per-draft merge and update restore a missing canonical graph node before adding relations', async () => {
@@ -2069,6 +2282,7 @@ test('per-draft merge and update restore a missing canonical graph node before a
         centralQuestion: null,
         structuredContent: null,
         bundleSchemaVersion: null,
+        relations: draft.relations,
       },
     });
 

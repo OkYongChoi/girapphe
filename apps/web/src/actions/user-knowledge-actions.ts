@@ -25,6 +25,7 @@ import {
   getMemoryKnowledgeItemsForUser,
   getMemoryKnowledgeSupersessionsForUser,
   hasMemoryCreateRequest,
+  isKnowledgeRelationType,
   normalizeKnowledgeTopic,
   purgeMemoryKnowledgeItemsForUser,
   resolveKnowledgeDraftForUser,
@@ -34,6 +35,7 @@ import {
   sanitizeKnowledgeContent,
   sanitizeKnowledgeTags,
   sanitizeKnowledgeTitle,
+  sanitizeProposedRelations,
   softDeleteMemoryKnowledgeItemForUser,
   supersedeKnowledgeItemForUser,
   updateMemoryKnowledgeItemForUser,
@@ -41,6 +43,7 @@ import {
   type KnowledgeDraftResolutionContext,
   type KnowledgeEvidenceSelector,
   type KnowledgeItemUpdateResult,
+  type KnowledgeRelationType,
   type ResolveKnowledgeDraftResult,
   type ReviewedKnowledgePayload,
   MAX_KNOWLEDGE_ITEMS_PER_USER,
@@ -128,6 +131,22 @@ function readEvidenceSelectors(formData: FormData): KnowledgeEvidenceSelector[] 
   return selectors;
 }
 
+function readReviewedRelations(formData: FormData) {
+  const value = formData.get('relations_json');
+  if (value === null || value === '') return [];
+  if (typeof value !== 'string' || value.length > 64_000) throw new Error('Invalid reviewed relationships.');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error('Invalid reviewed relationships.');
+  }
+  if (!Array.isArray(parsed) || parsed.length > 12) throw new Error('Invalid reviewed relationships.');
+  const relations = sanitizeProposedRelations(parsed);
+  if (relations.length !== parsed.length) throw new Error('Invalid reviewed relationships.');
+  return relations;
+}
+
 function readReviewedKnowledgePayload(
   formData: FormData,
   action: 'create' | 'merge' | 'update',
@@ -180,6 +199,7 @@ function readReviewedKnowledgePayload(
     validTo,
     reviewAt: readLifecycleField('review_at'),
     evidenceSelectors: readEvidenceSelectors(formData),
+    relations: readReviewedRelations(formData),
   };
 }
 
@@ -518,8 +538,8 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
     }
     if (syncGraph && relatedNodeId) {
       await createPrivateKnowledgeEdgeForUser(user.id, `personal:${item.id}`, relatedNodeId,
-        ['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to'].includes(relationType)
-          ? relationType as 'prerequisite' | 'related' | 'generalizes' | 'derived_from' | 'equivalent_to'
+        isKnowledgeRelationType(relationType)
+          ? relationType
           : 'related', relationDirection);
     }
 
@@ -645,8 +665,8 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
     }
   }
   if (result.rows[0] && syncGraph && relatedNodeId) {
-    const validRelation = ['prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to'].includes(relationType)
-      ? relationType as 'prerequisite' | 'related' | 'generalizes' | 'derived_from' | 'equivalent_to'
+    const validRelation: KnowledgeRelationType = isKnowledgeRelationType(relationType)
+      ? relationType
       : 'related';
     await createPrivateKnowledgeEdgeForUser(user.id, `personal:${itemId}`, relatedNodeId, validRelation, relationDirection);
   }

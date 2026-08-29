@@ -72,7 +72,7 @@ OAuth verifier.
 bundle has `title`, `central_question`, `summary`, `topic`, `tags`,
 `knowledge_type`, `structured_content`, and `bundle_schema_version: 1`.
 `tags` may be empty, while the other common text fields must be non-blank. The
-nine discriminators are:
+ten discriminators are:
 
 - `concept`: definition, key points, examples, non-examples, misconceptions;
 - `procedure`: goal, prerequisites, steps, branches, failure responses, completion criteria;
@@ -82,7 +82,8 @@ nine discriminators are:
 - `claim_evidence`: claim, sourced evidence, counterevidence, scope, limitations, confidence;
 - `question`: question, context, known facts, hypotheses, next steps, answer summary, open/answered status;
 - `decision`: decision, context, options/tradeoffs, criteria, rationale, reconsideration triggers, outcome; and
-- `event`: event, occurrence text, context, changes, causes, consequences.
+- `event`: event, occurrence text, optional BCE/CE chronology, context, changes, causes, consequences; and
+- `expression`: BCP 47 language, expression, pronunciation, meanings, translations, register, nuance, contexts, examples, contrasts, and common mistakes.
 
 ```json
 {
@@ -151,8 +152,10 @@ Input boundaries:
   transcript or silently revisit conversation history;
 - 1–50 cards per request;
 - relationship types are `prerequisite`, `related`, `generalizes`,
-  `derived_from`, `equivalent_to`, `supersedes`, `answers`, `supports`, and
-  `contradicts`;
+  `derived_from`, `equivalent_to`, `supersedes`, `answers`, `supports`,
+  `contradicts`, `causes`, `contributes_to`, `enables`, and `inhibits`;
+- proposed causal relationships require at least one valid
+  `evidence_selector_indexes` entry referring to evidence on the same draft;
 - optional evidence is selector-only (`message`, `text_position`,
   `line_range`, or `external_ref`); transcript text and excerpt fields are
   rejected;

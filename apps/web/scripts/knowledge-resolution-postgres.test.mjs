@@ -65,6 +65,7 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
         0.65,
         batchId,
         'explicit_user',
+        [],
       ]);
       assert.equal(inserted.rowCount, 1);
       assert.deepEqual((await pool.query(
@@ -118,6 +119,14 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
       [userId, targetItemId],
     )).rows[0]?.id;
     assert.ok(canonicalNodeId);
+    const existingEdgeId = `live-existing-edge-${crypto.randomUUID()}`;
+    await pool.query(
+      `INSERT INTO user_graph_edges (
+         id, user_id, source_private_node_id, target_public_node_id,
+         type, weight, origin, relation_origin, confirmed_at
+       ) VALUES ($1, $2, $3, $4, 'causes', 0.65, 'manual', 'explicit_user', NOW())`,
+      [existingEdgeId, userId, canonicalNodeId, publicNodeId],
+    );
 
     const mergeBatch = await createKnowledgeDraftBatchForUser(userId, {
       provider: 'chatgpt',
@@ -125,13 +134,21 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
       cards: [{
         title: 'Live merge candidate',
         topic: 'live-resolution',
+        proposedEvidence: [{
+          selectorType: 'message',
+          messageRef: 'live-duplicate-edge-evidence',
+          polarity: 'supports',
+          quality: 'high',
+          relationOrigin: 'explicit_user',
+        }],
         relations: [{
           targetKind: 'public',
           targetId: `graph_${publicNodeId}`,
-          type: 'supports',
+          type: 'causes',
           direction: 'outgoing',
           weight: 0.65,
           relationOrigin: 'explicit_user',
+          evidenceSelectorIndexes: [0],
         }],
       }],
     });
@@ -153,6 +170,8 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
         centralQuestion: null,
         structuredContent: null,
         bundleSchemaVersion: null,
+        evidenceSelectors: mergeDraft.proposed_evidence,
+        relations: mergeDraft.relations,
       },
     });
     assert.deepEqual(merged, {
@@ -181,22 +200,34 @@ test('PostgreSQL per-draft merge preserves lifecycle metadata and persists its r
     assert.equal(nodes.rowCount, 1);
     assert.equal(nodes.rows[0].id, canonicalNodeId);
     assert.deepEqual((await pool.query(
-      `SELECT source_private_node_id, source_public_node_id,
+      `SELECT id, source_private_node_id, source_public_node_id,
          target_private_node_id, target_public_node_id, type, weight, origin,
          source_batch_id, relation_origin
        FROM user_graph_edges
-       WHERE user_id = $1 AND source_batch_id = $2 AND deleted_at IS NULL`,
-      [userId, mergeBatch.batchId],
+       WHERE user_id = $1 AND deleted_at IS NULL`,
+      [userId],
     )).rows, [{
+      id: existingEdgeId,
       source_private_node_id: canonicalNodeId,
       source_public_node_id: null,
       target_private_node_id: null,
       target_public_node_id: publicNodeId,
-      type: 'supports',
+      type: 'causes',
       weight: 0.65,
-      origin: 'conversation',
-      source_batch_id: mergeBatch.batchId,
+      origin: 'manual',
+      source_batch_id: null,
       relation_origin: 'explicit_user',
+    }]);
+    assert.deepEqual((await pool.query(
+      `SELECT re.edge_id, s.selector
+       FROM knowledge_relation_evidence re
+       JOIN knowledge_evidence_spans s
+         ON s.id = re.evidence_span_id AND s.user_id = re.user_id
+       WHERE re.user_id = $1 AND re.edge_id = $2`,
+      [userId, existingEdgeId],
+    )).rows, [{
+      edge_id: existingEdgeId,
+      selector: { message_ref: 'live-duplicate-edge-evidence' },
     }]);
     assert.equal((await pool.query(
       `SELECT status FROM knowledge_card_drafts WHERE id = $1 AND user_id = $2`,

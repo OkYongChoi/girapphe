@@ -26,12 +26,12 @@ const BUNDLE_COPY: Record<Locale, {
 };
 
 const BUNDLE_FIELD_COPY: Record<Locale, Record<KnowledgeBundleType, string[]>> = {
-  en: { concept: ['Definition', 'Key points', 'Examples', 'Non-examples', 'Misconceptions :: corrections'], procedure: ['Goal', 'Prerequisites', 'Steps :: details', 'Branch condition :: action', 'Failure symptom :: response', 'Done when'], comparison: ['Targets', 'Criterion :: values separated by |', 'Commonalities', 'Differences', 'Choice condition :: recommendation'], mechanism: ['Causes', 'Process stage :: detail', 'Results', 'Conditions', 'Exceptions'], structure: ['Purpose', 'Components: id :: label :: role :: parent id', 'Relations: source id :: target id :: relationship', 'Boundaries'], claim_evidence: ['Claim', 'Evidence :: source', 'Counterevidence', 'Scope', 'Limitations', 'Confidence: low, medium, or high'], question: ['Question', 'Context', 'Known facts', 'Hypotheses', 'Next steps', 'Answer summary', 'Status: open or answered'], decision: ['Decision', 'Context', 'Option :: tradeoffs', 'Criteria', 'Rationale', 'Reconsider when', 'Outcome'], event: ['Event', 'Occurred at', 'Context', 'Changes', 'Causes', 'Consequences'] },
-  ja: { concept: ['定義', '要点', '例', '反例', '誤解 :: 訂正'], procedure: ['目標', '前提条件', '手順 :: 詳細', '分岐条件 :: 対応', '失敗症状 :: 対応', '完了条件'], comparison: ['比較対象', '基準 :: | で区切った値', '共通点', '相違点', '選択条件 :: 推奨'], mechanism: ['原因', '進行段階 :: 詳細', '結果', '条件', '例外'], structure: ['目的', '構成要素：ID :: 名前 :: 役割 :: 親ID', '関係：元ID :: 先ID :: 関係', '境界'], claim_evidence: ['主張', '根拠 :: 出典', '反証', '適用範囲', '限界', '確信度：low、medium、high'], question: ['質問', '背景', '既知の事実', '仮説', '次の手順', '回答の要約', '状態：open または answered'], decision: ['決定', '背景', '選択肢 :: トレードオフ', '基準', '理由', '再検討条件', '結果'], event: ['出来事', '発生日時', '背景', '変化', '原因', '結果'] },
-  'zh-CN': { concept: ['定义', '要点', '示例', '反例', '误解 :: 纠正'], procedure: ['目标', '前置条件', '步骤 :: 详情', '分支条件 :: 操作', '失败症状 :: 处理', '完成标准'], comparison: ['比较对象', '标准 :: 用 | 分隔的值', '共同点', '差异', '选择条件 :: 建议'], mechanism: ['原因', '过程阶段 :: 详情', '结果', '条件', '例外'], structure: ['目的', '组成部分：ID :: 名称 :: 角色 :: 父ID', '关系：源ID :: 目标ID :: 关系', '边界'], claim_evidence: ['主张', '证据 :: 来源', '反证', '范围', '限制', '可信度：low、medium、high'], question: ['问题', '背景', '已知事实', '假设', '下一步', '答案摘要', '状态：open 或 answered'], decision: ['决策', '背景', '选项 :: 权衡', '标准', '理由', '重新考虑的条件', '结果'], event: ['事件', '发生时间', '背景', '变化', '原因', '后果'] },
-  es: { concept: ['Definición', 'Puntos clave', 'Ejemplos', 'Contraejemplos', 'Error :: corrección'], procedure: ['Objetivo', 'Requisitos', 'Paso :: detalle', 'Condición de rama :: acción', 'Síntoma de fallo :: respuesta', 'Criterio de finalización'], comparison: ['Objetivos', 'Criterio :: valores separados por |', 'Similitudes', 'Diferencias', 'Condición :: recomendación'], mechanism: ['Causas', 'Etapa :: detalle', 'Resultados', 'Condiciones', 'Excepciones'], structure: ['Propósito', 'Componentes: id :: nombre :: función :: id superior', 'Relaciones: id origen :: id destino :: relación', 'Límites'], claim_evidence: ['Afirmación', 'Evidencia :: fuente', 'Contraevidencia', 'Alcance', 'Limitaciones', 'Confianza: low, medium o high'], question: ['Pregunta', 'Contexto', 'Hechos conocidos', 'Hipótesis', 'Próximos pasos', 'Resumen de la respuesta', 'Estado: open o answered'], decision: ['Decisión', 'Contexto', 'Opción :: contraprestaciones', 'Criterios', 'Justificación', 'Reconsiderar cuando', 'Resultado'], event: ['Evento', 'Ocurrió en', 'Contexto', 'Cambios', 'Causas', 'Consecuencias'] },
-  ar: { concept: ['التعريف', 'النقاط الأساسية', 'أمثلة', 'أمثلة مضادة', 'مفهوم خاطئ :: تصحيح'], procedure: ['الهدف', 'المتطلبات', 'الخطوة :: التفاصيل', 'شرط التفرع :: الإجراء', 'عرض الفشل :: الاستجابة', 'معيار الاكتمال'], comparison: ['عناصر المقارنة', 'المعيار :: قيم مفصولة بـ |', 'أوجه التشابه', 'الاختلافات', 'الشرط :: التوصية'], mechanism: ['الأسباب', 'المرحلة :: التفاصيل', 'النتائج', 'الشروط', 'الاستثناءات'], structure: ['الغرض', 'المكونات: المعرف :: الاسم :: الدور :: معرف الأصل', 'العلاقات: المصدر :: الهدف :: العلاقة', 'الحدود'], claim_evidence: ['الادعاء', 'الدليل :: المصدر', 'الدليل المضاد', 'النطاق', 'القيود', 'الثقة: low أو medium أو high'], question: ['السؤال', 'السياق', 'الحقائق المعروفة', 'الفرضيات', 'الخطوات التالية', 'ملخص الإجابة', 'الحالة: open أو answered'], decision: ['القرار', 'السياق', 'الخيار :: المفاضلات', 'المعايير', 'المبررات', 'إعادة النظر عند', 'النتيجة'], event: ['الحدث', 'وقت الحدوث', 'السياق', 'التغييرات', 'الأسباب', 'العواقب'] },
-  hi: { concept: ['परिभाषा', 'मुख्य बिंदु', 'उदाहरण', 'प्रतिउदाहरण', 'गलत धारणा :: सुधार'], procedure: ['लक्ष्य', 'पूर्वापेक्षाएँ', 'चरण :: विवरण', 'शाखा शर्त :: कार्रवाई', 'विफलता लक्षण :: प्रतिक्रिया', 'पूर्ण होने की शर्त'], comparison: ['तुलना लक्ष्य', 'मानदंड :: | से अलग मान', 'समानताएँ', 'अंतर', 'शर्त :: अनुशंसा'], mechanism: ['कारण', 'प्रक्रिया चरण :: विवरण', 'परिणाम', 'शर्तें', 'अपवाद'], structure: ['उद्देश्य', 'घटक: id :: नाम :: भूमिका :: parent id', 'संबंध: स्रोत id :: लक्ष्य id :: संबंध', 'सीमाएँ'], claim_evidence: ['दावा', 'प्रमाण :: स्रोत', 'विपरीत प्रमाण', 'दायरा', 'सीमाएँ', 'विश्वास: low, medium या high'], question: ['प्रश्न', 'संदर्भ', 'ज्ञात तथ्य', 'परिकल्पनाएँ', 'अगले कदम', 'उत्तर सारांश', 'स्थिति: open या answered'], decision: ['निर्णय', 'संदर्भ', 'विकल्प :: समझौते', 'मानदंड', 'तर्क', 'पुनर्विचार कब', 'परिणाम'], event: ['घटना', 'घटित होने का समय', 'संदर्भ', 'बदलाव', 'कारण', 'परिणाम'] },
+  en: { concept: ['Definition', 'Key points', 'Examples', 'Non-examples', 'Misconceptions :: corrections'], procedure: ['Goal', 'Prerequisites', 'Steps :: details', 'Branch condition :: action', 'Failure symptom :: response', 'Done when'], comparison: ['Targets', 'Criterion :: values separated by |', 'Commonalities', 'Differences', 'Choice condition :: recommendation'], mechanism: ['Causes', 'Process stage :: detail', 'Results', 'Conditions', 'Exceptions'], structure: ['Purpose', 'Components: id :: label :: role :: parent id', 'Relations: source id :: target id :: relationship', 'Boundaries'], claim_evidence: ['Claim', 'Evidence :: source', 'Counterevidence', 'Scope', 'Limitations', 'Confidence: low, medium, or high'], question: ['Question', 'Context', 'Known facts', 'Hypotheses', 'Next steps', 'Answer summary', 'Status: open or answered'], decision: ['Decision', 'Context', 'Option :: tradeoffs', 'Criteria', 'Rationale', 'Reconsider when', 'Outcome'], event: ['Event', 'Occurred at', 'Context', 'Changes', 'Causes', 'Consequences', 'Chronology: precision :: era :: year :: month :: day :: end era :: end year :: end month :: end day'], expression: ['Expression', 'Language tag', 'Pronunciation', 'Meanings', 'Translation language :: text', 'Register', 'Nuance', 'Usage contexts', 'Example JSON: ["text", "translation", "note"]', 'Contrasting expression :: difference', 'Common mistake :: correction'] },
+  ja: { concept: ['定義', '要点', '例', '反例', '誤解 :: 訂正'], procedure: ['目標', '前提条件', '手順 :: 詳細', '分岐条件 :: 対応', '失敗症状 :: 対応', '完了条件'], comparison: ['比較対象', '基準 :: | で区切った値', '共通点', '相違点', '選択条件 :: 推奨'], mechanism: ['原因', '進行段階 :: 詳細', '結果', '条件', '例外'], structure: ['目的', '構成要素：ID :: 名前 :: 役割 :: 親ID', '関係：元ID :: 先ID :: 関係', '境界'], claim_evidence: ['主張', '根拠 :: 出典', '反証', '適用範囲', '限界', '確信度：low、medium、high'], question: ['質問', '背景', '既知の事実', '仮説', '次の手順', '回答の要約', '状態：open または answered'], decision: ['決定', '背景', '選択肢 :: トレードオフ', '基準', '理由', '再検討条件', '結果'], event: ['出来事', '発生日時', '背景', '変化', '原因', '結果', '年代：精度 :: 紀元 :: 年 :: 月 :: 日 :: 終了紀元 :: 終了年 :: 終了月 :: 終了日'], expression: ['表現', '言語タグ', '発音', '意味', '翻訳言語 :: 文', '使用域', 'ニュアンス', '使用場面', '例文JSON：["本文", "翻訳", "注記"]', '対照表現 :: 違い', 'よくある誤り :: 訂正'] },
+  'zh-CN': { concept: ['定义', '要点', '示例', '反例', '误解 :: 纠正'], procedure: ['目标', '前置条件', '步骤 :: 详情', '分支条件 :: 操作', '失败症状 :: 处理', '完成标准'], comparison: ['比较对象', '标准 :: 用 | 分隔的值', '共同点', '差异', '选择条件 :: 建议'], mechanism: ['原因', '过程阶段 :: 详情', '结果', '条件', '例外'], structure: ['目的', '组成部分：ID :: 名称 :: 角色 :: 父ID', '关系：源ID :: 目标ID :: 关系', '边界'], claim_evidence: ['主张', '证据 :: 来源', '反证', '范围', '限制', '可信度：low、medium、high'], question: ['问题', '背景', '已知事实', '假设', '下一步', '答案摘要', '状态：open 或 answered'], decision: ['决策', '背景', '选项 :: 权衡', '标准', '理由', '重新考虑的条件', '结果'], event: ['事件', '发生时间', '背景', '变化', '原因', '后果', '年代：精度 :: 纪元 :: 年 :: 月 :: 日 :: 结束纪元 :: 结束年 :: 结束月 :: 结束日'], expression: ['表达', '语言标签', '发音', '含义', '翻译语言 :: 文本', '语域', '语气', '使用场景', '例句 JSON：["原文", "翻译", "注释"]', '对比表达 :: 差异', '常见错误 :: 纠正'] },
+  es: { concept: ['Definición', 'Puntos clave', 'Ejemplos', 'Contraejemplos', 'Error :: corrección'], procedure: ['Objetivo', 'Requisitos', 'Paso :: detalle', 'Condición de rama :: acción', 'Síntoma de fallo :: respuesta', 'Criterio de finalización'], comparison: ['Objetivos', 'Criterio :: valores separados por |', 'Similitudes', 'Diferencias', 'Condición :: recomendación'], mechanism: ['Causas', 'Etapa :: detalle', 'Resultados', 'Condiciones', 'Excepciones'], structure: ['Propósito', 'Componentes: id :: nombre :: función :: id superior', 'Relaciones: id origen :: id destino :: relación', 'Límites'], claim_evidence: ['Afirmación', 'Evidencia :: fuente', 'Contraevidencia', 'Alcance', 'Limitaciones', 'Confianza: low, medium o high'], question: ['Pregunta', 'Contexto', 'Hechos conocidos', 'Hipótesis', 'Próximos pasos', 'Resumen de la respuesta', 'Estado: open o answered'], decision: ['Decisión', 'Contexto', 'Opción :: contraprestaciones', 'Criterios', 'Justificación', 'Reconsiderar cuando', 'Resultado'], event: ['Evento', 'Ocurrió en', 'Contexto', 'Cambios', 'Causas', 'Consecuencias', 'Cronología: precisión :: era :: año :: mes :: día :: era final :: año final :: mes final :: día final'], expression: ['Expresión', 'Etiqueta de idioma', 'Pronunciación', 'Significados', 'Idioma de traducción :: texto', 'Registro', 'Matiz', 'Contextos de uso', 'Ejemplo JSON: ["texto", "traducción", "nota"]', 'Expresión contrastante :: diferencia', 'Error común :: corrección'] },
+  ar: { concept: ['التعريف', 'النقاط الأساسية', 'أمثلة', 'أمثلة مضادة', 'مفهوم خاطئ :: تصحيح'], procedure: ['الهدف', 'المتطلبات', 'الخطوة :: التفاصيل', 'شرط التفرع :: الإجراء', 'عرض الفشل :: الاستجابة', 'معيار الاكتمال'], comparison: ['عناصر المقارنة', 'المعيار :: قيم مفصولة بـ |', 'أوجه التشابه', 'الاختلافات', 'الشرط :: التوصية'], mechanism: ['الأسباب', 'المرحلة :: التفاصيل', 'النتائج', 'الشروط', 'الاستثناءات'], structure: ['الغرض', 'المكونات: المعرف :: الاسم :: الدور :: معرف الأصل', 'العلاقات: المصدر :: الهدف :: العلاقة', 'الحدود'], claim_evidence: ['الادعاء', 'الدليل :: المصدر', 'الدليل المضاد', 'النطاق', 'القيود', 'الثقة: low أو medium أو high'], question: ['السؤال', 'السياق', 'الحقائق المعروفة', 'الفرضيات', 'الخطوات التالية', 'ملخص الإجابة', 'الحالة: open أو answered'], decision: ['القرار', 'السياق', 'الخيار :: المفاضلات', 'المعايير', 'المبررات', 'إعادة النظر عند', 'النتيجة'], event: ['الحدث', 'وقت الحدوث', 'السياق', 'التغييرات', 'الأسباب', 'العواقب', 'التسلسل الزمني: الدقة :: العصر :: السنة :: الشهر :: اليوم :: عصر النهاية :: سنة النهاية :: شهر النهاية :: يوم النهاية'], expression: ['التعبير', 'وسم اللغة', 'النطق', 'المعاني', 'لغة الترجمة :: النص', 'السجل', 'الدلالة', 'سياقات الاستخدام', 'مثال JSON: ["النص", "الترجمة", "الملاحظة"]', 'تعبير مقابل :: الفرق', 'خطأ شائع :: تصحيح'] },
+  hi: { concept: ['परिभाषा', 'मुख्य बिंदु', 'उदाहरण', 'प्रतिउदाहरण', 'गलत धारणा :: सुधार'], procedure: ['लक्ष्य', 'पूर्वापेक्षाएँ', 'चरण :: विवरण', 'शाखा शर्त :: कार्रवाई', 'विफलता लक्षण :: प्रतिक्रिया', 'पूर्ण होने की शर्त'], comparison: ['तुलना लक्ष्य', 'मानदंड :: | से अलग मान', 'समानताएँ', 'अंतर', 'शर्त :: अनुशंसा'], mechanism: ['कारण', 'प्रक्रिया चरण :: विवरण', 'परिणाम', 'शर्तें', 'अपवाद'], structure: ['उद्देश्य', 'घटक: id :: नाम :: भूमिका :: parent id', 'संबंध: स्रोत id :: लक्ष्य id :: संबंध', 'सीमाएँ'], claim_evidence: ['दावा', 'प्रमाण :: स्रोत', 'विपरीत प्रमाण', 'दायरा', 'सीमाएँ', 'विश्वास: low, medium या high'], question: ['प्रश्न', 'संदर्भ', 'ज्ञात तथ्य', 'परिकल्पनाएँ', 'अगले कदम', 'उत्तर सारांश', 'स्थिति: open या answered'], decision: ['निर्णय', 'संदर्भ', 'विकल्प :: समझौते', 'मानदंड', 'तर्क', 'पुनर्विचार कब', 'परिणाम'], event: ['घटना', 'घटित होने का समय', 'संदर्भ', 'बदलाव', 'कारण', 'परिणाम', 'कालक्रम: शुद्धता :: युग :: वर्ष :: माह :: दिन :: अंतिम युग :: अंतिम वर्ष :: अंतिम माह :: अंतिम दिन'], expression: ['अभिव्यक्ति', 'भाषा टैग', 'उच्चारण', 'अर्थ', 'अनुवाद भाषा :: पाठ', 'रजिस्टर', 'सूक्ष्मता', 'प्रयोग संदर्भ', 'उदाहरण JSON: ["पाठ", "अनुवाद", "टिप्पणी"]', 'विपरीत अभिव्यक्ति :: अंतर', 'सामान्य गलती :: सुधार'] },
 };
 
 const CANDIDATE_INBOX_COPY: Record<Locale, string> = {
@@ -67,7 +67,7 @@ function NotesContent() {
   const [summary, setSummary] = useState('');
   const [knowledgeType, setKnowledgeType] = useState<KnowledgeBundleType | null>(null);
   const [centralQuestion, setCentralQuestion] = useState('');
-  const [bundleFields, setBundleFields] = useState<string[]>(['', '', '', '', '', '', '']);
+  const [bundleFields, setBundleFields] = useState<string[]>(Array(11).fill(''));
   const [query, setQuery] = useState('');
   const [selectedTopic, setSelectedTopic] = useState('all');
   const [sortBy, setSortBy] = useState<'created' | 'updated' | 'title'>('created');
@@ -88,7 +88,7 @@ function NotesContent() {
 
   function resetEditor() {
     setTitle(''); setTopic(''); setContent(''); setTags(''); setSummary(''); setKnowledgeType(null);
-    setCentralQuestion(''); setBundleFields(['', '', '', '', '', '', '']);
+    setCentralQuestion(''); setBundleFields(Array(11).fill(''));
     setEditing(null);
   }
 
@@ -132,11 +132,11 @@ function NotesContent() {
     setBundleFields(mobileKnowledgeBundleEditValues(note.structured_content, note.content));
   }
   function chooseType(nextType: KnowledgeBundleType | null) {
-    if (nextType !== knowledgeType) setBundleFields([!knowledgeType && content.trim() ? content : bundleFields[0] ?? '', '', '', '', '', '', '']);
+    if (nextType !== knowledgeType) setBundleFields([!knowledgeType && content.trim() ? content : bundleFields[0] ?? '', ...Array(10).fill('')]);
     setKnowledgeType(nextType);
   }
   function updateBundleField(index: number, value: string) {
-    setBundleFields((current) => current.map((field, fieldIndex) => fieldIndex === index ? value : field));
+    setBundleFields((current) => Array.from({ length: 11 }, (_, fieldIndex) => fieldIndex === index ? value : current[fieldIndex] ?? ''));
   }
   const topics = Array.from(new Set(items.map((item) => item.topic))).sort();
   const visibleItems = items.filter((item) => {
@@ -173,27 +173,32 @@ function NotesContent() {
               {knowledgeType ? (
                 <>
                   <TextInput accessibilityLabel={BUNDLE_COPY[locale].question} value={centralQuestion} onChangeText={setCentralQuestion} placeholder={BUNDLE_COPY[locale].questionPlaceholder} style={styles.input} />
-                  {BUNDLE_FIELD_COPY[locale][knowledgeType].map((label, index) => knowledgeType === 'question' && index === 6 ? (
-                    <View key="question-status" style={styles.statusEditor}>
-                      <Text style={styles.fieldLabel}>{label}</Text>
-                      <View style={styles.typeGrid}>
-                        {(['open', 'answered'] as const).map((status) => {
-                          const selected = (bundleFields[6] || 'open') === status;
-                          return <Pressable key={status} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => updateBundleField(6, status)} style={[styles.typeButton, selected && styles.typeButtonActive]}><Text style={[styles.typeButtonText, selected && styles.typeButtonTextActive]}>{knowledgeBundleQuestionStatusLabel(locale, status)}</Text></Pressable>;
-                        })}
+                  {BUNDLE_FIELD_COPY[locale][knowledgeType].map((label, index) => {
+                    const fieldLabel = knowledgeType === 'expression' && [4, 9, 10].includes(index)
+                      ? `${label} · ["…", "…"]`
+                      : label;
+                    return knowledgeType === 'question' && index === 6 ? (
+                      <View key="question-status" style={styles.statusEditor}>
+                        <Text style={styles.fieldLabel}>{fieldLabel}</Text>
+                        <View style={styles.typeGrid}>
+                          {(['open', 'answered'] as const).map((status) => {
+                            const selected = (bundleFields[6] || 'open') === status;
+                            return <Pressable key={status} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => updateBundleField(6, status)} style={[styles.typeButton, selected && styles.typeButtonActive]}><Text style={[styles.typeButtonText, selected && styles.typeButtonTextActive]}>{knowledgeBundleQuestionStatusLabel(locale, status)}</Text></Pressable>;
+                          })}
+                        </View>
                       </View>
-                    </View>
-                  ) : (
-                    <TextInput
-                      key={`${knowledgeType}-${index}`}
-                      accessibilityLabel={label}
-                      value={bundleFields[index] ?? ''}
-                      onChangeText={(value) => updateBundleField(index, value)}
-                      placeholder={`${label} · ${BUNDLE_COPY[locale].lines}`}
-                      multiline
-                      style={[styles.input, styles.contentInput]}
-                    />
-                  ))}
+                    ) : (
+                      <TextInput
+                        key={`${knowledgeType}-${index}`}
+                        accessibilityLabel={fieldLabel}
+                        value={bundleFields[index] ?? ''}
+                        onChangeText={(value) => updateBundleField(index, value)}
+                        placeholder={`${fieldLabel} · ${BUNDLE_COPY[locale].lines}`}
+                        multiline
+                        style={[styles.input, styles.contentInput]}
+                      />
+                    );
+                  })}
                 </>
               ) : (
                 <TextInput accessibilityLabel={t('notes.contentPlaceholder')} value={content} onChangeText={setContent} placeholder={t('notes.contentPlaceholder')} multiline style={[styles.input, styles.contentInput]} />

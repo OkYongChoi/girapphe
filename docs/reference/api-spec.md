@@ -119,16 +119,27 @@ review batches and cannot approve or publish cards. See
 [MCP card-draft ingestion](./mcp-card-ingestion.md) for the strict input schema,
 review boundary, and client compatibility notes.
 
+The path is exempt from Clerk cookie authentication because remote MCP clients
+do not carry a browser session. The route still verifies its own PAT or OAuth
+bearer token before reading a request body. Per-credential and per-user quotas
+bound writes; OAuth discovery metadata is public under `/.well-known/`.
+
+## `/api/mobile`
+
 Authenticated mobile `notes`, `graph`, and `practice` payloads preserve the
 legacy flat fields and may additionally include `knowledge_type`,
 `central_question`, `structured_content`, and `bundle_schema_version`. Mobile
 create/update requests accept the same fields, reject invalid version-one
 bundles, and keep quick notes untyped.
 
-The path is exempt from Clerk cookie authentication because remote MCP clients
-do not carry a browser session. The route still verifies its own PAT or OAuth
-bearer token before reading a request body. Per-credential and per-user quotas
-bound writes; OAuth discovery metadata is public under `/.well-known/`.
+New mobile clients send
+`X-Girapphe-Knowledge-Capabilities: expression-v1,event-chronology-v1,causal-relations-v1`.
+When the header is absent, expression bundles are projected to legacy flat
+content, structured event chronology is omitted, and causal relation rows are
+filtered. This keeps older installed clients compatible without weakening the
+server-side version-one validation. An older client receives `409`
+`KNOWLEDGE_CAPABILITY_REQUIRED` instead of overwriting an expression or dated
+event whose hidden structured fields it cannot preserve.
 
 ## Billing and entitlement endpoints
 

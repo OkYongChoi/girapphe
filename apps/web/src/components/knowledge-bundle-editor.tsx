@@ -4,10 +4,18 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   createEmptyKnowledgeBundleContent,
   createKnowledgeBundleContentFromLegacy,
+  EVENT_TIME_PRECISIONS,
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
   KNOWLEDGE_BUNDLE_TYPES,
+  parseExpressionBundleExamples,
+  parseStringTuplePairs,
+  serializeExpressionBundleExamples,
+  serializeStringTuplePairs,
   type KnowledgeBundleContent,
   type KnowledgeBundleType,
+  type EventChronology,
+  type ExpressionBundleExample,
+  type HistoricalTimePoint,
 } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 import type { Translate } from '@/i18n/core';
@@ -37,6 +45,55 @@ function pairLines(value: string, left: string, right: string) {
 function listValue(values: string[]) { return values.join('\n'); }
 function pairValue(values: Array<Record<string, unknown>>, left: string, right: string) {
   return values.map((item) => `${String(item[left] ?? '')} :: ${String(item[right] ?? '')}`).join('\n');
+}
+
+function ExpressionExamplesArea({ examples, onChange, t }: {
+  examples: ExpressionBundleExample[];
+  onChange: (examples: ExpressionBundleExample[]) => void;
+  t: Translate;
+}) {
+  const [draft, setDraft] = useState(() => serializeExpressionBundleExamples(examples));
+  return (
+    <label className="grid gap-1 text-xs font-medium text-slate-700">
+      {t('bundle.field.examples')}
+      <textarea
+        className={areaClass}
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          onChange(parseExpressionBundleExamples(event.target.value));
+        }}
+      />
+      <span className="font-normal text-slate-500">{t('bundle.exampleTupleHelp')}</span>
+    </label>
+  );
+}
+
+function TuplePairsArea({ label, pairs, onChange, t }: {
+  label: string;
+  pairs: Array<[string, string]>;
+  onChange: (pairs: Array<[string, string]>) => void;
+  t: Translate;
+}) {
+  const [draft, setDraft] = useState(() => serializeStringTuplePairs(pairs));
+  return (
+    <label className="grid gap-1 text-xs font-medium text-slate-700">
+      {label}
+      <textarea
+        className={areaClass}
+        value={draft}
+        onChange={(event) => {
+          const nextDraft = event.target.value;
+          const nextPairs = parseStringTuplePairs(nextDraft);
+          const valid = nextPairs.every(([left, right]) => Boolean(left && right));
+          event.currentTarget.setCustomValidity(valid ? '' : t('bundle.pairTupleHelp'));
+          setDraft(nextDraft);
+          if (valid) onChange(nextPairs);
+        }}
+      />
+      <span className="font-normal text-slate-500">{t('bundle.pairTupleHelp')}</span>
+    </label>
+  );
 }
 
 export default function KnowledgeBundleEditor({
@@ -104,10 +161,10 @@ function BundleFields({ content, update, t }: {
   update: (value: KnowledgeBundleContent) => void;
   t: Translate;
 }) {
-  const area = (label: string, value: string, onChange: (value: string) => void, help?: string) => (
+  const area = (label: string, value: string, onChange: (value: string) => void, help?: string, required = false) => (
     <label className="grid gap-1 text-xs font-medium text-slate-700">
       {label}
-      <textarea className={areaClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <textarea required={required} className={areaClass} value={value} onChange={(event) => onChange(event.target.value)} />
       {help ? <span className="font-normal text-slate-500">{help}</span> : null}
     </label>
   );
@@ -177,10 +234,64 @@ function BundleFields({ content, update, t }: {
     case 'event': return <>
       {area(t('bundle.field.event'), content.event, (value) => update({ ...content, event: value }))}
       {area(t('bundle.field.occurredAt'), content.occurred_at, (value) => update({ ...content, occurred_at: value }))}
+      <ChronologyFields
+        value={content.chronology}
+        onChange={(chronology) => update({ ...content, ...(chronology ? { chronology } : { chronology: undefined }) })}
+        t={t}
+      />
       {area(t('bundle.field.context'), content.context, (value) => update({ ...content, context: value }))}
       {area(t('bundle.field.changes'), listValue(content.changes), (value) => update({ ...content, changes: textLines(value) }))}
       {area(t('bundle.field.causes'), listValue(content.causes), (value) => update({ ...content, causes: textLines(value) }))}
       {area(t('bundle.field.consequences'), listValue(content.consequences), (value) => update({ ...content, consequences: textLines(value) }))}
     </>;
+    case 'expression': return <>
+      {area(t('bundle.field.expression'), content.expression, (value) => update({ ...content, expression: value }))}
+      {area(t('bundle.field.language'), content.language, (value) => update({ ...content, language: value }), undefined, true)}
+      {area(t('bundle.field.pronunciation'), content.pronunciation, (value) => update({ ...content, pronunciation: value }))}
+      {area(t('bundle.field.meanings'), listValue(content.meanings), (value) => update({ ...content, meanings: textLines(value) }))}
+      <TuplePairsArea label={t('bundle.field.translations')} pairs={content.translations.map((item) => [item.language, item.text])} onChange={(pairs) => update({ ...content, translations: pairs.map(([language, text]) => ({ language, text })) })} t={t} />
+      {area(t('bundle.field.register'), content.register, (value) => update({ ...content, register: value }))}
+      {area(t('bundle.field.nuance'), content.nuance, (value) => update({ ...content, nuance: value }))}
+      {area(t('bundle.field.usageContexts'), listValue(content.usage_contexts), (value) => update({ ...content, usage_contexts: textLines(value) }))}
+      <ExpressionExamplesArea examples={content.examples} onChange={(examples) => update({ ...content, examples })} t={t} />
+      <TuplePairsArea label={t('bundle.field.contrasts')} pairs={content.contrasts.map((item) => [item.expression, item.difference])} onChange={(pairs) => update({ ...content, contrasts: pairs.map(([expression, difference]) => ({ expression, difference })) })} t={t} />
+      <TuplePairsArea label={t('bundle.field.commonMistakes')} pairs={content.common_mistakes.map((item) => [item.incorrect, item.correction])} onChange={(pairs) => update({ ...content, common_mistakes: pairs.map(([incorrect, correction]) => ({ incorrect, correction })) })} t={t} />
+    </>;
   }
+}
+
+function ChronologyFields({ value, onChange, t }: {
+  value?: EventChronology;
+  onChange: (value?: EventChronology) => void;
+  t: Translate;
+}) {
+  const point = (label: string, current: HistoricalTimePoint, updatePoint: (point: HistoricalTimePoint) => void) => (
+    <fieldset className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-4">
+      <legend className="px-1 text-xs font-bold text-slate-700">{label}</legend>
+      <label className="grid gap-1 text-xs text-slate-600">{t('bundle.field.era')}<select className={fieldClass} value={current.era} onChange={(event) => updatePoint({ ...current, era: event.target.value as 'bce' | 'ce' })}><option value="ce">CE</option><option value="bce">BCE</option></select></label>
+      <label className="grid gap-1 text-xs text-slate-600">{t('bundle.field.year')}<input className={fieldClass} type="number" min={1} max={999999} value={current.year} onChange={(event) => updatePoint({ ...current, year: Math.max(1, Number(event.target.value) || 1) })} /></label>
+      <label className="grid gap-1 text-xs text-slate-600">{t('bundle.field.month')}<input className={fieldClass} type="number" min={1} max={12} value={current.month ?? ''} onChange={(event) => { const month = Number(event.target.value); updatePoint({ ...current, ...(month ? { month } : { month: undefined, day: undefined }) }); }} /></label>
+      <label className="grid gap-1 text-xs text-slate-600">{t('bundle.field.day')}<input className={fieldClass} type="number" min={1} max={31} disabled={!current.month} value={current.day ?? ''} onChange={(event) => { const day = Number(event.target.value); updatePoint({ ...current, ...(day ? { day } : { day: undefined }) }); }} /></label>
+    </fieldset>
+  );
+
+  return (
+    <fieldset className="grid gap-3 rounded-lg border border-cyan-100 bg-cyan-50/50 p-3">
+      <legend className="px-1 text-xs font-bold text-cyan-900">{t('bundle.field.chronology')}</legend>
+      <label className="grid gap-1 text-xs font-medium text-slate-700">
+        {t('bundle.field.precision')}
+        <select className={fieldClass} value={value?.precision ?? ''} onChange={(event) => {
+          const precision = event.target.value as EventChronology['precision'] | '';
+          if (!precision) { onChange(undefined); return; }
+          const start = value?.start ?? { year: 1, era: 'ce' as const };
+          onChange({ start, ...(precision === 'range' ? { end: value?.end ?? start } : {}), precision });
+        }}>
+          <option value="">—</option>
+          {EVENT_TIME_PRECISIONS.map((precision) => <option key={precision} value={precision}>{precision}</option>)}
+        </select>
+      </label>
+      {value ? point(t('bundle.field.start'), value.start, (start) => onChange({ ...value, start })) : null}
+      {value?.precision === 'range' && value.end ? point(t('bundle.field.end'), value.end, (end) => onChange({ ...value, end })) : null}
+    </fieldset>
+  );
 }

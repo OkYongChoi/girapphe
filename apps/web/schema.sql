@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS user_knowledge_items (
     OR (
       knowledge_type IN (
         'concept', 'procedure', 'comparison', 'mechanism', 'structure',
-        'claim_evidence', 'question', 'decision', 'event'
+        'claim_evidence', 'question', 'decision', 'event', 'expression'
       )
       AND central_question IS NOT NULL AND btrim(central_question) <> ''
       AND jsonb_typeof(structured_content) = 'object'
@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS knowledge_card_drafts (
     OR (
       knowledge_type IN (
         'concept', 'procedure', 'comparison', 'mechanism', 'structure',
-        'claim_evidence', 'question', 'decision', 'event'
+        'claim_evidence', 'question', 'decision', 'event', 'expression'
       )
       AND central_question IS NOT NULL AND btrim(central_question) <> ''
       AND jsonb_typeof(structured_content) = 'object'
@@ -358,7 +358,8 @@ CREATE TABLE IF NOT EXISTS user_graph_edges (
   CONSTRAINT user_graph_edges_type_check CHECK (
     type IN (
       'prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to',
-      'supersedes', 'answers', 'supports', 'contradicts'
+      'supersedes', 'answers', 'supports', 'contradicts',
+      'causes', 'contributes_to', 'enables', 'inhibits'
     )
   )
 );
@@ -511,6 +512,30 @@ CREATE TABLE IF NOT EXISTS knowledge_evidence_spans (
     )
   )
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_graph_edges_id_user
+ON user_graph_edges(id, user_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_evidence_spans_id_user
+ON knowledge_evidence_spans(id, user_id);
+
+CREATE TABLE IF NOT EXISTS knowledge_relation_evidence (
+  edge_id TEXT NOT NULL,
+  evidence_span_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT knowledge_relation_evidence_pk PRIMARY KEY (edge_id, evidence_span_id),
+  CONSTRAINT knowledge_relation_evidence_edge_owner_fk
+    FOREIGN KEY (edge_id, user_id) REFERENCES user_graph_edges(id, user_id) ON DELETE CASCADE,
+  CONSTRAINT knowledge_relation_evidence_span_owner_fk
+    FOREIGN KEY (evidence_span_id, user_id) REFERENCES knowledge_evidence_spans(id, user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_relation_evidence_user_edge
+ON knowledge_relation_evidence(user_id, edge_id);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_relation_evidence_user_span
+ON knowledge_relation_evidence(user_id, evidence_span_id);
 
 -- Approved conversation cards keep their practice state separate from the
 -- shared knowledge_cards catalogue. The composite foreign key prevents a state

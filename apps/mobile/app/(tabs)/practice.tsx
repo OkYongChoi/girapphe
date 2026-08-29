@@ -7,7 +7,7 @@ import { TranslationFallbackNotice } from '@/components/translation-fallback-not
 import { mobileApi, type MobileCard } from '@/api';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
-import { knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
+import { expressionHasReverseRecallCue, expressionRecallCue, expressionRecallDirectionLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, type ExpressionRecallDirection } from '@/knowledge-bundle-ui';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
 import {
   getNodeExplanation,
@@ -242,11 +242,13 @@ function SyncedPracticeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [cardAdvanceCount, setCardAdvanceCount] = useState(0);
   const [showSponsoredCard, setShowSponsoredCard] = useState(false);
+  const [expressionDirection, setExpressionDirection] = useState<ExpressionRecallDirection>('forward');
 
   const load = useCallback(async (nextMode: 'new' | 'review', exclude: string[]) => {
     setLoading(true);
     setError(null);
     setIsRevealed(false);
+    setExpressionDirection('forward');
     try {
       const result = await mobileApi.practice(nextMode, exclude);
       setCard(result.card);
@@ -304,6 +306,10 @@ function SyncedPracticeScreen() {
     void load(nextMode, []);
   }
 
+  const expressionContent = card?.structured_content?.type === 'expression' ? card.structured_content : null;
+  const expressionCue = expressionContent ? expressionRecallCue(expressionContent, locale, expressionDirection) : '';
+  const hasExpressionReverseCue = expressionContent ? expressionHasReverseRecallCue(expressionContent) : false;
+
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -336,8 +342,9 @@ function SyncedPracticeScreen() {
                 <Text style={styles.difficultyText}>{localizeLevel(locale, card.level)}</Text>
               </View>
               {card.knowledge_type ? <Text style={styles.bundleBadge}>{knowledgeBundleTypeLabel(locale, card.knowledge_type)}</Text> : null}
-              <Text style={styles.cardTitle}>{card.title}</Text>
-              <Text style={styles.cardSummary}>{card.central_question || card.summary}</Text>
+              <Text style={styles.cardTitle}>{expressionContent && !isRevealed ? expressionCue : card.title}</Text>
+              {!expressionContent || isRevealed ? <Text style={styles.cardSummary}>{card.central_question || card.summary}</Text> : null}
+              {expressionContent && hasExpressionReverseCue && !isRevealed ? <View style={styles.expressionDirectionRow}>{(['forward', 'reverse'] as const).map((value) => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: expressionDirection === value }} onPress={() => setExpressionDirection(value)} style={[styles.expressionDirectionButton, expressionDirection === value && styles.expressionDirectionButtonActive]}><Text style={[styles.expressionDirectionText, expressionDirection === value && styles.expressionDirectionTextActive]}>{expressionRecallDirectionLabel(locale, value)}</Text></Pressable>)}</View> : null}
               {!isRevealed && card.knowledge_type ? <Text style={styles.recallPrompt}>{knowledgeBundleRecallPrompt(locale, card.knowledge_type)}</Text> : null}
               <TranslationFallbackNotice dark translation={card} />
               {isRevealed ? (
@@ -562,6 +569,34 @@ const styles = StyleSheet.create({
     color: '#d7dee8',
     fontSize: 16,
     lineHeight: 24,
+  },
+  expressionDirectionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 14,
+  },
+  expressionDirectionButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#64748b',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  expressionDirectionButtonActive: {
+    borderColor: '#c4b5fd',
+    backgroundColor: '#4c1d95',
+  },
+  expressionDirectionText: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  expressionDirectionTextActive: {
+    color: '#ffffff',
   },
   recallPrompt: {
     color: '#c4b5fd',

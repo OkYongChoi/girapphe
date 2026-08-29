@@ -1,7 +1,12 @@
 import {
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
+  EVENT_TIME_PRECISIONS,
+  historicalTimePointKey,
+  isKnowledgeLanguageTag,
   isKnowledgeBundleType,
   projectKnowledgeBundleContent,
+  type EventChronology,
+  type HistoricalTimePoint,
   type KnowledgeBundleContent,
   type KnowledgeBundleType,
 } from '@stem-brain/shared';
@@ -54,6 +59,42 @@ function pair(
   const leftValue = text(item[left], 500, true);
   const rightValue = text(item[right], rightMax, rightRequired);
   return leftValue === null || rightValue === null ? null : { [left]: leftValue, [right]: rightValue };
+}
+
+function integer(value: unknown, minimum: number, maximum: number): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum
+    ? value
+    : null;
+}
+
+function daysInHistoricalMonth(year: number, era: 'bce' | 'ce', month: number) {
+  if (month === 2) {
+    const astronomicalYear = era === 'bce' ? 1 - year : year;
+    const leap = astronomicalYear % 4 === 0 && (astronomicalYear % 100 !== 0 || astronomicalYear % 400 === 0);
+    return leap ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
+function parseHistoricalTimePoint(value: unknown): HistoricalTimePoint | null {
+  const item = objectWithKeys(value, ['year', 'era', 'month', 'day']);
+  if (!item || (item.era !== 'bce' && item.era !== 'ce')) return null;
+  const year = integer(item.year, 1, 999_999);
+  const month = item.month === undefined ? undefined : integer(item.month, 1, 12);
+  const day = item.day === undefined ? undefined : integer(item.day, 1, 31);
+  if (year === null || month === null || day === null || (day !== undefined && month === undefined)) return null;
+  if (day !== undefined && month !== undefined && day > daysInHistoricalMonth(year, item.era, month)) return null;
+  return { year, era: item.era, ...(month !== undefined ? { month } : {}), ...(day !== undefined ? { day } : {}) };
+}
+
+function parseEventChronology(value: unknown): EventChronology | null {
+  const item = objectWithKeys(value, ['start', 'end', 'precision']);
+  if (!item || !EVENT_TIME_PRECISIONS.includes(item.precision as EventChronology['precision'])) return null;
+  const start = parseHistoricalTimePoint(item.start);
+  const end = item.end === undefined ? undefined : parseHistoricalTimePoint(item.end);
+  if (!start || end === null || (item.precision === 'range') !== Boolean(end)) return null;
+  if (end && historicalTimePointKey(end) < historicalTimePointKey(start)) return null;
+  return { start, ...(end ? { end } : {}), precision: item.precision as EventChronology['precision'] };
 }
 
 function parseContent(value: unknown): KnowledgeBundleContent | null {
@@ -196,16 +237,69 @@ function parseContent(value: unknown): KnowledgeBundleContent | null {
       return { type, decision, context, options: options as Array<{ name: string; tradeoffs: string }>, criteria, rationale, reconsider_when: reconsiderWhen, outcome };
     }
     case 'event': {
-      const item = objectWithKeys(value, ['type', 'event', 'occurred_at', 'context', 'changes', 'causes', 'consequences']);
+      const item = objectWithKeys(value, ['type', 'event', 'occurred_at', 'chronology', 'context', 'changes', 'causes', 'consequences']);
       if (!item) return null;
       const event = text(item.event, 4000);
       const occurredAt = text(item.occurred_at, 500);
+      const chronology = item.chronology === undefined ? undefined : parseEventChronology(item.chronology);
       const context = text(item.context, 4000);
       const changes = textList(item.changes, 24, 6000);
       const causes = textList(item.causes, 24, 6000);
       const consequences = textList(item.consequences, 24, 6000);
-      if (event === null || occurredAt === null || context === null || !changes || !causes || !consequences) return null;
-      return { type, event, occurred_at: occurredAt, context, changes, causes, consequences };
+      if (event === null || occurredAt === null || chronology === null || context === null || !changes || !causes || !consequences) return null;
+      return { type, event, occurred_at: occurredAt, ...(chronology ? { chronology } : {}), context, changes, causes, consequences };
+    }
+    case 'expression': {
+      const item = objectWithKeys(value, [
+        'type', 'expression', 'language', 'pronunciation', 'meanings', 'translations', 'register', 'nuance',
+        'usage_contexts', 'examples', 'contrasts', 'common_mistakes',
+      ]);
+      if (!item) return null;
+      const expression = text(item.expression, 4000);
+      const language = text(item.language, 255, true);
+      const pronunciation = text(item.pronunciation, 500);
+      const meanings = textList(item.meanings, 24, 6000);
+      const translations = records(item.translations, 24, (entry) => {
+        const translation = objectWithKeys(entry, ['language', 'text']);
+        if (!translation) return null;
+        const targetLanguage = text(translation.language, 255, true);
+        const translatedText = text(translation.text, 4000, true);
+        return targetLanguage && isKnowledgeLanguageTag(targetLanguage) && translatedText
+          ? { language: targetLanguage, text: translatedText }
+          : null;
+      });
+      const register = text(item.register, 500);
+      const nuance = text(item.nuance, 4000);
+      const usageContexts = textList(item.usage_contexts, 24, 6000);
+      const examples = records(item.examples, 24, (entry) => {
+        const example = objectWithKeys(entry, ['text', 'translation', 'note']);
+        if (!example) return null;
+        const exampleText = text(example.text, 4000, true);
+        const translation = example.translation === undefined ? undefined : text(example.translation, 4000, true);
+        const note = example.note === undefined ? undefined : text(example.note, 4000, true);
+        return exampleText && translation !== null && note !== null
+          ? { text: exampleText, ...(translation ? { translation } : {}), ...(note ? { note } : {}) }
+          : null;
+      });
+      const contrasts = records(item.contrasts, 24, (entry) => pair(entry, 'expression', 'difference'));
+      const commonMistakes = records(item.common_mistakes, 24, (entry) => pair(entry, 'incorrect', 'correction'));
+      if (expression === null || language === null || !isKnowledgeLanguageTag(language)
+        || pronunciation === null || !meanings || !translations || register === null || nuance === null
+        || !usageContexts || !examples || !contrasts || !commonMistakes) return null;
+      return {
+        type,
+        expression,
+        language,
+        pronunciation,
+        meanings,
+        translations,
+        register,
+        nuance,
+        usage_contexts: usageContexts,
+        examples,
+        contrasts: contrasts as Array<{ expression: string; difference: string }>,
+        common_mistakes: commonMistakes as Array<{ incorrect: string; correction: string }>,
+      };
     }
   }
 }

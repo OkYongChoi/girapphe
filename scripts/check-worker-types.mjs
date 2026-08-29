@@ -20,7 +20,17 @@ try {
 
   const result = spawnSync(
     'pnpm',
-    ['exec', 'wrangler', 'types', 'worker-configuration.d.ts', '--env-interface', 'CloudflareEnv', '--check'],
+    [
+      'exec',
+      'wrangler',
+      'types',
+      'worker-configuration.d.ts',
+      '--env-interface',
+      'CloudflareEnv',
+      '--env-file',
+      '.worker-types.env',
+      '--check',
+    ],
     {
       cwd: webDirectory,
       encoding: 'utf8',

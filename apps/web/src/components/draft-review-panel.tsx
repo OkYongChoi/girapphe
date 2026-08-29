@@ -26,6 +26,10 @@ const RELATION_TYPES = [
   'answers',
   'supports',
   'contradicts',
+  'causes',
+  'contributes_to',
+  'enables',
+  'inhibits',
 ] as const;
 
 type DraftLinkTarget = {
@@ -40,6 +44,7 @@ type EditableRelation = {
   type: (typeof RELATION_TYPES)[number];
   direction: 'outgoing' | 'incoming';
   weight: number;
+  evidenceSelectorIndexes: number[];
 };
 
 type DraftReviewPanelProps = {
@@ -141,6 +146,7 @@ function readRelations(record: Record<string, unknown>): EditableRelation[] {
     if (!targetId) return [];
     const rawTargetKind = relation.target_kind ?? relation.targetKind;
     const weight = Number(relation.weight);
+    const evidenceSelectorIndexes = (relation.evidence_selector_indexes ?? relation.evidenceSelectorIndexes);
     return [{
       targetId,
       targetKind: rawTargetKind === 'draft' || rawTargetKind === 'private' || rawTargetKind === 'public'
@@ -149,6 +155,9 @@ function readRelations(record: Record<string, unknown>): EditableRelation[] {
       type: normalizeRelationType(relation.type ?? relation.relation_type),
       direction: relation.direction === 'incoming' ? 'incoming' : 'outgoing',
       weight: Number.isFinite(weight) && weight >= 0.05 && weight <= 1 ? weight : 1,
+      evidenceSelectorIndexes: Array.isArray(evidenceSelectorIndexes)
+        ? [...new Set(evidenceSelectorIndexes.filter((index): index is number => Number.isInteger(index) && index >= 0))]
+        : [],
     }];
   });
 }
@@ -186,6 +195,7 @@ function DraftRelationsEditor({
           type: relation.type,
           direction: relation.direction,
           weight: relation.weight,
+          evidence_selector_indexes: relation.evidenceSelectorIndexes,
         })))}
       />
       {relations.length === 0 ? (
@@ -195,7 +205,7 @@ function DraftRelationsEditor({
       ) : (
         <div className="space-y-2">
           {relations.map((relation, index) => (
-            <div key={`${draftId}-${index}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_8rem_7rem_auto]">
+            <div key={`${draftId}-${index}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_8rem_7rem_9rem_auto]">
               <label className="sr-only" htmlFor={`${draftId}-relation-target-${index}`}>Relationship target</label>
               <input
                 id={`${draftId}-relation-target-${index}`}
@@ -208,6 +218,23 @@ function DraftRelationsEditor({
                     : item));
                 }}
                 placeholder="graph_concept_id or personal:item-id"
+                className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              <label className="sr-only" htmlFor={`${draftId}-relation-evidence-${index}`}>Evidence selector indexes</label>
+              <input
+                id={`${draftId}-relation-evidence-${index}`}
+                value={relation.evidenceSelectorIndexes.join(', ')}
+                onChange={(event) => {
+                  onDirty();
+                  const indexes = [...new Set(event.target.value.split(',')
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                    .map(Number)
+                    .filter((value) => Number.isInteger(value) && value >= 0))];
+                  setRelations((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, evidenceSelectorIndexes: indexes } : item));
+                }}
+                placeholder="Evidence: 0, 1"
+                title="Zero-based evidence selector indexes. Causal relationships require at least one."
                 className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               />
               <label className="sr-only" htmlFor={`${draftId}-relation-type-${index}`}>Relationship type</label>
@@ -284,6 +311,7 @@ function DraftRelationsEditor({
             type: 'related',
             direction: 'outgoing',
             weight: 1,
+            evidenceSelectorIndexes: [],
           }]);
         }}
         className="mt-3 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
@@ -478,12 +506,24 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
     return required;
   }, [dependencyMap, effectiveSelectedIds]);
   const selectedDirtyCount = [...dirtyIds].filter((id) => effectiveSelectedIds.has(id)).length;
+  const causalReviewRequiredIds = useMemo(() => new Set(drafts.flatMap((draft) => {
+    const record = asRecord(draft);
+    const id = readString(record, 'id', 'draft_id');
+    return id && readRelations(record).some((relation) => (
+      relation.type === 'causes' || relation.type === 'contributes_to'
+      || relation.type === 'enables' || relation.type === 'inhibits'
+    )) ? [id] : [];
+  })), [drafts]);
+  const selectedCausalReviewCount = [...causalReviewRequiredIds]
+    .filter((id) => effectiveSelectedIds.has(id)).length;
 
   const finishApproval = async (formData: FormData) => {
     setApprovalError(null);
     const result = await approveKnowledgeDrafts(formData);
     if (result.approved === 0) {
-      setApprovalError('No cards were added. This batch may have changed in another session; reload it before approving again.');
+      setApprovalError(result.requiresEvidenceReview
+        ? 'Causal relationships require a detailed review of their evidence. Open each highlighted candidate with Review resolution, choose its evidence, and save it there.'
+        : 'No cards were added. This batch may have changed in another session; reload it before approving again.');
       router.refresh();
       return;
     }
@@ -533,6 +573,11 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
             <p className="mt-1 text-xs text-slate-500">
               {t('inbox.fastSaveBody')}
             </p>
+            {causalReviewRequiredIds.size > 0 ? (
+              <p className="mt-1 text-xs font-semibold text-amber-700">
+                {causalReviewRequiredIds.size} causal candidate{causalReviewRequiredIds.size === 1 ? '' : 's'} must be opened with Review resolution so you can inspect and choose the supporting evidence before approval.
+              </p>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -540,7 +585,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
               <input type="hidden" name="batch_id" value={batchId} />
               <input type="hidden" name="draft_versions" value={JSON.stringify(draftVersions)} />
               {[...effectiveSelectedIds].map((id) => <input key={id} type="hidden" name="draft_id" value={id} />)}
-              <SelectionSubmitButton count={effectiveSelectedIds.size} blocked={selectedDirtyCount > 0} />
+              <SelectionSubmitButton count={effectiveSelectedIds.size} blocked={selectedDirtyCount > 0 || selectedCausalReviewCount > 0} />
             </form>
 
             <form action={finishApproval}>
@@ -551,7 +596,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
                 label={t('inbox.saveBatch')}
                 loadingLabel={t('inbox.savingBatch')}
                 confirmMessage={t('inbox.saveBatchConfirm', { count: drafts.length, provider })}
-                blocked={dirtyIds.size > 0}
+                blocked={dirtyIds.size > 0 || causalReviewRequiredIds.size > 0}
                 className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
               />
             </form>

@@ -109,6 +109,66 @@ test('batch duplicate suggestions match the owner-scoped single-draft contract',
   }
 });
 
+test('cross-topic relationship views retain the reviewed evidence selector', async () => {
+  const userId = `user_cross_topic_evidence_${crypto.randomUUID()}`;
+  const target = createMemoryKnowledgeItemForUser(userId, {
+    title: 'Effect in another topic',
+    content: 'The effect belongs to a different topic.',
+    topic: 'Effects',
+  });
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'chatgpt',
+    requestId: `cross-topic-evidence-${crypto.randomUUID()}`,
+    cards: [{
+      title: 'Cross-topic cause',
+      topic: 'Causes',
+      proposedEvidence: [{
+        selectorType: 'message',
+        messageRef: 'cross-topic-message',
+        polarity: 'supports',
+        quality: 'high',
+        relationOrigin: 'explicit_user',
+      }],
+      relations: [{
+        targetKind: 'private',
+        targetId: target.id,
+        type: 'causes',
+        relationOrigin: 'explicit_user',
+        evidenceSelectorIndexes: [0],
+      }],
+    }],
+  });
+  const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  assert.equal((await resolveKnowledgeDraftForUser(userId, {
+    batchId: created.batchId,
+    draftId: draft.id,
+    expectedDraftVersion: draft.version,
+    action: 'create',
+    reviewed: {
+      title: draft.title,
+      summary: draft.summary,
+      content: draft.explanation,
+      topic: draft.topic,
+      tags: draft.tags,
+      knowledgeType: draft.knowledge_type,
+      centralQuestion: draft.central_question,
+      structuredContent: draft.structured_content,
+      bundleSchemaVersion: draft.bundle_schema_version,
+      evidenceSelectors: draft.proposed_evidence,
+      relations: draft.relations,
+    },
+  })).resolved, true);
+
+  const oppositeTopicHub = await getTopicKnowledgeHubForUser(userId, 'Effects');
+  assert.equal(oppositeTopicHub.relations.length, 1);
+  assert.equal(oppositeTopicHub.evidence_selectors.length, 1);
+  assert.equal(
+    oppositeTopicHub.evidence_selectors[0]?.id,
+    oppositeTopicHub.relations[0]?.evidence_span_ids[0],
+  );
+  assert.deepEqual(oppositeTopicHub.evidence_selectors[0]?.selector, { message_ref: 'cross-topic-message' });
+});
+
 test('merge requires both optimistic versions and writes reviewed history, provenance, and selector-only evidence', async () => {
   const userId = `user_resolution_merge_${crypto.randomUUID()}`;
   const target = createMemoryKnowledgeItemForUser(userId, {
@@ -420,6 +480,73 @@ test('PostgreSQL topic queries exclude inactive relation endpoints and retain on
   const summaryQuery = queries.find((query) => query.includes('WITH active_items AS'));
   assert.ok(summaryQuery);
   assert.match(summaryQuery, /i\.purge_at IS NULL OR i\.purge_at > NOW\(\)/u);
+});
+
+test('PostgreSQL topic hubs load selectors referenced by cross-topic relations', async () => {
+  const originalQuery = db.query;
+  const now = '2026-08-29T00:00:00.000Z';
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string, params?: unknown[]) => {
+    if (text.includes('ORDER BY i.updated_at DESC, i.id') && text.includes('LIMIT $6')) {
+      return { rows: [{
+        id: 'topic-item',
+        title: 'Topic item',
+        summary: '',
+        content: 'Topic content',
+        topic: 'effects',
+        tags: [],
+        knowledge_type: null,
+        central_question: null,
+        structured_content: null,
+        bundle_schema_version: null,
+        version: 1,
+        created_at: now,
+        updated_at: now,
+      }] };
+    }
+    if (text.includes('FROM user_graph_edges e')) {
+      return { rows: [{
+        id: 'cross-topic-edge',
+        source: 'personal:other-topic-item',
+        target: 'personal:topic-item',
+        type: 'causes',
+        origin: 'conversation',
+        relation_origin: 'explicit_user',
+        confirmed_at: now,
+        evidence_span_ids: ['cross-topic-evidence'],
+      }] };
+    }
+    if (text.includes('FROM knowledge_evidence_spans')) {
+      assert.deepEqual(params, ['database-cross-topic-user', ['topic-item'], ['cross-topic-evidence']]);
+      assert.match(text, /WITH referenced_evidence AS/u);
+      assert.match(text, /WHERE user_id = \$1 AND id = ANY\(\$3::text\[\]\)/u);
+      assert.match(text, /topic_evidence AS/u);
+      assert.match(text, /AND NOT \(id = ANY\(\$3::text\[\]\)\)[\s\S]*LIMIT 1000/u);
+      assert.match(text, /SELECT \* FROM referenced_evidence[\s\S]*UNION ALL[\s\S]*SELECT \* FROM topic_evidence/u);
+      return { rows: [{
+        id: 'cross-topic-evidence',
+        knowledge_item_id: 'other-topic-item',
+        source_id: 'other-topic-source',
+        selector_type: 'message',
+        selector: { message_ref: 'cross-topic-message' },
+        polarity: 'supports',
+        quality: 'high',
+        relation_origin: 'explicit_user',
+        confirmed_at: now,
+        created_at: now,
+      }] };
+    }
+    return { rows: [] };
+  }) as typeof db.query;
+  try {
+    const hub = await getTopicKnowledgeHubForUser('database-cross-topic-user', 'Effects');
+    assert.deepEqual(hub.relations[0]?.evidence_span_ids, ['cross-topic-evidence']);
+    assert.equal(hub.evidence_selectors[0]?.id, 'cross-topic-evidence');
+    assert.deepEqual(hub.evidence_selectors[0]?.selector, { message_ref: 'cross-topic-message' });
+  } finally {
+    db.query = originalQuery;
+    delete process.env.DATABASE_URL;
+  }
 });
 
 test('a moved replacement preserves the old topic audit trail without exposing it in an explicit context pack', async () => {

@@ -8,6 +8,7 @@ export const KNOWLEDGE_BUNDLE_TYPES = [
   'question',
   'decision',
   'event',
+  'expression',
 ] as const;
 
 export type KnowledgeBundleType = (typeof KNOWLEDGE_BUNDLE_TYPES)[number];
@@ -99,11 +100,93 @@ export type EventBundleContent = {
   type: 'event';
   event: string;
   occurred_at: string;
+  chronology?: EventChronology;
   context: string;
   changes: string[];
   causes: string[];
   consequences: string[];
 };
+
+export const EVENT_TIME_PRECISIONS = [
+  'exact',
+  'day',
+  'month',
+  'year',
+  'decade',
+  'century',
+  'approximate',
+  'range',
+] as const;
+
+export type EventTimePrecision = (typeof EVENT_TIME_PRECISIONS)[number];
+
+export type HistoricalTimePoint = {
+  year: number;
+  era: 'bce' | 'ce';
+  month?: number;
+  day?: number;
+};
+
+export type EventChronology = {
+  start: HistoricalTimePoint;
+  end?: HistoricalTimePoint;
+  precision: EventTimePrecision;
+};
+
+export type ExpressionBundleExample = { text: string; translation?: string; note?: string };
+
+export type ExpressionBundleContent = {
+  type: 'expression';
+  expression: string;
+  language: string;
+  pronunciation: string;
+  meanings: string[];
+  translations: Array<{ language: string; text: string }>;
+  register: string;
+  nuance: string;
+  usage_contexts: string[];
+  examples: ExpressionBundleExample[];
+  contrasts: Array<{ expression: string; difference: string }>;
+  common_mistakes: Array<{ incorrect: string; correction: string }>;
+};
+
+export function parseExpressionBundleExamples(value: string): ExpressionBundleExample[] {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (Array.isArray(parsed) && parsed.length >= 1 && parsed.length <= 3 && parsed.every((item) => typeof item === 'string') && parsed[0].trim()) {
+        const [text, translation = '', note = ''] = parsed;
+        return { text, ...(translation ? { translation } : {}), ...(note ? { note } : {}) };
+      }
+    } catch {
+      // Plain lines remain literal example text, including any "::" delimiters.
+    }
+    return { text: line };
+  });
+}
+
+export function serializeExpressionBundleExamples(examples: ExpressionBundleExample[]): string {
+  return examples.map((item) => JSON.stringify([item.text, item.translation ?? '', item.note ?? ''])).join('\n');
+}
+
+export function parseStringTuplePairs(value: string): Array<[string, string]> {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (Array.isArray(parsed) && parsed.length === 2 && parsed.every((item) => typeof item === 'string')) {
+        return [parsed[0], parsed[1]];
+      }
+    } catch {
+      // Retain the legacy "left :: right" input format for compatibility.
+    }
+    const [left = '', ...rest] = line.split('::');
+    return [left.trim(), rest.join('::').trim()];
+  });
+}
+
+export function serializeStringTuplePairs(pairs: ReadonlyArray<readonly [string, string]>): string {
+  return pairs.map((pair) => JSON.stringify(pair)).join('\n');
+}
 
 export type KnowledgeBundleContent =
   | ConceptBundleContent
@@ -114,7 +197,8 @@ export type KnowledgeBundleContent =
   | ClaimEvidenceBundleContent
   | QuestionBundleContent
   | DecisionBundleContent
-  | EventBundleContent;
+  | EventBundleContent
+  | ExpressionBundleContent;
 
 export type KnowledgeBundleV1 = {
   title: string;
@@ -151,6 +235,21 @@ export function createEmptyKnowledgeBundleContent(type: KnowledgeBundleType): Kn
       return { type, decision: '', context: '', options: [], criteria: [], rationale: [], reconsider_when: [], outcome: '' };
     case 'event':
       return { type, event: '', occurred_at: '', context: '', changes: [], causes: [], consequences: [] };
+    case 'expression':
+      return {
+        type,
+        expression: '',
+        language: '',
+        pronunciation: '',
+        meanings: [],
+        translations: [],
+        register: '',
+        nuance: '',
+        usage_contexts: [],
+        examples: [],
+        contrasts: [],
+        common_mistakes: [],
+      };
   }
 }
 
@@ -177,6 +276,7 @@ export function createKnowledgeBundleContentFromLegacy(
     case 'question': return { ...empty, question: content };
     case 'decision': return { ...empty, decision: content };
     case 'event': return { ...empty, event: content };
+    case 'expression': return { ...empty, expression: content };
   }
 }
 
@@ -310,10 +410,97 @@ export function projectKnowledgeBundleContent(
         lines('Consequences', content.consequences),
       );
       break;
+    case 'expression':
+      fallbackSummary = content.meanings[0] || content.translations[0]?.text || content.expression || '';
+      sections.push(
+        content.expression ? ['Expression', content.expression] : [],
+        content.language ? ['Language', content.language] : [],
+        content.pronunciation ? ['Pronunciation', content.pronunciation] : [],
+        lines('Meanings', content.meanings),
+        content.translations.length > 0
+          ? ['Translations', ...content.translations.map((item) => `- ${item.language}: ${item.text}`)]
+          : [],
+        content.register ? ['Register', content.register] : [],
+        content.nuance ? ['Nuance', content.nuance] : [],
+        lines('Usage contexts', content.usage_contexts),
+        content.examples.length > 0
+          ? ['Examples', ...content.examples.map((item) => `- ${item.text}${item.translation ? ` -> ${item.translation}` : ''}${item.note ? ` (${item.note})` : ''}`)]
+          : [],
+        content.contrasts.length > 0
+          ? ['Contrasts', ...content.contrasts.map((item) => `- ${item.expression}: ${item.difference}`)]
+          : [],
+        content.common_mistakes.length > 0
+          ? ['Common mistakes', ...content.common_mistakes.map((item) => `- ${item.incorrect} -> ${item.correction}`)]
+          : [],
+      );
+      break;
   }
 
   return {
     summary: preferredSummary.trim() || fallbackSummary.trim(),
     content: sections.filter((section) => section.length > 0).map((section) => section.join('\n')).join('\n\n'),
   };
+}
+
+const GRANDFATHERED_LANGUAGE_TAGS = new Set([
+  'art-lojban', 'cel-gaulish', 'en-gb-oed', 'i-ami', 'i-bnn', 'i-default', 'i-enochian',
+  'i-hak', 'i-klingon', 'i-lux', 'i-mingo', 'i-navajo', 'i-pwn', 'i-tao', 'i-tay',
+  'i-tsu', 'no-bok', 'no-nyn', 'sgn-be-fr', 'sgn-be-nl', 'sgn-ch-de', 'zh-guoyu',
+  'zh-hakka', 'zh-min', 'zh-min-nan', 'zh-xiang',
+]);
+
+export function isKnowledgeLanguageTag(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length < 2 || value.length > 255) return false;
+  const normalized = value.toLowerCase();
+  if (GRANDFATHERED_LANGUAGE_TAGS.has(normalized)) return true;
+
+  const subtags = normalized.split('-');
+  if (subtags.some((subtag) => !/^[a-z0-9]{1,8}$/.test(subtag))) return false;
+  if (subtags[0] === 'x') return subtags.length > 1;
+
+  const language = subtags[0] ?? '';
+  if (!/^[a-z]{2,8}$/.test(language)) return false;
+  let index = 1;
+  if (language.length <= 3) {
+    let extlangCount = 0;
+    while (extlangCount < 3 && /^[a-z]{3}$/.test(subtags[index] ?? '')) {
+      extlangCount += 1;
+      index += 1;
+    }
+  }
+  if (/^[a-z]{4}$/.test(subtags[index] ?? '')) index += 1;
+  if (/^(?:[a-z]{2}|[0-9]{3})$/.test(subtags[index] ?? '')) index += 1;
+
+  const variants = new Set<string>();
+  while (/^(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3})$/.test(subtags[index] ?? '')) {
+    const variant = subtags[index]!;
+    if (variants.has(variant)) return false;
+    variants.add(variant);
+    index += 1;
+  }
+
+  const extensionSingletons = new Set<string>();
+  while (/^[0-9a-wy-z]$/.test(subtags[index] ?? '')) {
+    const singleton = subtags[index]!;
+    if (extensionSingletons.has(singleton)) return false;
+    extensionSingletons.add(singleton);
+    index += 1;
+    const extensionStart = index;
+    while (/^[a-z0-9]{2,8}$/.test(subtags[index] ?? '')) index += 1;
+    if (index === extensionStart) return false;
+  }
+
+  if (subtags[index] === 'x') {
+    index += 1;
+    const privateUseStart = index;
+    while (/^[a-z0-9]{1,8}$/.test(subtags[index] ?? '')) index += 1;
+    if (index === privateUseStart) return false;
+  }
+  return index === subtags.length;
+}
+
+/** Converts BCE/CE points to one monotonically increasing integer without relying on Date parsing. */
+export function historicalTimePointKey(point: HistoricalTimePoint): number {
+  const astronomicalYear = point.era === 'bce' ? 1 - point.year : point.year;
+  return astronomicalYear * 372 + ((point.month ?? 1) - 1) * 31 + ((point.day ?? 1) - 1);
 }

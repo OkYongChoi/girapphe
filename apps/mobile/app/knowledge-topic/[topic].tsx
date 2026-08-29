@@ -6,8 +6,8 @@ import { AuthRequired } from '@/components/auth-required';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
 import { mobileApi, type MobileTopicHub } from '@/api';
 import { useI18n } from '@/i18n';
-import { knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
-import { eventTimelineDate } from '@/knowledge-topic';
+import { eventChronologyLabel, knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
+import { eventTimelineSortKey } from '@/knowledge-topic';
 
 type TopicCopy = {
   back: string;
@@ -20,6 +20,7 @@ type TopicCopy = {
   knowledge: string;
   relationships: string;
   timeline: string;
+  recentActivity: string;
   sources: string;
   noOpen: string;
   noRelations: string;
@@ -33,24 +34,26 @@ type TopicCopy = {
   updated: string;
   verified: string;
   observedEvent: string;
+  undated: string;
+  evidence: string;
 };
 
 const COPY: Record<Locale, TopicCopy> = {
-  en: { back: 'Back', workspace: 'Topic workspace', confirmed: 'Confirmed', open: 'Open', decisions: 'Decisions', events: 'Events', openQuestions: 'Open questions', knowledge: 'Confirmed knowledge', relationships: 'Relationships', timeline: 'Timeline', sources: 'Source locations', noOpen: 'No unresolved questions.', noRelations: 'No confirmed relationships yet.', noSources: 'No imported source locations.', confirmedByYou: 'Confirmed by you', openSource: 'Open source location', retry: 'Try again', heroBody: 'Approved knowledge, unresolved questions, time, relationships, and provenance in one compact view.', confirmedNotice: 'These items were approved by you. Extracted and model-inferred relationships remain labeled.', next: 'Next', updated: 'Updated', verified: 'Verified', observedEvent: 'Observed event' },
-  ja: { back: '戻る', workspace: 'トピックワークスペース', confirmed: '確認済み', open: '未解決', decisions: '決定', events: '出来事', openQuestions: '未解決の質問', knowledge: '確認済みナレッジ', relationships: '関係', timeline: 'タイムライン', sources: '参照元', noOpen: '未解決の質問はありません。', noRelations: '確認済みの関係はありません。', noSources: 'インポート元はありません。', confirmedByYou: 'あなたが確認', openSource: '参照元を開く', retry: '再試行', heroBody: '承認済みナレッジ、未解決の質問、時系列、関係、出典をコンパクトに確認できます。', confirmedNotice: 'これらはあなたが承認した項目です。出典から抽出・モデル推論された関係にはラベルが表示されます。', next: '次', updated: '更新', verified: '検証', observedEvent: '観測イベント' },
-  'zh-CN': { back: '返回', workspace: '主题工作区', confirmed: '已确认', open: '未解决', decisions: '决策', events: '事件', openQuestions: '待解决问题', knowledge: '已确认知识', relationships: '关系', timeline: '时间线', sources: '来源位置', noOpen: '没有待解决问题。', noRelations: '尚无已确认关系。', noSources: '没有导入来源。', confirmedByYou: '由你确认', openSource: '打开来源', retry: '重试', heroBody: '在一个紧凑视图中查看已批准知识、未解决问题、时间、关系和来源。', confirmedNotice: '这些项目由你批准。来源提取和模型推断的关系会保留清晰标签。', next: '下一步', updated: '更新于', verified: '已核验', observedEvent: '观测事件' },
-  es: { back: 'Volver', workspace: 'Espacio del tema', confirmed: 'Confirmado', open: 'Abiertas', decisions: 'Decisiones', events: 'Eventos', openQuestions: 'Preguntas abiertas', knowledge: 'Conocimiento confirmado', relationships: 'Relaciones', timeline: 'Cronología', sources: 'Ubicaciones de origen', noOpen: 'No hay preguntas sin resolver.', noRelations: 'Aún no hay relaciones confirmadas.', noSources: 'No hay fuentes importadas.', confirmedByYou: 'Confirmado por ti', openSource: 'Abrir fuente', retry: 'Reintentar', heroBody: 'Conocimiento aprobado, preguntas abiertas, tiempo, relaciones y procedencia en una vista compacta.', confirmedNotice: 'Estos elementos fueron aprobados por ti. Las relaciones extraídas o inferidas por el modelo conservan su etiqueta.', next: 'Siguiente', updated: 'Actualizado', verified: 'Verificado', observedEvent: 'Evento observado' },
-  ar: { back: 'رجوع', workspace: 'مساحة الموضوع', confirmed: 'مؤكد', open: 'مفتوحة', decisions: 'قرارات', events: 'أحداث', openQuestions: 'أسئلة مفتوحة', knowledge: 'المعرفة المؤكدة', relationships: 'العلاقات', timeline: 'الخط الزمني', sources: 'مواقع المصادر', noOpen: 'لا توجد أسئلة معلقة.', noRelations: 'لا توجد علاقات مؤكدة بعد.', noSources: 'لا توجد مصادر مستوردة.', confirmedByYou: 'أكدتها أنت', openSource: 'فتح المصدر', retry: 'إعادة المحاولة', heroBody: 'المعرفة المعتمدة والأسئلة المفتوحة والزمن والعلاقات والمصدر في عرض موجز واحد.', confirmedNotice: 'اعتمدت هذه العناصر بنفسك. وتظل العلاقات المستخرجة أو المستنتجة من النموذج موسومة بوضوح.', next: 'التالي', updated: 'حُدّث', verified: 'تم التحقق', observedEvent: 'حدث مرصود' },
-  hi: { back: 'वापस', workspace: 'विषय कार्यक्षेत्र', confirmed: 'पुष्ट', open: 'खुले', decisions: 'निर्णय', events: 'घटनाएँ', openQuestions: 'खुले प्रश्न', knowledge: 'पुष्ट ज्ञान', relationships: 'संबंध', timeline: 'समयरेखा', sources: 'स्रोत स्थान', noOpen: 'कोई अनसुलझा प्रश्न नहीं।', noRelations: 'अभी कोई पुष्ट संबंध नहीं।', noSources: 'कोई आयातित स्रोत नहीं।', confirmedByYou: 'आपने पुष्टि की', openSource: 'स्रोत खोलें', retry: 'फिर प्रयास करें', heroBody: 'स्वीकृत ज्ञान, अनसुलझे प्रश्न, समय, संबंध और स्रोत एक संक्षिप्त दृश्य में।', confirmedNotice: 'इन आइटम को आपने स्वीकृत किया है। स्रोत से निकाले और मॉडल द्वारा अनुमानित संबंध स्पष्ट लेबल के साथ रहते हैं।', next: 'अगला', updated: 'अपडेट', verified: 'सत्यापित', observedEvent: 'देखी गई घटना' },
+  en: { back: 'Back', workspace: 'Topic workspace', confirmed: 'Confirmed', open: 'Open', decisions: 'Decisions', events: 'Events', openQuestions: 'Open questions', knowledge: 'Confirmed knowledge', relationships: 'Relationships', timeline: 'Timeline', recentActivity: 'Recent activity', sources: 'Source locations', noOpen: 'No unresolved questions.', noRelations: 'No confirmed relationships yet.', noSources: 'No imported source locations.', confirmedByYou: 'Confirmed by you', openSource: 'Open source location', retry: 'Try again', heroBody: 'Approved knowledge, unresolved questions, time, relationships, and provenance in one compact view.', confirmedNotice: 'These items were approved by you. Extracted and model-inferred relationships remain labeled.', next: 'Next', updated: 'Updated', verified: 'Verified', observedEvent: 'Observed event', undated: 'Date unknown', evidence: 'Evidence' },
+  ja: { back: '戻る', workspace: 'トピックワークスペース', confirmed: '確認済み', open: '未解決', decisions: '決定', events: '出来事', openQuestions: '未解決の質問', knowledge: '確認済みナレッジ', relationships: '関係', timeline: 'タイムライン', recentActivity: '最近のアクティビティ', sources: '参照元', noOpen: '未解決の質問はありません。', noRelations: '確認済みの関係はありません。', noSources: 'インポート元はありません。', confirmedByYou: 'あなたが確認', openSource: '参照元を開く', retry: '再試行', heroBody: '承認済みナレッジ、未解決の質問、時系列、関係、出典をコンパクトに確認できます。', confirmedNotice: 'これらはあなたが承認した項目です。出典から抽出・モデル推論された関係にはラベルが表示されます。', next: '次', updated: '更新', verified: '検証', observedEvent: '観測イベント', undated: '年代不明', evidence: '根拠' },
+  'zh-CN': { back: '返回', workspace: '主题工作区', confirmed: '已确认', open: '未解决', decisions: '决策', events: '事件', openQuestions: '待解决问题', knowledge: '已确认知识', relationships: '关系', timeline: '时间线', recentActivity: '近期活动', sources: '来源位置', noOpen: '没有待解决问题。', noRelations: '尚无已确认关系。', noSources: '没有导入来源。', confirmedByYou: '由你确认', openSource: '打开来源', retry: '重试', heroBody: '在一个紧凑视图中查看已批准知识、未解决问题、时间、关系和来源。', confirmedNotice: '这些项目由你批准。来源提取和模型推断的关系会保留清晰标签。', next: '下一步', updated: '更新于', verified: '已核验', observedEvent: '观测事件', undated: '日期未知', evidence: '证据' },
+  es: { back: 'Volver', workspace: 'Espacio del tema', confirmed: 'Confirmado', open: 'Abiertas', decisions: 'Decisiones', events: 'Eventos', openQuestions: 'Preguntas abiertas', knowledge: 'Conocimiento confirmado', relationships: 'Relaciones', timeline: 'Cronología', recentActivity: 'Actividad reciente', sources: 'Ubicaciones de origen', noOpen: 'No hay preguntas sin resolver.', noRelations: 'Aún no hay relaciones confirmadas.', noSources: 'No hay fuentes importadas.', confirmedByYou: 'Confirmado por ti', openSource: 'Abrir fuente', retry: 'Reintentar', heroBody: 'Conocimiento aprobado, preguntas abiertas, tiempo, relaciones y procedencia en una vista compacta.', confirmedNotice: 'Estos elementos fueron aprobados por ti. Las relaciones extraídas o inferidas por el modelo conservan su etiqueta.', next: 'Siguiente', updated: 'Actualizado', verified: 'Verificado', observedEvent: 'Evento observado', undated: 'Fecha desconocida', evidence: 'Evidencia' },
+  ar: { back: 'رجوع', workspace: 'مساحة الموضوع', confirmed: 'مؤكد', open: 'مفتوحة', decisions: 'قرارات', events: 'أحداث', openQuestions: 'أسئلة مفتوحة', knowledge: 'المعرفة المؤكدة', relationships: 'العلاقات', timeline: 'الخط الزمني', recentActivity: 'النشاط الأخير', sources: 'مواقع المصادر', noOpen: 'لا توجد أسئلة معلقة.', noRelations: 'لا توجد علاقات مؤكدة بعد.', noSources: 'لا توجد مصادر مستوردة.', confirmedByYou: 'أكدتها أنت', openSource: 'فتح المصدر', retry: 'إعادة المحاولة', heroBody: 'المعرفة المعتمدة والأسئلة المفتوحة والزمن والعلاقات والمصدر في عرض موجز واحد.', confirmedNotice: 'اعتمدت هذه العناصر بنفسك. وتظل العلاقات المستخرجة أو المستنتجة من النموذج موسومة بوضوح.', next: 'التالي', updated: 'حُدّث', verified: 'تم التحقق', observedEvent: 'حدث مرصود', undated: 'التاريخ غير معروف', evidence: 'الدليل' },
+  hi: { back: 'वापस', workspace: 'विषय कार्यक्षेत्र', confirmed: 'पुष्ट', open: 'खुले', decisions: 'निर्णय', events: 'घटनाएँ', openQuestions: 'खुले प्रश्न', knowledge: 'पुष्ट ज्ञान', relationships: 'संबंध', timeline: 'समयरेखा', recentActivity: 'हाल की गतिविधि', sources: 'स्रोत स्थान', noOpen: 'कोई अनसुलझा प्रश्न नहीं।', noRelations: 'अभी कोई पुष्ट संबंध नहीं।', noSources: 'कोई आयातित स्रोत नहीं।', confirmedByYou: 'आपने पुष्टि की', openSource: 'स्रोत खोलें', retry: 'फिर प्रयास करें', heroBody: 'स्वीकृत ज्ञान, अनसुलझे प्रश्न, समय, संबंध और स्रोत एक संक्षिप्त दृश्य में।', confirmedNotice: 'इन आइटम को आपने स्वीकृत किया है। स्रोत से निकाले और मॉडल द्वारा अनुमानित संबंध स्पष्ट लेबल के साथ रहते हैं।', next: 'अगला', updated: 'अपडेट', verified: 'सत्यापित', observedEvent: 'देखी गई घटना', undated: 'तिथि अज्ञात', evidence: 'प्रमाण' },
 };
 
 const TOKEN_LABELS: Record<Locale, Record<string, string>> = {
-  en: { confirmed: 'Confirmed', connected: 'Connected', verified: 'Verified', reused: 'Reused', revised: 'Revised', superseded: 'Superseded', archived: 'Archived', restored: 'Restored', related: 'related', prerequisite: 'prerequisite', generalizes: 'generalizes', derived_from: 'derived from', equivalent_to: 'equivalent to', supersedes: 'supersedes', answers: 'answers', supports: 'supports', contradicts: 'contradicts', explicit_user: 'explicitly confirmed', extracted_from_source: 'extracted from source', model_inferred: 'model inferred' },
-  ja: { confirmed: '確認済み', connected: '接続済み', verified: '検証済み', reused: '再利用', revised: '改訂', superseded: '置換済み', archived: 'アーカイブ済み', restored: '復元済み', related: '関連', prerequisite: '前提', generalizes: '一般化', derived_from: '派生元', equivalent_to: '同等', supersedes: '置換', answers: '回答', supports: '支持', contradicts: '反証', explicit_user: 'ユーザーが明示確認', extracted_from_source: '出典から抽出', model_inferred: 'モデル推論' },
-  'zh-CN': { confirmed: '已确认', connected: '已连接', verified: '已核验', reused: '已复用', revised: '已修订', superseded: '已取代', archived: '已归档', restored: '已恢复', related: '相关', prerequisite: '前置条件', generalizes: '概括', derived_from: '派生自', equivalent_to: '等同于', supersedes: '取代', answers: '回答', supports: '支持', contradicts: '反驳', explicit_user: '用户明确确认', extracted_from_source: '从来源提取', model_inferred: '模型推断' },
-  es: { confirmed: 'Confirmado', connected: 'Conectado', verified: 'Verificado', reused: 'Reutilizado', revised: 'Revisado', superseded: 'Sustituido', archived: 'Archivado', restored: 'Restaurado', related: 'relacionado', prerequisite: 'requisito', generalizes: 'generaliza', derived_from: 'derivado de', equivalent_to: 'equivalente a', supersedes: 'sustituye', answers: 'responde', supports: 'respalda', contradicts: 'contradice', explicit_user: 'confirmado explícitamente', extracted_from_source: 'extraído de la fuente', model_inferred: 'inferido por el modelo' },
-  ar: { confirmed: 'مؤكد', connected: 'مرتبط', verified: 'تم التحقق', reused: 'أعيد استخدامه', revised: 'منقح', superseded: 'مستبدل', archived: 'مؤرشف', restored: 'مستعاد', related: 'مرتبط', prerequisite: 'متطلب سابق', generalizes: 'يعمم', derived_from: 'مشتق من', equivalent_to: 'مكافئ لـ', supersedes: 'يستبدل', answers: 'يجيب عن', supports: 'يدعم', contradicts: 'يناقض', explicit_user: 'تأكيد صريح من المستخدم', extracted_from_source: 'مستخرج من المصدر', model_inferred: 'استدلال النموذج' },
-  hi: { confirmed: 'पुष्ट', connected: 'जुड़ा', verified: 'सत्यापित', reused: 'दोबारा उपयोग', revised: 'संशोधित', superseded: 'प्रतिस्थापित', archived: 'संग्रहीत', restored: 'बहाल', related: 'संबंधित', prerequisite: 'पूर्वापेक्षा', generalizes: 'सामान्यीकृत करता है', derived_from: 'से व्युत्पन्न', equivalent_to: 'के बराबर', supersedes: 'प्रतिस्थापित करता है', answers: 'उत्तर देता है', supports: 'समर्थन करता है', contradicts: 'खंडन करता है', explicit_user: 'उपयोगकर्ता द्वारा स्पष्ट पुष्टि', extracted_from_source: 'स्रोत से निकाला गया', model_inferred: 'मॉडल द्वारा अनुमानित' },
+  en: { confirmed: 'Confirmed', connected: 'Connected', verified: 'Verified', reused: 'Reused', revised: 'Revised', superseded: 'Superseded', archived: 'Archived', restored: 'Restored', related: 'related', prerequisite: 'prerequisite', generalizes: 'generalizes', derived_from: 'derived from', equivalent_to: 'equivalent to', supersedes: 'supersedes', answers: 'answers', supports: 'supports', contradicts: 'contradicts', causes: 'causes', contributes_to: 'contributes to', enables: 'enables', inhibits: 'inhibits', explicit_user: 'explicitly confirmed', extracted_from_source: 'extracted from source', model_inferred: 'model inferred' },
+  ja: { confirmed: '確認済み', connected: '接続済み', verified: '検証済み', reused: '再利用', revised: '改訂', superseded: '置換済み', archived: 'アーカイブ済み', restored: '復元済み', related: '関連', prerequisite: '前提', generalizes: '一般化', derived_from: '派生元', equivalent_to: '同等', supersedes: '置換', answers: '回答', supports: '支持', contradicts: '反証', causes: '原因となる', contributes_to: '寄与する', enables: '可能にする', inhibits: '抑制する', explicit_user: 'ユーザーが明示確認', extracted_from_source: '出典から抽出', model_inferred: 'モデル推論' },
+  'zh-CN': { confirmed: '已确认', connected: '已连接', verified: '已核验', reused: '已复用', revised: '已修订', superseded: '已取代', archived: '已归档', restored: '已恢复', related: '相关', prerequisite: '前置条件', generalizes: '概括', derived_from: '派生自', equivalent_to: '等同于', supersedes: '取代', answers: '回答', supports: '支持', contradicts: '反驳', causes: '导致', contributes_to: '促成', enables: '使能够', inhibits: '抑制', explicit_user: '用户明确确认', extracted_from_source: '从来源提取', model_inferred: '模型推断' },
+  es: { confirmed: 'Confirmado', connected: 'Conectado', verified: 'Verificado', reused: 'Reutilizado', revised: 'Revisado', superseded: 'Sustituido', archived: 'Archivado', restored: 'Restaurado', related: 'relacionado', prerequisite: 'requisito', generalizes: 'generaliza', derived_from: 'derivado de', equivalent_to: 'equivalente a', supersedes: 'sustituye', answers: 'responde', supports: 'respalda', contradicts: 'contradice', causes: 'causa', contributes_to: 'contribuye a', enables: 'permite', inhibits: 'inhibe', explicit_user: 'confirmado explícitamente', extracted_from_source: 'extraído de la fuente', model_inferred: 'inferido por el modelo' },
+  ar: { confirmed: 'مؤكد', connected: 'مرتبط', verified: 'تم التحقق', reused: 'أعيد استخدامه', revised: 'منقح', superseded: 'مستبدل', archived: 'مؤرشف', restored: 'مستعاد', related: 'مرتبط', prerequisite: 'متطلب سابق', generalizes: 'يعمم', derived_from: 'مشتق من', equivalent_to: 'مكافئ لـ', supersedes: 'يستبدل', answers: 'يجيب عن', supports: 'يدعم', contradicts: 'يناقض', causes: 'يسبب', contributes_to: 'يسهم في', enables: 'يمكّن', inhibits: 'يثبط', explicit_user: 'تأكيد صريح من المستخدم', extracted_from_source: 'مستخرج من المصدر', model_inferred: 'استدلال النموذج' },
+  hi: { confirmed: 'पुष्ट', connected: 'जुड़ा', verified: 'सत्यापित', reused: 'दोबारा उपयोग', revised: 'संशोधित', superseded: 'प्रतिस्थापित', archived: 'संग्रहीत', restored: 'बहाल', related: 'संबंधित', prerequisite: 'पूर्वापेक्षा', generalizes: 'सामान्यीकृत करता है', derived_from: 'से व्युत्पन्न', equivalent_to: 'के बराबर', supersedes: 'प्रतिस्थापित करता है', answers: 'उत्तर देता है', supports: 'समर्थन करता है', contradicts: 'खंडन करता है', causes: 'कारण बनता है', contributes_to: 'योगदान देता है', enables: 'सक्षम करता है', inhibits: 'रोकता है', explicit_user: 'उपयोगकर्ता द्वारा स्पष्ट पुष्टि', extracted_from_source: 'स्रोत से निकाला गया', model_inferred: 'मॉडल द्वारा अनुमानित' },
 };
 
 function tokenLabel(locale: Locale, value: string) {
@@ -112,12 +115,14 @@ function TopicScreenContent() {
   const itemLabels = useMemo(() => new Map(hub?.items.map((item) => [item.id, item.title]) ?? []), [hub]);
   const openQuestions = hub?.items.filter((item) => item.structured_content?.type === 'question' && item.structured_content.status === 'open') ?? [];
   const decisions = hub?.items.filter((item) => item.structured_content?.type === 'decision') ?? [];
-  const events = hub?.items.filter((item) => item.structured_content?.type === 'event') ?? [];
+  const events = [...(hub?.items.filter((item) => item.structured_content?.type === 'event') ?? [])].sort((left, right) => {
+    const leftKey = eventTimelineSortKey(left);
+    const rightKey = eventTimelineSortKey(right);
+    if (leftKey === null) return rightKey === null ? left.created_at.localeCompare(right.created_at) : 1;
+    if (rightKey === null) return -1;
+    return leftKey - rightKey;
+  });
   const activity = [...(hub?.activity ?? [])].sort((left, right) => +new Date(right.created_at) - +new Date(left.created_at));
-  const timeline = [
-    ...events.map((item) => ({ kind: 'event' as const, at: eventTimelineDate(item), item })),
-    ...activity.map((entry) => ({ kind: 'activity' as const, at: entry.created_at, entry })),
-  ].sort((left, right) => +new Date(right.at) - +new Date(left.at));
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
@@ -170,17 +175,24 @@ function TopicScreenContent() {
               <View key={relation.id} style={styles.relationship}>
                 <Text style={styles.relationshipText}>{itemLabels.get(privateId(relation.source)) ?? privateId(relation.source)} {relationArrow(relation.type)} {tokenLabel(locale, relation.type)} {relationArrow(relation.type)} {itemLabels.get(privateId(relation.target)) ?? privateId(relation.target)}</Text>
                 <Text style={styles.origin}>{tokenLabel(locale, relation.relation_origin)}</Text>
+                {relation.evidence_span_ids.length > 0 ? <Text style={styles.meta}>{copy.evidence}: {relation.evidence_span_ids.length}</Text> : null}
               </View>
             ))}
 
             <SectionTitle label={copy.timeline} />
-            {timeline.map((timelineEntry) => {
-              if (timelineEntry.kind === 'event') {
-                const event = timelineEntry.item.structured_content?.type === 'event' ? timelineEntry.item.structured_content : null;
-                return <View key={`event:${timelineEntry.item.id}`} style={[styles.timelineItem, styles.eventItem]}><Text style={styles.badge}>{copy.observedEvent} · {formatDate(timelineEntry.at)}</Text><Text style={styles.cardTitle}>{event?.event ?? timelineEntry.item.title}</Text>{event?.context ? <Text style={styles.body}>{event.context}</Text> : null}</View>;
-              }
-              return <View key={timelineEntry.entry.id} style={styles.timelineItem}><Text style={styles.body}>{tokenLabel(locale, timelineEntry.entry.activity_type)} · {itemLabels.get(timelineEntry.entry.knowledge_item_id) ?? timelineEntry.entry.knowledge_item_id}</Text><Text style={styles.meta}>{formatDate(timelineEntry.at)}</Text></View>;
+            {events.map((item) => {
+              const event = item.structured_content?.type === 'event' ? item.structured_content : null;
+              const parseableOccurredAt = event?.occurred_at ? new Date(event.occurred_at) : null;
+              const dateLabel = event?.chronology
+                ? eventChronologyLabel(event.chronology)
+                : parseableOccurredAt && !Number.isNaN(parseableOccurredAt.getTime())
+                  ? formatDate(parseableOccurredAt.toISOString())
+                  : event?.occurred_at || copy.undated;
+              return <View key={`event:${item.id}`} style={[styles.timelineItem, styles.eventItem]}><Text style={styles.badge}>{copy.observedEvent} · {dateLabel}</Text><Text style={styles.cardTitle}>{event?.event ?? item.title}</Text>{event?.context ? <Text style={styles.body}>{event.context}</Text> : null}</View>;
             })}
+
+            <SectionTitle label={copy.recentActivity} />
+            {activity.map((entry) => <View key={entry.id} style={styles.timelineItem}><Text style={styles.body}>{tokenLabel(locale, entry.activity_type)} · {itemLabels.get(entry.knowledge_item_id) ?? entry.knowledge_item_id}</Text><Text style={styles.meta}>{formatDate(entry.created_at)}</Text></View>)}
 
             <SectionTitle label={copy.sources} />
             {hub.sources.length === 0 ? <Text style={styles.empty}>{copy.noSources}</Text> : hub.sources.map((source) => (

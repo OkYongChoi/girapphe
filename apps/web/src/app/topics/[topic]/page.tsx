@@ -1,4 +1,5 @@
 import Navbar from '@/components/navbar';
+import { historicalTimePointKey } from '@stem-brain/shared';
 import KnowledgeBundleView from '@/components/knowledge-bundle-view';
 import TopicLocalGraph from '@/components/topic-local-graph';
 import TopicContextPackSelector from '@/components/topic-context-pack-selector';
@@ -32,12 +33,36 @@ const ACTIVITY_LABEL_KEYS: Record<TopicKnowledgeActivity['activity_type'], Messa
   restored: 'topic.hub.activity.restored',
 };
 
-function eventDate(item: TopicKnowledgeHubItem) {
-  if (item.structured_content?.type === 'event' && item.structured_content.occurred_at) {
-    const occurred = new Date(item.structured_content.occurred_at);
-    if (!Number.isNaN(occurred.getTime())) return occurred.toISOString();
+function fallbackChronologyKey(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const year = date.getUTCFullYear();
+  return year * 372 + date.getUTCMonth() * 31 + date.getUTCDate() - 1;
+}
+
+function eventChronologyKey(item: TopicKnowledgeHubItem) {
+  if (item.structured_content?.type !== 'event') return null;
+  if (item.structured_content.chronology) return historicalTimePointKey(item.structured_content.chronology.start);
+  return item.structured_content.occurred_at ? fallbackChronologyKey(item.structured_content.occurred_at) : null;
+}
+
+function eventChronologyEndKey(item: TopicKnowledgeHubItem) {
+  if (item.structured_content?.type !== 'event' || !item.structured_content.chronology?.end) return eventChronologyKey(item);
+  return historicalTimePointKey(item.structured_content.chronology.end);
+}
+
+function historicalPointLabel(point: { year: number; era: 'bce' | 'ce'; month?: number; day?: number }) {
+  return `${[point.year, point.month, point.day].filter((value) => value !== undefined).join('-')} ${point.era.toUpperCase()}`;
+}
+
+function eventTimeLabel(item: TopicKnowledgeHubItem) {
+  if (item.structured_content?.type !== 'event') return '';
+  const chronology = item.structured_content.chronology;
+  if (chronology) {
+    const start = historicalPointLabel(chronology.start);
+    return chronology.end ? `${start} – ${historicalPointLabel(chronology.end)}` : start;
   }
-  return item.observed_at ?? item.created_at;
+  return item.structured_content.occurred_at;
 }
 
 function lifecycleStage(item: TopicKnowledgeHubItem, activity: TopicKnowledgeActivity[]) {
@@ -90,13 +115,18 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
   const openQuestions = hub.items.filter((item) => item.structured_content?.type === 'question' && item.structured_content.status === 'open');
   const decisions = hub.items.filter((item) => item.structured_content?.type === 'decision');
   const events = hub.items.filter((item) => item.structured_content?.type === 'event')
-    .sort((left, right) => +new Date(eventDate(right)) - +new Date(eventDate(left)));
+    .sort((left, right) => {
+      const leftKey = eventChronologyKey(left);
+      const rightKey = eventChronologyKey(right);
+      if (leftKey === null && rightKey === null) return left.id.localeCompare(right.id);
+      if (leftKey === null) return 1;
+      if (rightKey === null) return -1;
+      return leftKey - rightKey
+        || (eventChronologyEndKey(left) ?? leftKey) - (eventChronologyEndKey(right) ?? rightKey)
+        || left.id.localeCompare(right.id);
+    });
   const recentActivity = [...hub.activity]
     .sort((left, right) => +new Date(right.created_at) - +new Date(left.created_at));
-  const timelineEntries = [
-    ...events.map((item) => ({ kind: 'event' as const, at: eventDate(item), item })),
-    ...recentActivity.map((entry) => ({ kind: 'activity' as const, at: entry.created_at, entry })),
-  ].sort((left, right) => +new Date(right.at) - +new Date(left.at));
   const topicQuery = encodeURIComponent(hub.topic);
 
   return (
@@ -281,34 +311,24 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">{t('topic.graph.title')}</p>
           <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">{t('topic.graph.title')}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">{t('topic.graph.description')}</p>
-          <div className="mt-4"><TopicLocalGraph items={hub.items} relations={hub.relations} /></div>
+          <div className="mt-4"><TopicLocalGraph items={hub.items} relations={hub.relations} evidence={hub.evidence_selectors} /></div>
           <LocalizedLink href="/knowledge" className="mt-4 inline-flex rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100">{t('nav.atlas')}</LocalizedLink>
         </section>
 
         <section id="timeline" className="scroll-mt-44 pt-12">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">{t('topic.hub.timeline')}</p>
           <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">{t('topic.hub.timeline')}</h2>
-          {timelineEntries.length === 0 ? (
+          {events.length === 0 ? (
             <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">{t('topic.hub.timelineEmpty')}</p>
           ) : (
             <ol className="relative mt-5 border-s-2 border-cyan-200 ps-6">
-              {timelineEntries.map((timelineEntry) => {
-                if (timelineEntry.kind === 'event') {
-                  const { item } = timelineEntry;
-                  const content = item.structured_content?.type === 'event' ? item.structured_content : null;
-                  return (
-                    <li key={`event:${item.id}`} className="relative mb-5 rounded-2xl border border-cyan-200 bg-white p-4 shadow-sm before:absolute before:-start-[1.95rem] before:top-5 before:h-3 before:w-3 before:rounded-full before:bg-cyan-500 before:ring-4 before:ring-cyan-100">
-                      <p className="text-xs font-bold uppercase tracking-wide text-cyan-700">{t('topic.hub.observedEvent')} · {formatDate(timelineEntry.at, { dateStyle: 'medium', timeStyle: 'short' })}</p>
-                      <h3 className="mt-2 font-bold text-slate-950">{content?.event ?? item.title}</h3>
-                      {content?.context ? <p className="mt-1 text-sm leading-relaxed text-slate-600">{content.context}</p> : null}
-                    </li>
-                  );
-                }
-                const { entry } = timelineEntry;
+              {events.map((item) => {
+                const content = item.structured_content?.type === 'event' ? item.structured_content : null;
                 return (
-                  <li key={`activity:${entry.id}`} className="relative mb-3 rounded-xl border border-slate-200 bg-white px-4 py-3 before:absolute before:-start-[1.78rem] before:top-4 before:h-2 before:w-2 before:rounded-full before:bg-slate-400 before:ring-4 before:ring-slate-100">
-                    <p className="text-sm font-semibold text-slate-800">{activityDescription(entry, itemById, t(ACTIVITY_LABEL_KEYS[entry.activity_type]))}</p>
-                    <p className="mt-1 text-xs text-slate-500">{formatDate(timelineEntry.at, { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                  <li key={`event:${item.id}`} className="relative mb-5 rounded-2xl border border-cyan-200 bg-white p-4 shadow-sm before:absolute before:-start-[1.95rem] before:top-5 before:h-3 before:w-3 before:rounded-full before:bg-cyan-500 before:ring-4 before:ring-cyan-100">
+                    <p className="text-xs font-bold uppercase tracking-wide text-cyan-700">{t('topic.hub.observedEvent')} · {eventTimeLabel(item) || t('topic.hub.undated')}</p>
+                    <h3 className="mt-2 font-bold text-slate-950">{content?.event ?? item.title}</h3>
+                    {content?.context ? <p className="mt-1 text-sm leading-relaxed text-slate-600">{content.context}</p> : null}
                   </li>
                 );
               })}
@@ -320,6 +340,7 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">{t('topic.hub.history')}</p>
           <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">{t('topic.hub.history')}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">{t('topic.hub.historyBody')}</p>
+          {recentActivity.length > 0 ? <article className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="font-bold text-slate-950">{t('topic.hub.recentActivity')}</h3><ol className="mt-3 grid gap-2">{recentActivity.map((entry) => <li key={entry.id} className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-sm font-semibold text-slate-800">{activityDescription(entry, itemById, t(ACTIVITY_LABEL_KEYS[entry.activity_type]))}</p><p className="mt-1 text-xs text-slate-500">{formatDate(entry.created_at, { dateStyle: 'medium', timeStyle: 'short' })}</p></li>)}</ol></article> : null}
           {hub.revisions.length === 0 && hub.supersessions.length === 0 ? (
             <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">{t('topic.hub.historyEmpty')}</p>
           ) : (

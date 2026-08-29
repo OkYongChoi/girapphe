@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { useEffect, useState } from 'react';
 import { KnowledgeCard } from '@/actions/card-actions';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { localizeDomain, localizeLevel } from '@stem-brain/shared';
@@ -28,6 +29,8 @@ const DOMAIN_COLORS: Record<string, string> = {
 
 export default function Card({ card, revealed = true }: CardProps) {
   const { locale, t } = useI18n();
+  const [expressionDirection, setExpressionDirection] = useState<'forward' | 'reverse'>('forward');
+  useEffect(() => setExpressionDirection('forward'), [card.id]);
   const domainStyle = DOMAIN_COLORS[card.domain] ?? DOMAIN_COLORS.other;
   const levelMeta = getCardLevelMeta(card.level);
   const frontPrompts = [
@@ -35,6 +38,16 @@ export default function Card({ card, revealed = true }: CardProps) {
     t('card.promptFormula'),
     t('card.promptConnect'),
   ];
+  const expression = card.structured_content?.type === 'expression' ? card.structured_content : null;
+  const preferredTranslation = expression?.translations.find((item) => (
+    item.language.toLocaleLowerCase() === locale.toLocaleLowerCase()
+    || item.language.split('-')[0]?.toLocaleLowerCase() === locale.split('-')[0]?.toLocaleLowerCase()
+  )) ?? expression?.translations[0];
+  const reverseCue = preferredTranslation?.text || expression?.meanings[0] || '';
+  const canReverseExpression = Boolean(reverseCue);
+  const expressionCue = expressionDirection === 'reverse' && canReverseExpression
+    ? reverseCue
+    : expression?.expression || card.title;
 
   return (
     <article
@@ -57,7 +70,7 @@ export default function Card({ card, revealed = true }: CardProps) {
       </div>
 
       <h2 className="text-2xl font-bold text-gray-900">
-        {card.title}
+        {!revealed && expressionDirection === 'reverse' && canReverseExpression ? t('bundle.type.expression') : card.title}
       </h2>
 
       {revealed ? (
@@ -75,7 +88,14 @@ export default function Card({ card, revealed = true }: CardProps) {
           <h3 className="text-xs font-bold uppercase tracking-widest text-blue-800">
             {t('card.recallTitle')}
           </h3>
-          {card.central_question && card.knowledge_type ? <div className="mt-3 space-y-2"><p className="text-base font-semibold text-blue-950">{card.central_question}</p><p className="text-sm text-blue-800">{t(`bundle.recall.${card.knowledge_type}`)}</p></div> : <ul className="mt-3 space-y-2 text-sm text-blue-950">
+          {expression ? <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <button type="button" aria-pressed={expressionDirection === 'forward'} onClick={() => setExpressionDirection('forward')} className={`min-h-10 rounded-lg px-3 text-xs font-bold ${expressionDirection === 'forward' ? 'bg-blue-700 text-white' : 'border border-blue-200 bg-white text-blue-800'}`}>{t('bundle.recall.expressionForward')}</button>
+              <button type="button" disabled={!canReverseExpression} aria-pressed={expressionDirection === 'reverse'} onClick={() => setExpressionDirection('reverse')} className={`min-h-10 rounded-lg px-3 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40 ${expressionDirection === 'reverse' ? 'bg-blue-700 text-white' : 'border border-blue-200 bg-white text-blue-800'}`}>{t('bundle.recall.expressionReverse')}</button>
+            </div>
+            <p className="text-lg font-semibold text-blue-950">{expressionCue}</p>
+            <p className="text-sm text-blue-800">{t('bundle.recall.expression')}</p>
+          </div> : card.central_question && card.knowledge_type ? <div className="mt-3 space-y-2"><p className="text-base font-semibold text-blue-950">{card.central_question}</p><p className="text-sm text-blue-800">{t(`bundle.recall.${card.knowledge_type}`)}</p></div> : <ul className="mt-3 space-y-2 text-sm text-blue-950">
             {frontPrompts.map((prompt) => (
               <li key={prompt} className="flex gap-2">
                 <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" aria-hidden="true" />

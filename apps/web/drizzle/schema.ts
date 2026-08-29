@@ -203,7 +203,7 @@ export const userKnowledgeItems = pgTable("user_knowledge_items", {
   check("user_knowledge_items_bundle_shape_check", sql`COALESCE(
     (${t.knowledgeType} IS NULL AND ${t.centralQuestion} IS NULL AND ${t.structuredContent} IS NULL AND ${t.bundleSchemaVersion} IS NULL)
     OR (
-      ${t.knowledgeType} IN ('concept', 'procedure', 'comparison', 'mechanism', 'structure', 'claim_evidence', 'question', 'decision', 'event')
+      ${t.knowledgeType} IN ('concept', 'procedure', 'comparison', 'mechanism', 'structure', 'claim_evidence', 'question', 'decision', 'event', 'expression')
       AND ${t.centralQuestion} IS NOT NULL AND btrim(${t.centralQuestion}) <> ''
       AND jsonb_typeof(${t.structuredContent}) = 'object'
       AND ${t.structuredContent} ->> 'type' = ${t.knowledgeType}
@@ -365,7 +365,7 @@ export const knowledgeCardDrafts = pgTable("knowledge_card_drafts", {
   check("knowledge_card_drafts_bundle_shape_check", sql`COALESCE(
     (${t.knowledgeType} IS NULL AND ${t.centralQuestion} IS NULL AND ${t.structuredContent} IS NULL AND ${t.bundleSchemaVersion} IS NULL)
     OR (
-      ${t.knowledgeType} IN ('concept', 'procedure', 'comparison', 'mechanism', 'structure', 'claim_evidence', 'question', 'decision', 'event')
+      ${t.knowledgeType} IN ('concept', 'procedure', 'comparison', 'mechanism', 'structure', 'claim_evidence', 'question', 'decision', 'event', 'expression')
       AND ${t.centralQuestion} IS NOT NULL AND btrim(${t.centralQuestion}) <> ''
       AND jsonb_typeof(${t.structuredContent}) = 'object'
       AND ${t.structuredContent} ->> 'type' = ${t.knowledgeType}
@@ -414,6 +414,7 @@ export const userGraphEdges = pgTable("user_graph_edges", {
   index("idx_user_graph_edges_user_active").on(t.userId, t.createdAt).where(sql`${t.deletedAt} IS NULL`),
   index("idx_user_graph_edges_source_private").on(t.sourcePrivateNodeId),
   index("idx_user_graph_edges_target_private").on(t.targetPrivateNodeId),
+  uniqueIndex("idx_user_graph_edges_id_user").on(t.id, t.userId),
   index("idx_user_graph_edges_purge_at").on(t.purgeAt).where(sql`${t.purgeAt} IS NOT NULL`),
   uniqueIndex("idx_user_graph_edges_unique_active").on(
     t.userId,
@@ -430,7 +431,7 @@ export const userGraphEdges = pgTable("user_graph_edges", {
   check("user_graph_edges_source_exactly_one_check", sql`num_nonnulls(${t.sourcePrivateNodeId}, ${t.sourcePublicNodeId}) = 1`),
   check("user_graph_edges_target_exactly_one_check", sql`num_nonnulls(${t.targetPrivateNodeId}, ${t.targetPublicNodeId}) = 1`),
   check("user_graph_edges_no_self_check", sql`(${t.sourcePrivateNodeId} IS NULL OR ${t.sourcePrivateNodeId} IS DISTINCT FROM ${t.targetPrivateNodeId}) AND (${t.sourcePublicNodeId} IS NULL OR ${t.sourcePublicNodeId} IS DISTINCT FROM ${t.targetPublicNodeId})`),
-  check("user_graph_edges_type_check", sql`${t.type} IN ('prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to', 'supersedes', 'answers', 'supports', 'contradicts')`),
+  check("user_graph_edges_type_check", sql`${t.type} IN ('prerequisite', 'related', 'generalizes', 'derived_from', 'equivalent_to', 'supersedes', 'answers', 'supports', 'contradicts', 'causes', 'contributes_to', 'enables', 'inhibits')`),
   check("user_graph_edges_origin_check", sql`${t.origin} IN ('manual', 'conversation')`),
   check("user_graph_edges_relation_origin_check", sql`${t.relationOrigin} IN ('explicit_user', 'extracted_from_source', 'model_inferred')`),
   check("user_graph_edges_weight_check", sql`${t.weight} > 0 AND ${t.weight} <= 1`),
@@ -570,6 +571,7 @@ export const knowledgeEvidenceSpans = pgTable("knowledge_evidence_spans", {
   }).onDelete("cascade"),
   index("idx_knowledge_evidence_spans_user_item").on(t.userId, t.knowledgeItemId),
   index("idx_knowledge_evidence_spans_user_source").on(t.userId, t.sourceId),
+  uniqueIndex("idx_knowledge_evidence_spans_id_user").on(t.id, t.userId),
   check("knowledge_evidence_spans_selector_type_check", sql`${t.selectorType} IN ('message', 'text_position', 'line_range', 'external_ref')`),
   check("knowledge_evidence_spans_selector_check", sql`
     jsonb_typeof(${t.selector}) = 'object'
@@ -597,6 +599,27 @@ export const knowledgeEvidenceSpans = pgTable("knowledge_evidence_spans", {
   check("knowledge_evidence_spans_polarity_check", sql`${t.polarity} IN ('supports', 'contradicts')`),
   check("knowledge_evidence_spans_quality_check", sql`${t.quality} IN ('unknown', 'low', 'medium', 'high')`),
   check("knowledge_evidence_spans_relation_origin_check", sql`${t.relationOrigin} IN ('explicit_user', 'extracted_from_source', 'model_inferred')`),
+]);
+
+export const knowledgeRelationEvidence = pgTable("knowledge_relation_evidence", {
+  edgeId: text("edge_id").notNull(),
+  evidenceSpanId: text("evidence_span_id").notNull(),
+  userId: text("user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.edgeId, t.evidenceSpanId], name: "knowledge_relation_evidence_pk" }),
+  foreignKey({
+    columns: [t.edgeId, t.userId],
+    foreignColumns: [userGraphEdges.id, userGraphEdges.userId],
+    name: "knowledge_relation_evidence_edge_owner_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [t.evidenceSpanId, t.userId],
+    foreignColumns: [knowledgeEvidenceSpans.id, knowledgeEvidenceSpans.userId],
+    name: "knowledge_relation_evidence_span_owner_fk",
+  }).onDelete("cascade"),
+  index("idx_knowledge_relation_evidence_user_edge").on(t.userId, t.edgeId),
+  index("idx_knowledge_relation_evidence_user_span").on(t.userId, t.evidenceSpanId),
 ]);
 
 export const mcpAccessTokens = pgTable("mcp_access_tokens", {

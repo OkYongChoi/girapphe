@@ -3,7 +3,11 @@ import test from 'node:test';
 import {
   KNOWLEDGE_BUNDLE_TYPES,
   createKnowledgeBundleContentFromLegacy,
+  parseExpressionBundleExamples,
+  parseStringTuplePairs,
   projectKnowledgeBundleContent,
+  serializeExpressionBundleExamples,
+  serializeStringTuplePairs,
   type KnowledgeBundleContent,
 } from '@stem-brain/shared';
 import { parseKnowledgeBundleFields, projectKnowledgeBundle } from './knowledge-bundle-runtime';
@@ -18,14 +22,16 @@ const contents: Record<(typeof KNOWLEDGE_BUNDLE_TYPES)[number], KnowledgeBundleC
   question: { type: 'question', question: 'What remains unknown?', context: 'A result needs follow-up.', known_facts: ['The first run passed.'], hypotheses: ['The input matters.'], next_steps: ['Run another test.'], answer_summary: '', status: 'open' },
   decision: { type: 'decision', decision: 'Use the protected release flow.', context: 'The change affects production.', options: [{ name: 'Protected PR', tradeoffs: 'Slower but verifiable.' }], criteria: ['Safety'], rationale: ['Checks and ancestry are recorded.'], reconsider_when: ['The release path changes.'], outcome: 'Production is verified.' },
   event: { type: 'event', event: 'The release completed.', occurred_at: '2026-08-28T03:02:19Z', context: 'The exact main revision deployed.', changes: ['The new bundle types became available.'], causes: ['The protected workflow completed.'], consequences: ['Users can create typed knowledge.'] },
+  expression: { type: 'expression', expression: 'break the ice', language: 'en', pronunciation: '/breɪk ði aɪs/', meanings: ['Start a friendly conversation.'], translations: [{ language: 'ko', text: '서먹함을 깨다' }], register: 'neutral', nuance: 'Used to reduce initial social tension.', usage_contexts: ['First meetings'], examples: [{ text: 'A joke helped break the ice.', translation: '농담이 서먹함을 깨는 데 도움이 됐다.' }], contrasts: [{ expression: 'get down to business', difference: 'Moves directly to the main topic.' }], common_mistakes: [{ incorrect: 'break an ice', correction: 'break the ice' }] },
 };
 
-test('parses all nine version-one bundle discriminators and partial optional fields', () => {
+test('parses all ten version-one bundle discriminators and partial optional fields', () => {
   for (const type of KNOWLEDGE_BUNDLE_TYPES) {
+    const structuredContent = type === 'expression' ? { type, language: 'en' } : { type };
     const parsed = parseKnowledgeBundleFields({
       knowledge_type: type,
       central_question: `How does ${type} work?`,
-      structured_content: { type },
+      structured_content: structuredContent,
       bundle_schema_version: 1,
     });
     assert.equal(parsed?.knowledge_type, type);
@@ -51,6 +57,22 @@ test('preserves a legacy note body when starting each explicit bundle conversion
   }
 });
 
+test('expression example editor tuples preserve delimiters and optional fields', () => {
+  const examples = [{
+    text: 'namespace :: name',
+    translation: '경로 :: 이름',
+    note: 'C:\\names :: note',
+  }];
+  assert.deepEqual(parseExpressionBundleExamples(serializeExpressionBundleExamples(examples)), examples);
+  assert.deepEqual(parseExpressionBundleExamples('namespace :: name'), [{ text: 'namespace :: name' }]);
+  const pairs: Array<[string, string]> = [
+    ['namespace :: name', 'distinction :: detail'],
+    ['incorrect :: value', 'correct :: value'],
+  ];
+  assert.deepEqual(parseStringTuplePairs(serializeStringTuplePairs(pairs)), pairs);
+  assert.deepEqual(parseStringTuplePairs('legacy :: pair :: detail'), [['legacy', 'pair :: detail']]);
+});
+
 test('rejects mismatched types, invalid nested references, unknown fields, and unsupported versions', () => {
   const mismatch = { knowledge_type: 'concept', central_question: 'Why?', structured_content: contents.procedure, bundle_schema_version: 1 };
   assert.equal(parseKnowledgeBundleFields(mismatch), null);
@@ -73,4 +95,32 @@ test('rejects mismatched types, invalid nested references, unknown fields, and u
     structured_content: { ...contents.question, status: 'pending' },
     bundle_schema_version: 1,
   }), null);
+  assert.equal(parseKnowledgeBundleFields({
+    knowledge_type: 'event', central_question: 'When?', bundle_schema_version: 1,
+    structured_content: { ...contents.event, chronology: { precision: 'century', start: { era: 'bce', year: 5 } } },
+  })?.structured_content.type, 'event');
+  assert.equal(parseKnowledgeBundleFields({
+    knowledge_type: 'event', central_question: 'When?', bundle_schema_version: 1,
+    structured_content: { ...contents.event, chronology: { precision: 'range', start: { era: 'ce', year: 1 } } },
+  }), null);
+  assert.equal(parseKnowledgeBundleFields({
+    knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
+    structured_content: { ...contents.expression, language: 'not a language tag' },
+  }), null);
+  assert.equal(parseKnowledgeBundleFields({
+    knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
+    structured_content: { ...contents.expression, language: '' },
+  }), null);
+  for (const language of ['x-pig-latin', 'i-klingon', 'sl-rozaj-biske-1994', 'en-a-myext-b-another']) {
+    assert.equal(parseKnowledgeBundleFields({
+      knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
+      structured_content: { ...contents.expression, language },
+    })?.structured_content.type, 'expression');
+  }
+  for (const language of ['en-US-US', 'sl-rozaj-rozaj', 'en-a-one-a-two']) {
+    assert.equal(parseKnowledgeBundleFields({
+      knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
+      structured_content: { ...contents.expression, language },
+    }), null);
+  }
 });

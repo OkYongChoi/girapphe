@@ -87,22 +87,22 @@ function evidenceLocation(
   return { key: 'resolution.location.lines' as MessageKey, values: { start: evidence.lineStart ?? '', end: evidence.lineEnd ?? '' } };
 }
 
-function ResolutionButtons({ hasTarget }: { hasTarget: boolean }) {
+function ResolutionButtons({ hasTarget, blocked }: { hasTarget: boolean; blocked: boolean }) {
   const { pending } = useFormStatus();
   const { t } = useI18n();
   return (
     <div className="flex flex-wrap gap-2">
       {hasTarget ? (
         <>
-          <button name="resolution_action" value="merge" disabled={pending} onClick={(event) => { if (!window.confirm(t('resolution.mergeConfirm'))) event.preventDefault(); }} className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
+          <button name="resolution_action" value="merge" disabled={pending || blocked} onClick={(event) => { if (!window.confirm(t('resolution.mergeConfirm'))) event.preventDefault(); }} className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
             {t('resolution.merge')}
           </button>
-          <button name="resolution_action" value="update" disabled={pending} onClick={(event) => { if (!window.confirm(t('resolution.updateConfirm'))) event.preventDefault(); }} className="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50">
+          <button name="resolution_action" value="update" disabled={pending || blocked} onClick={(event) => { if (!window.confirm(t('resolution.updateConfirm'))) event.preventDefault(); }} className="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50">
             {t('resolution.update')}
           </button>
         </>
       ) : (
-        <button name="resolution_action" value="create" disabled={pending} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+        <button name="resolution_action" value="create" disabled={pending || blocked} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50">
           {pending ? t('topic.lifecycle.saving') : t('resolution.saveNew')}
         </button>
       )}
@@ -142,6 +142,12 @@ export default function DraftResolutionPanel({
   const [selectedEvidenceIndexes, setSelectedEvidenceIndexes] = useState<Set<number>>(
     () => new Set(draft.proposed_evidence.map((_, index) => index)),
   );
+  const [selectedRelationIndexes, setSelectedRelationIndexes] = useState<Set<number>>(
+    () => new Set(draft.relations.flatMap((relation, index) => (
+      relation.type === 'causes' || relation.type === 'contributes_to'
+      || relation.type === 'enables' || relation.type === 'inhibits' ? [] : [index]
+    ))),
+  );
   const candidate = draftSeed(draft);
   const existing = target ? targetSeed(target) : null;
   const seed = seedChoice === 'existing' && existing ? existing : candidate;
@@ -166,6 +172,12 @@ export default function DraftResolutionPanel({
   } : null;
   const lifecycleDefaults = targetLifecycleDefaults ?? createLifecycleDefaults;
   const reviewedEvidence = draft.proposed_evidence.filter((_, index) => selectedEvidenceIndexes.has(index));
+  const reviewedRelations = draft.relations.filter((_, index) => selectedRelationIndexes.has(index));
+  const selectedCausalRelationMissingEvidence = reviewedRelations.some((relation) => (
+    (relation.type === 'causes' || relation.type === 'contributes_to'
+      || relation.type === 'enables' || relation.type === 'inhibits')
+    && !(relation.evidenceSelectorIndexes ?? []).some((index) => selectedEvidenceIndexes.has(index))
+  ));
 
   const resolve = async (formData: FormData) => {
     setError(null);
@@ -297,6 +309,7 @@ export default function DraftResolutionPanel({
           <input type="hidden" name="draft_version" value={draft.version} />
           <input type="hidden" name="lifecycle_patch_semantics" value="tri_state_v1" />
           <input type="hidden" name="evidence_selectors_json" value={JSON.stringify(reviewedEvidence)} />
+          <input type="hidden" name="relations_json" value={JSON.stringify(reviewedRelations)} />
           {target ? <><input type="hidden" name="target_item_id" value={target.id} /><input type="hidden" name="target_version" value={target.version} /></> : null}
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -308,7 +321,10 @@ export default function DraftResolutionPanel({
           <label className="grid gap-1 text-xs font-bold text-slate-700">{t('notes.contentLabel')}<textarea name="content" maxLength={6000} defaultValue={seed.content} className="min-h-32 rounded-lg border p-3 text-sm font-normal focus:outline-none focus:ring-2 focus:ring-blue-400" /></label>
           <label className="grid gap-1 text-xs font-bold text-slate-700">{t('knowledge.tagsLabel')}<input name="tags" maxLength={599} defaultValue={seed.tags.join(', ')} className="min-h-11 rounded-lg border px-3 text-sm font-normal focus:outline-none focus:ring-2 focus:ring-blue-400" /></label>
 
-          <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <details open={draft.relations.some((relation) => (
+            relation.type === 'causes' || relation.type === 'contributes_to'
+            || relation.type === 'enables' || relation.type === 'inhibits'
+          ))} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <summary className="cursor-pointer text-sm font-bold text-slate-800">{t('resolution.metadata')}</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="grid gap-1 text-xs font-bold text-slate-700">{t('bundle.field.occurredAt')}<input type="datetime-local" name="observed_at" defaultValue={lifecycleDefaults.observed_at} className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
@@ -316,6 +332,48 @@ export default function DraftResolutionPanel({
               <label className="grid gap-1 text-xs font-bold text-slate-700">{t('notes.from')}<input type="datetime-local" name="valid_from" defaultValue={lifecycleDefaults.valid_from} className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
               <label className="grid gap-1 text-xs font-bold text-slate-700">{t('notes.to')}<input type="datetime-local" name="valid_to" defaultValue={lifecycleDefaults.valid_to} className="min-h-11 rounded-lg border bg-white px-3 text-sm font-normal" /></label>
             </div>
+            {draft.relations.length > 0 ? (
+              <fieldset className="mt-4">
+                <legend className="text-xs font-bold text-slate-700">{t('resolution.relationships')}</legend>
+                <p className="mt-1 text-xs text-slate-500">{t('resolution.relationshipsBody')}</p>
+                <div className="mt-2 grid gap-2">
+                  {draft.relations.map((relation, index) => {
+                    const causal = relation.type === 'causes' || relation.type === 'contributes_to'
+                      || relation.type === 'enables' || relation.type === 'inhibits';
+                    const evidenceLabels = (relation.evidenceSelectorIndexes ?? []).map((evidenceIndex) => `#${evidenceIndex + 1}`);
+                    const directionLabel = t(
+                      relation.direction === 'incoming' ? 'resolution.direction.incoming' : 'resolution.direction.outgoing',
+                      { target: relation.targetId },
+                    );
+                    const relationTypeLabel = causal
+                      ? t(`topic.graph.relation.${relation.type}` as MessageKey)
+                      : relation.type.replaceAll('_', ' ');
+                    return (
+                      <label key={`${relation.targetKind}:${relation.targetId}:${relation.type}:${index}`} className={`flex items-start gap-2 rounded-lg border bg-white p-3 text-xs ${causal ? 'border-amber-300 text-amber-950' : 'border-slate-200 text-slate-700'}`}>
+                        <input
+                          type="checkbox"
+                          checked={selectedRelationIndexes.has(index)}
+                          onChange={(event) => setSelectedRelationIndexes((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(index);
+                            else next.delete(index);
+                            return next;
+                          })}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>
+                          <strong>{directionLabel}</strong>
+                          {' · '}{relationTypeLabel} · {t(`resolution.target.${relation.targetKind}` as MessageKey)} · {t(`topic.graph.origin.${relation.relationOrigin ?? 'model_inferred'}` as MessageKey)}
+                          {' · '}{evidenceLabels.length > 0
+                            ? t('resolution.relationshipEvidence', { refs: evidenceLabels.join(', ') })
+                            : t('resolution.relationshipEvidenceNone')}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            ) : null}
             {draft.proposed_evidence.length > 0 ? (
               <fieldset className="mt-4">
                 <legend className="text-xs font-bold text-slate-700">{t('resolution.evidence')}</legend>
@@ -336,7 +394,7 @@ export default function DraftResolutionPanel({
                         })}
                         className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       />
-                      <span><strong>{t(location.key, location.values)}</strong> · {evidence.polarity} · {evidence.quality} · {t(`topic.graph.origin.${evidence.relationOrigin}` as MessageKey)}</span>
+                      <span><strong>#{index + 1} · {t(location.key, location.values)}</strong> · {evidence.polarity} · {evidence.quality} · {t(`topic.graph.origin.${evidence.relationOrigin}` as MessageKey)}</span>
                     </label>
                     );
                   })}
@@ -345,8 +403,14 @@ export default function DraftResolutionPanel({
             ) : <p className="mt-3 text-xs text-slate-500">{t('resolution.noEvidence')}</p>}
           </details>
 
+          {selectedCausalRelationMissingEvidence ? (
+            <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+              {t('resolution.causalEvidenceRequired')}
+            </p>
+          ) : null}
+
           {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">{error}</p> : null}
-          <ResolutionButtons hasTarget={Boolean(target)} />
+          <ResolutionButtons hasTarget={Boolean(target)} blocked={selectedCausalRelationMissingEvidence} />
         </form>
 
         <form action={ignore} className="mt-4 border-t border-slate-100 pt-4">

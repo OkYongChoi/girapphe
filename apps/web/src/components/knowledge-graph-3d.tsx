@@ -6,7 +6,6 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { KnowledgeCard, CardStatus } from '@/actions/card-actions';
-import type { EdgeType } from '@stem-brain/graph-engine';
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import { getDomainColor } from '@stem-brain/graph-engine';
@@ -14,6 +13,12 @@ import { deleteKnowledgeItem } from '@/actions/user-knowledge-actions';
 import { useI18n } from '@/i18n/client';
 import LanguageSwitcher from '@/components/language-switcher';
 import type { KnowledgeGraphAccess } from '@/lib/knowledge-graph-access';
+import {
+  isDirectedKnowledgeMapEdge,
+  KNOWLEDGE_MAP_EDGE_COLORS,
+  PRIVATE_CAUSAL_EDGE_TYPES,
+  type KnowledgeMapGraphEdgeType,
+} from '@/lib/knowledge-map-private-edges';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
@@ -30,7 +35,7 @@ export type KnowledgeGraphEdgeView = {
   id?: string | number;
   source: string;
   target: string;
-  type: EdgeType;
+  type: KnowledgeMapGraphEdgeType;
   weight?: number;
   scope: 'public' | 'private';
 };
@@ -69,18 +74,6 @@ const STATUS_COLORS: Record<string, string> = {
 const DOMAIN_HUB_PROGRESS_COLOR = '#cbd5e1';
 const MUTED_LINK_COLOR = 'rgba(148, 163, 184, 0.28)';
 const PERSONAL_CARD_COLOR = '#c084fc';
-const EDGE_COLORS: Record<EdgeType, string> = {
-  prerequisite: '#38bdf8',
-  related: '#94a3b8',
-  generalizes: '#f59e0b',
-  derived_from: '#a78bfa',
-  equivalent_to: '#34d399',
-};
-
-function isDirectedEdge(type: EdgeType) {
-  return type === 'prerequisite' || type === 'generalizes' || type === 'derived_from';
-}
-
 function getCardDomains(card: GraphCard) {
   return card.domains && card.domains.length > 0 ? card.domains : [card.domain];
 }
@@ -220,14 +213,14 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
     edges.forEach((edge) => {
       if (!visibleCardIds.has(edge.source) || !visibleCardIds.has(edge.target)) return;
 
-      const directed = isDirectedEdge(edge.type);
+      const directed = isDirectedKnowledgeMapEdge(edge.type);
       links.push({
         id: edge.id ?? `${edge.scope}:${edge.type}:${edge.source}:${edge.target}`,
         source: edge.source,
         target: edge.target,
         type: edge.type,
         scope: edge.scope,
-        color: EDGE_COLORS[edge.type],
+        color: KNOWLEDGE_MAP_EDGE_COLORS[edge.type],
         width: edge.scope === 'private' ? 1.25 : Math.max(0.55, edge.weight ?? 0.7),
         particles: directed ? (edge.scope === 'private' ? 2 : 1) : 0,
         arrowLength: directed ? 3.5 : 0,
@@ -236,6 +229,12 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
 
     return { nodes, links };
   }, [colorMode, edges, filteredCards, t]);
+  const edgeLegendEntries = useMemo(
+    () => (Object.entries(KNOWLEDGE_MAP_EDGE_COLORS) as Array<[KnowledgeMapGraphEdgeType, string]>)
+      .filter(([type]) => !PRIVATE_CAUSAL_EDGE_TYPES.some((causalType) => causalType === type)
+        || edges.some((edge) => edge.scope === 'private' && edge.type === type)),
+    [edges],
+  );
   const isLargeGraph = graphData.nodes.length > 240;
 
   const selectedRelationships = useMemo(() => {
@@ -257,7 +256,7 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
         otherTitle: other.title,
         type: edge.type,
         scope: edge.scope,
-        direction: isDirectedEdge(edge.type) ? (outgoing ? '→' : '←') : '↔',
+        direction: isDirectedKnowledgeMapEdge(edge.type) ? (outgoing ? '→' : '←') : '↔',
       }];
     });
   }, [edges, filteredCards, selectedNode]);
@@ -598,7 +597,7 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
             <div className="mt-4 border-t border-gray-800 pt-3">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">{t('graph.related')}</p>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                {(Object.entries(EDGE_COLORS) as Array<[EdgeType, string]>).map(([type, color]) => (
+                {edgeLegendEntries.map(([type, color]) => (
                   <span key={type} className="flex min-w-0 items-center gap-2 text-[10px] text-gray-400">
                     <span className="h-px w-4 shrink-0" style={{ backgroundColor: color }} />
                     <span className="truncate">{type.replace('_', ' ')}</span>
@@ -797,7 +796,7 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
                       </span>
                       <span
                         className="shrink-0 text-base text-gray-400"
-                        aria-label={isDirectedEdge(relationship.type)
+                        aria-label={isDirectedKnowledgeMapEdge(relationship.type)
                           ? relationship.direction === '→'
                             ? `${t('graph.related')} to ${relationship.otherTitle}`
                             : `${t('graph.related')} from ${relationship.otherTitle}`

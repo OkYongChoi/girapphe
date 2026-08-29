@@ -82,11 +82,12 @@ test('accepts selector-only evidence on typed bundles', () => {
   }]);
 });
 
-test('accepts the exact question, decision, and event version-one shapes', () => {
+test('accepts the exact question, decision, event, and expression version-one shapes', () => {
   const newTypes = [
     { type: 'question', question: 'What remains unknown?', context: 'A follow-up is needed.', known_facts: ['One fact'], hypotheses: ['One hypothesis'], next_steps: ['Test it'], answer_summary: '', status: 'open' },
     { type: 'decision', decision: 'Use a protected PR.', context: 'Production is affected.', options: [{ name: 'Protected PR', tradeoffs: 'More verification time.' }], criteria: ['Safety'], rationale: ['Checks are recorded.'], reconsider_when: ['The release path changes.'], outcome: '' },
     { type: 'event', event: 'The release completed.', occurred_at: '2026-08-28T03:02:19Z', context: 'The exact main revision deployed.', changes: ['Types became available.'], causes: ['The workflow completed.'], consequences: ['Users can save them.'] },
+    { type: 'expression', expression: 'break the ice', language: 'en', pronunciation: '/breɪk ði aɪs/', meanings: ['Start a friendly conversation.'], translations: [{ language: 'ko', text: '서먹함을 깨다' }], register: 'neutral', nuance: 'Reduces initial social tension.', usage_contexts: ['First meetings'], examples: [{ text: 'A joke helped break the ice.', translation: '농담이 서먹함을 깨는 데 도움이 됐다.' }], contrasts: [{ expression: 'get down to business', difference: 'Moves directly to the topic.' }], common_mistakes: [{ incorrect: 'break an ice', correction: 'break the ice' }] },
   ] as const;
   for (const structuredContent of newTypes) {
     const input = {
@@ -102,6 +103,46 @@ test('accepts the exact question, decision, and event version-one shapes', () =>
     assert.equal(parsed.bundles[0]?.knowledge_type, structuredContent.type);
     assert.equal(parsed.bundles[0]?.structured_content.type, structuredContent.type);
   }
+  const expression = newTypes[3];
+  for (const language of ['x-pig-latin', 'i-klingon', 'sl-rozaj-biske-1994']) {
+    assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse({
+      ...validInput,
+      bundles: [{
+        ...validInput.bundles[0],
+        knowledge_type: 'expression',
+        structured_content: { ...expression, language },
+      }],
+    }).success, true);
+  }
+  assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse({
+    ...validInput,
+    bundles: [{
+      ...validInput.bundles[0],
+      knowledge_type: 'expression',
+      structured_content: { ...expression, language: 'en-US-US' },
+    }],
+  }).success, false);
+});
+
+test('requires selected evidence for causal relationship suggestions', () => {
+  const causal = {
+    ...validInput,
+    bundles: [{
+      ...validInput.bundles[0],
+      evidence_selectors: [{ selector_type: 'message', message_ref: 'm-1' }],
+      relations: [{ target_kind: 'public', target_id: 'graph_gradient_descent', type: 'causes', direction: 'outgoing', evidence_selector_indexes: [0] }],
+    }],
+  };
+  const parsed = createKnowledgeBundleDraftsInputSchema.parse(causal);
+  assert.deepEqual(toKnowledgeBundleDraftBatchInput(parsed).cards[0]?.relations?.[0]?.evidenceSelectorIndexes, [0]);
+  assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse({
+    ...causal,
+    bundles: [{ ...causal.bundles[0], relations: [{ ...causal.bundles[0].relations[0], evidence_selector_indexes: [] }] }],
+  }).success, false);
+  assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse({
+    ...causal,
+    bundles: [{ ...causal.bundles[0], relations: [{ ...causal.bundles[0].relations[0], evidence_selector_indexes: [1] }] }],
+  }).success, false);
 });
 
 test('rejects raw conversation fields, unknown nested fields, type mismatches, and duplicate ids', () => {
@@ -116,6 +157,19 @@ test('rejects raw conversation fields, unknown nested fields, type mismatches, a
 
   const mismatch = { ...validInput, bundles: [{ ...validInput.bundles[0], knowledge_type: 'concept' }] };
   assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse(mismatch).success, false);
+
+  const blankExpressionLanguage = {
+    ...validInput,
+    bundles: [{
+      ...validInput.bundles[0],
+      knowledge_type: 'expression',
+      structured_content: {
+        type: 'expression', expression: 'hello', language: '', pronunciation: '', meanings: [], translations: [],
+        register: '', nuance: '', usage_contexts: [], examples: [], contrasts: [], common_mistakes: [],
+      },
+    }],
+  };
+  assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse(blankExpressionLanguage).success, false);
 
   const duplicate = { ...validInput, bundles: [validInput.bundles[0], validInput.bundles[0]] };
   assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse(duplicate).success, false);

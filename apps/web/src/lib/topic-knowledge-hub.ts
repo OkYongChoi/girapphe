@@ -74,6 +74,7 @@ export type TopicKnowledgeRelation = {
   type: string;
   relation_origin: 'explicit_user' | 'extracted_from_source' | 'model_inferred';
   confirmed_at: string | null;
+  evidence_span_ids: string[];
 };
 
 export type TopicKnowledgeRevision = {
@@ -417,47 +418,52 @@ export async function getTopicKnowledgeHubForUser(
         reason: entry.reason || null,
         created_at: entry.created_at,
       }));
+    const relations = graph.edges
+      .filter((edge) => itemIds.has(edge.source.replace(/^personal:/, '')) || itemIds.has(edge.target.replace(/^personal:/, '')))
+      .map((edge) => ({
+        id: edge.id,
+        source: edge.source.replace(/^graph_/, 'public:'),
+        target: edge.target.replace(/^graph_/, 'public:'),
+        type: edge.type,
+        relation_origin: relationOrigin(edge.relation_origin, edge.origin),
+        confirmed_at: edge.confirmed_at,
+        evidence_span_ids: edge.evidence_span_ids,
+      }));
+    const relationEvidenceIds = new Set(relations.flatMap((relation) => relation.evidence_span_ids));
     return finalizeTopicKnowledgeHub(topic, {
       items: memoryItems,
       sources: getMemoryKnowledgeSourcesForUser(userId, itemIds)
         .map((source) => mapSource(source as unknown as Record<string, unknown>)),
       activity: getMemoryKnowledgeActivityForUser(userId, itemIds)
         .map((entry) => mapActivity(entry as unknown as Record<string, unknown>)),
-      relations: graph.edges
-        .filter((edge) => itemIds.has(edge.source.replace(/^personal:/, '')) || itemIds.has(edge.target.replace(/^personal:/, '')))
-        .map((edge) => ({
-          id: edge.id,
-          source: edge.source.replace(/^graph_/, 'public:'),
-          target: edge.target.replace(/^graph_/, 'public:'),
-          type: edge.type,
-          relation_origin: relationOrigin(edge.relation_origin, edge.origin),
-          confirmed_at: edge.confirmed_at,
-        })),
+      relations,
       revisions: getMemoryKnowledgeRevisionsForUser(userId, historyItemIds)
         .map((revision) => mapRevision(revision as unknown as Record<string, unknown>)),
       supersessions,
-      evidence_selectors: getMemoryKnowledgeEvidenceForUser(userId, itemIds).map((entry) => {
-        const selector = entry.selector;
-        return mapEvidenceSelector({
-          id: entry.id,
-          knowledge_item_id: entry.knowledge_item_id,
-          source_id: entry.source_id,
-          selector_type: selector.selectorType,
-          selector: {
-            ...(selector.sourceRef ? { source_ref: selector.sourceRef } : {}),
-            ...(selector.messageRef ? { message_ref: selector.messageRef } : {}),
-            ...(selector.start !== undefined ? { start: selector.start } : {}),
-            ...(selector.end !== undefined ? { end: selector.end } : {}),
-            ...(selector.lineStart !== undefined ? { line_start: selector.lineStart } : {}),
-            ...(selector.lineEnd !== undefined ? { line_end: selector.lineEnd } : {}),
-          },
-          polarity: selector.polarity,
-          quality: selector.quality,
-          relation_origin: selector.relationOrigin,
-          confirmed_at: entry.created_at,
-          created_at: entry.created_at,
-        });
-      }),
+      evidence_selectors: getMemoryKnowledgeEvidenceForUser(userId)
+        .filter((entry) => itemIds.has(entry.knowledge_item_id) || relationEvidenceIds.has(entry.id))
+        .map((entry) => {
+          const selector = entry.selector;
+          return mapEvidenceSelector({
+            id: entry.id,
+            knowledge_item_id: entry.knowledge_item_id,
+            source_id: entry.source_id,
+            selector_type: selector.selectorType,
+            selector: {
+              ...(selector.sourceRef ? { source_ref: selector.sourceRef } : {}),
+              ...(selector.messageRef ? { message_ref: selector.messageRef } : {}),
+              ...(selector.start !== undefined ? { start: selector.start } : {}),
+              ...(selector.end !== undefined ? { end: selector.end } : {}),
+              ...(selector.lineStart !== undefined ? { line_start: selector.lineStart } : {}),
+              ...(selector.lineEnd !== undefined ? { line_end: selector.lineEnd } : {}),
+            },
+            polarity: selector.polarity,
+            quality: selector.quality,
+            relation_origin: selector.relationOrigin,
+            confirmed_at: entry.created_at,
+            created_at: entry.created_at,
+          });
+        }),
     });
   }
 
@@ -527,7 +533,6 @@ export async function getTopicKnowledgeHubForUser(
     relationResult,
     revisionResult,
     supersessionResult,
-    evidenceResult,
   ] = await Promise.all([
     pool.query<Record<string, unknown>>(
       `SELECT id, knowledge_item_id, source_type, provider, conversation_ref, source_url,
@@ -550,7 +555,12 @@ export async function getTopicKnowledgeHubForUser(
       `SELECT e.id,
          COALESCE('personal:' || sn.knowledge_item_id, 'public:' || e.source_public_node_id) AS source,
          COALESCE('personal:' || tn.knowledge_item_id, 'public:' || e.target_public_node_id) AS target,
-         e.type, e.origin, e.relation_origin, e.confirmed_at
+         e.type, e.origin, e.relation_origin, e.confirmed_at,
+         COALESCE((
+           SELECT array_agg(re.evidence_span_id ORDER BY re.evidence_span_id)
+           FROM knowledge_relation_evidence re
+           WHERE re.edge_id = e.id AND re.user_id = e.user_id
+         ), ARRAY[]::text[]) AS evidence_span_ids
        FROM user_graph_edges e
        LEFT JOIN user_graph_nodes sn ON sn.id = e.source_private_node_id AND sn.user_id = e.user_id
          AND sn.deleted_at IS NULL
@@ -600,16 +610,33 @@ export async function getTopicKnowledgeHubForUser(
        LIMIT 500`,
       [userId, historyItemIds],
     ),
-    pool.query<Record<string, unknown>>(
-      `SELECT id, knowledge_item_id, source_id, selector_type, selector,
+  ]);
+  const relationEvidenceIds = [...new Set(relationResult.rows.flatMap((row) => (
+    Array.isArray(row.evidence_span_ids)
+      ? row.evidence_span_ids.filter((value): value is string => typeof value === 'string')
+      : []
+  )))];
+  const evidenceResult = await pool.query<Record<string, unknown>>(
+    `WITH referenced_evidence AS (
+       SELECT id, knowledge_item_id, source_id, selector_type, selector,
+         polarity, quality, relation_origin, confirmed_at, created_at
+       FROM knowledge_evidence_spans
+       WHERE user_id = $1 AND id = ANY($3::text[])
+     ), topic_evidence AS (
+       SELECT id, knowledge_item_id, source_id, selector_type, selector,
          polarity, quality, relation_origin, confirmed_at, created_at
        FROM knowledge_evidence_spans
        WHERE user_id = $1 AND knowledge_item_id = ANY($2::text[])
+         AND NOT (id = ANY($3::text[]))
        ORDER BY created_at, id
-       LIMIT 1000`,
-      [userId, itemIds],
-    ),
-  ]);
+       LIMIT 1000
+     )
+     SELECT * FROM referenced_evidence
+     UNION ALL
+     SELECT * FROM topic_evidence
+     ORDER BY created_at, id`,
+    [userId, itemIds, relationEvidenceIds],
+  );
 
   return finalizeTopicKnowledgeHub(topic, {
     items,
@@ -622,6 +649,9 @@ export async function getTopicKnowledgeHubForUser(
       type: String(row.type),
       relation_origin: relationOrigin(row.relation_origin, row.origin),
       confirmed_at: iso(row.confirmed_at),
+      evidence_span_ids: Array.isArray(row.evidence_span_ids)
+        ? row.evidence_span_ids.filter((value): value is string => typeof value === 'string')
+        : [],
     })),
     revisions: revisionResult.rows.map(mapRevision),
     supersessions: supersessionResult.rows.map((row) => ({
