@@ -7,9 +7,12 @@ import {
   EVENT_TIME_PRECISIONS,
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
   KNOWLEDGE_BUNDLE_TYPES,
+  parseExpressionBundleExamples,
+  serializeExpressionBundleExamples,
   type KnowledgeBundleContent,
   type KnowledgeBundleType,
   type EventChronology,
+  type ExpressionBundleExample,
   type HistoricalTimePoint,
 } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
@@ -40,6 +43,28 @@ function pairLines(value: string, left: string, right: string) {
 function listValue(values: string[]) { return values.join('\n'); }
 function pairValue(values: Array<Record<string, unknown>>, left: string, right: string) {
   return values.map((item) => `${String(item[left] ?? '')} :: ${String(item[right] ?? '')}`).join('\n');
+}
+
+function ExpressionExamplesArea({ examples, onChange, t }: {
+  examples: ExpressionBundleExample[];
+  onChange: (examples: ExpressionBundleExample[]) => void;
+  t: Translate;
+}) {
+  const [draft, setDraft] = useState(() => serializeExpressionBundleExamples(examples));
+  return (
+    <label className="grid gap-1 text-xs font-medium text-slate-700">
+      {t('bundle.field.examples')}
+      <textarea
+        className={areaClass}
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          onChange(parseExpressionBundleExamples(event.target.value));
+        }}
+      />
+      <span className="font-normal text-slate-500">{t('bundle.exampleTupleHelp')}</span>
+    </label>
+  );
 }
 
 export default function KnowledgeBundleEditor({
@@ -199,7 +224,7 @@ function BundleFields({ content, update, t }: {
       {area(t('bundle.field.register'), content.register, (value) => update({ ...content, register: value }))}
       {area(t('bundle.field.nuance'), content.nuance, (value) => update({ ...content, nuance: value }))}
       {area(t('bundle.field.usageContexts'), listValue(content.usage_contexts), (value) => update({ ...content, usage_contexts: textLines(value) }))}
-      {area(t('bundle.field.examples'), content.examples.map((item) => [item.text, item.translation ?? '', item.note ?? ''].join(' :: ')).join('\n'), (value) => update({ ...content, examples: textLines(value).map((line) => { const [text = '', translation = '', note = ''] = line.split('::').map((item) => item.trim()); return { text, ...(translation ? { translation } : {}), ...(note ? { note } : {}) }; }).filter((item) => item.text) }), t('bundle.pairHelp'))}
+      <ExpressionExamplesArea examples={content.examples} onChange={(examples) => update({ ...content, examples })} t={t} />
       {area(t('bundle.field.contrasts'), pairValue(content.contrasts, 'expression', 'difference'), (value) => update({ ...content, contrasts: pairLines(value, 'expression', 'difference') as typeof content.contrasts }), t('bundle.pairHelp'))}
       {area(t('bundle.field.commonMistakes'), pairValue(content.common_mistakes, 'incorrect', 'correction'), (value) => update({ ...content, common_mistakes: pairLines(value, 'incorrect', 'correction') as typeof content.common_mistakes }), t('bundle.pairHelp'))}
     </>;

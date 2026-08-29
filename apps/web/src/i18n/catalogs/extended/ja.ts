@@ -7,6 +7,7 @@ export const EXTRA_JA_MESSAGES = {
   "bundle.linesHelp": "1行に1項目。空の欄は表示されません。",
   "bundle.quickNoteHelp": "クイックメモは従来のタイトル・要約・本文形式を維持します。",
   "bundle.pairHelp": "1行に1組：項目 :: 説明",
+  "bundle.exampleTupleHelp": "1行に1つのJSON配列：[\"本文\", \"翻訳\", \"注記\"]",
   "bundle.criteriaHelp": "1行に1基準：基準 :: 値1 | 値2",
   "bundle.componentsHelp": "1行：ID :: 名前 :: 役割 :: 任意の親ID",
   "bundle.relationsHelp": "1行：元ID :: 先ID :: 関係",

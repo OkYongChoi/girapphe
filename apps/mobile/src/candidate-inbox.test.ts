@@ -126,6 +126,10 @@ test('mobile candidate resolution preserves structured error codes and event lif
   );
   assert.match(
     mobileRoute,
+    /mobileCandidateApprovalRequiresCapability\(draft, capabilities\)[\s\S]*?candidateForm\.set\('structured_content'/,
+  );
+  assert.match(
+    mobileRoute,
     /mobileCandidateRequiresDetailedCausalReview\(draft\)[\s\S]*?CAUSAL_REVIEW_REQUIRED/,
   );
 });

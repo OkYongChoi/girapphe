@@ -65,12 +65,16 @@ export function mobileKnowledgeEditRequiresCapability(
 }
 
 export function mobileCandidateApprovalRequiresCapability(
-  draft: { relations?: Array<{ type: string }> } | null | undefined,
+  draft: {
+    structured_content?: KnowledgeBundleContent | null;
+    relations?: Array<{ type: string }>;
+  } | null | undefined,
   capabilities: MobileKnowledgeCapabilities,
 ): boolean {
   return Boolean(
-    !capabilities.causalRelations
-    && draft?.relations?.some((relation) => MOBILE_CAUSAL_RELATION_TYPES.has(relation.type)),
+    mobileKnowledgeEditRequiresCapability(draft, capabilities)
+    || (!capabilities.causalRelations
+      && draft?.relations?.some((relation) => MOBILE_CAUSAL_RELATION_TYPES.has(relation.type))),
   );
 }
 

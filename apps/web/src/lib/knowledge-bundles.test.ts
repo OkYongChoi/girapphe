@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
   KNOWLEDGE_BUNDLE_TYPES,
   createKnowledgeBundleContentFromLegacy,
+  parseExpressionBundleExamples,
   projectKnowledgeBundleContent,
+  serializeExpressionBundleExamples,
   type KnowledgeBundleContent,
 } from '@stem-brain/shared';
 import { parseKnowledgeBundleFields, projectKnowledgeBundle } from './knowledge-bundle-runtime';
@@ -51,6 +53,16 @@ test('preserves a legacy note body when starting each explicit bundle conversion
     const content = createKnowledgeBundleContentFromLegacy(type, legacy);
     assert.match(projectKnowledgeBundleContent(content).content, new RegExp(legacy));
   }
+});
+
+test('expression example editor tuples preserve delimiters and optional fields', () => {
+  const examples = [{
+    text: 'namespace :: name',
+    translation: '경로 :: 이름',
+    note: 'C:\\names :: note',
+  }];
+  assert.deepEqual(parseExpressionBundleExamples(serializeExpressionBundleExamples(examples)), examples);
+  assert.deepEqual(parseExpressionBundleExamples('namespace :: name'), [{ text: 'namespace :: name' }]);
 });
 
 test('rejects mismatched types, invalid nested references, unknown fields, and unsupported versions', () => {

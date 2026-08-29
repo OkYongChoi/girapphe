@@ -50,6 +50,8 @@ test('older mobile clients receive additive knowledge as legacy-compatible data'
     structured_content: { type: 'expression' as const, expression: 'hola', language: 'es', pronunciation: '', meanings: [], translations: [], register: '', nuance: '', usage_contexts: [], examples: [], contrasts: [], common_mistakes: [] },
   }, legacy), true);
   assert.equal(mobileKnowledgeEditRequiresCapability(historicalEvent, legacy), true);
+  assert.equal(mobileCandidateApprovalRequiresCapability(expressionInput, legacy), true);
+  assert.equal(mobileCandidateApprovalRequiresCapability(historicalEvent, legacy), true);
   assert.equal(mobileCandidateApprovalRequiresCapability({ relations: [{ type: 'causes' }] }, legacy), true);
   assert.equal(mobileCandidateApprovalRequiresCapability({ relations: [{ type: 'related' }] }, legacy), false);
   assert.equal(mobileCandidateRequiresDetailedCausalReview({ relations: [{ type: 'causes' }] }), true);
@@ -65,5 +67,6 @@ test('capable mobile clients retain expression and historical chronology', () =>
   };
   assert.equal(withMobileKnowledgeCompatibility(item, capabilities), item);
   assert.equal(mobileKnowledgeEditRequiresCapability(item, capabilities), false);
+  assert.equal(mobileCandidateApprovalRequiresCapability(item, capabilities), false);
   assert.equal(mobileCandidateApprovalRequiresCapability({ relations: [{ type: 'causes' }] }, capabilities), false);
 });

@@ -133,6 +133,8 @@ export type EventChronology = {
   precision: EventTimePrecision;
 };
 
+export type ExpressionBundleExample = { text: string; translation?: string; note?: string };
+
 export type ExpressionBundleContent = {
   type: 'expression';
   expression: string;
@@ -143,10 +145,29 @@ export type ExpressionBundleContent = {
   register: string;
   nuance: string;
   usage_contexts: string[];
-  examples: Array<{ text: string; translation?: string; note?: string }>;
+  examples: ExpressionBundleExample[];
   contrasts: Array<{ expression: string; difference: string }>;
   common_mistakes: Array<{ incorrect: string; correction: string }>;
 };
+
+export function parseExpressionBundleExamples(value: string): ExpressionBundleExample[] {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (Array.isArray(parsed) && parsed.length >= 1 && parsed.length <= 3 && parsed.every((item) => typeof item === 'string') && parsed[0].trim()) {
+        const [text, translation = '', note = ''] = parsed;
+        return { text, ...(translation ? { translation } : {}), ...(note ? { note } : {}) };
+      }
+    } catch {
+      // Plain lines remain literal example text, including any "::" delimiters.
+    }
+    return { text: line };
+  });
+}
+
+export function serializeExpressionBundleExamples(examples: ExpressionBundleExample[]): string {
+  return examples.map((item) => JSON.stringify([item.text, item.translation ?? '', item.note ?? ''])).join('\n');
+}
 
 export type KnowledgeBundleContent =
   | ConceptBundleContent

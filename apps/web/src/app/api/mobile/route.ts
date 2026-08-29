@@ -363,7 +363,7 @@ export async function POST(request: NextRequest) {
     const draft = context.draft;
     if (mobileCandidateApprovalRequiresCapability(draft, capabilities)) {
       return NextResponse.json({
-        error: 'Update the app before approving a candidate with causal relationships.',
+        error: 'Update the app before approving knowledge features that are unavailable in this version.',
         code: 'KNOWLEDGE_CAPABILITY_REQUIRED',
       }, { status: 409 });
     }

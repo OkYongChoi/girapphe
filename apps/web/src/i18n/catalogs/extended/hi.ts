@@ -7,6 +7,7 @@ export const EXTRA_HI_MESSAGES = {
   "bundle.linesHelp": "हर पंक्ति में एक बिंदु। खाली भाग छिपे रहेंगे।",
   "bundle.quickNoteHelp": "त्वरित नोट मौजूदा शीर्षक, सार और सामग्री प्रारूप रखता है।",
   "bundle.pairHelp": "हर पंक्ति में एक जोड़ी: बिंदु :: विवरण",
+  "bundle.exampleTupleHelp": "हर पंक्ति में एक JSON ट्यूपल: [\"पाठ\", \"अनुवाद\", \"टिप्पणी\"]",
   "bundle.criteriaHelp": "हर पंक्ति में एक मानदंड: मानदंड :: पहला मान | दूसरा मान",
   "bundle.componentsHelp": "एक पंक्ति: id :: नाम :: भूमिका :: वैकल्पिक parent id",
   "bundle.relationsHelp": "एक पंक्ति: स्रोत id :: लक्ष्य id :: संबंध",
