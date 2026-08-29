@@ -3169,7 +3169,13 @@ export async function updateKnowledgeDraftForUser(
   }
 ): Promise<boolean> {
   const title = sanitizeKnowledgeTitle(input.title);
-  if (!title) return false;
+  if (!title || !Number.isInteger(input.expectedVersion) || input.expectedVersion <= 0) return false;
+  let proposedEvidenceInput = input.proposedEvidence;
+  if (proposedEvidenceInput === undefined) {
+    const persistedDraft = await getKnowledgeDraftForUserById(userId, draftId);
+    if (!persistedDraft || persistedDraft.status !== 'pending' || persistedDraft.version !== input.expectedVersion) return false;
+    proposedEvidenceInput = persistedDraft.proposed_evidence;
+  }
   const hasBundleInput = Boolean(input.knowledgeType || input.centralQuestion || input.structuredContent || input.bundleSchemaVersion);
   const bundle = hasBundleInput ? parseKnowledgeBundleFields({
     knowledge_type: input.knowledgeType,
@@ -3197,16 +3203,16 @@ export async function updateKnowledgeDraftForUser(
       knowledgeType: bundle?.knowledge_type,
       centralQuestion: bundle?.central_question,
     }),
-    proposed_evidence: sanitizeKnowledgeEvidenceSelectors(input.proposedEvidence),
+    proposed_evidence: sanitizeKnowledgeEvidenceSelectors(proposedEvidenceInput),
   };
   if (payload.relations.length !== input.relations.length
-    || payload.proposed_evidence.length !== (input.proposedEvidence?.length ?? 0)
+    || payload.proposed_evidence.length !== proposedEvidenceInput.length
     || !relationsReferenceValidEvidence(payload.relations, payload.proposed_evidence.length)) return false;
   if (!process.env.DATABASE_URL) {
     for (const [batchId, drafts] of memoryDrafts.entries()) {
       const index = drafts.findIndex((draft) => draft.id === draftId && draft.status === 'pending');
       if (index < 0 || memoryBatches.get(batchId)?.user_id !== userId) continue;
-      if (!Number.isInteger(input.expectedVersion) || input.expectedVersion <= 0 || drafts[index].version !== input.expectedVersion) return false;
+      if (drafts[index].version !== input.expectedVersion) return false;
       drafts[index] = { ...drafts[index], ...payload, version: drafts[index].version + 1, updated_at: new Date().toISOString() };
       return true;
     }

@@ -40,6 +40,7 @@ import {
   setKnowledgeTransactionSqlForTesting,
   softDeleteMemoryKnowledgeItemForUser,
   supersedeKnowledgeItemForUser,
+  updateKnowledgeDraftForUser,
   updateMemoryKnowledgeItemForUser,
   verifyKnowledgeItemForUser,
   type KnowledgeEvidenceSelector,
@@ -1928,6 +1929,70 @@ test('bulk approval requires detailed evidence review for causal relationships',
   ), { approved: 0, skippedEdges: 0, requiresEvidenceReview: true });
   assert.equal(getMemoryKnowledgeItemsForUser(userId).length, 0);
   assert.equal((await getPrivateKnowledgeGraphForUser(userId)).edges.length, 0);
+});
+
+test('batch edits preserve omitted causal evidence and distinguish an explicit clear', async () => {
+  const userId = `user_causal_edit_evidence_${crypto.randomUUID()}`;
+  const proposedEvidence = [{
+    selectorType: 'message' as const,
+    messageRef: 'causal-edit-evidence',
+    polarity: 'supports' as const,
+    quality: 'high' as const,
+    relationOrigin: 'model_inferred' as const,
+  }];
+  const relations = [{
+    targetKind: 'public' as const,
+    targetId: 'graph_mathematics',
+    type: 'causes' as const,
+    relationOrigin: 'model_inferred' as const,
+    evidenceSelectorIndexes: [0],
+  }];
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'chatgpt',
+    requestId: `causal-edit-evidence-${crypto.randomUUID()}`,
+    cards: [{ title: 'Causal draft', proposedEvidence, relations }],
+  });
+  const initial = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+
+  assert.equal(await updateKnowledgeDraftForUser(userId, initial.id, {
+    title: 'Edited causal draft',
+    summary: initial.summary,
+    explanation: initial.explanation,
+    topic: initial.topic,
+    tags: initial.tags,
+    relations: initial.relations,
+    expectedVersion: initial.version,
+  }), true);
+  const preserved = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  assert.equal(preserved.title, 'Edited causal draft');
+  assert.deepEqual(preserved.proposed_evidence, proposedEvidence);
+  assert.deepEqual(preserved.relations, initial.relations);
+
+  assert.equal(await updateKnowledgeDraftForUser(userId, preserved.id, {
+    title: preserved.title,
+    summary: preserved.summary,
+    explanation: preserved.explanation,
+    topic: preserved.topic,
+    tags: preserved.tags,
+    relations: preserved.relations,
+    expectedVersion: preserved.version,
+    proposedEvidence: [],
+  }), false);
+  assert.equal((await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0].version, preserved.version);
+
+  assert.equal(await updateKnowledgeDraftForUser(userId, preserved.id, {
+    title: preserved.title,
+    summary: preserved.summary,
+    explanation: preserved.explanation,
+    topic: preserved.topic,
+    tags: preserved.tags,
+    relations: [],
+    expectedVersion: preserved.version,
+    proposedEvidence: [],
+  }), true);
+  const cleared = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+  assert.deepEqual(cleared.proposed_evidence, []);
+  assert.deepEqual(cleared.relations, []);
 });
 
 test('server approval requires pending draft dependencies so their edge is not lost', async () => {
