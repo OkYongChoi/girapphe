@@ -1331,7 +1331,8 @@ test('database per-draft resolution locks, resolves the actual node, inserts edg
   assert.ok(accountLockIndex >= 0 && draftLockIndex > accountLockIndex);
   assert.ok(graphLockIndex > draftLockIndex && draftGuardIndex > graphLockIndex);
   assert.ok(nodeIndex > draftGuardIndex && evidenceIndex > nodeIndex && edgeIndex > evidenceIndex);
-  assert.ok(relationEvidenceIndex > edgeIndex && approvalIndex > relationEvidenceIndex);
+  assert.equal(relationEvidenceIndex, edgeIndex);
+  assert.ok(approvalIndex > edgeIndex);
   assert.match(transactionCalls[draftGuardIndex]!.text, /FOR UPDATE OF d/);
   assert.match(transactionCalls[edgeIndex]!.text, /n\.user_id = \$2 AND i\.id = \$3/);
   assert.match(transactionCalls[edgeIndex]!.text, /i\.deleted_at IS NULL AND i\.archived_at IS NULL/);
@@ -1339,14 +1340,14 @@ test('database per-draft resolution locks, resolves the actual node, inserts edg
   assert.match(transactionCalls[edgeIndex]!.text, /source_batch_id, relation_origin/);
   assert.match(transactionCalls[edgeIndex]!.text, /'conversation'/);
   assert.match(transactionCalls[edgeIndex]!.text, /WITH RECURSIVE all_edges/);
+  assert.match(transactionCalls[edgeIndex]!.text, /existing_edge AS MATERIALIZED/);
+  assert.match(transactionCalls[edgeIndex]!.text, /linked_evidence AS/);
   assert.equal(transactionCalls[edgeIndex]!.params[2], result.knowledgeItemId);
   assert.equal(transactionCalls[edgeIndex]!.params[5], publicNodeId);
   assert.equal(transactionCalls[edgeIndex]!.params[7], 0.65);
   assert.equal(transactionCalls[edgeIndex]!.params[8], batchId);
   assert.equal(transactionCalls[edgeIndex]!.params[9], 'explicit_user');
-  assert.equal(transactionCalls[relationEvidenceIndex]!.params[0], transactionCalls[edgeIndex]!.params[0]);
-  assert.equal(transactionCalls[relationEvidenceIndex]!.params[1], transactionCalls[evidenceIndex]!.params[0]);
-  assert.equal(transactionCalls[relationEvidenceIndex]!.params[2], userId);
+  assert.deepEqual(transactionCalls[edgeIndex]!.params[10], [transactionCalls[evidenceIndex]!.params[0]]);
   assert.match(transactionCalls[approvalIndex]!.text, /WITH approved AS MATERIALIZED/);
   assert.match(transactionCalls[approvalIndex]!.text, /THEN 1 ELSE 0 END AS approval_guard/);
 });
@@ -2165,7 +2166,7 @@ test('concurrent memory resolutions commit one related item and one edge', async
   assert.equal(resolvedDraft.knowledge_item_id, successful[0]?.knowledgeItemId);
 });
 
-test('per-draft merge and update connect through one canonical graph node', async () => {
+test('per-draft merge and update reuse one causal edge and retain each reviewed selector', async () => {
   const userId = `user_single_relation_revision_${crypto.randomUUID()}`;
   const target = createMemoryKnowledgeItemForUser(userId, {
     title: 'Canonical relation target', content: 'Version one.', topic: 'Relations',
@@ -2175,9 +2176,9 @@ test('per-draft merge and update connect through one canonical graph node', asyn
   assert.ok(canonicalNodeId);
 
   let expectedTargetVersion = target.version;
-  for (const [action, publicTarget] of [
-    ['merge', 'mathematics'],
-    ['update', 'computer_science'],
+  for (const [action, messageRef] of [
+    ['merge', 'causal-merge-evidence'],
+    ['update', 'causal-update-evidence'],
   ] as const) {
     const created = await createKnowledgeDraftBatchForUser(userId, {
       provider: 'claude',
@@ -2185,9 +2186,16 @@ test('per-draft merge and update connect through one canonical graph node', asyn
       cards: [{
         title: `${action} relation candidate`,
         topic: 'Relations',
+        proposedEvidence: [{
+          selectorType: 'message',
+          messageRef,
+          polarity: 'supports',
+          quality: 'high',
+          relationOrigin: 'explicit_user',
+        }],
         relations: [{
-          targetKind: 'public', targetId: `graph_${publicTarget}`, type: 'supports',
-          direction: 'outgoing', relationOrigin: 'model_inferred',
+          targetKind: 'public', targetId: 'graph_mathematics', type: 'causes',
+          direction: 'outgoing', relationOrigin: 'explicit_user', evidenceSelectorIndexes: [0],
         }],
       }],
     });
@@ -2209,6 +2217,7 @@ test('per-draft merge and update connect through one canonical graph node', asyn
         centralQuestion: null,
         structuredContent: null,
         bundleSchemaVersion: null,
+        evidenceSelectors: draft.proposed_evidence,
         relations: draft.relations,
       },
     });
@@ -2221,13 +2230,13 @@ test('per-draft merge and update connect through one canonical graph node', asyn
   const graph = await getPrivateKnowledgeGraphForUser(userId);
   assert.equal(graph.nodes.filter((node) => node.knowledge_item_id === target.id).length, 1);
   assert.equal(graph.nodes.find((node) => node.knowledge_item_id === target.id)?.graph_node_id, canonicalNodeId);
-  assert.deepEqual(
-    new Set(graph.edges.filter((edge) => edge.type === 'supports').map((edge) => `${edge.source}->${edge.target}`)),
-    new Set([
-      `personal:${target.id}->graph_mathematics`,
-      `personal:${target.id}->graph_computer_science`,
-    ]),
-  );
+  const causalEdges = graph.edges.filter((edge) => edge.type === 'causes');
+  assert.equal(causalEdges.length, 1);
+  assert.equal(causalEdges[0]?.source, `personal:${target.id}`);
+  assert.equal(causalEdges[0]?.target, 'graph_mathematics');
+  assert.equal(causalEdges[0]?.evidence_span_ids.length, 2);
+  const evidence = getMemoryKnowledgeEvidenceForUser(userId);
+  assert.deepEqual(new Set(causalEdges[0]?.evidence_span_ids), new Set(evidence.map((entry) => entry.id)));
 });
 
 test('per-draft merge and update restore a missing canonical graph node before adding relations', async () => {

@@ -2425,14 +2425,24 @@ function insertResolvedMemoryEdgeForUser(
   origin: 'manual' | 'conversation',
   relationOrigin: KnowledgeRelationOrigin,
   evidenceSpanIds: string[] = [],
+  reuseExisting = false,
 ): boolean {
   const [source, target] = normalizeSymmetricEndpoints(rawSource, rawTarget, type);
   if (source.key === target.key) return false;
   if (type === 'prerequisite' && memoryPrerequisitePathExists(userId, target.key, source.key)) return false;
   const edges = memoryEdges.get(userId) ?? [];
-  if (edges.some((edge) => edge.type === type
+  const existingEdge = edges.find((edge) => edge.type === type
     && presentationEndpointToKey(edge.source, userId) === source.key
-    && presentationEndpointToKey(edge.target, userId) === target.key)) return false;
+    && presentationEndpointToKey(edge.target, userId) === target.key);
+  if (existingEdge) {
+    if (!reuseExisting) return false;
+    existingEdge.evidence_span_ids = [...new Set([
+      ...existingEdge.evidence_span_ids,
+      ...evidenceSpanIds,
+    ])];
+    existingEdge.confirmed_at = new Date().toISOString();
+    return true;
+  }
   const toPresentation = (endpoint: ResolvedEndpoint) => endpoint.privateNodeId
     ? `personal:${endpoint.knowledgeItemId}`
     : `graph_${endpoint.publicNodeId}`;
@@ -3319,34 +3329,64 @@ export const DRAFT_RESOLUTION_EDGE_INSERT_SQL = `
       CASE WHEN $7::text IN ('related', 'equivalent_to') AND source_key > target_key
         THEN source_key ELSE target_key END AS target_key
     FROM endpoints
-  )
-  INSERT INTO user_graph_edges (
-    id, user_id, source_private_node_id, source_public_node_id,
-    target_private_node_id, target_public_node_id, type, weight, origin,
-    source_batch_id, relation_origin, confirmed_at
-  )
-  SELECT $1, $2, source_private_node_id, source_public_node_id,
-    target_private_node_id, target_public_node_id, $7, $8, 'conversation', $9, $10, NOW()
-  FROM normalized
-  WHERE source_key <> target_key
-    AND ($7::text <> 'prerequisite' OR NOT EXISTS (
-      WITH RECURSIVE all_edges(source_key, target_key) AS (
-        SELECT 'public:' || e.source, 'public:' || e.target
-        FROM graph_edges e WHERE e.type = 'prerequisite'
-        UNION ALL
-        SELECT COALESCE('private:' || e.source_private_node_id, 'public:' || e.source_public_node_id),
-               COALESCE('private:' || e.target_private_node_id, 'public:' || e.target_public_node_id)
-        FROM user_graph_edges e
-        WHERE e.user_id = $2 AND e.type = 'prerequisite' AND e.deleted_at IS NULL
-      ), reach(node_key) AS (
-        SELECT normalized.target_key
-        UNION
-        SELECT e.target_key FROM all_edges e JOIN reach r ON e.source_key = r.node_key
+  ), existing_edge AS MATERIALIZED (
+    SELECT e.id
+    FROM normalized n
+    JOIN user_graph_edges e ON e.user_id = $2 AND e.type = $7 AND e.deleted_at IS NULL
+      AND (
+        (
+          COALESCE('private:' || e.source_private_node_id, 'public:' || e.source_public_node_id) = n.source_key
+          AND COALESCE('private:' || e.target_private_node_id, 'public:' || e.target_public_node_id) = n.target_key
+        ) OR (
+          $7::text IN ('related', 'equivalent_to')
+          AND COALESCE('private:' || e.source_private_node_id, 'public:' || e.source_public_node_id) = n.target_key
+          AND COALESCE('private:' || e.target_private_node_id, 'public:' || e.target_public_node_id) = n.source_key
+        )
       )
-      SELECT 1 FROM reach WHERE node_key = normalized.source_key
-    ))
-  ON CONFLICT DO NOTHING
-  RETURNING id`;
+    LIMIT 1
+  ), inserted_edge AS (
+    INSERT INTO user_graph_edges (
+      id, user_id, source_private_node_id, source_public_node_id,
+      target_private_node_id, target_public_node_id, type, weight, origin,
+      source_batch_id, relation_origin, confirmed_at
+    )
+    SELECT $1, $2, source_private_node_id, source_public_node_id,
+      target_private_node_id, target_public_node_id, $7, $8, 'conversation', $9, $10, NOW()
+    FROM normalized
+    WHERE source_key <> target_key
+      AND NOT EXISTS (SELECT 1 FROM existing_edge)
+      AND ($7::text <> 'prerequisite' OR NOT EXISTS (
+        WITH RECURSIVE all_edges(source_key, target_key) AS (
+          SELECT 'public:' || e.source, 'public:' || e.target
+          FROM graph_edges e WHERE e.type = 'prerequisite'
+          UNION ALL
+          SELECT COALESCE('private:' || e.source_private_node_id, 'public:' || e.source_public_node_id),
+                 COALESCE('private:' || e.target_private_node_id, 'public:' || e.target_public_node_id)
+          FROM user_graph_edges e
+          WHERE e.user_id = $2 AND e.type = 'prerequisite' AND e.deleted_at IS NULL
+        ), reach(node_key) AS (
+          SELECT normalized.target_key
+          UNION
+          SELECT e.target_key FROM all_edges e JOIN reach r ON e.source_key = r.node_key
+        )
+        SELECT 1 FROM reach WHERE node_key = normalized.source_key
+      ))
+    ON CONFLICT DO NOTHING
+    RETURNING id
+  ), resolved_edge AS MATERIALIZED (
+    SELECT id FROM existing_edge
+    UNION ALL
+    SELECT id FROM inserted_edge
+    LIMIT 1
+  ), linked_evidence AS (
+    INSERT INTO knowledge_relation_evidence (edge_id, evidence_span_id, user_id)
+    SELECT r.id, s.id, $2
+    FROM resolved_edge r
+    JOIN knowledge_evidence_spans s ON s.user_id = $2 AND s.id = ANY($11::text[])
+    ON CONFLICT DO NOTHING
+    RETURNING edge_id
+  )
+  SELECT id FROM resolved_edge`;
 
 export async function approveKnowledgeDraftsForUser(
   userId: string,
@@ -3483,6 +3523,7 @@ export async function approveKnowledgeDraftsForUser(
         'conversation',
         candidate.relation.relationOrigin ?? 'model_inferred',
         candidate.evidenceSpanIds,
+        true,
       )) insertedEdges += 1;
     }
     let approved = 0;
@@ -4308,6 +4349,7 @@ export async function resolveKnowledgeDraftForUser(
         'conversation',
         candidate.relation.relationOrigin ?? 'model_inferred',
         candidate.evidenceSpanIds,
+        true,
       )) insertedEdges += 1;
     }
     drafts[index] = {
@@ -4516,18 +4558,8 @@ export async function resolveKnowledgeDraftForUser(
           Math.max(0.05, Math.min(1, candidate.relation.weight ?? 1)),
           input.batchId,
           candidate.relation.relationOrigin ?? 'model_inferred',
+          candidate.evidenceSpanIds,
         ]));
-        for (const evidenceSpanId of candidate.evidenceSpanIds) {
-          queries.push(tx.query(
-            `INSERT INTO knowledge_relation_evidence (edge_id, evidence_span_id, user_id)
-             SELECT $1, $2, $3
-             WHERE EXISTS (SELECT 1 FROM user_graph_edges e WHERE e.id = $1 AND e.user_id = $3)
-               AND EXISTS (SELECT 1 FROM knowledge_evidence_spans s WHERE s.id = $2 AND s.user_id = $3)
-             ON CONFLICT DO NOTHING
-             RETURNING edge_id`,
-            [candidate.edgeId, evidenceSpanId, userId],
-          ));
-        }
       }
       queries.push(
         tx.query(
