@@ -84,6 +84,20 @@ export function knowledgeBundleAnswerLines(content: KnowledgeBundleContent, loca
 function lines(value: string) { return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean); }
 function segments(value: string) { return value.split('::').map((item) => item.trim()); }
 function pairs(value: string) { return lines(value).map((item) => { const [first = '', ...rest] = segments(item); return [first, rest.join(' :: ')] as const; }).filter(([first]) => first); }
+function expressionExamples(value: string): Array<{ text: string; translation?: string; note?: string }> {
+  return lines(value).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (Array.isArray(parsed) && parsed.length >= 1 && parsed.length <= 3 && parsed.every((item) => typeof item === 'string') && parsed[0].trim()) {
+        const [text, translation = '', note = ''] = parsed;
+        return { text, ...(translation ? { translation } : {}), ...(note ? { note } : {}) };
+      }
+    } catch {
+      // A plain example remains plain text, including any literal "::" delimiters.
+    }
+    return { text: line };
+  });
+}
 function slug(value: string, index: number) { return value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || `component_${index + 1}`; }
 
 function historicalPoint(era: string, year: string, month: string, day: string): HistoricalTimePoint | null {
@@ -105,11 +119,16 @@ function historicalPoint(era: string, year: string, month: string, day: string):
 
 export function parseMobileChronology(value: string): EventChronology | null | undefined {
   if (!value.trim()) return undefined;
-  const [precision = '', startEra = '', startYear = '', startMonth = '', startDay = '', endEra = '', endYear = '', endMonth = '', endDay = ''] = segments(value);
+  const chronologySegments = segments(value);
+  if (chronologySegments.length > 9) return null;
+  const [precision = '', startEra = '', startYear = '', startMonth = '', startDay = '', endEra = '', endYear = '', endMonth = '', endDay = ''] = chronologySegments;
   if (!EVENT_TIME_PRECISIONS.includes(precision as EventChronology['precision'])) return null;
   const start = historicalPoint(startEra.toLowerCase(), startYear, startMonth, startDay);
   if (!start) return null;
-  if (precision !== 'range') return { precision: precision as EventChronology['precision'], start };
+  if (precision !== 'range') {
+    if (endEra || endYear || endMonth || endDay) return null;
+    return { precision: precision as EventChronology['precision'], start };
+  }
   const end = historicalPoint(endEra.toLowerCase(), endYear, endMonth, endDay);
   return end && historicalTimePointKey(end) >= historicalTimePointKey(start) ? { precision: 'range', start, end } : null;
 }
@@ -174,7 +193,7 @@ export function buildMobileKnowledgeBundle(type: KnowledgeBundleType, fields: st
     if (chronology === null) throw new Error('Enter a valid event chronology or leave it blank.');
     return { type, event: one.trim(), occurred_at: two.trim(), context: three.trim(), changes: lines(four), causes: lines(five), consequences: lines(six), ...(chronology ? { chronology } : {}) };
   }
-  if (type === 'expression') return { type, expression: one.trim(), language: two.trim(), pronunciation: three.trim(), meanings: lines(four), translations: pairs(five).filter(([language, text]) => language && text).map(([language, text]) => ({ language, text })), register: six.trim(), nuance: seven.trim(), usage_contexts: lines(eight), examples: lines(nine).map((line) => { const [text = '', translation = '', note = ''] = segments(line); return { text, ...(translation ? { translation } : {}), ...(note ? { note } : {}) }; }).filter((item) => item.text), contrasts: pairs(ten).filter(([, difference]) => difference).map(([expression, difference]) => ({ expression, difference })), common_mistakes: pairs(eleven).filter(([, correction]) => correction).map(([incorrect, correction]) => ({ incorrect, correction })) };
+  if (type === 'expression') return { type, expression: one.trim(), language: two.trim(), pronunciation: three.trim(), meanings: lines(four), translations: pairs(five).filter(([language, text]) => language && text).map(([language, text]) => ({ language, text })), register: six.trim(), nuance: seven.trim(), usage_contexts: lines(eight), examples: expressionExamples(nine), contrasts: pairs(ten).filter(([, difference]) => difference).map(([expression, difference]) => ({ expression, difference })), common_mistakes: pairs(eleven).filter(([, correction]) => correction).map(([incorrect, correction]) => ({ incorrect, correction })) };
   const confidence = six.trim().toLowerCase();
   return { type, claim: one.trim(), evidence: pairs(two).map(([statement, source]) => ({ statement, ...(source ? { source } : {}) })), counterevidence: lines(three), scope: lines(four), limitations: lines(five), ...(['low', 'medium', 'high'].includes(confidence) ? { confidence: confidence as 'low' | 'medium' | 'high' } : {}) };
 }
@@ -189,6 +208,6 @@ export function mobileKnowledgeBundleEditValues(value: KnowledgeBundleContent | 
   if (value.type === 'question') return [value.question, value.context, value.known_facts.join('\n'), value.hypotheses.join('\n'), value.next_steps.join('\n'), value.answer_summary, value.status];
   if (value.type === 'decision') return [value.decision, value.context, value.options.map((item) => `${item.name}${item.tradeoffs ? ` :: ${item.tradeoffs}` : ''}`).join('\n'), value.criteria.join('\n'), value.rationale.join('\n'), value.reconsider_when.join('\n'), value.outcome];
   if (value.type === 'event') return [value.event, value.occurred_at, value.context, value.changes.join('\n'), value.causes.join('\n'), value.consequences.join('\n'), serializeMobileChronology(value.chronology)];
-  if (value.type === 'expression') return [value.expression, value.language, value.pronunciation, value.meanings.join('\n'), value.translations.map((item) => `${item.language} :: ${item.text}`).join('\n'), value.register, value.nuance, value.usage_contexts.join('\n'), value.examples.map((item) => [item.text, item.translation ?? '', item.note ?? ''].join(' :: ')).join('\n'), value.contrasts.map((item) => `${item.expression} :: ${item.difference}`).join('\n'), value.common_mistakes.map((item) => `${item.incorrect} :: ${item.correction}`).join('\n')];
+  if (value.type === 'expression') return [value.expression, value.language, value.pronunciation, value.meanings.join('\n'), value.translations.map((item) => `${item.language} :: ${item.text}`).join('\n'), value.register, value.nuance, value.usage_contexts.join('\n'), value.examples.map((item) => JSON.stringify([item.text, item.translation ?? '', item.note ?? ''])).join('\n'), value.contrasts.map((item) => `${item.expression} :: ${item.difference}`).join('\n'), value.common_mistakes.map((item) => `${item.incorrect} :: ${item.correction}`).join('\n')];
   return [value.claim, value.evidence.map((item) => `${item.statement}${item.source ? ` :: ${item.source}` : ''}`).join('\n'), value.counterevidence.join('\n'), value.scope.join('\n'), value.limitations.join('\n'), value.confidence ?? ''];
 }

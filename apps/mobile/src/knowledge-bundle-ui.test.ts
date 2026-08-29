@@ -26,10 +26,30 @@ test('mobile full-field editors round-trip every version-one bundle type without
 test('mobile rejects invalid non-empty chronology instead of silently deleting it', () => {
   assert.equal(parseMobileChronology(''), undefined);
   assert.equal(parseMobileChronology('range :: ce :: 2026 :: 2 :: 29 :: ce :: 2025'), null);
+  assert.equal(parseMobileChronology('exact :: ce :: 2026 :: 1 :: 1 :: ce :: 2027 :: 1 :: 1'), null);
   assert.throws(
     () => buildMobileKnowledgeBundle('event', ['Event', '', '', '', '', '', 'range :: ce :: 2026 :: 1 :: 1 :: ce :: 2025 :: 1 :: 1']),
     /valid event chronology/,
   );
+});
+
+test('mobile expression examples preserve literal delimiters and structured fields', () => {
+  const expression = bundles[9];
+  assert.equal(expression?.type, 'expression');
+  if (!expression || expression.type !== 'expression') return;
+  const withDelimiters: KnowledgeBundleContent = {
+    ...expression,
+    examples: [{ text: 'namespace :: name', translation: '경로 :: 이름', note: 'C:\\names :: note' }],
+  };
+  assert.deepEqual(
+    buildMobileKnowledgeBundle('expression', mobileKnowledgeBundleEditValues(withDelimiters)),
+    withDelimiters,
+  );
+  const directFields = mobileKnowledgeBundleEditValues(expression);
+  directFields[8] = 'namespace :: name';
+  const direct = buildMobileKnowledgeBundle('expression', directFields);
+  assert.equal(direct.type, 'expression');
+  assert.deepEqual(direct.examples, [{ text: 'namespace :: name' }]);
 });
 
 test('mobile structured answers expose every populated field', () => {
