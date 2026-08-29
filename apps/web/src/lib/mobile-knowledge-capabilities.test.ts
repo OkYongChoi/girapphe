@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   MOBILE_CAUSAL_RELATION_TYPES,
+  mobileCandidateApprovalRequiresCapability,
   mobileKnowledgeEditRequiresCapability,
   readMobileKnowledgeCapabilities,
   withMobileKnowledgeCompatibility,
@@ -37,6 +38,8 @@ test('older mobile clients receive additive knowledge as legacy-compatible data'
     structured_content: { type: 'expression' as const, expression: 'hola', language: 'es', pronunciation: '', meanings: [], translations: [], register: '', nuance: '', usage_contexts: [], examples: [], contrasts: [], common_mistakes: [] },
   }, legacy), true);
   assert.equal(mobileKnowledgeEditRequiresCapability(historicalEvent, legacy), true);
+  assert.equal(mobileCandidateApprovalRequiresCapability({ relations: [{ type: 'causes' }] }, legacy), true);
+  assert.equal(mobileCandidateApprovalRequiresCapability({ relations: [{ type: 'related' }] }, legacy), false);
 });
 
 test('capable mobile clients retain expression and historical chronology', () => {
@@ -48,4 +51,5 @@ test('capable mobile clients retain expression and historical chronology', () =>
   };
   assert.equal(withMobileKnowledgeCompatibility(item, capabilities), item);
   assert.equal(mobileKnowledgeEditRequiresCapability(item, capabilities), false);
+  assert.equal(mobileCandidateApprovalRequiresCapability({ relations: [{ type: 'causes' }] }, capabilities), false);
 });

@@ -52,6 +52,7 @@ import {
 } from '@/lib/knowledge-ingestion';
 import { resolveMobileNoteUpdateVersion } from '@/lib/mobile-note-update-version';
 import {
+  mobileCandidateApprovalRequiresCapability,
   mobileKnowledgeEditRequiresCapability,
   readMobileKnowledgeCapabilities,
   withMobileKnowledgeCompatibility,
@@ -356,6 +357,12 @@ export async function POST(request: NextRequest) {
       return result.resolved ? NextResponse.json(result) : NextResponse.json({ ...result, error: 'The candidate changed before it was ignored.' }, { status: 409 });
     }
     const draft = context.draft;
+    if (mobileCandidateApprovalRequiresCapability(draft, capabilities)) {
+      return NextResponse.json({
+        error: 'Update the app before approving a candidate with causal relationships.',
+        code: 'KNOWLEDGE_CAPABILITY_REQUIRED',
+      }, { status: 409 });
+    }
     candidateForm.set('resolution_action', 'create');
     candidateForm.set('title', draft.title);
     candidateForm.set('summary', draft.summary);

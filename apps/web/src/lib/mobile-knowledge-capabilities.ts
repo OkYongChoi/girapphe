@@ -54,3 +54,13 @@ export function mobileKnowledgeEditRequiresCapability(
       && !capabilities.eventChronology),
   );
 }
+
+export function mobileCandidateApprovalRequiresCapability(
+  draft: { relations?: Array<{ type: string }> } | null | undefined,
+  capabilities: MobileKnowledgeCapabilities,
+): boolean {
+  return Boolean(
+    !capabilities.causalRelations
+    && draft?.relations?.some((relation) => MOBILE_CAUSAL_RELATION_TYPES.has(relation.type)),
+  );
+}

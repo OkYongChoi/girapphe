@@ -107,10 +107,10 @@ function BundleFields({ content, update, t }: {
   update: (value: KnowledgeBundleContent) => void;
   t: Translate;
 }) {
-  const area = (label: string, value: string, onChange: (value: string) => void, help?: string) => (
+  const area = (label: string, value: string, onChange: (value: string) => void, help?: string, required = false) => (
     <label className="grid gap-1 text-xs font-medium text-slate-700">
       {label}
-      <textarea className={areaClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <textarea required={required} className={areaClass} value={value} onChange={(event) => onChange(event.target.value)} />
       {help ? <span className="font-normal text-slate-500">{help}</span> : null}
     </label>
   );
@@ -192,7 +192,7 @@ function BundleFields({ content, update, t }: {
     </>;
     case 'expression': return <>
       {area(t('bundle.field.expression'), content.expression, (value) => update({ ...content, expression: value }))}
-      {area(t('bundle.field.language'), content.language, (value) => update({ ...content, language: value }))}
+      {area(t('bundle.field.language'), content.language, (value) => update({ ...content, language: value }), undefined, true)}
       {area(t('bundle.field.pronunciation'), content.pronunciation, (value) => update({ ...content, pronunciation: value }))}
       {area(t('bundle.field.meanings'), listValue(content.meanings), (value) => update({ ...content, meanings: textLines(value) }))}
       {area(t('bundle.field.translations'), pairValue(content.translations, 'language', 'text'), (value) => update({ ...content, translations: pairLines(value, 'language', 'text') as typeof content.translations }), t('bundle.pairHelp'))}

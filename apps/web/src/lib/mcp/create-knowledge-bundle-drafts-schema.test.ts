@@ -139,6 +139,19 @@ test('rejects raw conversation fields, unknown nested fields, type mismatches, a
   const mismatch = { ...validInput, bundles: [{ ...validInput.bundles[0], knowledge_type: 'concept' }] };
   assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse(mismatch).success, false);
 
+  const blankExpressionLanguage = {
+    ...validInput,
+    bundles: [{
+      ...validInput.bundles[0],
+      knowledge_type: 'expression',
+      structured_content: {
+        type: 'expression', expression: 'hello', language: '', pronunciation: '', meanings: [], translations: [],
+        register: '', nuance: '', usage_contexts: [], examples: [], contrasts: [], common_mistakes: [],
+      },
+    }],
+  };
+  assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse(blankExpressionLanguage).success, false);
+
   const duplicate = { ...validInput, bundles: [validInput.bundles[0], validInput.bundles[0]] };
   assert.equal(createKnowledgeBundleDraftsInputSchema.safeParse(duplicate).success, false);
 });

@@ -91,7 +91,7 @@ export async function updateKnowledgeDraft(formData: FormData): Promise<void> {
   revalidateKnowledgeSurfaces(String(formData.get('batch_id') ?? '') || undefined);
 }
 
-export async function approveKnowledgeDrafts(formData: FormData): Promise<{ approved: number; skippedEdges: number }> {
+export async function approveKnowledgeDrafts(formData: FormData): Promise<{ approved: number; skippedEdges: number; requiresEvidenceReview?: boolean }> {
   const user = await requireCurrentUser();
   const batchId = String(formData.get('batch_id') ?? '').trim();
   if (!batchId) return { approved: 0, skippedEdges: 0 };

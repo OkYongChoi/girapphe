@@ -3346,7 +3346,7 @@ export async function approveKnowledgeDraftsForUser(
   batchId: string,
   selectedDraftIds: string[] | null,
   expectedVersions: Record<string, number>
-): Promise<{ approved: number; skippedEdges: number }> {
+): Promise<{ approved: number; skippedEdges: number; requiresEvidenceReview?: boolean }> {
   const loaded = await getKnowledgeDraftBatchForUser(userId, batchId);
   if (!loaded || loaded.batch.status === 'discarded') return { approved: 0, skippedEdges: 0 };
   const selectedSet = selectedDraftIds ? new Set(selectedDraftIds) : null;
@@ -3379,6 +3379,10 @@ export async function approveKnowledgeDraftsForUser(
   if (selectedSet && drafts.length !== selectedSet.size) return { approved: 0, skippedEdges: 0 };
   if (drafts.some((draft) => !Number.isInteger(expectedVersions[draft.id]) || expectedVersions[draft.id] !== draft.version)) {
     return { approved: 0, skippedEdges: 0 };
+  }
+  if (drafts.some((draft) => draft.relations.some((relation) =>
+    (CAUSAL_KNOWLEDGE_RELATION_TYPES as readonly string[]).includes(relation.type)))) {
+    return { approved: 0, skippedEdges: 0, requiresEvidenceReview: true };
   }
   if (!process.env.DATABASE_URL
     && (memoryKnowledgeItems.get(userId) ?? []).length + drafts.length > MAX_KNOWLEDGE_ITEMS_PER_USER) {

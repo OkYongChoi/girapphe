@@ -23,10 +23,11 @@ const contents: Record<(typeof KNOWLEDGE_BUNDLE_TYPES)[number], KnowledgeBundleC
 
 test('parses all ten version-one bundle discriminators and partial optional fields', () => {
   for (const type of KNOWLEDGE_BUNDLE_TYPES) {
+    const structuredContent = type === 'expression' ? { type, language: 'en' } : { type };
     const parsed = parseKnowledgeBundleFields({
       knowledge_type: type,
       central_question: `How does ${type} work?`,
-      structured_content: { type },
+      structured_content: structuredContent,
       bundle_schema_version: 1,
     });
     assert.equal(parsed?.knowledge_type, type);
@@ -85,5 +86,9 @@ test('rejects mismatched types, invalid nested references, unknown fields, and u
   assert.equal(parseKnowledgeBundleFields({
     knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
     structured_content: { ...contents.expression, language: 'not a language tag' },
+  }), null);
+  assert.equal(parseKnowledgeBundleFields({
+    knowledge_type: 'expression', central_question: 'How is it used?', bundle_schema_version: 1,
+    structured_content: { ...contents.expression, language: '' },
   }), null);
 });

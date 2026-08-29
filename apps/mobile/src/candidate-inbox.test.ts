@@ -120,6 +120,10 @@ test('mobile candidate resolution preserves structured error codes and event lif
     /structured_content\?\.type === 'event'[\s\S]*?new Date\(draft\.structured_content\.occurred_at\)[\s\S]*?!Number\.isNaN\(occurredAt\.getTime\(\)\)[\s\S]*?occurredAt\.toISOString\(\)/,
   );
   assert.match(mobileRoute, /result\.pendingDependency[\s\S]*?CANDIDATE_DEPENDENCY_PENDING/);
+  assert.match(
+    mobileRoute,
+    /mobileCandidateApprovalRequiresCapability\(draft, capabilities\)[\s\S]*?KNOWLEDGE_CAPABILITY_REQUIRED/,
+  );
 });
 
 test('finishing one candidate action keeps every other candidate pending', () => {

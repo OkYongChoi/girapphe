@@ -1121,7 +1121,7 @@ test('database draft approval partitions dynamically queued edge and update resu
         proposed_relations: [{
           targetKind: 'public',
           targetId: `graph_${publicNodeId}`,
-          type: 'causes',
+          type: 'supports',
           direction: 'outgoing',
           weight: 1,
           relationOrigin: 'model_inferred',
@@ -1878,6 +1878,41 @@ test('supports selected approval and add-all while rejecting stale versions', as
   const graph = await getPrivateKnowledgeGraphForUser(userId);
   assert.equal(graph.nodes.length, 2);
   assert.deepEqual(graph.nodes.map((node) => node.tags).sort(), [['first'], ['second']]);
+});
+
+test('bulk approval requires detailed evidence review for causal relationships', async () => {
+  const userId = `user_causal_bulk_review_${crypto.randomUUID()}`;
+  const created = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'chatgpt',
+    requestId: `causal-bulk-review-${crypto.randomUUID()}`,
+    cards: [{
+      title: 'Reviewed causal claim',
+      proposedEvidence: [{
+        selectorType: 'message',
+        messageRef: 'causal-evidence-message',
+        polarity: 'supports',
+        quality: 'high',
+        relationOrigin: 'model_inferred',
+      }],
+      relations: [{
+        targetKind: 'public',
+        targetId: 'graph_mathematics',
+        type: 'causes',
+        relationOrigin: 'model_inferred',
+        evidenceSelectorIndexes: [0],
+      }],
+    }],
+  });
+  const draft = (await getKnowledgeDraftBatchForUser(userId, created.batchId))!.drafts[0];
+
+  assert.deepEqual(await approveKnowledgeDraftsForUser(
+    userId,
+    created.batchId,
+    [draft.id],
+    { [draft.id]: draft.version },
+  ), { approved: 0, skippedEdges: 0, requiresEvidenceReview: true });
+  assert.equal(getMemoryKnowledgeItemsForUser(userId).length, 0);
+  assert.equal((await getPrivateKnowledgeGraphForUser(userId)).edges.length, 0);
 });
 
 test('server approval requires pending draft dependencies so their edge is not lost', async () => {

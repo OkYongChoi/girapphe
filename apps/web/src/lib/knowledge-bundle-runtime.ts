@@ -256,7 +256,7 @@ function parseContent(value: unknown): KnowledgeBundleContent | null {
       ]);
       if (!item) return null;
       const expression = text(item.expression, 4000);
-      const language = text(item.language, 35);
+      const language = text(item.language, 35, true);
       const pronunciation = text(item.pronunciation, 500);
       const meanings = textList(item.meanings, 24, 6000);
       const translations = records(item.translations, 24, (entry) => {
@@ -283,7 +283,7 @@ function parseContent(value: unknown): KnowledgeBundleContent | null {
       });
       const contrasts = records(item.contrasts, 24, (entry) => pair(entry, 'expression', 'difference'));
       const commonMistakes = records(item.common_mistakes, 24, (entry) => pair(entry, 'incorrect', 'correction'));
-      if (expression === null || language === null || (language && !isKnowledgeLanguageTag(language))
+      if (expression === null || language === null || !isKnowledgeLanguageTag(language)
         || pronunciation === null || !meanings || !translations || register === null || nuance === null
         || !usageContexts || !examples || !contrasts || !commonMistakes) return null;
       return {

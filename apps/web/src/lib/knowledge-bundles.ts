@@ -206,7 +206,7 @@ const eventContentSchema = z.object({
 const expressionContentSchema = z.object({
   type: z.literal('expression'),
   expression: detailText.default(''),
-  language: z.union([z.literal(''), languageTag]).default(''),
+  language: languageTag,
   pronunciation: shortText.default(''),
   meanings: detailTextList,
   translations: z.array(z.object({
