@@ -16,6 +16,7 @@ import {
   QuizRateLimitError,
   UnknownGraphNodeError,
   getDbGraphDataForUser,
+  getDbGraphDataWithStatsForUser,
   submitDbQuizResult,
 } from './knowledge-graph-db';
 import {
@@ -165,6 +166,79 @@ test('the home graph sample stays bounded and keeps only valid link endpoints', 
   }
 });
 
+test('graph data and stats reuse one account-scoped database snapshot', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const calls: Array<{ text: string; params?: unknown[] }> = [];
+
+  context.after(() => {
+    db.query = originalQuery;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgres://graph-snapshot-test.invalid/girapphe';
+  db.query = (async (text: string, params?: unknown[]) => {
+    calls.push({ text, params });
+    if (text.includes('FROM graph_nodes')) {
+      return {
+        rows: [
+          { id: 'node-a', label: 'Node A', domain: 'mathematics', level: 1, difficulty: 1, type: 'concept' },
+          { id: 'node-b', label: 'Node B', domain: 'mathematics', level: 2, difficulty: 2, type: 'concept' },
+        ],
+      };
+    }
+    if (text.includes('FROM graph_edges')) {
+      return {
+        rows: [{ source: 'node-a', target: 'node-b', type: 'prerequisite', weight: 1 }],
+      };
+    }
+    if (text.includes('FROM user_knowledge_states')) {
+      return {
+        rows: [{
+          user_id: 'graph-snapshot-user',
+          node_id: 'node-a',
+          knowledge_state: 1,
+          confidence: 0.8,
+          last_updated: '2026-08-30T00:00:00.000Z',
+          first_known_at: '2026-08-30T00:00:00.000Z',
+        }],
+      };
+    }
+    assert.fail(`Unexpected graph query: ${text}`);
+  }) as typeof db.query;
+
+  const result = await getDbGraphDataWithStatsForUser('graph-snapshot-user');
+
+  assert.equal(calls.length, 3);
+  assert.equal(calls.filter(({ text }) => text.includes('FROM graph_nodes')).length, 1);
+  assert.equal(calls.filter(({ text }) => text.includes('FROM graph_edges')).length, 1);
+  const stateCalls = calls.filter(({ text }) => text.includes('FROM user_knowledge_states'));
+  assert.equal(stateCalls.length, 1);
+  assert.match(stateCalls[0]?.text ?? '', /WHERE user_id = \$1/);
+  assert.deepEqual(stateCalls[0]?.params, ['graph-snapshot-user']);
+  assert.deepEqual(result.links, [
+    { source: 'node-a', target: 'node-b', type: 'prerequisite', weight: 1 },
+  ]);
+  assert.equal(result.nodes.find(({ id }) => id === 'node-a')?.knowledge, 0.97);
+  assert.deepEqual(result.stats, {
+    total_nodes: 2,
+    mastered: 1,
+    reinforcing: 0,
+    not_started: 1,
+    avg_knowledge: 0.5,
+    domains: {
+      mathematics: {
+        total: 2,
+        mastered: 1,
+        reinforcing: 0,
+        not_started: 1,
+        avg: 0.5,
+      },
+    },
+  });
+});
+
 test('the memory quiz path rejects unknown graph node IDs', async () => {
   const previousDatabaseUrl = process.env.DATABASE_URL;
   delete process.env.DATABASE_URL;
@@ -249,12 +323,12 @@ test('mobile private graph summaries are invalidated on account transitions', as
 });
 
 test('web Concepts includes current guest notes without enabling the signed-in private graph', async () => {
-  const sources = await Promise.all([
+  const [gridSource, knowledgeSource] = await Promise.all([
     readFile(new URL('../app/grid/page.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../app/knowledge/page.tsx', import.meta.url), 'utf8'),
   ]);
 
-  for (const source of sources) {
+  for (const source of [gridSource, knowledgeSource]) {
     assert.match(source, /getUserKnowledgeItems\(\),/);
     assert.doesNotMatch(
       source,
@@ -264,6 +338,40 @@ test('web Concepts includes current guest notes without enabling the signed-in p
     assert.match(source, /personalItems=\{personalMapItems\}/);
     assert.doesNotMatch(source, /personalItems=\{personalItems\}/);
     assert.doesNotMatch(source, /user_id|source_provider|source_batch_id/);
-    assert.match(source, /actor\.isGuest \? Promise\.resolve\(null\) : getPrivateKnowledgeGraph\(\)/);
   }
+
+  assert.doesNotMatch(gridSource, /getPrivateKnowledgeGraph|getKnowledgeLinkTargets/);
+  assert.match(gridSource, /initialView="grid"/);
+  assert.match(gridSource, /isGuest=\{actor\.isGuest\}/);
+  assert.match(knowledgeSource, /actor\.isGuest \? Promise\.resolve\(null\) : getPrivateKnowledgeGraph\(\)/);
+  assert.match(knowledgeSource, /actor\.isGuest \? Promise\.resolve\(\[\]\) : getKnowledgeLinkTargets\(\)/);
+  assert.match(knowledgeSource, /privateGraph=\{actor\.isGuest \? null : privateGraph\}/);
+  assert.match(knowledgeSource, /graphLinkTargets=\{graphLinkTargets\}/);
+});
+
+test('grid loads the authenticated private graph overlay only when graph view opens', async () => {
+  const [componentSource, actionSource] = await Promise.all([
+    readFile(new URL('../components/knowledge-map.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../actions/knowledge-ingestion-actions.ts', import.meta.url), 'utf8'),
+  ]);
+
+  const openGraphStart = componentSource.indexOf('const openGraphView');
+  assert.ok(openGraphStart > 0);
+  const openGraphSource = componentSource.slice(openGraphStart);
+  assert.equal((componentSource.match(/getKnowledgeGraphOverlay\(\)/g) ?? []).length, 1);
+  assert.match(componentSource, /useState\(initialView === 'graph' \|\| isGuest\)/);
+  assert.match(openGraphSource, /const \[snapshot, overlay\] = await Promise\.all\(\[/);
+  assert.match(openGraphSource, /getKnowledgeGraphSnapshot\(\{ locale \}\)/);
+  assert.match(openGraphSource, /getKnowledgeGraphOverlay\(\)/);
+  assert.match(openGraphSource, /setCurrentPrivateGraph\(overlay\.privateGraph\)/);
+  assert.match(openGraphSource, /setCurrentGraphLinkTargets\(overlay\.graphLinkTargets\)/);
+
+  const overlayActionStart = actionSource.indexOf('export async function getKnowledgeGraphOverlay');
+  assert.ok(overlayActionStart > 0);
+  const overlayActionEnd = actionSource.indexOf('export async function createPrivateKnowledgeEdge', overlayActionStart);
+  const overlayActionSource = actionSource.slice(overlayActionStart, overlayActionEnd);
+  assert.match(overlayActionSource, /const user = await requireCurrentUser\(\)/);
+  assert.match(overlayActionSource, /await Promise\.all\(\[/);
+  assert.match(overlayActionSource, /getPrivateKnowledgeGraphForUser\(user\.id\)/);
+  assert.match(overlayActionSource, /getKnowledgeLinkTargetsForUser\(user\.id\)/);
 });

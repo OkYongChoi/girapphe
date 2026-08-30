@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import {
   KnowledgeCard,
-  saveCardState,
   getNextCard,
   CardStatus,
-  getUserStats,
+  rateCardAndAdvance,
   type PrerequisiteInfo,
 } from '@/actions/card-actions';
 import Card from './card';
@@ -133,42 +132,32 @@ export default function CardViewer({
     skippedIds.current.delete(card.id); // rated → no longer needs cycling back
 
     try {
-      const saveResult = await saveCardState(card.id, status);
-      if (!saveResult.success) {
+      const result = await rateCardAndAdvance({
+        cardId: card.id,
+        status,
+        mode,
+        excludeIds: [...ratedIds.current, card.id],
+        locale,
+      });
+      if (!result.success) {
         setError(t('practice.saveError'));
         setHistory(prev => prev.slice(0, -1));
         if (wasSkipped) skippedIds.current.add(card.id); // restore skip state
         return;
       }
+
       setLastChoiceByCardId((prev) => ({ ...prev, [card.id]: status }));
       // Exclude rated card from pool until the cycle resets.
       ratedIds.current.add(card.id);
-      let completedRound = false;
-      let reviewedCountNow = ratedIds.current.size;
-      const getNext = async () => {
-        let next = await getNextCard(mode, [...ratedIds.current], locale);
-        if (!next) {
-          // All available cards have been rated this round → reset and cycle again
-          if (mode === 'review' && reviewPool > 0) {
-            completedRound = true;
-            reviewedCountNow = reviewPool;
-          }
-          ratedIds.current.clear();
-          next = await getNextCard(mode, undefined, locale);
-        }
-        return next;
-      };
-      const fetchWithRetry = async () => {
-        try { return await getNext(); }
-        catch { await new Promise(r => setTimeout(r, 600)); return getNext(); }
-      };
-      const [next, newStats] = await Promise.all([fetchWithRetry(), getUserStats()]);
+      const reviewedCountNow = result.cycled ? reviewPool : ratedIds.current.size;
+      if (result.cycled) ratedIds.current.clear();
+
       if (mode === 'review') {
         setReviewedThisRound(reviewedCountNow);
-        setReviewRoundCompleted(completedRound);
+        setReviewRoundCompleted(result.cycled && reviewPool > 0);
       }
-      completeCardAction(next);
-      setStats(newStats);
+      completeCardAction(result.nextCard);
+      setStats(result.stats);
       setUndoVisible(true); // stays until undo is clicked or next action
     } catch (e) {
       console.error('handleAction failed:', e);
