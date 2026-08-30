@@ -40,18 +40,8 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Validate Env Templates
-        working-directory: apps/web
-        run: pnpm check:env:examples
-
-      - name: Lint and Typecheck
-        run: pnpm turbo check
-
-      - name: Verify patched image parser
-        run: pnpm verify:image-size-hardening
-
-      - name: Build mobile bundles
-        run: pnpm --filter @stem-brain/mobile build
+      - name: Run CI harness
+        run: pnpm harness:ci
 
       - name: Build Cloudflare Bundle
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true

@@ -19,6 +19,7 @@ pnpm dev -- --hostname 127.0.0.1 --port 3001
 
 ```bash
 pnpm check
+pnpm check:docs
 pnpm check:env:examples
 pnpm --filter @stem-brain/web check
 pnpm --filter @stem-brain/mobile check
@@ -43,19 +44,29 @@ The local harness runs:
 
 ```bash
 pnpm check
+pnpm check:docs
+pnpm verify:image-size-hardening
 pnpm --filter @stem-brain/web check:env:examples
 pnpm --filter @stem-brain/web build
 ```
 
 `pnpm check` runs each package's `check` task through Turborepo, including lint
 and type checks for the web and mobile apps plus type checks for shared
-workspace packages.
+workspace packages. `pnpm check:docs` validates local Markdown links and the
+minimum feature-spec structure described in `specs/README.md`.
 
-CI should use the frozen-lockfile harness:
+On a clean checkout, reproduce the CI quality gate with:
 
 ```bash
+pnpm install --frozen-lockfile
 pnpm harness:ci
 ```
+
+`harness:ci` runs the local harness and exports both iOS and Android bundles.
+Dependency installation remains a separate bootstrap step; this makes the
+harness repeatable without changing the caller's installed dependency state.
+The GitHub Actions `Quality Checks` job invokes this same command after its
+frozen-lockfile install.
 
 Deployment readiness should also run the Cloudflare/OpenNext build:
 
@@ -112,6 +123,25 @@ Optional smoke test (app must be running):
 ```bash
 pnpm smoke
 ```
+
+## Feature Specification Workflow
+
+Use `specs/features/_template.md` for new user journeys, API/database contracts,
+auth/privacy/payment/ownership changes, cross-platform behavior, and meaningful
+architecture or rollout decisions. Small bug fixes normally need a regression
+test and PR explanation rather than a standalone spec.
+
+For a spec-backed change:
+
+1. Define the user outcome, scope, privacy/data boundary, and rollout boundary.
+2. Give every acceptance criterion a stable `AC-01` style identifier.
+3. Add a failing test or explicit inspection for each criterion.
+4. Implement and refactor, then map each criterion to its evidence.
+5. Mark a spec `Implemented` only when every criterion is checked and the
+   required harness passes.
+
+`pnpm check:docs` enforces the required sections, stable criterion IDs, evidence
+mapping, and local Markdown-link validity.
 
 ## Documentation Update Rules
 
