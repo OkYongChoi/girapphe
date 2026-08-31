@@ -26,6 +26,7 @@ const htmlSrcElements = new Set([
 ]);
 const htmlSrcsetElements = new Set(['img', 'source']);
 const htmlPosterElements = new Set(['video']);
+const htmlDataElements = new Set(['object']);
 const codeLikeElementNames = [
   'code',
   'kbd',
@@ -136,7 +137,8 @@ function htmlLinkDestinations(source, sourceOffset, markdown) {
       }
       const isResourceAttribute = (attribute.name === 'href' && htmlHrefElements.has(node.tagName))
         || (attribute.name === 'src' && htmlSrcElements.has(node.tagName))
-        || (attribute.name === 'poster' && htmlPosterElements.has(node.tagName));
+        || (attribute.name === 'poster' && htmlPosterElements.has(node.tagName))
+        || (attribute.name === 'data' && htmlDataElements.has(node.tagName));
       if (!isResourceAttribute) continue;
       destinations.push({
         rawDestination: attribute.value,
