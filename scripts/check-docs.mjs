@@ -110,7 +110,7 @@ export function markdownLinkDestinations(markdown) {
       const trimmedSource = source.trimStart();
       if (trimmedSource.startsWith('<!--')
         || /^<(?:script|style)(?:\s|>)/iu.test(trimmedSource)) return;
-      const attributePattern = /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/giu;
+      const attributePattern = /(?:^|[ \t\n\f\r])(?:href|src)[ \t\n\f\r]*=[ \t\n\f\r]*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gimu;
       for (const match of source.matchAll(attributePattern)) {
         const rawDestination = match[1] ?? match[2] ?? match[3];
         destinations.push({

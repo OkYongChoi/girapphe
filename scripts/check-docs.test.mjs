@@ -18,6 +18,7 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     '[^note]: This footnote is not a link definition.',
     '<a href="./html-guide.md">HTML guide</a>',
     "<img src='./images/html-diagram.png' alt='Diagram'>",
+    '<img data-src="./missing-data-image.png" alt="Deferred">',
     '<!-- <a href="./missing-comment.md">Ignored</a> -->',
     '<script>const href = "./missing-script.md";</script>',
     '',
