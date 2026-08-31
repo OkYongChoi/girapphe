@@ -29,8 +29,7 @@ const codeLikeElementNames = [
   'template',
 ];
 const codeLikeElements = new Set(codeLikeElementNames);
-const htmlOpeningPattern = /^<([a-z][\w:-]*)(?:\s|>)/iu;
-const htmlClosingPattern = /^<\/\s*([a-z][\w:-]*)\s*>/iu;
+const htmlClosingPattern = /<\/\s*([a-z][\w:-]*)\s*>/giu;
 const htmlVoidElements = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta',
   'param', 'source', 'track', 'wbr',
@@ -143,32 +142,45 @@ function htmlCodeLikeRanges(markdown, markdownTree) {
     visit(fragment);
 
     const trimmed = parseableSource.trimStart();
-    const closing = trimmed.match(htmlClosingPattern);
-    if (closing) {
-      const openIndex = openElements.findLastIndex((element) => element.name === closing[1].toLowerCase());
-      if (openIndex !== -1) {
-        const [opening] = openElements.splice(openIndex, 1);
-        ranges.push([opening.start, end]);
+    if (trimmed.startsWith('</')) {
+      for (const closing of trimmed.matchAll(htmlClosingPattern)) {
+        const name = closing[1].toLowerCase();
+        const openIndex = openElements.findLastIndex((element) => element.name === name);
+        if (openIndex === -1) continue;
+        const closedElements = openElements.splice(openIndex);
+        const closingEnd = start + parseableSource.indexOf(trimmed)
+          + closing.index + closing[0].length;
+        for (const closedElement of closedElements) {
+          if (closedElement.maskStart === closedElement.start) {
+            ranges.push([closedElement.start, closingEnd]);
+          }
+        }
       }
       continue;
     }
 
-    const opening = trimmed.match(htmlOpeningPattern);
-    const openingElement = opening
-      ? parsedElements.find((element) => element.tagName === opening[1].toLowerCase())
-      : null;
-    const isMaskedOpening = openingElement
-      && (codeLikeElements.has(openingElement.tagName)
-        || openingElement.attrs?.some((attribute) => attribute.name === 'hidden'));
-    if (opening
-      && isMaskedOpening
-      && !openingElement.sourceCodeLocation?.endTag
-      && !htmlVoidElements.has(openingElement.tagName)) {
-      openElements.push({ name: opening[1].toLowerCase(), start });
+    const incompleteElements = parsedElements
+      .filter((element) => element.sourceCodeLocation
+        && !element.sourceCodeLocation.endTag
+        && !htmlVoidElements.has(element.tagName))
+      .sort((left, right) => left.sourceCodeLocation.startOffset
+        - right.sourceCodeLocation.startOffset);
+    for (const element of incompleteElements) {
+      const elementStart = start + element.sourceCodeLocation.startOffset;
+      const inheritedMaskStart = openElements.at(-1)?.maskStart ?? null;
+      const isMaskedElement = codeLikeElements.has(element.tagName)
+        || element.attrs?.some((attribute) => attribute.name === 'hidden');
+      openElements.push({
+        name: element.tagName,
+        start: elementStart,
+        maskStart: inheritedMaskStart ?? (isMaskedElement ? elementStart : null),
+      });
     }
   }
 
-  for (const opening of openElements) ranges.push([opening.start, markdown.length]);
+  for (const opening of openElements) {
+    if (opening.maskStart === opening.start) ranges.push([opening.start, markdown.length]);
+  }
   return ranges;
 }
 
@@ -455,7 +467,7 @@ export function featureSpecFailures(relativeFile, content) {
       /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[[ xX]\].*$/gmu,
     ),
   ];
-  const criterionPattern = /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]+`?(AC-\d{2})`?:(.*)$/u;
+  const criterionPattern = /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]+(?:`(AC-\d{2})`|(AC-\d{2})):(.*)$/u;
   const malformedRows = checkboxRows.filter((match) => !criterionPattern.test(match[0]));
   for (const malformedRow of malformedRows) {
     failures.push(
@@ -470,13 +482,17 @@ export function featureSpecFailures(relativeFile, content) {
       end: checkboxRows[index + 1]?.index ?? acceptanceCriteria.length,
     }))
     .filter(({ match }) => Boolean(match));
-  const criterionMatches = criterionRows.map(({ match }) => match);
-  if (criterionMatches.length === 0) {
+  for (const criterionRow of criterionRows) {
+    criterionRow.state = criterionRow.match[1];
+    criterionRow.id = criterionRow.match[2] ?? criterionRow.match[3];
+    criterionRow.description = criterionRow.match[4];
+  }
+  if (criterionRows.length === 0) {
     failures.push(`${relativeFile} must define checkbox criteria with stable AC-01 style identifiers`);
     return failures;
   }
 
-  const criterionIds = criterionMatches.map((match) => match[2]);
+  const criterionIds = criterionRows.map(({ id }) => id);
   const duplicateIds = criterionIds.filter((id, index) => criterionIds.indexOf(id) !== index);
   for (const duplicateId of new Set(duplicateIds)) {
     failures.push(`${relativeFile} repeats acceptance criterion ${duplicateId}`);
@@ -487,18 +503,29 @@ export function featureSpecFailures(relativeFile, content) {
       criterionRow.source.index + criterionRow.source[0].length,
       criterionRow.end,
     );
-    const continuationDescription = continuation
-      .split('\n')
-      .filter((line) => /^[ \t]{2,}\S/u.test(line))
-      .join('\n');
-    if (!renderedMarkdownText(criterionRow.match[3])
-      && !renderedMarkdownText(continuationDescription)) {
-      failures.push(`${relativeFile} has no description for ${criterionRow.match[2]}`);
+    const continuationLines = continuation.split('\n').slice(1);
+    const descriptionLines = [];
+    let acceptsLazyContinuation = true;
+    for (const line of continuationLines) {
+      if (!line.trim()) {
+        acceptsLazyContinuation = false;
+      } else if (/^[ \t]{2,}\S/u.test(line)) {
+        descriptionLines.push(line);
+      } else if (acceptsLazyContinuation
+        && !/^(?:[-+*]|\d{1,9}[.)]|#{1,6}[ \t]|>|`{3,}|~{3,})/u.test(line)) {
+        descriptionLines.push(line);
+      } else {
+        acceptsLazyContinuation = false;
+      }
+    }
+    if (!renderedMarkdownText(criterionRow.description)
+      && !renderedMarkdownText(descriptionLines.join('\n'))) {
+      failures.push(`${relativeFile} has no description for ${criterionRow.id}`);
     }
   }
 
   if (status === 'Implemented') {
-    const incomplete = criterionMatches.filter((match) => match[1].toLowerCase() !== 'x');
+    const incomplete = criterionRows.filter(({ state }) => state.toLowerCase() !== 'x');
     if (incomplete.length > 0) {
       failures.push(`${relativeFile} is Implemented but has incomplete acceptance criteria`);
     }

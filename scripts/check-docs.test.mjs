@@ -382,6 +382,19 @@ test('ignores feature-spec structures inside inert or hidden HTML', () => {
   assert.ok(hiddenFailures.includes(
     'specs/features/example.md must define checkbox criteria with stable AC-01 style identifiers',
   ));
+
+  const nestedHiddenFailures = featureSpecFailures(
+    'specs/features/example.md',
+    featureSpec
+      .replace('<template>', '<div>\n<div hidden>')
+      .replace('</template>', '</div>\n</div>'),
+  );
+  assert.ok(nestedHiddenFailures.includes(
+    'specs/features/example.md must declare Status: Draft, Active, Implemented, or Superseded',
+  ));
+  assert.ok(nestedHiddenFailures.includes(
+    'specs/features/example.md must define checkbox criteria with stable AC-01 style identifiers',
+  ));
 });
 
 test('ignores feature-spec criteria inside inline HTML code elements', () => {
@@ -427,6 +440,8 @@ test('rejects every malformed acceptance-criterion checkbox', () => {
     '- [x] `AC-03` Missing colon.',
     '   * [ ] `AC-4`: Invalid indented criterion.',
     '   2) [ ] `AC-5`: Invalid ordered criterion.',
+    '- [x] `AC-04: Missing closing backtick.',
+    '- [x] AC-05`: Missing opening backtick.',
     '- [Design notes](../design.md)',
     '## Privacy and data boundaries',
     'Boundary.',
@@ -451,6 +466,10 @@ test('rejects every malformed acceptance-criterion checkbox', () => {
         + '   * [ ] `AC-4`: Invalid indented criterion.',
       'specs/features/example.md has malformed acceptance criterion checkbox: '
         + '   2) [ ] `AC-5`: Invalid ordered criterion.',
+      'specs/features/example.md has malformed acceptance criterion checkbox: '
+        + '- [x] `AC-04: Missing closing backtick.',
+      'specs/features/example.md has malformed acceptance criterion checkbox: '
+        + '- [x] AC-05`: Missing opening backtick.',
     ],
   );
 });
@@ -511,6 +530,8 @@ test('requires a rendered acceptance-criterion description', () => {
     '- [x] `AC-03`: ** **',
     '- [x] `AC-04`:',
     '  ** **',
+    '- [x] `AC-05`:',
+    'Observable lazy continuation description.',
     '## Privacy and data boundaries',
     'Boundary.',
     '## Verification',
@@ -518,6 +539,7 @@ test('requires a rendered acceptance-criterion description', () => {
     '| `AC-02` | covered. |',
     '| `AC-03` | covered. |',
     '| `AC-04` | covered. |',
+    '| `AC-05` | covered. |',
     '## Rollout',
     'Rollout.',
   ].join('\n');
