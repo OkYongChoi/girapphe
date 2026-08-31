@@ -84,6 +84,8 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     "<img src='./images/html-diagram.png' alt='Diagram'>",
     '<img src="./images/diagram&#45;2.png" alt="Numeric entity">',
     '<img data-src="./missing-data-image.png" alt="Deferred">',
+    '<img srcset="./images/responsive-1.png 1x, ./images/responsive-2.png 2x">',
+    '<source srcset="./images/source-640.png 640w, ./images/source-1280.png 1280w">',
     '<div href="./missing-inert-attribute.md">Ignored</div>',
     "<div title='Example: href=\"./missing-title-link.md\"'></div>",
     '<!-- <a href="./missing-comment.md">Ignored</a> -->',
@@ -135,6 +137,10 @@ test('extracts inline and reference-style Markdown link destinations', () => {
       './guide&notes.md',
       './images/html-diagram.png',
       './images/diagram-2.png',
+      './images/responsive-1.png',
+      './images/responsive-2.png',
+      './images/source-640.png',
+      './images/source-1280.png',
       './escaped-html-code-link.md',
       './nested-guide.md',
       './nested-paragraph.md',
@@ -396,6 +402,18 @@ test('ignores feature-spec structures inside inert or hidden HTML', () => {
   assert.ok(nestedHiddenFailures.includes(
     'specs/features/example.md must define checkbox criteria with stable AC-01 style identifiers',
   ));
+
+  const prefixedCloseFailures = featureSpecFailures(
+    'specs/features/example.md',
+    featureSpec
+      .replace('<template>', '<div hidden>')
+      .replace('</template>', '<span></span></div>')
+      + '\n\nStatus: Draft',
+  );
+  assert.equal(
+    prefixedCloseFailures.filter((failure) => failure.includes('Status')).length,
+    0,
+  );
 });
 
 test('ignores feature-spec criteria inside inline HTML code elements', () => {

@@ -24,6 +24,7 @@ const htmlHrefElements = new Set(['a', 'area', 'base', 'image', 'link', 'use']);
 const htmlSrcElements = new Set([
   'audio', 'embed', 'iframe', 'img', 'input', 'script', 'source', 'track', 'video',
 ]);
+const htmlSrcsetElements = new Set(['img', 'source']);
 const codeLikeElementNames = [
   'code',
   'kbd',
@@ -94,6 +95,24 @@ function withoutEscapedHtmlTags(source, sourceOffset, markdown) {
   return characters.join('');
 }
 
+function srcsetUrlCandidates(value) {
+  const candidates = [];
+  let cursor = 0;
+  while (cursor < value.length) {
+    while (cursor < value.length && /[\s,]/u.test(value[cursor])) cursor += 1;
+    if (cursor >= value.length) break;
+    const start = cursor;
+    while (cursor < value.length && !/\s/u.test(value[cursor])) cursor += 1;
+    const token = value.slice(start, cursor);
+    const url = token.replace(/,+$/u, '');
+    if (url) candidates.push({ url, index: start });
+    if (url.length !== token.length) continue;
+    while (cursor < value.length && value[cursor] !== ',') cursor += 1;
+    if (value[cursor] === ',') cursor += 1;
+  }
+  return candidates;
+}
+
 function htmlLinkDestinations(source, sourceOffset, markdown) {
   const parseableSource = withoutEscapedHtmlTags(source, sourceOffset, markdown);
   const fragment = parseFragment(parseableSource, { sourceCodeLocationInfo: true });
@@ -101,10 +120,21 @@ function htmlLinkDestinations(source, sourceOffset, markdown) {
 
   const visit = (node) => {
     for (const attribute of node.attrs ?? []) {
+      const location = node.sourceCodeLocation?.attrs?.[attribute.name];
+      if (attribute.name === 'srcset' && htmlSrcsetElements.has(node.tagName)) {
+        for (const candidate of srcsetUrlCandidates(attribute.value)) {
+          destinations.push({
+            rawDestination: candidate.url,
+            index: sourceOffset
+              + (location?.startOffset ?? node.sourceCodeLocation?.startOffset ?? 0)
+              + candidate.index,
+          });
+        }
+        continue;
+      }
       const isResourceAttribute = (attribute.name === 'href' && htmlHrefElements.has(node.tagName))
         || (attribute.name === 'src' && htmlSrcElements.has(node.tagName));
       if (!isResourceAttribute) continue;
-      const location = node.sourceCodeLocation?.attrs?.[attribute.name];
       destinations.push({
         rawDestination: attribute.value,
         index: sourceOffset + (location?.startOffset ?? node.sourceCodeLocation?.startOffset ?? 0),
@@ -148,22 +178,23 @@ function htmlCodeLikeRanges(markdown, markdownTree) {
     };
     visit(fragment);
 
-    const trimmed = parseableSource.trimStart();
-    if (trimmed.startsWith('</')) {
-      for (const closing of trimmed.matchAll(htmlClosingPattern)) {
-        const name = closing[1].toLowerCase();
-        const openIndex = openElements.findLastIndex((element) => element.name === name);
-        if (openIndex === -1) continue;
-        const closedElements = openElements.splice(openIndex);
-        const closingEnd = start + parseableSource.indexOf(trimmed)
-          + closing.index + closing[0].length;
-        for (const closedElement of closedElements) {
-          if (closedElement.maskStart === closedElement.start) {
-            ranges.push([closedElement.start, closingEnd]);
-          }
+    const pairedClosingOffsets = new Set(
+      parsedElements
+        .map((element) => element.sourceCodeLocation?.endTag?.startOffset)
+        .filter((offset) => offset !== undefined),
+    );
+    for (const closing of parseableSource.matchAll(htmlClosingPattern)) {
+      if (pairedClosingOffsets.has(closing.index)) continue;
+      const name = closing[1].toLowerCase();
+      const openIndex = openElements.findLastIndex((element) => element.name === name);
+      if (openIndex === -1) continue;
+      const closedElements = openElements.splice(openIndex);
+      const closingEnd = start + closing.index + closing[0].length;
+      for (const closedElement of closedElements) {
+        if (closedElement.maskStart === closedElement.start) {
+          ranges.push([closedElement.start, closingEnd]);
         }
       }
-      continue;
     }
 
     const incompleteElements = parsedElements
