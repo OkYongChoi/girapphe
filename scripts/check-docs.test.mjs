@@ -64,7 +64,7 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     ],
   );
   assert.equal(localLinkTarget('./release_\\(final\\).md'), './release_(final).md');
-  assert.equal(localLinkTarget('./titled.md "Titled notes"'), './titled.md');
+  assert.equal(localLinkTarget('./images/diagram one.png'), './images/diagram one.png');
 });
 
 test('reports undefined full and collapsed references outside code', () => {
@@ -115,6 +115,47 @@ test('requires content in every mandatory active feature-spec section', () => {
       'specs/features/example.md has an empty "## Rollout" section',
     ],
   );
+});
+
+test('ignores feature-spec structures inside code blocks', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    '```md',
+    'Status: Implemented',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '- [x] `AC-01`: Hidden criterion.',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '| `AC-01` | hidden evidence. |',
+    '## Rollout',
+    'Rollout.',
+    '```',
+  ].join('\n');
+
+  const failures = featureSpecFailures('specs/features/example.md', featureSpec);
+
+  assert.ok(failures.includes(
+    'specs/features/example.md must declare Status: Draft, Active, Implemented, or Superseded',
+  ));
+  for (const section of [
+    'User outcome',
+    'Scope',
+    'Acceptance criteria',
+    'Privacy and data boundaries',
+    'Verification',
+    'Rollout',
+  ]) {
+    assert.ok(failures.includes(`specs/features/example.md is missing the "## ${section}" section`));
+  }
+  assert.ok(failures.includes(
+    'specs/features/example.md must define checkbox criteria with stable AC-01 style identifiers',
+  ));
 });
 
 test('rejects every malformed acceptance-criterion checkbox', () => {

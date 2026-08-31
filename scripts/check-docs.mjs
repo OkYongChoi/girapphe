@@ -59,15 +59,28 @@ function normalizeReferenceIdentifier(identifier) {
     .toLowerCase();
 }
 
+function withoutMarkdownCode(markdown) {
+  const tree = markdownParser.parse(markdown);
+  const characters = markdown.split('');
+
+  visitMarkdown(tree, (node) => {
+    if (node.type !== 'code') return;
+    const start = node.position?.start.offset ?? 0;
+    const end = node.position?.end.offset ?? start;
+    for (let index = start; index < end; index += 1) {
+      if (characters[index] !== '\n') characters[index] = ' ';
+    }
+  });
+
+  return characters.join('');
+}
+
 function lineNumberAt(content, offset) {
   return content.slice(0, offset).split('\n').length;
 }
 
 export function localLinkTarget(rawDestination) {
-  const trimmed = rawDestination.trim();
-  const destination = trimmed.startsWith('<')
-    ? trimmed.slice(1, trimmed.indexOf('>'))
-    : trimmed.split(/\s+/u, 1)[0];
+  const destination = rawDestination.trim();
 
   if (!destination || destination.startsWith('#') || destination.startsWith('/')) return null;
   if (/^[a-z][a-z\d+.-]*:/iu.test(destination)) return null;
@@ -161,13 +174,16 @@ function sectionContent(markdown, sectionName) {
 
 export function featureSpecFailures(relativeFile, content) {
   const failures = [];
-  const status = content.match(/^Status: (Draft|Active|Implemented|Superseded)$/mu)?.[1];
+  const structuralContent = withoutMarkdownCode(content);
+  const status = structuralContent.match(
+    /^Status: (Draft|Active|Implemented|Superseded)$/mu,
+  )?.[1];
   if (!status) {
     failures.push(`${relativeFile} must declare Status: Draft, Active, Implemented, or Superseded`);
   }
 
   for (const section of requiredFeatureSections) {
-    const body = sectionContent(content, section);
+    const body = sectionContent(structuralContent, section);
     if (body === null) {
       failures.push(`${relativeFile} is missing the "## ${section}" section`);
     } else if ((status === 'Active' || status === 'Implemented') && !body.trim()) {
@@ -175,7 +191,7 @@ export function featureSpecFailures(relativeFile, content) {
     }
   }
 
-  const acceptanceCriteria = sectionContent(content, 'Acceptance criteria') ?? '';
+  const acceptanceCriteria = sectionContent(structuralContent, 'Acceptance criteria') ?? '';
   const checkboxRows = [
     ...acceptanceCriteria.matchAll(/^[ \t]*[-+*][ \t]+\[[^\]\n]*\].*$/gmu),
   ];
@@ -208,7 +224,7 @@ export function featureSpecFailures(relativeFile, content) {
     }
   }
 
-  const verification = sectionContent(content, 'Verification') ?? '';
+  const verification = sectionContent(structuralContent, 'Verification') ?? '';
   const verificationMappings = [
     ...verification.matchAll(
       /^[ \t]*\|[ \t]*`?(AC-\d{2})`?[ \t]*\|([^|\n]*)\|[ \t]*$/gmu,
