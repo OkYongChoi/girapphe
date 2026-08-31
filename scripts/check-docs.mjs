@@ -1,20 +1,14 @@
+import { execFile } from 'node:child_process';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import { parseFragment } from 'parse5';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const markdownEntrypoints = [
-  'AGENTS.md',
-  'README.md',
-  'DEPLOY.md',
-  'ENVIRONMENTS.md',
-  'apps/mobile/SETUP.md',
-  'docs',
-  'specs',
-];
+const execFileAsync = promisify(execFile);
 const requiredFeatureSections = [
   'User outcome',
   'Scope',
@@ -25,18 +19,15 @@ const requiredFeatureSections = [
 ];
 const markdownParser = unified().use(remarkParse);
 
-async function collectMarkdownFiles(entrypoint) {
-  const absolutePath = path.join(repositoryRoot, entrypoint);
-  const entrypointStat = await stat(absolutePath);
-  if (entrypointStat.isFile()) return [absolutePath];
-
-  const entries = await readdir(absolutePath, { withFileTypes: true });
-  const nestedFiles = await Promise.all(entries.map(async (entry) => {
-    const child = path.join(absolutePath, entry.name);
-    if (entry.isDirectory()) return collectMarkdownFiles(path.relative(repositoryRoot, child));
-    return entry.isFile() && entry.name.endsWith('.md') ? [child] : [];
-  }));
-  return nestedFiles.flat();
+async function repositoryMarkdownFiles() {
+  const { stdout } = await execFileAsync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '*.md'],
+    { cwd: repositoryRoot, encoding: 'utf8' },
+  );
+  return [...new Set(stdout.split('\0').filter(Boolean))]
+    .map((relativeFile) => path.join(repositoryRoot, relativeFile))
+    .sort();
 }
 
 function isEscaped(markdown, index) {
@@ -315,7 +306,7 @@ async function checkFeatureSpecs() {
 }
 
 export async function checkDocumentation() {
-  const markdownFiles = (await Promise.all(markdownEntrypoints.map(collectMarkdownFiles))).flat().sort();
+  const markdownFiles = await repositoryMarkdownFiles();
   const linkFailures = await checkLocalLinks(markdownFiles);
   const featureSpecs = await checkFeatureSpecs();
   const failures = [...linkFailures, ...featureSpecs.failures];
