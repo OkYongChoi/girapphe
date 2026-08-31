@@ -453,28 +453,27 @@ function renderedMarkdownText(markdown) {
   return markdownNodeText(markdownParser.parse(markdown)).trim();
 }
 
-function verificationTableMappings(markdown) {
+function verificationTableRows(markdown) {
   const tree = markdownParser.parse(markdown);
-  const mappings = [];
+  const rows = [];
   visitMarkdown(tree, (node) => {
     if (node.type !== 'table') return;
     for (const row of node.children.slice(1)) {
       const [criterionCell, evidenceCell] = row.children;
       if (!criterionCell || !evidenceCell) continue;
       const criterionId = markdownNodeText(criterionCell).trim();
-      if (!/^AC-\d{2}$/u.test(criterionId)) continue;
       const evidenceStart = evidenceCell.children[0]?.position?.start.offset;
       const evidenceEnd = evidenceCell.children.at(-1)?.position?.end.offset;
       const evidenceSource = evidenceStart === undefined || evidenceEnd === undefined
         ? ''
         : markdown.slice(evidenceStart, evidenceEnd);
-      mappings.push({
+      rows.push({
         criterionId,
         evidence: renderedMarkdownText(evidenceSource),
       });
     }
   });
-  return mappings;
+  return rows;
 }
 
 function sectionHeadingCount(markdown, sectionName) {
@@ -594,7 +593,9 @@ export function featureSpecFailures(relativeFile, content) {
   }
 
   const verification = sectionContent(structuralContent, 'Verification') ?? '';
-  const verificationMappings = verificationTableMappings(verification);
+  const verificationRows = verificationTableRows(verification);
+  const verificationMappings = verificationRows
+    .filter((mapping) => /^AC-\d{2}$/u.test(mapping.criterionId));
   for (const criterionId of criterionIds) {
     const mappings = verificationMappings.filter((mapping) => mapping.criterionId === criterionId);
     if (mappings.length === 0
@@ -611,6 +612,13 @@ export function featureSpecFailures(relativeFile, content) {
     .map((mapping) => mapping.criterionId);
   for (const undeclaredId of new Set(undeclaredMappings)) {
     failures.push(`${relativeFile} maps undeclared acceptance criterion ${undeclaredId}`);
+  }
+  const malformedMappingIds = verificationRows
+    .map((mapping) => mapping.criterionId)
+    .filter((criterionId) => /^AC(?:-|$)/iu.test(criterionId)
+      && !/^AC-\d{2}$/u.test(criterionId));
+  for (const malformedId of new Set(malformedMappingIds)) {
+    failures.push(`${relativeFile} has malformed verification criterion ${malformedId}`);
   }
 
   return failures;

@@ -512,7 +512,7 @@ test('requires exact, non-empty verification table evidence', () => {
     '## Verification',
     '| Criterion | Evidence |',
     '| --- | --- |',
-    '| `AC-010` | Wrong identifier. |',
+    '| `AC-1` | Wrong identifier. |',
     '| `AC-02` | |',
     '| `AC-03` | ** ** |',
     '| `AC-09` | Stale mapping. |',
@@ -530,6 +530,7 @@ test('requires exact, non-empty verification table evidence', () => {
       'specs/features/example.md does not map AC-03 to non-empty evidence '
         + 'in the Verification table',
       'specs/features/example.md maps undeclared acceptance criterion AC-09',
+      'specs/features/example.md has malformed verification criterion AC-1',
     ],
   );
 });
