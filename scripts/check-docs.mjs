@@ -93,6 +93,12 @@ function withoutInlineCode(markdown) {
   return output;
 }
 
+function withoutIndentedCode(markdown) {
+  return markdown.split('\n').map((line) => (
+    /^(?: {4}|\t)/u.test(line) ? '' : line
+  )).join('\n');
+}
+
 function lineNumberAt(content, offset) {
   return content.slice(0, offset).split('\n').length;
 }
@@ -117,7 +123,7 @@ export function localLinkTarget(rawDestination) {
 }
 
 export function markdownLinkDestinations(markdown) {
-  const searchableContent = withoutInlineCode(withoutFencedCode(markdown));
+  const searchableContent = withoutInlineCode(withoutIndentedCode(withoutFencedCode(markdown)));
   const destinations = [];
 
   for (let index = 0; index < searchableContent.length - 1; index += 1) {
@@ -129,6 +135,7 @@ export function markdownLinkDestinations(markdown) {
     let cursor = destinationStart;
     let nestedParentheses = 0;
     let quote = null;
+    let destinationWhitespaceSeen = false;
     let angleDestinationEnd = null;
     let closingParenthesis = null;
 
@@ -144,13 +151,18 @@ export function markdownLinkDestinations(markdown) {
         cursor += 1;
         continue;
       }
-      if (character === '"' || character === "'") {
+      if (destinationWhitespaceSeen && (character === '"' || character === "'")) {
         quote = character;
         cursor += 1;
         continue;
       }
       if (searchableContent[destinationStart] === '<' && angleDestinationEnd === null) {
         if (character === '>') angleDestinationEnd = cursor;
+        cursor += 1;
+        continue;
+      }
+      if (/\s/u.test(character) && nestedParentheses === 0) {
+        destinationWhitespaceSeen = true;
         cursor += 1;
         continue;
       }
@@ -233,8 +245,11 @@ export function featureSpecFailures(relativeFile, content) {
   }
 
   for (const section of requiredFeatureSections) {
-    if (sectionContent(content, section) === null) {
+    const body = sectionContent(content, section);
+    if (body === null) {
       failures.push(`${relativeFile} is missing the "## ${section}" section`);
+    } else if ((status === 'Active' || status === 'Implemented') && !body.trim()) {
+      failures.push(`${relativeFile} has an empty "## ${section}" section`);
     }
   }
 

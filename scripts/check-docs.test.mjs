@@ -27,10 +27,13 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     '',
     '`[inline-example](./missing-inline.md)`',
     '``[second-inline-example](./also-missing.md)``',
+    '    [indented-code-example](./missing-indented.md)',
     '',
     '[parenthesized](./release_(final).md)',
     '[angle-parenthesized](<./release(final).md>)',
     '[escaped-parenthesized](./release_\\(final\\).md)',
+    "[apostrophe](./author's-notes.md)",
+    '[titled](./titled.md "Titled notes")',
   ].join('\n');
 
   const { destinations } = markdownLinkDestinations(markdown);
@@ -42,12 +45,44 @@ test('extracts inline and reference-style Markdown link destinations', () => {
       './release_(final).md',
       '<./release(final).md>',
       './release_\\(final\\).md',
+      "./author's-notes.md",
+      './titled.md "Titled notes"',
       './guide.md',
       '<./images/diagram one.png>',
       'https://example.com/docs',
     ],
   );
   assert.equal(localLinkTarget('./release_\\(final\\).md'), './release_(final).md');
+  assert.equal(localLinkTarget('./titled.md "Titled notes"'), './titled.md');
+});
+
+test('requires content in every mandatory active feature-spec section', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    'Status: Active',
+    '',
+    '## User outcome',
+    '## Scope',
+    '## Acceptance criteria',
+    '- [ ] `AC-01`: Observable behavior.',
+    '## Privacy and data boundaries',
+    '## Verification',
+    '| Criterion | Evidence |',
+    '| --- | --- |',
+    '| `AC-01` | focused test. |',
+    '## Rollout',
+  ].join('\n');
+
+  assert.deepEqual(
+    featureSpecFailures('specs/features/example.md', featureSpec),
+    [
+      'specs/features/example.md has an empty "## User outcome" section',
+      'specs/features/example.md has an empty "## Scope" section',
+      'specs/features/example.md has an empty "## Privacy and data boundaries" section',
+      'specs/features/example.md has an empty "## Rollout" section',
+    ],
+  );
 });
 
 test('rejects every malformed acceptance-criterion checkbox', () => {
