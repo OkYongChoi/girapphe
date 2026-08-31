@@ -14,6 +14,7 @@
     "check:env:dev": "pnpm --filter @stem-brain/web check:env:dev",
     "check:env:prod": "pnpm --filter @stem-brain/web check:env:prod",
     "check:env:examples": "pnpm --filter @stem-brain/web check:env:examples",
+    "check:docs": "node --test scripts/check-docs.test.mjs && node scripts/check-docs.mjs",
     "db:generate": "pnpm --filter @stem-brain/web db:generate",
     "db:migrate": "pnpm --filter @stem-brain/web db:migrate",
     "db:studio": "pnpm --filter @stem-brain/web db:studio",
@@ -23,15 +24,20 @@
     "check:worker-size": "node scripts/check-worker-size.mjs",
     "verify:image-size-hardening": "node scripts/verify-image-size-hardening.mjs",
     "harness": "pnpm harness:local",
-    "harness:local": "pnpm check && pnpm verify:image-size-hardening && pnpm --filter @stem-brain/web check:env:examples && pnpm --filter @stem-brain/web build",
+    "harness:local": "pnpm check && pnpm check:docs && pnpm verify:image-size-hardening && pnpm --filter @stem-brain/web check:env:examples && pnpm --filter @stem-brain/web build",
     "harness:browser": "pnpm harness:local && pnpm browser:smoke",
-    "harness:ci": "pnpm install --frozen-lockfile && pnpm harness:local",
+    "harness:ci": "pnpm harness:local && pnpm --filter @stem-brain/mobile build",
     "harness:deploy": "pnpm harness:local && pnpm build:cf && pnpm check:worker-size"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "github-slugger": "^2.0.0",
+    "parse5": "^8.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "turbo": "^2.5.4",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "unified": "^11.0.5"
   },
   "engines": {
     "node": ">=22",

@@ -4,6 +4,8 @@ This folder contains technical documentation for the Personal STEM Brain project
 
 ## Start Here
 
+- [Agent Working Agreement](../AGENTS.md)
+- [Feature Specification Workflow](../specs/README.md)
 - [Tech Stack](./tech-stack.md)
 - [Architecture Overview](./architecture/overview.md)
 - [Architecture Consulting Review (August 2026)](./architecture/consulting-review-2026-08.md)
@@ -20,13 +22,15 @@ This folder contains technical documentation for the Personal STEM Brain project
 
 ## Reading Order
 
-1. Tech Stack
-2. Architecture Overview
-3. Architecture Consulting Review
-4. Mobile App Architecture (if working on iOS/Android)
-5. Data Model
-6. API Specification
-7. Knowledge Graph Spec
-8. Development & Operations
-9. Resource Planning
-10. Admin Operations (if working on `/admin`)
+1. Agent Working Agreement
+2. Feature Specification Workflow (for meaningful changes)
+3. Tech Stack
+4. Architecture Overview
+5. Architecture Consulting Review
+6. Mobile App Architecture (if working on iOS/Android)
+7. Data Model
+8. API Specification
+9. Knowledge Graph Spec
+10. Development & Operations
+11. Resource Planning
+12. Admin Operations (if working on `/admin`)

@@ -21,6 +21,8 @@ This project implements an AI/CS knowledge graph MVP with:
 
 ## Documentation
 
+- Agent working agreement: `AGENTS.md`
+- Feature specification workflow: `specs/README.md`
 - Docs index: `docs/README.md`
 - Tech stack: `docs/tech-stack.md`
 - Architecture overview: `docs/architecture/overview.md`
@@ -177,13 +179,25 @@ Before pushing a branch, run:
 pnpm harness
 ```
 
-This runs workspace checks, validates checked-in environment templates, and
-builds the web app.
+This runs workspace checks, validates documentation and feature-spec contracts,
+verifies the patched image parser, validates checked-in environment templates,
+and builds the web app.
 
-CI should run:
+On a clean checkout, reproduce the CI quality gate with:
 
 ```bash
+pnpm install --frozen-lockfile
 pnpm harness:ci
+```
+
+The CI harness includes the local harness and exports both iOS and Android
+mobile bundles. Dependency installation stays an explicit bootstrap step so the
+harness itself does not mutate the install state.
+
+Documentation-only changes can use the focused gate while iterating:
+
+```bash
+pnpm check:docs
 ```
 
 Before deployment, also run:
