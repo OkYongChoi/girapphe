@@ -56,6 +56,43 @@ function withoutFencedCode(markdown) {
   }).join('\n');
 }
 
+function withoutInlineCode(markdown) {
+  let output = '';
+  let cursor = 0;
+
+  while (cursor < markdown.length) {
+    if (markdown[cursor] !== '`') {
+      output += markdown[cursor];
+      cursor += 1;
+      continue;
+    }
+
+    const openingStart = cursor;
+    while (markdown[cursor] === '`') cursor += 1;
+    const delimiterLength = cursor - openingStart;
+    const delimiter = '`'.repeat(delimiterLength);
+    let closingStart = markdown.indexOf(delimiter, cursor);
+
+    while (closingStart !== -1) {
+      const isExactRun = markdown[closingStart - 1] !== '`'
+        && markdown[closingStart + delimiterLength] !== '`';
+      if (isExactRun) break;
+      closingStart = markdown.indexOf(delimiter, closingStart + 1);
+    }
+
+    if (closingStart === -1) {
+      output += delimiter;
+      continue;
+    }
+
+    const closingEnd = closingStart + delimiterLength;
+    output += markdown.slice(openingStart, closingEnd).replace(/[^\n]/gu, '');
+    cursor = closingEnd;
+  }
+
+  return output;
+}
+
 function lineNumberAt(content, offset) {
   return content.slice(0, offset).split('\n').length;
 }
@@ -79,7 +116,7 @@ function localLinkTarget(rawDestination) {
 }
 
 export function markdownLinkDestinations(markdown) {
-  const searchableContent = withoutFencedCode(markdown);
+  const searchableContent = withoutInlineCode(withoutFencedCode(markdown));
   const destinations = [];
   const inlineLinkPattern = /!?\[[^\]]*\]\(([^)]+)\)/gu;
   for (const match of searchableContent.matchAll(inlineLinkPattern)) {
@@ -148,8 +185,10 @@ export function featureSpecFailures(relativeFile, content) {
   }
 
   const acceptanceCriteria = sectionContent(content, 'Acceptance criteria') ?? '';
-  const checkboxRows = [...acceptanceCriteria.matchAll(/^- \[[^\]\n]*\].*$/gmu)];
-  const criterionPattern = /^- \[([ xX])\] `?(AC-\d{2})`?:/u;
+  const checkboxRows = [
+    ...acceptanceCriteria.matchAll(/^[ \t]*[-+*][ \t]+\[[^\]\n]*\].*$/gmu),
+  ];
+  const criterionPattern = /^[ \t]*[-+*][ \t]+\[([ xX])\][ \t]+`?(AC-\d{2})`?:/u;
   const malformedRows = checkboxRows.filter((match) => !criterionPattern.test(match[0]));
   for (const malformedRow of malformedRows) {
     failures.push(

@@ -20,6 +20,9 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     '   ~~~md',
     '[also-ignored](./missing.md)',
     '   ~~~',
+    '',
+    '`[inline-example](./missing-inline.md)`',
+    '``[second-inline-example](./also-missing.md)``',
   ].join('\n');
 
   const { destinations } = markdownLinkDestinations(markdown);
@@ -47,12 +50,15 @@ test('rejects every malformed acceptance-criterion checkbox', () => {
     'Scope.',
     '## Acceptance criteria',
     '- [x] `AC-01`: Valid criterion.',
+    '+ [x] `AC-02`: Valid alternative bullet.',
     '- [x] `AC-1`: Invalid identifier.',
-    '- [x] `AC-02` Missing colon.',
+    '- [x] `AC-03` Missing colon.',
+    '   * [ ] `AC-4`: Invalid indented criterion.',
     '## Privacy and data boundaries',
     'Boundary.',
     '## Verification',
     '- AC-01: covered.',
+    '- AC-02: covered.',
     '## Rollout',
     'Rollout.',
   ].join('\n');
@@ -63,7 +69,9 @@ test('rejects every malformed acceptance-criterion checkbox', () => {
       'specs/features/example.md has malformed acceptance criterion checkbox: '
         + '- [x] `AC-1`: Invalid identifier.',
       'specs/features/example.md has malformed acceptance criterion checkbox: '
-        + '- [x] `AC-02` Missing colon.',
+        + '- [x] `AC-03` Missing colon.',
+      'specs/features/example.md has malformed acceptance criterion checkbox: '
+        + '   * [ ] `AC-4`: Invalid indented criterion.',
     ],
   );
 });
