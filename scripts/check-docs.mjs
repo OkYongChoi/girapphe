@@ -63,8 +63,19 @@ function normalizeReferenceIdentifier(identifier) {
     .toLowerCase();
 }
 
-function htmlLinkDestinations(source, sourceOffset) {
-  const fragment = parseFragment(source, { sourceCodeLocationInfo: true });
+function withoutEscapedHtmlTags(source, sourceOffset, markdown) {
+  const characters = source.split('');
+  for (let index = 0; index < characters.length; index += 1) {
+    if (characters[index] === '<' && isEscaped(markdown, sourceOffset + index)) {
+      characters[index] = ' ';
+    }
+  }
+  return characters.join('');
+}
+
+function htmlLinkDestinations(source, sourceOffset, markdown) {
+  const parseableSource = withoutEscapedHtmlTags(source, sourceOffset, markdown);
+  const fragment = parseFragment(parseableSource, { sourceCodeLocationInfo: true });
   const destinations = [];
 
   const visit = (node) => {
@@ -84,23 +95,53 @@ function htmlLinkDestinations(source, sourceOffset) {
   return destinations;
 }
 
-function htmlCodeLikeRanges(source) {
-  const fragment = parseFragment(source, { sourceCodeLocationInfo: true });
+function htmlCodeLikeRanges(markdown, markdownTree) {
   const ranges = [];
   const codeLikeElements = new Set(['code', 'kbd', 'pre', 'samp', 'script', 'style']);
+  const htmlNodes = [];
+  const openElements = [];
 
-  const visit = (node) => {
-    if (codeLikeElements.has(node.tagName) && node.sourceCodeLocation) {
-      ranges.push([
-        node.sourceCodeLocation.startOffset,
-        node.sourceCodeLocation.endOffset,
-      ]);
+  visitMarkdown(markdownTree, (node) => {
+    if (node.type === 'html') htmlNodes.push(node);
+  });
+
+  for (const node of htmlNodes) {
+    const start = node.position?.start.offset ?? 0;
+    const end = node.position?.end.offset ?? start;
+    const source = markdown.slice(start, end);
+    const parseableSource = withoutEscapedHtmlTags(source, start, markdown);
+    const fragment = parseFragment(parseableSource, { sourceCodeLocationInfo: true });
+    let hasCompleteElement = false;
+
+    const visit = (htmlNode) => {
+      const location = htmlNode.sourceCodeLocation;
+      if (codeLikeElements.has(htmlNode.tagName) && location?.endTag) {
+        ranges.push([start + location.startOffset, start + location.endOffset]);
+        hasCompleteElement = true;
+      }
+      for (const child of htmlNode.childNodes ?? []) visit(child);
+      if (htmlNode.content) visit(htmlNode.content);
+    };
+    visit(fragment);
+
+    const trimmed = parseableSource.trimStart();
+    const closing = trimmed.match(/^<\/\s*(code|kbd|pre|samp|script|style)\s*>/iu);
+    if (closing) {
+      const openIndex = openElements.findLastIndex((element) => element.name === closing[1].toLowerCase());
+      if (openIndex !== -1) {
+        const [opening] = openElements.splice(openIndex, 1);
+        ranges.push([opening.start, end]);
+      }
+      continue;
     }
-    for (const child of node.childNodes ?? []) visit(child);
-    if (node.content) visit(node.content);
-  };
 
-  visit(fragment);
+    const opening = trimmed.match(/^<(code|kbd|pre|samp|script|style)(?:\s|>)/iu);
+    if (opening && !hasCompleteElement && !/\/\s*>\s*$/u.test(trimmed)) {
+      openElements.push({ name: opening[1].toLowerCase(), start });
+    }
+  }
+
+  for (const opening of openElements) ranges.push([opening.start, markdown.length]);
   return ranges;
 }
 
@@ -111,6 +152,13 @@ function isInRanges(index, ranges) {
 function withoutNonRenderedMarkdown(markdown) {
   const tree = markdownParser.parse(markdown);
   const characters = markdown.split('');
+  const codeLikeRanges = htmlCodeLikeRanges(markdown, tree);
+
+  for (const [start, end] of codeLikeRanges) {
+    for (let index = start; index < end; index += 1) {
+      if (characters[index] !== '\n') characters[index] = ' ';
+    }
+  }
 
   visitMarkdown(tree, (node) => {
     const start = node.position?.start.offset ?? 0;
@@ -154,7 +202,7 @@ export function localLinkTarget(rawDestination) {
 
 export function markdownLinkDestinations(markdown) {
   const tree = markdownParser.parse(markdown);
-  const codeLikeRanges = htmlCodeLikeRanges(markdown);
+  const codeLikeRanges = htmlCodeLikeRanges(markdown, tree);
   const destinations = [];
   const definitions = new Set();
   const textNodes = [];
@@ -165,7 +213,7 @@ export function markdownLinkDestinations(markdown) {
     if (node.type === 'html') {
       const start = node.position?.start.offset ?? 0;
       const source = markdown.slice(start, node.position?.end.offset ?? start);
-      destinations.push(...htmlLinkDestinations(source, start));
+      destinations.push(...htmlLinkDestinations(source, start, markdown));
       return;
     }
     if (!['link', 'image', 'definition'].includes(node.type)) return;

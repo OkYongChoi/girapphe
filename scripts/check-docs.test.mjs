@@ -45,6 +45,8 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     '<script>const href = "./missing-script.md";</script>',
     '<code>[html-code-link](./missing-html-code-link.md)</code>',
     '',
+    '\\<code>[escaped-html-code-link](./escaped-html-code-link.md)</code>',
+    '',
     '```md',
     '[ignored]: ./ignored.md',
     '```',
@@ -86,6 +88,7 @@ test('extracts inline and reference-style Markdown link destinations', () => {
       './guide&notes.md',
       './images/html-diagram.png',
       './images/diagram-2.png',
+      './escaped-html-code-link.md',
       './nested-guide.md',
       './nested-paragraph.md',
       './release_(final).md',
@@ -255,6 +258,31 @@ test('ignores feature-spec structures inside raw HTML blocks', () => {
     'specs/features/example.md is missing the "## Acceptance criteria" section',
   ));
   assert.ok(failures.includes(
+    'specs/features/example.md must define checkbox criteria with stable AC-01 style identifiers',
+  ));
+});
+
+test('ignores feature-spec criteria inside inline HTML code elements', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    'Status: Implemented',
+    '',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '<code>- [x] `AC-01`: Hidden criterion.</code>',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '<code>| `AC-01` | hidden evidence. |</code>',
+    '## Rollout',
+    'Rollout.',
+  ].join('\n');
+
+  assert.ok(featureSpecFailures('specs/features/example.md', featureSpec).includes(
     'specs/features/example.md must define checkbox criteria with stable AC-01 style identifiers',
   ));
 });
