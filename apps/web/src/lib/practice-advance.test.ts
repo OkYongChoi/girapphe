@@ -1,6 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { runPracticeAdvance } from './practice-advance';
+import { buildPracticeExcludeIds, runPracticeAdvance } from './practice-advance';
+
+test('preserves every rated card beyond the knowledge-map pagination limit', () => {
+  const ratedIds = Array.from({ length: 20_001 }, (_, index) => `rated-${index}`);
+  const result = buildPracticeExcludeIds('current', [
+    ...ratedIds,
+    'current',
+    ratedIds[0],
+    null,
+    '',
+  ]);
+
+  assert.equal(result.length, ratedIds.length + 1);
+  assert.equal(result[0], 'current');
+  assert.equal(result.at(-1), ratedIds.at(-1));
+  assert.equal(new Set(result).size, result.length);
+});
 
 test('does not load another card or stats when saving fails', async () => {
   let reads = 0;

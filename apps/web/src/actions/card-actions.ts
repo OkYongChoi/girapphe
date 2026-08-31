@@ -43,7 +43,7 @@ import {
   toKnowledgeGraphCard,
   type KnowledgeGraphCard,
 } from '@/lib/knowledge-graph-card';
-import { runPracticeAdvance } from '@/lib/practice-advance';
+import { buildPracticeExcludeIds, runPracticeAdvance } from '@/lib/practice-advance';
 import { toPublicLeaderboardParticipantId } from '@/lib/leaderboard';
 
 export type PrerequisiteInfo = {
@@ -1593,10 +1593,7 @@ export async function rateCardAndAdvance(input: RateCardAndAdvanceInput) {
     return { success: false as const, error: 'invalid_practice_action' };
   }
 
-  const excludeIds = Array.from(new Set([
-    input.cardId,
-    ...input.excludeIds.filter((id): id is string => typeof id === 'string' && id.length > 0),
-  ])).slice(0, MAX_KNOWLEDGE_CARD_LIMIT);
+  const excludeIds = buildPracticeExcludeIds(input.cardId, input.excludeIds);
   const locale = typeof input.locale === 'string' ? input.locale : undefined;
 
   return runPracticeAdvance({

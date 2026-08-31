@@ -25,6 +25,11 @@ test('a practice rating advances through one client-facing server action', () =>
   const actionEnd = cardActionsSource.indexOf('type GetAllCardsWithStatusOptions', actionStart);
   assert.ok(actionStart > 0 && actionEnd > actionStart);
   const actionSource = cardActionsSource.slice(actionStart, actionEnd);
+  assert.match(
+    actionSource,
+    /const excludeIds = buildPracticeExcludeIds\(input\.cardId, input\.excludeIds\);/,
+  );
+  assert.doesNotMatch(actionSource, /MAX_KNOWLEDGE_CARD_LIMIT/);
   assert.match(actionSource, /return runPracticeAdvance\(\{/);
   assert.match(actionSource, /loadNext: \(ids\) => getNextCard/);
   assert.match(actionSource, /loadStats: \(\) => getUserStats\(\)/);

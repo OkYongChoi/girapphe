@@ -9,6 +9,21 @@ type PracticeAdvanceOptions<TCard, TStats> = {
   wait?: (delayMs: number) => Promise<void>;
 };
 
+/**
+ * Preserve the complete client-side round when crossing the server-action
+ * boundary. The practice pool includes an unbounded owner-private overlay, so
+ * silently truncating this list can make an already-rated card reappear.
+ */
+export function buildPracticeExcludeIds(
+  currentCardId: string,
+  excludeIds: readonly unknown[],
+): string[] {
+  return Array.from(new Set([
+    currentCardId,
+    ...excludeIds.filter((id): id is string => typeof id === 'string' && id.length > 0),
+  ]));
+}
+
 export type PracticeAdvanceFlowResult<TCard, TStats> =
   | { success: false }
   | {
