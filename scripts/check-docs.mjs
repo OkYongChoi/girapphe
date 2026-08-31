@@ -93,10 +93,47 @@ function withoutInlineCode(markdown) {
   return output;
 }
 
+function indentationWidth(whitespace, startingColumn = 0) {
+  let column = startingColumn;
+  for (const character of whitespace) {
+    column = character === '\t' ? column + (4 - (column % 4)) : column + 1;
+  }
+  return column - startingColumn;
+}
+
 function withoutIndentedCode(markdown) {
-  return markdown.split('\n').map((line) => (
-    /^(?: {4}|\t)/u.test(line) ? '' : line
-  )).join('\n');
+  const listContainers = [];
+
+  return markdown.split('\n').map((line) => {
+    if (!line.trim()) return line;
+
+    const leadingWhitespace = line.match(/^[ \t]*/u)?.[0] ?? '';
+    const indent = indentationWidth(leadingWhitespace);
+    while (listContainers.length > 0
+      && indent < listContainers[listContainers.length - 1]) {
+      listContainers.pop();
+    }
+
+    const containerIndent = listContainers[listContainers.length - 1] ?? 0;
+    if (indent - containerIndent >= 4) return '';
+
+    const listItem = line.match(/^([ \t]*)([-+*]|\d{1,9}[.)])([ \t]+)/u);
+    if (listItem) {
+      const markerEnd = indent + listItem[2].length;
+      const contentIndent = markerEnd + indentationWidth(listItem[3], markerEnd);
+      listContainers.push(contentIndent);
+    }
+
+    return line;
+  }).join('\n');
+}
+
+function isEscaped(markdown, index) {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && markdown[cursor] === '\\'; cursor -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
 }
 
 function lineNumberAt(content, offset) {
@@ -128,8 +165,9 @@ export function markdownLinkDestinations(markdown) {
 
   for (let index = 0; index < searchableContent.length - 1; index += 1) {
     if (searchableContent[index] !== ']' || searchableContent[index + 1] !== '(') continue;
+    if (isEscaped(searchableContent, index)) continue;
     const labelStart = searchableContent.lastIndexOf('[', index);
-    if (labelStart === -1 || searchableContent[labelStart - 1] === '\\') continue;
+    if (labelStart === -1 || isEscaped(searchableContent, labelStart)) continue;
 
     const destinationStart = index + 2;
     let cursor = destinationStart;
