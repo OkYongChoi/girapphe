@@ -58,6 +58,21 @@ type DomainSummary = {
   avg: number;
 };
 
+export type UserGraphStats = {
+  total_nodes: number;
+  mastered: number;
+  reinforcing: number;
+  not_started: number;
+  avg_knowledge: number;
+  domains: Record<string, DomainSummary>;
+};
+
+type GraphSnapshot = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  states: Map<string, UserKnowledgeState>;
+};
+
 type KnowledgeProfileNode = {
   id: string;
   label: string;
@@ -189,6 +204,15 @@ async function getUserStateMap(userId: string): Promise<Map<string, UserKnowledg
   return new Map(rows.map((row) => [row.node_id, asUserKnowledgeState(row)]));
 }
 
+async function getGraphSnapshotForUser(userId: string): Promise<GraphSnapshot> {
+  const [nodes, edges, states] = await Promise.all([
+    getGraphNodes(),
+    getGraphEdges(),
+    getUserStateMap(userId),
+  ]);
+  return { nodes, edges, states };
+}
+
 async function persistUserStates(userId: string, states: UserKnowledgeState[]): Promise<void> {
   if (states.length === 0) return;
   ensureGraphDatabase();
@@ -253,15 +277,10 @@ async function claimQuizSubmission(userId: string): Promise<void> {
   if (result.rows.length === 0) throw new QuizRateLimitError();
 }
 
-export async function getDbGraphDataForUser(
-  userId: string,
+function buildGraphData(
+  { nodes, edges, states }: GraphSnapshot,
   options?: { maxNodes?: number },
-): Promise<ForceGraphData> {
-  const [nodes, edges, states] = await Promise.all([
-    getGraphNodes(),
-    getGraphEdges(),
-    getUserStateMap(userId),
-  ]);
+): ForceGraphData {
   const now = Date.now();
 
   const nodesWithKnowledge: GraphNodeWithKnowledge[] = nodes.map((node) => {
@@ -321,15 +340,10 @@ export async function getDbGraphDataForUser(
   };
 }
 
-export async function getDbUserGraphStats(userId: string): Promise<{
-  total_nodes: number;
-  mastered: number;
-  reinforcing: number;
-  not_started: number;
-  avg_knowledge: number;
-  domains: Record<string, DomainSummary>;
-}> {
-  const [nodes, states] = await Promise.all([getGraphNodes(), getUserStateMap(userId)]);
+function buildUserGraphStats(
+  nodes: GraphNode[],
+  states: Map<string, UserKnowledgeState>,
+): UserGraphStats {
 
   let mastered = 0;
   let reinforcing = 0;
@@ -374,6 +388,29 @@ export async function getDbUserGraphStats(userId: string): Promise<{
       ])
     ),
   };
+}
+
+export async function getDbGraphDataForUser(
+  userId: string,
+  options?: { maxNodes?: number },
+): Promise<ForceGraphData> {
+  return buildGraphData(await getGraphSnapshotForUser(userId), options);
+}
+
+export async function getDbGraphDataWithStatsForUser(
+  userId: string,
+  options?: { maxNodes?: number },
+): Promise<ForceGraphData & { stats: UserGraphStats }> {
+  const snapshot = await getGraphSnapshotForUser(userId);
+  return {
+    ...buildGraphData(snapshot, options),
+    stats: buildUserGraphStats(snapshot.nodes, snapshot.states),
+  };
+}
+
+export async function getDbUserGraphStats(userId: string): Promise<UserGraphStats> {
+  const [nodes, states] = await Promise.all([getGraphNodes(), getUserStateMap(userId)]);
+  return buildUserGraphStats(nodes, states);
 }
 
 export async function getDbNodeKnowledge(

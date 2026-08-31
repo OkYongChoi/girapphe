@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { usePathname } from 'next/navigation';
-import { stripLocaleFromPathname } from '@stem-brain/shared';
+import { usePathname, useRouter } from 'next/navigation';
+import { localizePathname, stripLocaleFromPathname } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 import { LocalizedLink } from '@/i18n/navigation';
 
@@ -32,11 +32,19 @@ export default function NavLinks({
   isAuthenticated?: boolean;
   isAdmin?: boolean;
 }) {
+  const router = useRouter();
   const pathname = stripLocaleFromPathname(usePathname());
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const isHome = variant === 'home';
   const activeLinkRef = useRef<HTMLAnchorElement>(null);
   const navListRef = useRef<HTMLUListElement>(null);
+  const prefetchedHrefRef = useRef(new Set<string>());
+
+  const prefetchOnIntent = (href: string) => {
+    if (prefetchedHrefRef.current.has(href)) return;
+    prefetchedHrefRef.current.add(href);
+    router.prefetch(href);
+  };
 
   useEffect(() => {
     const alignActiveLinkToLogicalStart = () => {
@@ -75,10 +83,14 @@ export default function NavLinks({
       <ul ref={navListRef} className={`no-scrollbar flex w-full min-w-0 items-center gap-1 overflow-x-auto rounded-lg p-1 text-sm font-medium ${isHome ? 'bg-white/[0.06] text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
         {NAV_ITEMS.filter((item) => !('authOnly' in item) || !item.authOnly || isAuthenticated).map((item) => {
           const active = isActive(pathname, item.href);
+          const localizedHref = localizePathname(item.href, locale);
           return (
             <li key={item.href} className="shrink-0">
               <LocalizedLink
                 href={item.href}
+                prefetch={false}
+                onMouseEnter={active ? undefined : () => prefetchOnIntent(localizedHref)}
+                onFocus={active ? undefined : () => prefetchOnIntent(localizedHref)}
                 ref={active ? activeLinkRef : undefined}
                 aria-current={active ? 'page' : undefined}
                 className={`inline-flex min-h-11 items-center rounded-md px-3 py-1.5 transition focus:outline-none focus:ring-2 focus:ring-blue-500 ${isHome ? 'focus:ring-offset-slate-950' : 'focus:ring-offset-2 focus:ring-offset-white'} ${

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentActor } from '@/lib/auth';
-import { getDbGraphDataForUser, getDbUserGraphStats } from '@/lib/knowledge-graph-db';
+import { getDbGraphDataWithStatsForUser } from '@/lib/knowledge-graph-db';
 import { localizeGraphNodes, parseContentLocale } from '@/lib/content-localization';
 
 export async function GET(request: NextRequest) {
@@ -14,8 +14,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const graphData = await getDbGraphDataForUser(user.id);
-  const stats = await getDbUserGraphStats(user.id);
+  const { stats, ...graphData } = await getDbGraphDataWithStatsForUser(user.id);
   const nodes = await localizeGraphNodes(graphData.nodes, locale, { generateMissing: false });
 
   return NextResponse.json({

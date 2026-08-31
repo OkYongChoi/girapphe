@@ -19,6 +19,7 @@ import {
   PRIVATE_CAUSAL_EDGE_TYPES,
   type KnowledgeMapGraphEdgeType,
 } from '@/lib/knowledge-map-private-edges';
+import { getKnowledgeGraphRenderBudget } from '@/lib/knowledge-graph-performance';
 
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false }) as any;
 
@@ -90,6 +91,13 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
   const [colorMode, setColorMode] = useState<ColorMode>('progress');
   const [isLegendExpanded, setIsLegendExpanded] = useState(false);
   const fgRef = useRef<any>(null);
+
+  const prefetchedHrefRef = useRef(new Set<string>());
+  const prefetchOnIntent = useCallback((href: string) => {
+    if (prefetchedHrefRef.current.has(href)) return;
+    prefetchedHrefRef.current.add(href);
+    router.prefetch(href);
+  }, [router]);
 
   const getStatusLabel = (status: CardStatus | null) => {
     if (status === 'known') return t('common.explainable');
@@ -235,7 +243,7 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
         || edges.some((edge) => edge.scope === 'private' && edge.type === type)),
     [edges],
   );
-  const isLargeGraph = graphData.nodes.length > 240;
+  const renderBudget = getKnowledgeGraphRenderBudget(graphData.nodes.length);
 
   const selectedRelationships = useMemo(() => {
     if (!selectedNode || selectedNode.group === 'domain') return [];
@@ -351,7 +359,7 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
         nodeVal="val"
         nodeColor="color"
         nodeOpacity={0.9}
-        nodeResolution={isLargeGraph ? 8 : 16}
+        nodeResolution={renderBudget.nodeResolution}
         linkColor="color"
         linkLabel={(link: any) => {
           if (!link.type) return t('graph.domainHub');
@@ -360,7 +368,9 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
         }}
         linkOpacity={0.58}
         linkWidth={(link: any) => link.width ?? 0.5}
-        linkDirectionalParticles={(link: any) => (isLargeGraph ? 0 : link.particles ?? 0)}
+        linkDirectionalParticles={(link: any) => (
+          renderBudget.showDirectionalParticles ? link.particles ?? 0 : 0
+        )}
         linkDirectionalParticleWidth={0.7}
         linkDirectionalParticleSpeed={0.003}
         linkDirectionalArrowLength={(link: any) => link.arrowLength ?? 0}
@@ -372,8 +382,8 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
         onBackgroundClick={() => setSelectedNode(null)}
         d3AlphaDecay={0.02}
         d3VelocityDecay={0.3}
-        warmupTicks={isLargeGraph ? 30 : 50}
-        cooldownTicks={isLargeGraph ? 120 : undefined}
+        warmupTicks={renderBudget.warmupTicks}
+        cooldownTicks={renderBudget.cooldownTicks}
       />
 
       {/* Top bar */}
@@ -407,6 +417,9 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
                   <Link
                     href="/subscription"
                     onClick={(event) => event.stopPropagation()}
+                    prefetch={false}
+                    onMouseEnter={() => prefetchOnIntent('/subscription')}
+                    onFocus={() => prefetchOnIntent('/subscription')}
                     className="font-semibold text-cyan-300 underline decoration-cyan-300/50 underline-offset-2 hover:text-cyan-200"
                   >
                     {t('graph.unlockFull')}
@@ -520,6 +533,9 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
           <Link
             href="/practice"
             onClick={(event) => event.stopPropagation()}
+            prefetch={false}
+            onMouseEnter={() => prefetchOnIntent('/practice')}
+            onFocus={() => prefetchOnIntent('/practice')}
             className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-950/75 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/10"
           >
             {t('nav.practice')}
@@ -527,6 +543,9 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
           <Link
             href="/"
             onClick={(event) => event.stopPropagation()}
+            prefetch={false}
+            onMouseEnter={() => prefetchOnIntent('/')}
+            onFocus={() => prefetchOnIntent('/')}
             className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-950/75 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/10"
           >
             {t('common.home')}
