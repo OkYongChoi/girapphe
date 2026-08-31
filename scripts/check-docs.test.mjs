@@ -1,10 +1,21 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
 import {
   featureSpecFailures,
+  isPathInside,
   localLinkTarget,
   markdownLinkDestinations,
 } from './check-docs.mjs';
+
+test('rejects resolved documentation targets outside the repository', () => {
+  const repository = path.resolve('/workspace/repository');
+
+  assert.equal(isPathInside(repository, path.join(repository, 'docs/guide.md')), true);
+  assert.equal(isPathInside(repository, repository), true);
+  assert.equal(isPathInside(repository, path.resolve(repository, '..')), false);
+  assert.equal(isPathInside(repository, path.resolve(repository, '../outside.md')), false);
+});
 
 test('extracts inline and reference-style Markdown link destinations', () => {
   const markdown = [

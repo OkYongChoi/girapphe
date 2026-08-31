@@ -80,6 +80,14 @@ function lineNumberAt(content, offset) {
   return content.slice(0, offset).split('\n').length;
 }
 
+export function isPathInside(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative === ''
+    || (relative !== '..'
+      && !relative.startsWith(`..${path.sep}`)
+      && !path.isAbsolute(relative));
+}
+
 export function localLinkTarget(rawDestination) {
   const destination = rawDestination.trim();
 
@@ -167,6 +175,13 @@ async function checkLocalLinks(markdownFiles) {
       if (!target) continue;
 
       const resolvedTarget = path.resolve(path.dirname(file), target);
+      if (!isPathInside(repositoryRoot, resolvedTarget)) {
+        failures.push(
+          `${path.relative(repositoryRoot, file)}:${lineNumberAt(searchableContent, destination.index)} `
+          + `links outside the repository: ${destination.rawDestination}`,
+        );
+        continue;
+      }
       try {
         await stat(resolvedTarget);
       } catch {
