@@ -84,6 +84,7 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     "<img src='./images/html-diagram.png' alt='Diagram'>",
     '<img src="./images/diagram&#45;2.png" alt="Numeric entity">',
     '<img data-src="./missing-data-image.png" alt="Deferred">',
+    '<div href="./missing-inert-attribute.md">Ignored</div>',
     "<div title='Example: href=\"./missing-title-link.md\"'></div>",
     '<!-- <a href="./missing-comment.md">Ignored</a> -->',
     '<script>const href = "./missing-script.md";</script>',
@@ -513,6 +514,31 @@ test('requires exact, non-empty verification table evidence', () => {
   );
 });
 
+test('requires verification mappings to be rendered GFM table rows', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    'Status: Implemented',
+    '',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '- [x] `AC-01`: Observable behavior.',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '`AC-01` | paragraph-shaped evidence',
+    '## Rollout',
+    'Rollout.',
+  ].join('\n');
+
+  assert.ok(featureSpecFailures('specs/features/example.md', featureSpec).includes(
+    'specs/features/example.md does not map AC-01 to non-empty evidence in the Verification table',
+  ));
+});
+
 test('requires a rendered acceptance-criterion description', () => {
   const featureSpec = [
     '# Feature',
@@ -535,6 +561,8 @@ test('requires a rendered acceptance-criterion description', () => {
     '## Privacy and data boundaries',
     'Boundary.',
     '## Verification',
+    '| Criterion | Evidence |',
+    '| --- | --- |',
     '| `AC-01` | covered. |',
     '| `AC-02` | covered. |',
     '| `AC-03` | covered. |',
@@ -597,6 +625,8 @@ test('requires exactly one visible feature-spec status', () => {
     '## Privacy and data boundaries',
     'Boundary.',
     '## Verification',
+    '| Criterion | Evidence |',
+    '| --- | --- |',
     '| `AC-01` | focused test. |',
     '## Rollout',
     'Rollout.',
@@ -648,6 +678,8 @@ test('accepts valid ATX section heading indentation and closing hashes', () => {
     '## Privacy and data boundaries ##',
     'Boundary.',
     '  ## Verification ##',
+    'Criterion | Evidence',
+    '--- | ---',
     '`AC-01` | focused test',
     '  ## Rollout ##',
     'Rollout.',

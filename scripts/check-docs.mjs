@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import GithubSlugger from 'github-slugger';
 import { parseFragment } from 'parse5';
+import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 
@@ -18,7 +19,11 @@ const requiredFeatureSections = [
   'Verification',
   'Rollout',
 ];
-const markdownParser = unified().use(remarkParse);
+const markdownParser = unified().use(remarkParse).use(remarkGfm);
+const htmlHrefElements = new Set(['a', 'area', 'base', 'image', 'link', 'use']);
+const htmlSrcElements = new Set([
+  'audio', 'embed', 'iframe', 'img', 'input', 'script', 'source', 'track', 'video',
+]);
 const codeLikeElementNames = [
   'code',
   'kbd',
@@ -96,7 +101,9 @@ function htmlLinkDestinations(source, sourceOffset, markdown) {
 
   const visit = (node) => {
     for (const attribute of node.attrs ?? []) {
-      if (attribute.name !== 'href' && attribute.name !== 'src') continue;
+      const isResourceAttribute = (attribute.name === 'href' && htmlHrefElements.has(node.tagName))
+        || (attribute.name === 'src' && htmlSrcElements.has(node.tagName));
+      if (!isResourceAttribute) continue;
       const location = node.sourceCodeLocation?.attrs?.[attribute.name];
       destinations.push({
         rawDestination: attribute.value,
@@ -415,6 +422,30 @@ function renderedMarkdownText(markdown) {
   return markdownNodeText(markdownParser.parse(markdown)).trim();
 }
 
+function verificationTableMappings(markdown) {
+  const tree = markdownParser.parse(markdown);
+  const mappings = [];
+  visitMarkdown(tree, (node) => {
+    if (node.type !== 'table') return;
+    for (const row of node.children.slice(1)) {
+      const [criterionCell, evidenceCell] = row.children;
+      if (!criterionCell || !evidenceCell) continue;
+      const criterionId = markdownNodeText(criterionCell).trim();
+      if (!/^AC-\d{2}$/u.test(criterionId)) continue;
+      const evidenceStart = evidenceCell.children[0]?.position?.start.offset;
+      const evidenceEnd = evidenceCell.children.at(-1)?.position?.end.offset;
+      const evidenceSource = evidenceStart === undefined || evidenceEnd === undefined
+        ? ''
+        : markdown.slice(evidenceStart, evidenceEnd);
+      mappings.push({
+        criterionId,
+        evidence: renderedMarkdownText(evidenceSource),
+      });
+    }
+  });
+  return mappings;
+}
+
 function sectionHeadingCount(markdown, sectionName) {
   const tree = markdownParser.parse(markdown);
   return tree.children.filter(
@@ -532,15 +563,11 @@ export function featureSpecFailures(relativeFile, content) {
   }
 
   const verification = sectionContent(structuralContent, 'Verification') ?? '';
-  const verificationMappings = [
-    ...verification.matchAll(
-      /^[ \t]*\|?[ \t]*`?(AC-\d{2})`?[ \t]*\|((?:\\.|[^|\n])*)\|?[ \t]*$/gmu,
-    ),
-  ];
+  const verificationMappings = verificationTableMappings(verification);
   for (const criterionId of criterionIds) {
-    const mappings = verificationMappings.filter((mapping) => mapping[1] === criterionId);
+    const mappings = verificationMappings.filter((mapping) => mapping.criterionId === criterionId);
     if (mappings.length === 0
-      || mappings.every((mapping) => !renderedMarkdownText(mapping[2]))) {
+      || mappings.every((mapping) => !mapping.evidence)) {
       failures.push(
         `${relativeFile} does not map ${criterionId} to non-empty evidence in the Verification table`,
       );

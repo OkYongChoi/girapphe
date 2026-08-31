@@ -33,6 +33,7 @@
     "@playwright/test": "^1.60.0",
     "github-slugger": "^2.0.0",
     "parse5": "^8.0.1",
+    "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "turbo": "^2.5.4",
     "typescript": "6.0.3",
