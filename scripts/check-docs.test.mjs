@@ -32,6 +32,7 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     "<img src='./images/html-diagram.png' alt='Diagram'>",
     '<img src="./images/diagram&#45;2.png" alt="Numeric entity">',
     '<img data-src="./missing-data-image.png" alt="Deferred">',
+    "<div title='Example: href=\"./missing-title-link.md\"'></div>",
     '<!-- <a href="./missing-comment.md">Ignored</a> -->',
     '<script>const href = "./missing-script.md";</script>',
     '',

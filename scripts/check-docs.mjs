@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parseEntities } from 'parse-entities';
+import { parseFragment } from 'parse5';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 
@@ -60,6 +60,27 @@ function normalizeReferenceIdentifier(identifier) {
     .toLowerCase();
 }
 
+function htmlLinkDestinations(source, sourceOffset) {
+  const fragment = parseFragment(source, { sourceCodeLocationInfo: true });
+  const destinations = [];
+
+  const visit = (node) => {
+    for (const attribute of node.attrs ?? []) {
+      if (attribute.name !== 'href' && attribute.name !== 'src') continue;
+      const location = node.sourceCodeLocation?.attrs?.[attribute.name];
+      destinations.push({
+        rawDestination: attribute.value,
+        index: sourceOffset + (location?.startOffset ?? node.sourceCodeLocation?.startOffset ?? 0),
+      });
+    }
+    for (const child of node.childNodes ?? []) visit(child);
+    if (node.content) visit(node.content);
+  };
+
+  visit(fragment);
+  return destinations;
+}
+
 function withoutNonRenderedMarkdown(markdown) {
   const tree = markdownParser.parse(markdown);
   const characters = markdown.split('');
@@ -116,17 +137,7 @@ export function markdownLinkDestinations(markdown) {
     if (node.type === 'html') {
       const start = node.position?.start.offset ?? 0;
       const source = markdown.slice(start, node.position?.end.offset ?? start);
-      const trimmedSource = source.trimStart();
-      if (trimmedSource.startsWith('<!--')
-        || /^<(?:script|style)(?:\s|>)/iu.test(trimmedSource)) return;
-      const attributePattern = /(?:^|[ \t\n\f\r])(?:href|src)[ \t\n\f\r]*=[ \t\n\f\r]*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gimu;
-      for (const match of source.matchAll(attributePattern)) {
-        const rawDestination = parseEntities(match[1] ?? match[2] ?? match[3]);
-        destinations.push({
-          rawDestination,
-          index: start + match.index + match[0].indexOf(rawDestination),
-        });
-      }
+      destinations.push(...htmlLinkDestinations(source, start));
       return;
     }
     if (!['link', 'image', 'definition'].includes(node.type)) return;
