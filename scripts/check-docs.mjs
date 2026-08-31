@@ -84,6 +84,30 @@ function htmlLinkDestinations(source, sourceOffset) {
   return destinations;
 }
 
+function htmlCodeLikeRanges(source) {
+  const fragment = parseFragment(source, { sourceCodeLocationInfo: true });
+  const ranges = [];
+  const codeLikeElements = new Set(['code', 'kbd', 'pre', 'samp', 'script', 'style']);
+
+  const visit = (node) => {
+    if (codeLikeElements.has(node.tagName) && node.sourceCodeLocation) {
+      ranges.push([
+        node.sourceCodeLocation.startOffset,
+        node.sourceCodeLocation.endOffset,
+      ]);
+    }
+    for (const child of node.childNodes ?? []) visit(child);
+    if (node.content) visit(node.content);
+  };
+
+  visit(fragment);
+  return ranges;
+}
+
+function isInRanges(index, ranges) {
+  return ranges.some(([start, end]) => index >= start && index < end);
+}
+
 function withoutNonRenderedMarkdown(markdown) {
   const tree = markdownParser.parse(markdown);
   const characters = markdown.split('');
@@ -130,6 +154,7 @@ export function localLinkTarget(rawDestination) {
 
 export function markdownLinkDestinations(markdown) {
   const tree = markdownParser.parse(markdown);
+  const codeLikeRanges = htmlCodeLikeRanges(markdown);
   const destinations = [];
   const definitions = new Set();
   const textNodes = [];
@@ -144,6 +169,8 @@ export function markdownLinkDestinations(markdown) {
       return;
     }
     if (!['link', 'image', 'definition'].includes(node.type)) return;
+    if (node.type !== 'definition'
+      && isInRanges(node.position?.start.offset ?? 0, codeLikeRanges)) return;
     destinations.push({
       rawDestination: node.url,
       index: node.position?.start.offset ?? 0,
@@ -158,6 +185,7 @@ export function markdownLinkDestinations(markdown) {
     for (const match of source.matchAll(referenceUsagePattern)) {
       const bracketOffset = match[0].startsWith('!') ? 1 : 0;
       const usageIndex = start + match.index;
+      if (isInRanges(usageIndex, codeLikeRanges)) continue;
       if (isEscaped(markdown, usageIndex + bracketOffset)) continue;
       const identifier = normalizeReferenceIdentifier(match[2] || match[1]);
       if (identifier && !definitions.has(identifier)) {
