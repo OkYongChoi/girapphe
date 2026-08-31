@@ -86,6 +86,7 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     '<img data-src="./missing-data-image.png" alt="Deferred">',
     '<img srcset="./images/responsive-1.png 1x, ./images/responsive-2.png 2x">',
     '<source srcset="./images/source-640.png 640w, ./images/source-1280.png 1280w">',
+    '<video poster="./images/video-poster.png"></video>',
     '<div href="./missing-inert-attribute.md">Ignored</div>',
     "<div title='Example: href=\"./missing-title-link.md\"'></div>",
     '<!-- <a href="./missing-comment.md">Ignored</a> -->',
@@ -141,6 +142,7 @@ test('extracts inline and reference-style Markdown link destinations', () => {
       './images/responsive-2.png',
       './images/source-640.png',
       './images/source-1280.png',
+      './images/video-poster.png',
       './escaped-html-code-link.md',
       './nested-guide.md',
       './nested-paragraph.md',
@@ -414,6 +416,14 @@ test('ignores feature-spec structures inside inert or hidden HTML', () => {
     prefixedCloseFailures.filter((failure) => failure.includes('Status')).length,
     0,
   );
+
+  const noscriptFailures = featureSpecFailures(
+    'specs/features/example.md',
+    featureSpec.replace('<template>', '<noscript>').replace('</template>', '</noscript>'),
+  );
+  assert.ok(noscriptFailures.includes(
+    'specs/features/example.md must declare Status: Draft, Active, Implemented, or Superseded',
+  ));
 });
 
 test('ignores feature-spec criteria inside inline HTML code elements', () => {

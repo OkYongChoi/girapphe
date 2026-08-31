@@ -25,9 +25,11 @@ const htmlSrcElements = new Set([
   'audio', 'embed', 'iframe', 'img', 'input', 'script', 'source', 'track', 'video',
 ]);
 const htmlSrcsetElements = new Set(['img', 'source']);
+const htmlPosterElements = new Set(['video']);
 const codeLikeElementNames = [
   'code',
   'kbd',
+  'noscript',
   'pre',
   'samp',
   'script',
@@ -133,7 +135,8 @@ function htmlLinkDestinations(source, sourceOffset, markdown) {
         continue;
       }
       const isResourceAttribute = (attribute.name === 'href' && htmlHrefElements.has(node.tagName))
-        || (attribute.name === 'src' && htmlSrcElements.has(node.tagName));
+        || (attribute.name === 'src' && htmlSrcElements.has(node.tagName))
+        || (attribute.name === 'poster' && htmlPosterElements.has(node.tagName));
       if (!isResourceAttribute) continue;
       destinations.push({
         rawDestination: attribute.value,
