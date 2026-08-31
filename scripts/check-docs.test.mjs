@@ -3,10 +3,18 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   featureSpecFailures,
+  filterExistingFiles,
   isPathInside,
   localLinkTarget,
   markdownLinkDestinations,
 } from './check-docs.mjs';
+
+test('filters deleted Markdown paths while retaining existing files', async () => {
+  const existing = path.join(process.cwd(), 'scripts/check-docs.mjs');
+  const deleted = path.join(process.cwd(), 'docs/does-not-exist.md');
+
+  assert.deepEqual(await filterExistingFiles([deleted, existing]), [existing]);
+});
 
 test('rejects resolved documentation targets outside the repository', () => {
   const repository = path.resolve('/workspace/repository');
@@ -348,6 +356,29 @@ test('accepts optional outer table pipes and escaped pipes in evidence', () => {
     '--- | ---',
     '`AC-01` | `pnpm test` \\| `tee results.log`',
     '## Rollout',
+    'Rollout.',
+  ].join('\n');
+
+  assert.deepEqual(featureSpecFailures('specs/features/example.md', featureSpec), []);
+});
+
+test('accepts valid ATX section heading indentation and closing hashes', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    'Status: Active',
+    '',
+    '  ## User outcome ##',
+    'Outcome.',
+    '  ## Scope ##',
+    'Scope.',
+    '  ## Acceptance criteria ##',
+    '- [ ] `AC-01`: Observable behavior.',
+    '## Privacy and data boundaries ##',
+    'Boundary.',
+    '  ## Verification ##',
+    '`AC-01` | focused test',
+    '  ## Rollout ##',
     'Rollout.',
   ].join('\n');
 

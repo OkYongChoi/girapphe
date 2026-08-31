@@ -25,9 +25,21 @@ async function repositoryMarkdownFiles() {
     ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '*.md'],
     { cwd: repositoryRoot, encoding: 'utf8' },
   );
-  return [...new Set(stdout.split('\0').filter(Boolean))]
-    .map((relativeFile) => path.join(repositoryRoot, relativeFile))
-    .sort();
+  const candidates = [...new Set(stdout.split('\0').filter(Boolean))]
+    .map((relativeFile) => path.join(repositoryRoot, relativeFile));
+  return filterExistingFiles(candidates);
+}
+
+export async function filterExistingFiles(files) {
+  const existing = await Promise.all(files.map(async (file) => {
+    try {
+      return (await stat(file)).isFile() ? file : null;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    }
+  }));
+  return existing.filter(Boolean).sort();
 }
 
 function isEscaped(markdown, index) {
@@ -197,12 +209,20 @@ async function checkLocalLinks(markdownFiles) {
   return failures;
 }
 
+function markdownNodeText(node) {
+  if (typeof node.value === 'string') return node.value;
+  return (node.children ?? []).map(markdownNodeText).join('');
+}
+
 function sectionContent(markdown, sectionName) {
-  const headings = [...markdown.matchAll(/^## ([^\n]+)$/gmu)];
-  const sectionIndex = headings.findIndex((heading) => heading[1].trim() === sectionName);
+  const tree = markdownParser.parse(markdown);
+  const headings = tree.children.filter((node) => node.type === 'heading' && node.depth === 2);
+  const sectionIndex = headings.findIndex(
+    (heading) => markdownNodeText(heading).trim() === sectionName,
+  );
   if (sectionIndex === -1) return null;
-  const start = headings[sectionIndex].index + headings[sectionIndex][0].length;
-  const end = headings[sectionIndex + 1]?.index ?? markdown.length;
+  const start = headings[sectionIndex].position?.end.offset ?? 0;
+  const end = headings[sectionIndex + 1]?.position?.start.offset ?? markdown.length;
   return markdown.slice(start, end);
 }
 
