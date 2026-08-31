@@ -135,7 +135,7 @@ test('account transaction checks the persistent marker after taking the lifecycl
 test('account-owned knowledge and practice insert paths use the lifecycle guard', () => {
   const guardedModules: Array<[string, number]> = [
     ['../../actions/user-knowledge-actions.ts', 4],
-    ['../../actions/card-actions.ts', 3],
+    ['../../actions/card-actions.ts', 2],
     ['../knowledge-graph-db.ts', 2],
     ['../private-practice-cards.ts', 1],
   ];

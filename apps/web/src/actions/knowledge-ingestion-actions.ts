@@ -138,6 +138,18 @@ export async function getKnowledgeLinkTargets(query = ''): Promise<KnowledgeLink
   return getKnowledgeLinkTargetsForUser(user.id, query);
 }
 
+export async function getKnowledgeGraphOverlay(): Promise<{
+  privateGraph: PrivateKnowledgeGraph;
+  graphLinkTargets: KnowledgeLinkTarget[];
+}> {
+  const user = await requireCurrentUser();
+  const [privateGraph, graphLinkTargets] = await Promise.all([
+    getPrivateKnowledgeGraphForUser(user.id),
+    getKnowledgeLinkTargetsForUser(user.id),
+  ]);
+  return { privateGraph, graphLinkTargets };
+}
+
 export async function createPrivateKnowledgeEdge(formData: FormData): Promise<{ created: boolean; reason?: 'invalid' | 'cycle_or_duplicate' }> {
   const user = await requireCurrentUser();
   const sourceId = String(formData.get('source_node_id') ?? '').trim();

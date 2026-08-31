@@ -39,6 +39,11 @@ import {
   selectBalancedGraphCards,
   type KnowledgeGraphAccess,
 } from '@/lib/knowledge-graph-access';
+import {
+  toKnowledgeGraphCard,
+  type KnowledgeGraphCard,
+} from '@/lib/knowledge-graph-card';
+import { buildPracticeExcludeIds, runPracticeAdvance } from '@/lib/practice-advance';
 import { toPublicLeaderboardParticipantId } from '@/lib/leaderboard';
 
 export type PrerequisiteInfo = {
@@ -85,7 +90,7 @@ export type KnowledgeMapEdge = {
 };
 
 export type KnowledgeGraphSnapshot = {
-  cards: Array<KnowledgeCard & { status: CardStatus | null }>;
+  cards: KnowledgeGraphCard[];
   edges: KnowledgeMapEdge[];
   access: KnowledgeGraphAccess;
 };
@@ -1129,6 +1134,7 @@ async function getNextCardSource(mode: 'new' | 'review' = 'new', excludeIds?: st
     if (mode === 'review') return null;
 
     // If the user has exhausted all "new" candidates, generate more drill cards on demand.
+    if (!ALLOW_DRILL_CARDS) return null;
     await ensureMoreGeneratedCards(1);
 
     const retryRes = await pool.query(query, [user.id]);
@@ -1325,8 +1331,9 @@ export async function saveCardState(cardId: string, status: CardStatus) {
     try {
       const nodeId = normalizeGraphNodeId(cardId);
       const mapped = mapCardStatusToKnowledge(status);
-      await pool.accountTransaction(user.id, [{
-        text: `
+      await pool.accountTransaction(user.id, [
+        {
+          text: `
         INSERT INTO user_knowledge_states (
           user_id,
           node_id,
@@ -1365,11 +1372,11 @@ export async function saveCardState(cardId: string, status: CardStatus) {
               THEN COALESCE(user_knowledge_states.first_known_at, NOW())
             ELSE user_knowledge_states.first_known_at
           END;
-        `,
-        params: [user.id, nodeId, mapped.knowledge, mapped.confidence],
-      }]);
-      await pool.accountTransaction(user.id, [{
-        text: `
+          `,
+          params: [user.id, nodeId, mapped.knowledge, mapped.confidence],
+        },
+        {
+          text: `
         INSERT INTO user_knowledge_evidence (
           user_id,
           node_id,
@@ -1381,16 +1388,17 @@ export async function saveCardState(cardId: string, status: CardStatus) {
           metadata
         )
         VALUES ($1, $2, $3, 'self_report', 'rated_card', $4, $5, $6::jsonb)
-        `,
-        params: [
-          user.id,
-          nodeId,
-          cardId,
-          mapped.knowledge,
-          mapped.confidence,
-          JSON.stringify({ status, self_report_label: selfReportLabel, progress_state: mappedProgressState }),
-        ],
-      }]);
+          `,
+          params: [
+            user.id,
+            nodeId,
+            cardId,
+            mapped.knowledge,
+            mapped.confidence,
+            JSON.stringify({ status, self_report_label: selfReportLabel, progress_state: mappedProgressState }),
+          ],
+        },
+      ]);
     } catch (knowledgeErr) {
       // Non-critical: log but don't fail the whole save
       console.warn('Knowledge graph sync skipped:', knowledgeErr);
@@ -1559,6 +1567,41 @@ export async function getUserStats() {
     console.error('Error in getUserStats:', error);
     return getMockPracticeStats((await getMockCards()).length);
   }
+}
+type RateCardAndAdvanceInput = {
+  cardId: string;
+  status: CardStatus;
+  mode: 'new' | 'review';
+  excludeIds: string[];
+  locale?: string;
+};
+
+/**
+ * Persist a practice decision and advance the session in one client/server
+ * round trip. The write still completes before any dependent reads, while the
+ * next-card query and aggregate stats query run concurrently afterwards.
+ */
+export async function rateCardAndAdvance(input: RateCardAndAdvanceInput) {
+  if (
+    !input
+    || typeof input.cardId !== 'string'
+    || input.cardId.length === 0
+    || (input.status !== 'known' && input.status !== 'saved')
+    || (input.mode !== 'new' && input.mode !== 'review')
+    || !Array.isArray(input.excludeIds)
+  ) {
+    return { success: false as const, error: 'invalid_practice_action' };
+  }
+
+  const excludeIds = buildPracticeExcludeIds(input.cardId, input.excludeIds);
+  const locale = typeof input.locale === 'string' ? input.locale : undefined;
+
+  return runPracticeAdvance({
+    save: () => saveCardState(input.cardId, input.status),
+    loadNext: (ids) => getNextCard(input.mode, ids, locale),
+    loadStats: () => getUserStats(),
+    excludeIds,
+  });
 }
 
 type GetAllCardsWithStatusOptions = {
@@ -1823,7 +1866,7 @@ export async function getKnowledgeGraphSnapshot({
   ]);
 
   return {
-    cards,
+    cards: cards.map(toKnowledgeGraphCard),
     edges,
     access: {
       level: hasFullAccess ? 'full' : 'free',

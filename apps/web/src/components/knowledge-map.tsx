@@ -28,7 +28,10 @@ import {
   type UserKnowledgeItem,
 } from '@/actions/user-knowledge-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
-import type { KnowledgeLinkTarget } from '@/actions/knowledge-ingestion-actions';
+import {
+  getKnowledgeGraphOverlay,
+  type KnowledgeLinkTarget,
+} from '@/actions/knowledge-ingestion-actions';
 import {
   type AddedDateRange,
   type ConceptSort,
@@ -130,6 +133,7 @@ export default function KnowledgeMap({
   privateGraph = null,
   graphLinkTargets = [],
   enableWebMcp = false,
+  isGuest = true,
   locale,
 }: Props) {
   const [baseCards, setBaseCards] = useState(initialCards);
@@ -138,6 +142,9 @@ export default function KnowledgeMap({
   const [graphSnapshot, setGraphSnapshot] = useState(initialGraphSnapshot);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [isOpeningGraph, startOpeningGraph] = useTransition();
+  const [currentPrivateGraph, setCurrentPrivateGraph] = useState(privateGraph);
+  const [currentGraphLinkTargets, setCurrentGraphLinkTargets] = useState(graphLinkTargets);
+  const [hasLoadedGraphOverlay, setHasLoadedGraphOverlay] = useState(initialView === 'graph' || isGuest);
   const [currentPersonalItems, setCurrentPersonalItems] = useState(personalItems);
   const [filter, setFilter] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string | 'all'>('all');
@@ -162,7 +169,7 @@ export default function KnowledgeMap({
     () => new Map(currentPersonalItems.map((item) => [item.id, item])),
     [currentPersonalItems]
   );
-  const graphPrivateCards = useMemo<MapCard[]>(() => (privateGraph?.nodes ?? []).flatMap((node) => {
+  const graphPrivateCards = useMemo<MapCard[]>(() => (currentPrivateGraph?.nodes ?? []).flatMap((node) => {
     const record = asRecord(node);
     const id = readString(record, 'node_id', 'id');
     if (!id) return [];
@@ -196,7 +203,7 @@ export default function KnowledgeMap({
       updatedAt: personalItem?.updated_at || readString(record, 'updated_at'),
       storedSummary: personalItem?.summary,
     }];
-  }), [personalItemById, privateGraph?.nodes, t]);
+  }), [currentPrivateGraph?.nodes, personalItemById, t]);
 
   const graphPersonalItemIds = useMemo(
     () => new Set(graphPrivateCards.map((card) => card.personalItemId).filter(Boolean)),
@@ -241,7 +248,7 @@ export default function KnowledgeMap({
       weight: edge.weight,
       scope: 'public',
     }));
-    const privateEdges: KnowledgeGraphEdgeView[] = (privateGraph?.edges ?? []).flatMap((edge) => {
+    const privateEdges: KnowledgeGraphEdgeView[] = (currentPrivateGraph?.edges ?? []).flatMap((edge) => {
       const record = asRecord(edge);
       const source = readString(record, 'source', 'source_node_id');
       const target = readString(record, 'target', 'target_node_id');
@@ -259,11 +266,11 @@ export default function KnowledgeMap({
       }];
     });
     return [...canonicalEdges, ...privateEdges];
-  }, [graphSnapshot?.edges, privateGraph?.edges]);
+  }, [currentPrivateGraph?.edges, graphSnapshot?.edges]);
   const graphCards = useMemo<MapCard[]>(() => {
     const graphBaseCards: MapCard[] = [...graphPublicCards, ...personalCards];
     const visibleIds = new Set(graphBaseCards.map((card) => card.id));
-    const targetById = new Map(graphLinkTargets.map((target) => [target.id, target]));
+    const targetById = new Map(currentGraphLinkTargets.map((target) => [target.id, target]));
     // Public card limits remain intentional for free maps. Only
     // private overlays may add lightweight endpoints that are required to keep
     // an owner-authored relationship visible.
@@ -296,7 +303,7 @@ export default function KnowledgeMap({
     }
 
     return [...graphBaseCards, ...endpointCards];
-  }, [graphEdges, graphLinkTargets, graphPublicCards, personalCards, t]);
+  }, [currentGraphLinkTargets, graphEdges, graphPublicCards, personalCards, t]);
 
   // Cards can live in multiple taxonomy domains.
   const domains = useMemo(
@@ -356,15 +363,27 @@ export default function KnowledgeMap({
 
   const openGraphView = () => {
     setGraphError(null);
-    if (graphSnapshot) {
+    if (graphSnapshot && hasLoadedGraphOverlay) {
       setViewMode('graph');
       return;
     }
 
     startOpeningGraph(async () => {
       try {
-        const snapshot = await getKnowledgeGraphSnapshot({ locale });
+        const [snapshot, overlay] = await Promise.all([
+          graphSnapshot
+            ? Promise.resolve(graphSnapshot)
+            : getKnowledgeGraphSnapshot({ locale }),
+          hasLoadedGraphOverlay
+            ? Promise.resolve(null)
+            : getKnowledgeGraphOverlay(),
+        ]);
         setGraphSnapshot(snapshot);
+        if (overlay) {
+          setCurrentPrivateGraph(overlay.privateGraph);
+          setCurrentGraphLinkTargets(overlay.graphLinkTargets);
+          setHasLoadedGraphOverlay(true);
+        }
         setViewMode('graph');
       } catch {
         setGraphError(t('knowledge.graphLoadError'));
