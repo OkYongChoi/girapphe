@@ -606,6 +606,12 @@ export function featureSpecFailures(relativeFile, content) {
       failures.push(`${relativeFile} repeats verification mapping ${criterionId}`);
     }
   }
+  const undeclaredMappings = verificationMappings
+    .filter((mapping) => !criterionIds.includes(mapping.criterionId))
+    .map((mapping) => mapping.criterionId);
+  for (const undeclaredId of new Set(undeclaredMappings)) {
+    failures.push(`${relativeFile} maps undeclared acceptance criterion ${undeclaredId}`);
+  }
 
   return failures;
 }
