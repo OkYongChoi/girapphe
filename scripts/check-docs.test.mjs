@@ -46,6 +46,8 @@ test('parses local link paths and validates GitHub heading identifiers', () => {
       '<a id="manual-anchor"></a>',
       '<a name="legacy-anchor"></a>',
       '<div id="section-anchor"></div>',
+      '<template><a id="inert-anchor"></a></template>',
+      '<div hidden><a id="hidden-anchor"></a></div>',
     ].join('\n\n'))],
     [
       'installation',

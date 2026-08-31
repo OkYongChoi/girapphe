@@ -249,17 +249,24 @@ export function resolvedLocalLinkTarget(sourceFile, target) {
 
 export function markdownHeadingIds(markdown) {
   const tree = markdownParser.parse(markdown);
+  const codeLikeRanges = htmlCodeLikeRanges(markdown, tree);
   const slugger = new GithubSlugger();
   const ids = new Set();
   visitMarkdown(tree, (node) => {
-    if (node.type === 'heading') ids.add(slugger.slug(markdownNodeText(node)));
+    const start = node.position?.start.offset ?? 0;
+    if (node.type === 'heading' && !isInRanges(start, codeLikeRanges)) {
+      ids.add(slugger.slug(markdownNodeText(node)));
+    }
     if (node.type === 'html') {
-      const fragment = parseFragment(node.value);
+      const fragment = parseFragment(node.value, { sourceCodeLocationInfo: true });
       const visitHtml = (htmlNode) => {
-        for (const attribute of htmlNode.attrs ?? []) {
-          if (attribute.name === 'id'
-            || (htmlNode.tagName === 'a' && attribute.name === 'name')) {
-            ids.add(attribute.value);
+        const htmlStart = start + (htmlNode.sourceCodeLocation?.startOffset ?? 0);
+        if (!isInRanges(htmlStart, codeLikeRanges)) {
+          for (const attribute of htmlNode.attrs ?? []) {
+            if (attribute.name === 'id'
+              || (htmlNode.tagName === 'a' && attribute.name === 'name')) {
+              ids.add(attribute.value);
+            }
           }
         }
         for (const child of htmlNode.childNodes ?? []) visitHtml(child);
