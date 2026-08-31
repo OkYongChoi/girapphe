@@ -9,6 +9,7 @@ import {
   localLinkTarget,
   markdownHeadingIds,
   markdownLinkDestinations,
+  resolvedLocalLinkTarget,
 } from './check-docs.mjs';
 
 test('filters deleted Markdown paths while retaining existing files', async () => {
@@ -39,6 +40,14 @@ test('parses local link paths and validates GitHub heading identifiers', () => {
   assert.deepEqual(
     [...markdownHeadingIds('# Installation\n\n## Installation\n\n## Hello, *World*!')],
     ['installation', 'installation-1', 'hello-world'],
+  );
+  assert.equal(
+    resolvedLocalLinkTarget('/repo/docs/guide.md', ''),
+    '/repo/docs/guide.md',
+  );
+  assert.equal(
+    resolvedLocalLinkTarget('/repo/docs/guide.md', './other.md'),
+    '/repo/docs/other.md',
   );
 });
 

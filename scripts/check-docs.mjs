@@ -215,6 +215,10 @@ export function localLinkDestination(rawDestination) {
   };
 }
 
+export function resolvedLocalLinkTarget(sourceFile, target) {
+  return target ? path.resolve(path.dirname(sourceFile), target) : sourceFile;
+}
+
 export function markdownHeadingIds(markdown) {
   const tree = markdownParser.parse(markdown);
   const slugger = new GithubSlugger();
@@ -290,7 +294,7 @@ async function checkLocalLinks(markdownFiles) {
       const localDestination = localLinkDestination(destination.rawDestination);
       if (!localDestination) continue;
 
-      const resolvedTarget = path.resolve(path.dirname(file), localDestination.target);
+      const resolvedTarget = resolvedLocalLinkTarget(file, localDestination.target);
       if (!isPathInside(repositoryRoot, resolvedTarget)) {
         failures.push(
           `${path.relative(repositoryRoot, file)}:${lineNumberAt(searchableContent, destination.index)} `
