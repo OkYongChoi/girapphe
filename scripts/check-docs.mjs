@@ -345,9 +345,29 @@ async function checkLocalLinks(markdownFiles) {
   return failures;
 }
 
+function htmlVisibleText(source) {
+  const fragment = parseFragment(source);
+  const visibleText = (node) => {
+    if (node.nodeName === '#text') return node.value;
+    return (node.childNodes ?? []).map(visibleText).join('');
+  };
+  return visibleText(fragment);
+}
+
 function markdownNodeText(node) {
+  if (node.type === 'html') return htmlVisibleText(node.value);
+  if (node.type === 'image') return node.alt ?? '';
   if (typeof node.value === 'string') return node.value;
   return (node.children ?? []).map(markdownNodeText).join('');
+}
+
+function sectionHeadingCount(markdown, sectionName) {
+  const tree = markdownParser.parse(markdown);
+  return tree.children.filter(
+    (node) => node.type === 'heading'
+      && node.depth === 2
+      && markdownNodeText(node).trim() === sectionName,
+  ).length;
 }
 
 function sectionContent(markdown, sectionName) {
@@ -376,6 +396,8 @@ export function featureSpecFailures(relativeFile, content) {
     const body = sectionContent(structuralContent, section);
     if (body === null) {
       failures.push(`${relativeFile} is missing the "## ${section}" section`);
+    } else if (sectionHeadingCount(structuralContent, section) > 1) {
+      failures.push(`${relativeFile} repeats the "## ${section}" section`);
     } else if ((status === 'Active' || status === 'Implemented') && !body.trim()) {
       failures.push(`${relativeFile} has an empty "## ${section}" section`);
     }

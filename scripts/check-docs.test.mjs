@@ -42,6 +42,7 @@ test('parses local link paths and validates GitHub heading identifiers', () => {
       '# Installation',
       '## Installation',
       '## Hello, *World*!',
+      '## Install <em>now</em>',
       '<a id="manual-anchor"></a>',
       '<a name="legacy-anchor"></a>',
       '<div id="section-anchor"></div>',
@@ -50,6 +51,7 @@ test('parses local link paths and validates GitHub heading identifiers', () => {
       'installation',
       'installation-1',
       'hello-world',
+      'install-now',
       'manual-anchor',
       'legacy-anchor',
       'section-anchor',
@@ -434,6 +436,33 @@ test('requires a rendered acceptance-criterion description', () => {
     featureSpecFailures('specs/features/example.md', featureSpec),
     ['specs/features/example.md has no description for AC-01'],
   );
+});
+
+test('rejects duplicate required feature-spec sections', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    'Status: Implemented',
+    '',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '- [x] `AC-01`: Observable behavior.',
+    '## Acceptance criteria',
+    '- [ ] `AC-02`: This duplicate must not be ignored.',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '| `AC-01` | covered. |',
+    '## Rollout',
+    'Rollout.',
+  ].join('\n');
+
+  assert.ok(featureSpecFailures('specs/features/example.md', featureSpec).includes(
+    'specs/features/example.md repeats the "## Acceptance criteria" section',
+  ));
 });
 
 test('accepts optional outer table pipes and escaped pipes in evidence', () => {
