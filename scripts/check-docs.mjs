@@ -29,14 +29,12 @@ const codeLikeElementNames = [
   'template',
 ];
 const codeLikeElements = new Set(codeLikeElementNames);
-const codeLikeOpeningPattern = new RegExp(
-  `^<(${codeLikeElementNames.join('|')})(?:\\s|>)`,
-  'iu',
-);
-const codeLikeClosingPattern = new RegExp(
-  `^<\\/\\s*(${codeLikeElementNames.join('|')})\\s*>`,
-  'iu',
-);
+const htmlOpeningPattern = /^<([a-z][\w:-]*)(?:\s|>)/iu;
+const htmlClosingPattern = /^<\/\s*([a-z][\w:-]*)\s*>/iu;
+const htmlVoidElements = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta',
+  'param', 'source', 'track', 'wbr',
+]);
 
 async function repositoryMarkdownFiles() {
   const { stdout } = await execFileAsync(
@@ -129,13 +127,15 @@ function htmlCodeLikeRanges(markdown, markdownTree) {
     const source = markdown.slice(start, end);
     const parseableSource = withoutEscapedHtmlTags(source, start, markdown);
     const fragment = parseFragment(parseableSource, { sourceCodeLocationInfo: true });
-    let hasCompleteElement = false;
+    const parsedElements = [];
 
     const visit = (htmlNode) => {
       const location = htmlNode.sourceCodeLocation;
-      if (codeLikeElements.has(htmlNode.tagName) && location?.endTag) {
+      if (htmlNode.tagName) parsedElements.push(htmlNode);
+      const isMaskedElement = codeLikeElements.has(htmlNode.tagName)
+        || htmlNode.attrs?.some((attribute) => attribute.name === 'hidden');
+      if (isMaskedElement && location?.endTag) {
         ranges.push([start + location.startOffset, start + location.endOffset]);
-        hasCompleteElement = true;
       }
       for (const child of htmlNode.childNodes ?? []) visit(child);
       if (htmlNode.content) visit(htmlNode.content);
@@ -143,7 +143,7 @@ function htmlCodeLikeRanges(markdown, markdownTree) {
     visit(fragment);
 
     const trimmed = parseableSource.trimStart();
-    const closing = trimmed.match(codeLikeClosingPattern);
+    const closing = trimmed.match(htmlClosingPattern);
     if (closing) {
       const openIndex = openElements.findLastIndex((element) => element.name === closing[1].toLowerCase());
       if (openIndex !== -1) {
@@ -153,8 +153,17 @@ function htmlCodeLikeRanges(markdown, markdownTree) {
       continue;
     }
 
-    const opening = trimmed.match(codeLikeOpeningPattern);
-    if (opening && !hasCompleteElement && !/\/\s*>\s*$/u.test(trimmed)) {
+    const opening = trimmed.match(htmlOpeningPattern);
+    const openingElement = opening
+      ? parsedElements.find((element) => element.tagName === opening[1].toLowerCase())
+      : null;
+    const isMaskedOpening = openingElement
+      && (codeLikeElements.has(openingElement.tagName)
+        || openingElement.attrs?.some((attribute) => attribute.name === 'hidden'));
+    if (opening
+      && isMaskedOpening
+      && !openingElement.sourceCodeLocation?.endTag
+      && !htmlVoidElements.has(openingElement.tagName)) {
       openElements.push({ name: opening[1].toLowerCase(), start });
     }
   }
@@ -275,7 +284,10 @@ export function markdownLinkDestinations(markdown) {
     if (node.type === 'html') {
       const start = node.position?.start.offset ?? 0;
       const source = markdown.slice(start, node.position?.end.offset ?? start);
-      destinations.push(...htmlLinkDestinations(source, start, markdown));
+      destinations.push(
+        ...htmlLinkDestinations(source, start, markdown)
+          .filter((destination) => !isInRanges(destination.index, codeLikeRanges)),
+      );
       return;
     }
     if (!['link', 'image', 'definition'].includes(node.type)) return;
@@ -380,6 +392,10 @@ function markdownNodeText(node) {
   return (node.children ?? []).map(markdownNodeText).join('');
 }
 
+function renderedMarkdownText(markdown) {
+  return markdownNodeText(markdownParser.parse(markdown)).trim();
+}
+
 function sectionHeadingCount(markdown, sectionName) {
   const tree = markdownParser.parse(markdown);
   return tree.children.filter(
@@ -420,7 +436,8 @@ export function featureSpecFailures(relativeFile, content) {
       failures.push(`${relativeFile} is missing the "## ${section}" section`);
     } else if (sectionHeadingCount(structuralContent, section) > 1) {
       failures.push(`${relativeFile} repeats the "## ${section}" section`);
-    } else if ((status === 'Active' || status === 'Implemented') && !body.trim()) {
+    } else if ((status === 'Active' || status === 'Implemented')
+      && !renderedMarkdownText(body)) {
       failures.push(`${relativeFile} has an empty "## ${section}" section`);
     }
   }
@@ -463,10 +480,12 @@ export function featureSpecFailures(relativeFile, content) {
       criterionRow.source.index + criterionRow.source[0].length,
       criterionRow.end,
     );
-    const hasContinuationDescription = continuation
+    const continuationDescription = continuation
       .split('\n')
-      .some((line) => /^[ \t]{2,}\S/u.test(line));
-    if (!criterionRow.match[3].trim() && !hasContinuationDescription) {
+      .filter((line) => /^[ \t]{2,}\S/u.test(line))
+      .join('\n');
+    if (!renderedMarkdownText(criterionRow.match[3])
+      && !renderedMarkdownText(continuationDescription)) {
       failures.push(`${relativeFile} has no description for ${criterionRow.match[2]}`);
     }
   }
@@ -486,7 +505,8 @@ export function featureSpecFailures(relativeFile, content) {
   ];
   for (const criterionId of criterionIds) {
     const mappings = verificationMappings.filter((mapping) => mapping[1] === criterionId);
-    if (mappings.length === 0 || mappings.every((mapping) => !mapping[2].trim())) {
+    if (mappings.length === 0
+      || mappings.every((mapping) => !renderedMarkdownText(mapping[2]))) {
       failures.push(
         `${relativeFile} does not map ${criterionId} to non-empty evidence in the Verification table`,
       );

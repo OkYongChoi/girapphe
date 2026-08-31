@@ -86,6 +86,8 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     '<!-- <a href="./missing-comment.md">Ignored</a> -->',
     '<script>const href = "./missing-script.md";</script>',
     '<code>[html-code-link](./missing-html-code-link.md)</code>',
+    '<template><a href="./missing-template-link.md">Ignored</a></template>',
+    '<div hidden><a href="./missing-hidden-link.md">Ignored</a></div>',
     '',
     '\\<code>[escaped-html-code-link](./escaped-html-code-link.md)</code>',
     '',
@@ -338,7 +340,7 @@ test('ignores feature-spec structures inside raw HTML blocks', () => {
   ));
 });
 
-test('ignores feature-spec structures inside inert HTML templates', () => {
+test('ignores feature-spec structures inside inert or hidden HTML', () => {
   const featureSpec = [
     '<template>',
     '',
@@ -365,6 +367,17 @@ test('ignores feature-spec structures inside inert HTML templates', () => {
     'specs/features/example.md must declare Status: Draft, Active, Implemented, or Superseded',
   ));
   assert.ok(failures.includes(
+    'specs/features/example.md must define checkbox criteria with stable AC-01 style identifiers',
+  ));
+
+  const hiddenFailures = featureSpecFailures(
+    'specs/features/example.md',
+    featureSpec.replace('<template>', '<div hidden>').replace('</template>', '</div>'),
+  );
+  assert.ok(hiddenFailures.includes(
+    'specs/features/example.md must declare Status: Draft, Active, Implemented, or Superseded',
+  ));
+  assert.ok(hiddenFailures.includes(
     'specs/features/example.md must define checkbox criteria with stable AC-01 style identifiers',
   ));
 });
@@ -453,6 +466,7 @@ test('requires exact, non-empty verification table evidence', () => {
     '## Acceptance criteria',
     '- [x] `AC-01`: First criterion.',
     '- [x] `AC-02`: Second criterion.',
+    '- [x] `AC-03`: Third criterion.',
     '## Privacy and data boundaries',
     'Boundary.',
     '## Verification',
@@ -460,6 +474,7 @@ test('requires exact, non-empty verification table evidence', () => {
     '| --- | --- |',
     '| `AC-010` | Wrong identifier. |',
     '| `AC-02` | |',
+    '| `AC-03` | ** ** |',
     '## Rollout',
     'Rollout.',
   ].join('\n');
@@ -470,6 +485,8 @@ test('requires exact, non-empty verification table evidence', () => {
       'specs/features/example.md does not map AC-01 to non-empty evidence '
         + 'in the Verification table',
       'specs/features/example.md does not map AC-02 to non-empty evidence '
+        + 'in the Verification table',
+      'specs/features/example.md does not map AC-03 to non-empty evidence '
         + 'in the Verification table',
     ],
   );
@@ -489,18 +506,27 @@ test('requires a rendered acceptance-criterion description', () => {
     '- [x] `AC-01`:',
     '- [x] `AC-02`:',
     '  Observable continuation description.',
+    '- [x] `AC-03`: ** **',
+    '- [x] `AC-04`:',
+    '  ** **',
     '## Privacy and data boundaries',
     'Boundary.',
     '## Verification',
     '| `AC-01` | covered. |',
     '| `AC-02` | covered. |',
+    '| `AC-03` | covered. |',
+    '| `AC-04` | covered. |',
     '## Rollout',
     'Rollout.',
   ].join('\n');
 
   assert.deepEqual(
     featureSpecFailures('specs/features/example.md', featureSpec),
-    ['specs/features/example.md has no description for AC-01'],
+    [
+      'specs/features/example.md has no description for AC-01',
+      'specs/features/example.md has no description for AC-03',
+      'specs/features/example.md has no description for AC-04',
+    ],
   );
 });
 
