@@ -64,6 +64,26 @@ function localLinkTarget(rawDestination) {
   }
 }
 
+export function markdownLinkDestinations(markdown) {
+  const searchableContent = withoutFencedCode(markdown);
+  const destinations = [];
+  const inlineLinkPattern = /!?\[[^\]]*\]\(([^)]+)\)/gu;
+  for (const match of searchableContent.matchAll(inlineLinkPattern)) {
+    destinations.push({ rawDestination: match[1], index: match.index });
+  }
+
+  const referenceDefinitionPattern = /^[ \t]{0,3}\[([^\]\n]+)\]:[ \t]*(<[^>\n]+>|[^\s]+)(?:[ \t]+.*)?$/gmu;
+  for (const match of searchableContent.matchAll(referenceDefinitionPattern)) {
+    if (match[1].startsWith('^')) continue;
+    destinations.push({
+      rawDestination: match[2],
+      index: match.index + match[0].indexOf(match[2]),
+    });
+  }
+
+  return { searchableContent, destinations };
+}
+
 async function checkLocalLinks(markdownFiles) {
   const failures = [];
   for (const file of markdownFiles) {
@@ -72,11 +92,9 @@ async function checkLocalLinks(markdownFiles) {
       failures.push(`${path.relative(repositoryRoot, file)} is empty`);
       continue;
     }
-    const searchableContent = withoutFencedCode(content);
-    const linkPattern = /!?\[[^\]]*\]\(([^)]+)\)/gu;
-
-    for (const match of searchableContent.matchAll(linkPattern)) {
-      const target = localLinkTarget(match[1]);
+    const { searchableContent, destinations } = markdownLinkDestinations(content);
+    for (const destination of destinations) {
+      const target = localLinkTarget(destination.rawDestination);
       if (!target) continue;
 
       const resolvedTarget = path.resolve(path.dirname(file), target);
@@ -84,8 +102,8 @@ async function checkLocalLinks(markdownFiles) {
         await stat(resolvedTarget);
       } catch {
         failures.push(
-          `${path.relative(repositoryRoot, file)}:${lineNumberAt(searchableContent, match.index)} `
-          + `links to missing path ${match[1]}`,
+          `${path.relative(repositoryRoot, file)}:${lineNumberAt(searchableContent, destination.index)} `
+          + `links to missing path ${destination.rawDestination}`,
         );
       }
     }
