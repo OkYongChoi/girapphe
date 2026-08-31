@@ -205,9 +205,11 @@ test('rejects every malformed acceptance-criterion checkbox', () => {
     '## Acceptance criteria',
     '- [x] `AC-01`: Valid criterion.',
     '+ [x] `AC-02`: Valid alternative bullet.',
+    '1. [x] `AC-03`: Valid ordered criterion.',
     '- [x] `AC-1`: Invalid identifier.',
     '- [x] `AC-03` Missing colon.',
     '   * [ ] `AC-4`: Invalid indented criterion.',
+    '   2) [ ] `AC-5`: Invalid ordered criterion.',
     '## Privacy and data boundaries',
     'Boundary.',
     '## Verification',
@@ -215,6 +217,7 @@ test('rejects every malformed acceptance-criterion checkbox', () => {
     '| --- | --- |',
     '| `AC-01` | covered. |',
     '| `AC-02` | covered. |',
+    '| `AC-03` | covered. |',
     '## Rollout',
     'Rollout.',
   ].join('\n');
@@ -228,6 +231,8 @@ test('rejects every malformed acceptance-criterion checkbox', () => {
         + '- [x] `AC-03` Missing colon.',
       'specs/features/example.md has malformed acceptance criterion checkbox: '
         + '   * [ ] `AC-4`: Invalid indented criterion.',
+      'specs/features/example.md has malformed acceptance criterion checkbox: '
+        + '   2) [ ] `AC-5`: Invalid ordered criterion.',
     ],
   );
 });
@@ -265,4 +270,29 @@ test('requires exact, non-empty verification table evidence', () => {
         + 'in the Verification table',
     ],
   );
+});
+
+test('accepts escaped pipes in verification evidence', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    'Status: Implemented',
+    '',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '1. [x] `AC-01`: Ordered criterion.',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '| Criterion | Evidence |',
+    '| --- | --- |',
+    '| `AC-01` | `pnpm test` \\| `tee results.log` |',
+    '## Rollout',
+    'Rollout.',
+  ].join('\n');
+
+  assert.deepEqual(featureSpecFailures('specs/features/example.md', featureSpec), []);
 });

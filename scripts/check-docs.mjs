@@ -195,9 +195,11 @@ export function featureSpecFailures(relativeFile, content) {
 
   const acceptanceCriteria = sectionContent(structuralContent, 'Acceptance criteria') ?? '';
   const checkboxRows = [
-    ...acceptanceCriteria.matchAll(/^[ \t]*[-+*][ \t]+\[[^\]\n]*\].*$/gmu),
+    ...acceptanceCriteria.matchAll(
+      /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[[^\]\n]*\].*$/gmu,
+    ),
   ];
-  const criterionPattern = /^[ \t]*[-+*][ \t]+\[([ xX])\][ \t]+`?(AC-\d{2})`?:/u;
+  const criterionPattern = /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]+`?(AC-\d{2})`?:/u;
   const malformedRows = checkboxRows.filter((match) => !criterionPattern.test(match[0]));
   for (const malformedRow of malformedRows) {
     failures.push(
@@ -229,7 +231,7 @@ export function featureSpecFailures(relativeFile, content) {
   const verification = sectionContent(structuralContent, 'Verification') ?? '';
   const verificationMappings = [
     ...verification.matchAll(
-      /^[ \t]*\|[ \t]*`?(AC-\d{2})`?[ \t]*\|([^|\n]*)\|[ \t]*$/gmu,
+      /^[ \t]*\|[ \t]*`?(AC-\d{2})`?[ \t]*\|((?:\\.|[^|\n])*)\|[ \t]*$/gmu,
     ),
   ];
   for (const criterionId of criterionIds) {
