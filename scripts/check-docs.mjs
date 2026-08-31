@@ -59,14 +59,16 @@ function normalizeReferenceIdentifier(identifier) {
     .toLowerCase();
 }
 
-function withoutMarkdownCode(markdown) {
+function withoutNonRenderedMarkdown(markdown) {
   const tree = markdownParser.parse(markdown);
   const characters = markdown.split('');
 
   visitMarkdown(tree, (node) => {
-    if (node.type !== 'code') return;
     const start = node.position?.start.offset ?? 0;
     const end = node.position?.end.offset ?? start;
+    const isHtmlComment = node.type === 'html'
+      && markdown.slice(start, end).trimStart().startsWith('<!--');
+    if (node.type !== 'code' && !isHtmlComment) return;
     for (let index = start; index < end; index += 1) {
       if (characters[index] !== '\n') characters[index] = ' ';
     }
@@ -174,7 +176,7 @@ function sectionContent(markdown, sectionName) {
 
 export function featureSpecFailures(relativeFile, content) {
   const failures = [];
-  const structuralContent = withoutMarkdownCode(content);
+  const structuralContent = withoutNonRenderedMarkdown(content);
   const status = structuralContent.match(
     /^Status: (Draft|Active|Implemented|Superseded)$/mu,
   )?.[1];
