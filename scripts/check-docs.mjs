@@ -3,6 +3,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import GithubSlugger from 'github-slugger';
 import { parseFragment } from 'parse5';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
@@ -185,19 +186,43 @@ export function isPathInside(parent, candidate) {
 }
 
 export function localLinkTarget(rawDestination) {
+  return localLinkDestination(rawDestination)?.target || null;
+}
+
+function decodeLinkPart(value) {
+  const unescaped = value.replace(/\\([^\p{L}\p{N}\s])/gu, '$1');
+  try {
+    return decodeURIComponent(unescaped);
+  } catch {
+    return unescaped;
+  }
+}
+
+export function localLinkDestination(rawDestination) {
   const destination = rawDestination.trim();
 
-  if (!destination || destination.startsWith('#') || destination.startsWith('/')) return null;
+  if (!destination || destination.startsWith('/')) return null;
   if (/^[a-z][a-z\d+.-]*:/iu.test(destination)) return null;
 
-  const pathOnly = destination.split(/[?#]/u, 1)[0]
-    .replace(/\\([^\p{L}\p{N}\s])/gu, '$1');
-  if (!pathOnly) return null;
-  try {
-    return decodeURIComponent(pathOnly);
-  } catch {
-    return pathOnly;
-  }
+  const hashIndex = destination.indexOf('#');
+  const beforeFragment = hashIndex === -1 ? destination : destination.slice(0, hashIndex);
+  const queryIndex = beforeFragment.indexOf('?');
+  const rawPath = queryIndex === -1 ? beforeFragment : beforeFragment.slice(0, queryIndex);
+  const rawFragment = hashIndex === -1 ? null : destination.slice(hashIndex + 1);
+  return {
+    target: decodeLinkPart(rawPath),
+    fragment: rawFragment === null ? null : decodeLinkPart(rawFragment),
+  };
+}
+
+export function markdownHeadingIds(markdown) {
+  const tree = markdownParser.parse(markdown);
+  const slugger = new GithubSlugger();
+  const ids = new Set();
+  visitMarkdown(tree, (node) => {
+    if (node.type === 'heading') ids.add(slugger.slug(markdownNodeText(node)));
+  });
+  return ids;
 }
 
 export function markdownLinkDestinations(markdown) {
@@ -247,6 +272,7 @@ export function markdownLinkDestinations(markdown) {
 
 async function checkLocalLinks(markdownFiles) {
   const failures = [];
+  const headingIdsByFile = new Map();
   for (const file of markdownFiles) {
     const content = await readFile(file, 'utf8');
     if (!content.trim()) {
@@ -261,10 +287,10 @@ async function checkLocalLinks(markdownFiles) {
       );
     }
     for (const destination of destinations) {
-      const target = localLinkTarget(destination.rawDestination);
-      if (!target) continue;
+      const localDestination = localLinkDestination(destination.rawDestination);
+      if (!localDestination) continue;
 
-      const resolvedTarget = path.resolve(path.dirname(file), target);
+      const resolvedTarget = path.resolve(path.dirname(file), localDestination.target);
       if (!isPathInside(repositoryRoot, resolvedTarget)) {
         failures.push(
           `${path.relative(repositoryRoot, file)}:${lineNumberAt(searchableContent, destination.index)} `
@@ -273,7 +299,23 @@ async function checkLocalLinks(markdownFiles) {
         continue;
       }
       try {
-        await stat(resolvedTarget);
+        const targetStat = await stat(resolvedTarget);
+        if (localDestination.fragment
+          && targetStat.isFile()
+          && path.extname(resolvedTarget).toLowerCase() === '.md') {
+          let headingIds = headingIdsByFile.get(resolvedTarget);
+          if (!headingIds) {
+            headingIds = markdownHeadingIds(await readFile(resolvedTarget, 'utf8'));
+            headingIdsByFile.set(resolvedTarget, headingIds);
+          }
+          if (!headingIds.has(localDestination.fragment)) {
+            failures.push(
+              `${path.relative(repositoryRoot, file)}:${lineNumberAt(searchableContent, destination.index)} `
+              + `links to missing fragment #${localDestination.fragment} in `
+              + `${path.relative(repositoryRoot, resolvedTarget)}`,
+            );
+          }
+        }
       } catch {
         failures.push(
           `${path.relative(repositoryRoot, file)}:${lineNumberAt(searchableContent, destination.index)} `

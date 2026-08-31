@@ -5,7 +5,9 @@ import {
   featureSpecFailures,
   filterExistingFiles,
   isPathInside,
+  localLinkDestination,
   localLinkTarget,
+  markdownHeadingIds,
   markdownLinkDestinations,
 } from './check-docs.mjs';
 
@@ -23,6 +25,21 @@ test('rejects resolved documentation targets outside the repository', () => {
   assert.equal(isPathInside(repository, repository), true);
   assert.equal(isPathInside(repository, path.resolve(repository, '..')), false);
   assert.equal(isPathInside(repository, path.resolve(repository, '../outside.md')), false);
+});
+
+test('parses local link paths and validates GitHub heading identifiers', () => {
+  assert.deepEqual(localLinkDestination('./guide.md#installation'), {
+    target: './guide.md',
+    fragment: 'installation',
+  });
+  assert.deepEqual(localLinkDestination('#한국어-%ED%91%9C%ED%98%84'), {
+    target: '',
+    fragment: '한국어-표현',
+  });
+  assert.deepEqual(
+    [...markdownHeadingIds('# Installation\n\n## Installation\n\n## Hello, *World*!')],
+    ['installation', 'installation-1', 'hello-world'],
+  );
 });
 
 test('extracts inline and reference-style Markdown link destinations', () => {
