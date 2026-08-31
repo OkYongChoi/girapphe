@@ -329,7 +329,7 @@ test('requires exact, non-empty verification table evidence', () => {
   );
 });
 
-test('accepts escaped pipes in verification evidence', () => {
+test('accepts optional outer table pipes and escaped pipes in evidence', () => {
   const featureSpec = [
     '# Feature',
     '',
@@ -344,9 +344,9 @@ test('accepts escaped pipes in verification evidence', () => {
     '## Privacy and data boundaries',
     'Boundary.',
     '## Verification',
-    '| Criterion | Evidence |',
-    '| --- | --- |',
-    '| `AC-01` | `pnpm test` \\| `tee results.log` |',
+    'Criterion | Evidence',
+    '--- | ---',
+    '`AC-01` | `pnpm test` \\| `tee results.log`',
     '## Rollout',
     'Rollout.',
   ].join('\n');

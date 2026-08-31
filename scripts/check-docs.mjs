@@ -263,7 +263,7 @@ export function featureSpecFailures(relativeFile, content) {
   const verification = sectionContent(structuralContent, 'Verification') ?? '';
   const verificationMappings = [
     ...verification.matchAll(
-      /^[ \t]*\|[ \t]*`?(AC-\d{2})`?[ \t]*\|((?:\\.|[^|\n])*)\|[ \t]*$/gmu,
+      /^[ \t]*\|?[ \t]*`?(AC-\d{2})`?[ \t]*\|((?:\\.|[^|\n])*)\|?[ \t]*$/gmu,
     ),
   ];
   for (const criterionId of criterionIds) {
