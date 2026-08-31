@@ -338,6 +338,37 @@ test('ignores feature-spec structures inside raw HTML blocks', () => {
   ));
 });
 
+test('ignores feature-spec structures inside inert HTML templates', () => {
+  const featureSpec = [
+    '<template>',
+    '',
+    'Status: Implemented',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '- [x] `AC-01`: Hidden criterion.',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '| `AC-01` | hidden evidence. |',
+    '## Rollout',
+    'Rollout.',
+    '',
+    '</template>',
+  ].join('\n');
+
+  const failures = featureSpecFailures('specs/features/example.md', featureSpec);
+
+  assert.ok(failures.includes(
+    'specs/features/example.md must declare Status: Draft, Active, Implemented, or Superseded',
+  ));
+  assert.ok(failures.includes(
+    'specs/features/example.md must define checkbox criteria with stable AC-01 style identifiers',
+  ));
+});
+
 test('ignores feature-spec criteria inside inline HTML code elements', () => {
   const featureSpec = [
     '# Feature',

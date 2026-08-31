@@ -19,6 +19,24 @@ const requiredFeatureSections = [
   'Rollout',
 ];
 const markdownParser = unified().use(remarkParse);
+const codeLikeElementNames = [
+  'code',
+  'kbd',
+  'pre',
+  'samp',
+  'script',
+  'style',
+  'template',
+];
+const codeLikeElements = new Set(codeLikeElementNames);
+const codeLikeOpeningPattern = new RegExp(
+  `^<(${codeLikeElementNames.join('|')})(?:\\s|>)`,
+  'iu',
+);
+const codeLikeClosingPattern = new RegExp(
+  `^<\\/\\s*(${codeLikeElementNames.join('|')})\\s*>`,
+  'iu',
+);
 
 async function repositoryMarkdownFiles() {
   const { stdout } = await execFileAsync(
@@ -98,7 +116,6 @@ function htmlLinkDestinations(source, sourceOffset, markdown) {
 
 function htmlCodeLikeRanges(markdown, markdownTree) {
   const ranges = [];
-  const codeLikeElements = new Set(['code', 'kbd', 'pre', 'samp', 'script', 'style']);
   const htmlNodes = [];
   const openElements = [];
 
@@ -126,7 +143,7 @@ function htmlCodeLikeRanges(markdown, markdownTree) {
     visit(fragment);
 
     const trimmed = parseableSource.trimStart();
-    const closing = trimmed.match(/^<\/\s*(code|kbd|pre|samp|script|style)\s*>/iu);
+    const closing = trimmed.match(codeLikeClosingPattern);
     if (closing) {
       const openIndex = openElements.findLastIndex((element) => element.name === closing[1].toLowerCase());
       if (openIndex !== -1) {
@@ -136,7 +153,7 @@ function htmlCodeLikeRanges(markdown, markdownTree) {
       continue;
     }
 
-    const opening = trimmed.match(/^<(code|kbd|pre|samp|script|style)(?:\s|>)/iu);
+    const opening = trimmed.match(codeLikeOpeningPattern);
     if (opening && !hasCompleteElement && !/\/\s*>\s*$/u.test(trimmed)) {
       openElements.push({ name: opening[1].toLowerCase(), start });
     }
