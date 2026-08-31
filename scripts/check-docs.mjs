@@ -1,6 +1,8 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const markdownEntrypoints = [
@@ -20,6 +22,7 @@ const requiredFeatureSections = [
   'Verification',
   'Rollout',
 ];
+const markdownParser = unified().use(remarkParse);
 
 async function collectMarkdownFiles(entrypoint) {
   const absolutePath = path.join(repositoryRoot, entrypoint);
@@ -35,105 +38,25 @@ async function collectMarkdownFiles(entrypoint) {
   return nestedFiles.flat();
 }
 
-function withoutFencedCode(markdown) {
-  let fence = null;
-  return markdown.split('\n').map((line) => {
-    const fenceMatch = line.match(/^[ \t]{0,3}([`~]{3,})(.*)$/u);
-    if (!fence) {
-      if (!fenceMatch || new Set(fenceMatch[1]).size !== 1) return line;
-      fence = { character: fenceMatch[1][0], length: fenceMatch[1].length };
-      return '';
-    }
-
-    if (fenceMatch
-      && new Set(fenceMatch[1]).size === 1
-      && fenceMatch[1][0] === fence.character
-      && fenceMatch[1].length >= fence.length
-      && fenceMatch[2].trim() === '') {
-      fence = null;
-    }
-    return '';
-  }).join('\n');
-}
-
-function withoutInlineCode(markdown) {
-  let output = '';
-  let cursor = 0;
-
-  while (cursor < markdown.length) {
-    if (markdown[cursor] !== '`') {
-      output += markdown[cursor];
-      cursor += 1;
-      continue;
-    }
-
-    const openingStart = cursor;
-    while (markdown[cursor] === '`') cursor += 1;
-    const delimiterLength = cursor - openingStart;
-    const delimiter = '`'.repeat(delimiterLength);
-    let closingStart = markdown.indexOf(delimiter, cursor);
-
-    while (closingStart !== -1) {
-      const isExactRun = markdown[closingStart - 1] !== '`'
-        && markdown[closingStart + delimiterLength] !== '`';
-      if (isExactRun) break;
-      closingStart = markdown.indexOf(delimiter, closingStart + 1);
-    }
-
-    if (closingStart === -1) {
-      output += delimiter;
-      continue;
-    }
-
-    const closingEnd = closingStart + delimiterLength;
-    output += markdown.slice(openingStart, closingEnd).replace(/[^\n]/gu, '');
-    cursor = closingEnd;
-  }
-
-  return output;
-}
-
-function indentationWidth(whitespace, startingColumn = 0) {
-  let column = startingColumn;
-  for (const character of whitespace) {
-    column = character === '\t' ? column + (4 - (column % 4)) : column + 1;
-  }
-  return column - startingColumn;
-}
-
-function withoutIndentedCode(markdown) {
-  const listContainers = [];
-
-  return markdown.split('\n').map((line) => {
-    if (!line.trim()) return line;
-
-    const leadingWhitespace = line.match(/^[ \t]*/u)?.[0] ?? '';
-    const indent = indentationWidth(leadingWhitespace);
-    while (listContainers.length > 0
-      && indent < listContainers[listContainers.length - 1]) {
-      listContainers.pop();
-    }
-
-    const containerIndent = listContainers[listContainers.length - 1] ?? 0;
-    if (indent - containerIndent >= 4) return '';
-
-    const listItem = line.match(/^([ \t]*)([-+*]|\d{1,9}[.)])([ \t]+)/u);
-    if (listItem) {
-      const markerEnd = indent + listItem[2].length;
-      const contentIndent = markerEnd + indentationWidth(listItem[3], markerEnd);
-      listContainers.push(contentIndent);
-    }
-
-    return line;
-  }).join('\n');
-}
-
 function isEscaped(markdown, index) {
   let backslashes = 0;
   for (let cursor = index - 1; cursor >= 0 && markdown[cursor] === '\\'; cursor -= 1) {
     backslashes += 1;
   }
   return backslashes % 2 === 1;
+}
+
+function visitMarkdown(node, visitor) {
+  visitor(node);
+  for (const child of node.children ?? []) visitMarkdown(child, visitor);
+}
+
+function normalizeReferenceIdentifier(identifier) {
+  return identifier
+    .replace(/\\([!-/:-@\[-`{-~])/gu, '$1')
+    .trim()
+    .replace(/\s+/gu, ' ')
+    .toLowerCase();
 }
 
 function lineNumberAt(content, offset) {
@@ -160,83 +83,38 @@ export function localLinkTarget(rawDestination) {
 }
 
 export function markdownLinkDestinations(markdown) {
-  const searchableContent = withoutInlineCode(withoutIndentedCode(withoutFencedCode(markdown)));
+  const tree = markdownParser.parse(markdown);
   const destinations = [];
+  const definitions = new Set();
+  const textNodes = [];
 
-  for (let index = 0; index < searchableContent.length - 1; index += 1) {
-    if (searchableContent[index] !== ']' || searchableContent[index + 1] !== '(') continue;
-    if (isEscaped(searchableContent, index)) continue;
-    const labelStart = searchableContent.lastIndexOf('[', index);
-    if (labelStart === -1 || isEscaped(searchableContent, labelStart)) continue;
+  visitMarkdown(tree, (node) => {
+    if (node.type === 'definition') definitions.add(node.identifier);
+    if (node.type === 'text') textNodes.push(node);
+    if (!['link', 'image', 'definition'].includes(node.type)) return;
+    destinations.push({
+      rawDestination: node.url,
+      index: node.position?.start.offset ?? 0,
+    });
+  });
 
-    const destinationStart = index + 2;
-    let cursor = destinationStart;
-    let nestedParentheses = 0;
-    let quote = null;
-    let destinationWhitespaceSeen = false;
-    let angleDestinationEnd = null;
-    let closingParenthesis = null;
-
-    while (cursor < searchableContent.length) {
-      const character = searchableContent[cursor];
-      if (character === '\\' && cursor + 1 < searchableContent.length) {
-        cursor += 2;
-        continue;
+  const unresolvedReferences = [];
+  const referenceUsagePattern = /!?\[((?:\\.|[^\]\\\n])*)\]\[((?:\\.|[^\]\\\n])*)\]/gu;
+  for (const node of textNodes) {
+    const start = node.position?.start.offset ?? 0;
+    const source = markdown.slice(start, node.position?.end.offset ?? start);
+    for (const match of source.matchAll(referenceUsagePattern)) {
+      const bracketOffset = match[0].startsWith('!') ? 1 : 0;
+      const usageIndex = start + match.index;
+      if (isEscaped(markdown, usageIndex + bracketOffset)) continue;
+      const identifier = normalizeReferenceIdentifier(match[2] || match[1]);
+      if (identifier && !definitions.has(identifier)) {
+        unresolvedReferences.push({ identifier, index: usageIndex });
       }
-
-      if (quote) {
-        if (character === quote) quote = null;
-        cursor += 1;
-        continue;
-      }
-      if (destinationWhitespaceSeen && (character === '"' || character === "'")) {
-        quote = character;
-        cursor += 1;
-        continue;
-      }
-      if (searchableContent[destinationStart] === '<' && angleDestinationEnd === null) {
-        if (character === '>') angleDestinationEnd = cursor;
-        cursor += 1;
-        continue;
-      }
-      if (/\s/u.test(character) && nestedParentheses === 0) {
-        destinationWhitespaceSeen = true;
-        cursor += 1;
-        continue;
-      }
-      if (character === '(') {
-        nestedParentheses += 1;
-      } else if (character === ')') {
-        if (nestedParentheses === 0) {
-          closingParenthesis = cursor;
-          break;
-        }
-        nestedParentheses -= 1;
-      }
-      cursor += 1;
     }
-
-    if (closingParenthesis === null) continue;
-    const destinationEnd = angleDestinationEnd === null
-      ? closingParenthesis
-      : angleDestinationEnd + 1;
-    destinations.push({
-      rawDestination: searchableContent.slice(destinationStart, destinationEnd),
-      index: destinationStart,
-    });
-    index = closingParenthesis;
   }
 
-  const referenceDefinitionPattern = /^[ \t]{0,3}\[([^\]\n]+)\]:[ \t]*(<[^>\n]+>|[^\s]+)(?:[ \t]+.*)?$/gmu;
-  for (const match of searchableContent.matchAll(referenceDefinitionPattern)) {
-    if (match[1].startsWith('^')) continue;
-    destinations.push({
-      rawDestination: match[2],
-      index: match.index + match[0].indexOf(match[2]),
-    });
-  }
-
-  return { searchableContent, destinations };
+  return { searchableContent: markdown, destinations, unresolvedReferences };
 }
 
 async function checkLocalLinks(markdownFiles) {
@@ -247,7 +125,13 @@ async function checkLocalLinks(markdownFiles) {
       failures.push(`${path.relative(repositoryRoot, file)} is empty`);
       continue;
     }
-    const { searchableContent, destinations } = markdownLinkDestinations(content);
+    const { searchableContent, destinations, unresolvedReferences } = markdownLinkDestinations(content);
+    for (const reference of unresolvedReferences) {
+      failures.push(
+        `${path.relative(repositoryRoot, file)}:${lineNumberAt(content, reference.index)} `
+        + `uses undefined reference [${reference.identifier}]`,
+      );
+    }
     for (const destination of destinations) {
       const target = localLinkTarget(destination.rawDestination);
       if (!target) continue;

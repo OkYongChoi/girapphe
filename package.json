@@ -31,8 +31,10 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "remark-parse": "^11.0.0",
     "turbo": "^2.5.4",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "unified": "^11.0.5"
   },
   "engines": {
     "node": ">=22",

@@ -27,12 +27,16 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     '',
     '`[inline-example](./missing-inline.md)`',
     '``[second-inline-example](./also-missing.md)``',
+    '',
     '    [indented-code-example](./missing-indented.md)',
+    '',
     '[escaped-closing\\](./missing-escaped.md)',
     '- setup',
     '    - [nested-guide](./nested-guide.md)',
     '    [nested-paragraph](./nested-paragraph.md)',
-    '      [nested-code-example](./missing-nested-code.md)',
+    '    ',
+    '          [nested-code-example](./missing-nested-code.md)',
+    '>     [quoted-code-example](./missing-quoted-code.md)',
     '',
     '[parenthesized](./release_(final).md)',
     '[angle-parenthesized](<./release(final).md>)',
@@ -47,20 +51,41 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     destinations.map(({ rawDestination }) => rawDestination),
     [
       './inline.md',
+      './guide.md',
+      './images/diagram one.png',
+      'https://example.com/docs',
       './nested-guide.md',
       './nested-paragraph.md',
       './release_(final).md',
-      '<./release(final).md>',
-      './release_\\(final\\).md',
+      './release(final).md',
+      './release_(final).md',
       "./author's-notes.md",
-      './titled.md "Titled notes"',
-      './guide.md',
-      '<./images/diagram one.png>',
-      'https://example.com/docs',
+      './titled.md',
     ],
   );
   assert.equal(localLinkTarget('./release_\\(final\\).md'), './release_(final).md');
   assert.equal(localLinkTarget('./titled.md "Titled notes"'), './titled.md');
+});
+
+test('reports undefined full and collapsed references outside code', () => {
+  const markdown = [
+    '[guide][setup]',
+    '[guide][]',
+    '\\[escaped][missing]',
+    '`[inline-code][missing]`',
+    '>     [quoted-code][missing]',
+    '',
+    '[defined][id]',
+    '',
+    '[id]: ./defined.md',
+  ].join('\n');
+
+  const { unresolvedReferences } = markdownLinkDestinations(markdown);
+
+  assert.deepEqual(
+    unresolvedReferences.map(({ identifier }) => identifier),
+    ['setup', 'guide'],
+  );
 });
 
 test('requires content in every mandatory active feature-spec section', () => {
