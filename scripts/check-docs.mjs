@@ -225,6 +225,20 @@ export function markdownHeadingIds(markdown) {
   const ids = new Set();
   visitMarkdown(tree, (node) => {
     if (node.type === 'heading') ids.add(slugger.slug(markdownNodeText(node)));
+    if (node.type === 'html') {
+      const fragment = parseFragment(node.value);
+      const visitHtml = (htmlNode) => {
+        for (const attribute of htmlNode.attrs ?? []) {
+          if (attribute.name === 'id'
+            || (htmlNode.tagName === 'a' && attribute.name === 'name')) {
+            ids.add(attribute.value);
+          }
+        }
+        for (const child of htmlNode.childNodes ?? []) visitHtml(child);
+        if (htmlNode.content) visitHtml(htmlNode.content);
+      };
+      visitHtml(fragment);
+    }
   });
   return ids;
 }
@@ -373,7 +387,7 @@ export function featureSpecFailures(relativeFile, content) {
       /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[[^\]\n]*\].*$/gmu,
     ),
   ];
-  const criterionPattern = /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]+`?(AC-\d{2})`?:/u;
+  const criterionPattern = /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]+`?(AC-\d{2})`?:(.*)$/u;
   const malformedRows = checkboxRows.filter((match) => !criterionPattern.test(match[0]));
   for (const malformedRow of malformedRows) {
     failures.push(
@@ -381,9 +395,14 @@ export function featureSpecFailures(relativeFile, content) {
     );
   }
 
-  const criterionMatches = checkboxRows
-    .map((match) => match[0].match(criterionPattern))
-    .filter(Boolean);
+  const criterionRows = checkboxRows
+    .map((source, index) => ({
+      source,
+      match: source[0].match(criterionPattern),
+      end: checkboxRows[index + 1]?.index ?? acceptanceCriteria.length,
+    }))
+    .filter(({ match }) => Boolean(match));
+  const criterionMatches = criterionRows.map(({ match }) => match);
   if (criterionMatches.length === 0) {
     failures.push(`${relativeFile} must define checkbox criteria with stable AC-01 style identifiers`);
     return failures;
@@ -393,6 +412,19 @@ export function featureSpecFailures(relativeFile, content) {
   const duplicateIds = criterionIds.filter((id, index) => criterionIds.indexOf(id) !== index);
   for (const duplicateId of new Set(duplicateIds)) {
     failures.push(`${relativeFile} repeats acceptance criterion ${duplicateId}`);
+  }
+
+  for (const criterionRow of criterionRows) {
+    const continuation = acceptanceCriteria.slice(
+      criterionRow.source.index + criterionRow.source[0].length,
+      criterionRow.end,
+    );
+    const hasContinuationDescription = continuation
+      .split('\n')
+      .some((line) => /^[ \t]{2,}\S/u.test(line));
+    if (!criterionRow.match[3].trim() && !hasContinuationDescription) {
+      failures.push(`${relativeFile} has no description for ${criterionRow.match[2]}`);
+    }
   }
 
   if (status === 'Implemented') {

@@ -38,8 +38,22 @@ test('parses local link paths and validates GitHub heading identifiers', () => {
     fragment: '한국어-표현',
   });
   assert.deepEqual(
-    [...markdownHeadingIds('# Installation\n\n## Installation\n\n## Hello, *World*!')],
-    ['installation', 'installation-1', 'hello-world'],
+    [...markdownHeadingIds([
+      '# Installation',
+      '## Installation',
+      '## Hello, *World*!',
+      '<a id="manual-anchor"></a>',
+      '<a name="legacy-anchor"></a>',
+      '<div id="section-anchor"></div>',
+    ].join('\n\n'))],
+    [
+      'installation',
+      'installation-1',
+      'hello-world',
+      'manual-anchor',
+      'legacy-anchor',
+      'section-anchor',
+    ],
   );
   assert.equal(
     resolvedLocalLinkTarget('/repo/docs/guide.md', ''),
@@ -390,6 +404,35 @@ test('requires exact, non-empty verification table evidence', () => {
       'specs/features/example.md does not map AC-02 to non-empty evidence '
         + 'in the Verification table',
     ],
+  );
+});
+
+test('requires a rendered acceptance-criterion description', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    'Status: Implemented',
+    '',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '- [x] `AC-01`:',
+    '- [x] `AC-02`:',
+    '  Observable continuation description.',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '| `AC-01` | covered. |',
+    '| `AC-02` | covered. |',
+    '## Rollout',
+    'Rollout.',
+  ].join('\n');
+
+  assert.deepEqual(
+    featureSpecFailures('specs/features/example.md', featureSpec),
+    ['specs/features/example.md has no description for AC-01'],
   );
 });
 
