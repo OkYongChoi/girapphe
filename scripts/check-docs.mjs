@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseEntities } from 'parse-entities';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 
@@ -112,7 +113,7 @@ export function markdownLinkDestinations(markdown) {
         || /^<(?:script|style)(?:\s|>)/iu.test(trimmedSource)) return;
       const attributePattern = /(?:^|[ \t\n\f\r])(?:href|src)[ \t\n\f\r]*=[ \t\n\f\r]*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gimu;
       for (const match of source.matchAll(attributePattern)) {
-        const rawDestination = match[1] ?? match[2] ?? match[3];
+        const rawDestination = parseEntities(match[1] ?? match[2] ?? match[3]);
         destinations.push({
           rawDestination,
           index: start + match.index + match[0].indexOf(rawDestination),
