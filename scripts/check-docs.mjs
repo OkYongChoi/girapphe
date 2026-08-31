@@ -97,7 +97,7 @@ function lineNumberAt(content, offset) {
   return content.slice(0, offset).split('\n').length;
 }
 
-function localLinkTarget(rawDestination) {
+export function localLinkTarget(rawDestination) {
   const trimmed = rawDestination.trim();
   const destination = trimmed.startsWith('<')
     ? trimmed.slice(1, trimmed.indexOf('>'))
@@ -106,7 +106,8 @@ function localLinkTarget(rawDestination) {
   if (!destination || destination.startsWith('#') || destination.startsWith('/')) return null;
   if (/^[a-z][a-z\d+.-]*:/iu.test(destination)) return null;
 
-  const pathOnly = destination.split(/[?#]/u, 1)[0];
+  const pathOnly = destination.split(/[?#]/u, 1)[0]
+    .replace(/\\([^\p{L}\p{N}\s])/gu, '$1');
   if (!pathOnly) return null;
   try {
     return decodeURIComponent(pathOnly);
@@ -118,9 +119,62 @@ function localLinkTarget(rawDestination) {
 export function markdownLinkDestinations(markdown) {
   const searchableContent = withoutInlineCode(withoutFencedCode(markdown));
   const destinations = [];
-  const inlineLinkPattern = /!?\[[^\]]*\]\(([^)]+)\)/gu;
-  for (const match of searchableContent.matchAll(inlineLinkPattern)) {
-    destinations.push({ rawDestination: match[1], index: match.index });
+
+  for (let index = 0; index < searchableContent.length - 1; index += 1) {
+    if (searchableContent[index] !== ']' || searchableContent[index + 1] !== '(') continue;
+    const labelStart = searchableContent.lastIndexOf('[', index);
+    if (labelStart === -1 || searchableContent[labelStart - 1] === '\\') continue;
+
+    const destinationStart = index + 2;
+    let cursor = destinationStart;
+    let nestedParentheses = 0;
+    let quote = null;
+    let angleDestinationEnd = null;
+    let closingParenthesis = null;
+
+    while (cursor < searchableContent.length) {
+      const character = searchableContent[cursor];
+      if (character === '\\' && cursor + 1 < searchableContent.length) {
+        cursor += 2;
+        continue;
+      }
+
+      if (quote) {
+        if (character === quote) quote = null;
+        cursor += 1;
+        continue;
+      }
+      if (character === '"' || character === "'") {
+        quote = character;
+        cursor += 1;
+        continue;
+      }
+      if (searchableContent[destinationStart] === '<' && angleDestinationEnd === null) {
+        if (character === '>') angleDestinationEnd = cursor;
+        cursor += 1;
+        continue;
+      }
+      if (character === '(') {
+        nestedParentheses += 1;
+      } else if (character === ')') {
+        if (nestedParentheses === 0) {
+          closingParenthesis = cursor;
+          break;
+        }
+        nestedParentheses -= 1;
+      }
+      cursor += 1;
+    }
+
+    if (closingParenthesis === null) continue;
+    const destinationEnd = angleDestinationEnd === null
+      ? closingParenthesis
+      : angleDestinationEnd + 1;
+    destinations.push({
+      rawDestination: searchableContent.slice(destinationStart, destinationEnd),
+      index: destinationStart,
+    });
+    index = closingParenthesis;
   }
 
   const referenceDefinitionPattern = /^[ \t]{0,3}\[([^\]\n]+)\]:[ \t]*(<[^>\n]+>|[^\s]+)(?:[ \t]+.*)?$/gmu;
@@ -218,9 +272,19 @@ export function featureSpecFailures(relativeFile, content) {
   }
 
   const verification = sectionContent(content, 'Verification') ?? '';
+  const verificationMappings = [
+    ...verification.matchAll(
+      /^[ \t]*\|[ \t]*`?(AC-\d{2})`?[ \t]*\|([^|\n]*)\|[ \t]*$/gmu,
+    ),
+  ];
   for (const criterionId of criterionIds) {
-    if (!verification.includes(criterionId)) {
-      failures.push(`${relativeFile} does not map ${criterionId} in the Verification section`);
+    const mappings = verificationMappings.filter((mapping) => mapping[1] === criterionId);
+    if (mappings.length === 0 || mappings.every((mapping) => !mapping[2].trim())) {
+      failures.push(
+        `${relativeFile} does not map ${criterionId} to non-empty evidence in the Verification table`,
+      );
+    } else if (mappings.length > 1) {
+      failures.push(`${relativeFile} repeats verification mapping ${criterionId}`);
     }
   }
 
