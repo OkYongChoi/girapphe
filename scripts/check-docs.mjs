@@ -66,9 +66,7 @@ function withoutNonRenderedMarkdown(markdown) {
   visitMarkdown(tree, (node) => {
     const start = node.position?.start.offset ?? 0;
     const end = node.position?.end.offset ?? start;
-    const isHtmlComment = node.type === 'html'
-      && markdown.slice(start, end).trimStart().startsWith('<!--');
-    if (node.type !== 'code' && !isHtmlComment) return;
+    if (node.type !== 'code' && node.type !== 'html') return;
     for (let index = start; index < end; index += 1) {
       if (characters[index] !== '\n') characters[index] = ' ';
     }
@@ -106,6 +104,22 @@ export function markdownLinkDestinations(markdown) {
   visitMarkdown(tree, (node) => {
     if (node.type === 'definition') definitions.add(node.identifier);
     if (node.type === 'text') textNodes.push(node);
+    if (node.type === 'html') {
+      const start = node.position?.start.offset ?? 0;
+      const source = markdown.slice(start, node.position?.end.offset ?? start);
+      const trimmedSource = source.trimStart();
+      if (trimmedSource.startsWith('<!--')
+        || /^<(?:script|style)(?:\s|>)/iu.test(trimmedSource)) return;
+      const attributePattern = /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/giu;
+      for (const match of source.matchAll(attributePattern)) {
+        const rawDestination = match[1] ?? match[2] ?? match[3];
+        destinations.push({
+          rawDestination,
+          index: start + match.index + match[0].indexOf(rawDestination),
+        });
+      }
+      return;
+    }
     if (!['link', 'image', 'definition'].includes(node.type)) return;
     destinations.push({
       rawDestination: node.url,

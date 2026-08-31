@@ -16,6 +16,10 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     '[diagram-ref]: <./images/diagram one.png>',
     '[external]: https://example.com/docs',
     '[^note]: This footnote is not a link definition.',
+    '<a href="./html-guide.md">HTML guide</a>',
+    "<img src='./images/html-diagram.png' alt='Diagram'>",
+    '<!-- <a href="./missing-comment.md">Ignored</a> -->',
+    '<script>const href = "./missing-script.md";</script>',
     '',
     '```md',
     '[ignored]: ./ignored.md',
@@ -54,6 +58,8 @@ test('extracts inline and reference-style Markdown link destinations', () => {
       './guide.md',
       './images/diagram one.png',
       'https://example.com/docs',
+      './html-guide.md',
+      './images/html-diagram.png',
       './nested-guide.md',
       './nested-paragraph.md',
       './release_(final).md',
@@ -177,6 +183,40 @@ test('ignores feature-spec structures inside HTML comments', () => {
     '## Rollout',
     'Rollout.',
     '-->',
+  ].join('\n');
+
+  const failures = featureSpecFailures('specs/features/example.md', featureSpec);
+
+  assert.ok(failures.includes(
+    'specs/features/example.md must declare Status: Draft, Active, Implemented, or Superseded',
+  ));
+  assert.ok(failures.includes(
+    'specs/features/example.md is missing the "## Acceptance criteria" section',
+  ));
+  assert.ok(failures.includes(
+    'specs/features/example.md must define checkbox criteria with stable AC-01 style identifiers',
+  ));
+});
+
+test('ignores feature-spec structures inside raw HTML blocks', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    '<pre>',
+    'Status: Implemented',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '- [x] `AC-01`: Hidden criterion.',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '| `AC-01` | hidden evidence. |',
+    '## Rollout',
+    'Rollout.',
+    '</pre>',
   ].join('\n');
 
   const failures = featureSpecFailures('specs/features/example.md', featureSpec);
