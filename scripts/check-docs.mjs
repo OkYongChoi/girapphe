@@ -164,7 +164,9 @@ function withoutNonRenderedMarkdown(markdown) {
   visitMarkdown(tree, (node) => {
     const start = node.position?.start.offset ?? 0;
     const end = node.position?.end.offset ?? start;
-    if (node.type !== 'code' && node.type !== 'html') return;
+    const isMultilineInlineCode = node.type === 'inlineCode'
+      && markdown.slice(start, end).includes('\n');
+    if (node.type !== 'code' && !isMultilineInlineCode && node.type !== 'html') return;
     for (let index = start; index < end; index += 1) {
       if (characters[index] !== '\n') characters[index] = ' ';
     }
@@ -385,11 +387,14 @@ function sectionContent(markdown, sectionName) {
 export function featureSpecFailures(relativeFile, content) {
   const failures = [];
   const structuralContent = withoutNonRenderedMarkdown(content);
-  const status = structuralContent.match(
-    /^Status: (Draft|Active|Implemented|Superseded)$/mu,
-  )?.[1];
-  if (!status) {
+  const statusDeclarations = [
+    ...structuralContent.matchAll(/^Status: (Draft|Active|Implemented|Superseded)$/gmu),
+  ];
+  const status = statusDeclarations.length === 1 ? statusDeclarations[0][1] : undefined;
+  if (statusDeclarations.length === 0) {
     failures.push(`${relativeFile} must declare Status: Draft, Active, Implemented, or Superseded`);
+  } else if (statusDeclarations.length > 1) {
+    failures.push(`${relativeFile} must declare exactly one Status value`);
   }
 
   for (const section of requiredFeatureSections) {
@@ -406,7 +411,7 @@ export function featureSpecFailures(relativeFile, content) {
   const acceptanceCriteria = sectionContent(structuralContent, 'Acceptance criteria') ?? '';
   const checkboxRows = [
     ...acceptanceCriteria.matchAll(
-      /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[[^\]\n]*\].*$/gmu,
+      /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[[ xX]\].*$/gmu,
     ),
   ];
   const criterionPattern = /^[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]+`?(AC-\d{2})`?:(.*)$/u;

@@ -236,6 +236,40 @@ test('ignores feature-spec structures inside code blocks', () => {
   ));
 });
 
+test('ignores feature-spec status and evidence inside multiline inline code', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    '``',
+    'Status: Implemented',
+    '``',
+    '',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '- [x] `AC-01`: Visible criterion.',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '``',
+    '| `AC-01` | hidden evidence. |',
+    '``',
+    '## Rollout',
+    'Rollout.',
+  ].join('\n');
+
+  const failures = featureSpecFailures('specs/features/example.md', featureSpec);
+
+  assert.ok(failures.includes(
+    'specs/features/example.md must declare Status: Draft, Active, Implemented, or Superseded',
+  ));
+  assert.ok(failures.includes(
+    'specs/features/example.md does not map AC-01 to non-empty evidence in the Verification table',
+  ));
+});
+
 test('ignores feature-spec structures inside HTML comments', () => {
   const featureSpec = [
     '# Feature',
@@ -347,6 +381,7 @@ test('rejects every malformed acceptance-criterion checkbox', () => {
     '- [x] `AC-03` Missing colon.',
     '   * [ ] `AC-4`: Invalid indented criterion.',
     '   2) [ ] `AC-5`: Invalid ordered criterion.',
+    '- [Design notes](../design.md)',
     '## Privacy and data boundaries',
     'Boundary.',
     '## Verification',
@@ -463,6 +498,33 @@ test('rejects duplicate required feature-spec sections', () => {
   assert.ok(featureSpecFailures('specs/features/example.md', featureSpec).includes(
     'specs/features/example.md repeats the "## Acceptance criteria" section',
   ));
+});
+
+test('requires exactly one visible feature-spec status', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    'Status: Draft',
+    'Status: Implemented',
+    '',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '- [ ] `AC-01`: Observable behavior.',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '| `AC-01` | focused test. |',
+    '## Rollout',
+    'Rollout.',
+  ].join('\n');
+
+  assert.deepEqual(
+    featureSpecFailures('specs/features/example.md', featureSpec),
+    ['specs/features/example.md must declare exactly one Status value'],
+  );
 });
 
 test('accepts optional outer table pipes and escaped pipes in evidence', () => {
