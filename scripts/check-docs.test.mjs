@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { markdownLinkDestinations } from './check-docs.mjs';
+import { featureSpecFailures, markdownLinkDestinations } from './check-docs.mjs';
 
 test('extracts inline and reference-style Markdown link destinations', () => {
   const markdown = [
@@ -16,6 +16,10 @@ test('extracts inline and reference-style Markdown link destinations', () => {
     '```md',
     '[ignored]: ./ignored.md',
     '```',
+    '',
+    '   ~~~md',
+    '[also-ignored](./missing.md)',
+    '   ~~~',
   ].join('\n');
 
   const { destinations } = markdownLinkDestinations(markdown);
@@ -27,6 +31,39 @@ test('extracts inline and reference-style Markdown link destinations', () => {
       './guide.md',
       '<./images/diagram one.png>',
       'https://example.com/docs',
+    ],
+  );
+});
+
+test('rejects every malformed acceptance-criterion checkbox', () => {
+  const featureSpec = [
+    '# Feature',
+    '',
+    'Status: Implemented',
+    '',
+    '## User outcome',
+    'Outcome.',
+    '## Scope',
+    'Scope.',
+    '## Acceptance criteria',
+    '- [x] `AC-01`: Valid criterion.',
+    '- [x] `AC-1`: Invalid identifier.',
+    '- [x] `AC-02` Missing colon.',
+    '## Privacy and data boundaries',
+    'Boundary.',
+    '## Verification',
+    '- AC-01: covered.',
+    '## Rollout',
+    'Rollout.',
+  ].join('\n');
+
+  assert.deepEqual(
+    featureSpecFailures('specs/features/example.md', featureSpec),
+    [
+      'specs/features/example.md has malformed acceptance criterion checkbox: '
+        + '- [x] `AC-1`: Invalid identifier.',
+      'specs/features/example.md has malformed acceptance criterion checkbox: '
+        + '- [x] `AC-02` Missing colon.',
     ],
   );
 });

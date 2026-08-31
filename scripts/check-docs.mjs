@@ -36,10 +36,24 @@ async function collectMarkdownFiles(entrypoint) {
 }
 
 function withoutFencedCode(markdown) {
-  return markdown.replace(
-    /^(?:```|~~~)[\s\S]*?^(?:```|~~~)[ \t]*$/gm,
-    (block) => block.replace(/[^\n]/gu, ''),
-  );
+  let fence = null;
+  return markdown.split('\n').map((line) => {
+    const fenceMatch = line.match(/^[ \t]{0,3}([`~]{3,})(.*)$/u);
+    if (!fence) {
+      if (!fenceMatch || new Set(fenceMatch[1]).size !== 1) return line;
+      fence = { character: fenceMatch[1][0], length: fenceMatch[1].length };
+      return '';
+    }
+
+    if (fenceMatch
+      && new Set(fenceMatch[1]).size === 1
+      && fenceMatch[1][0] === fence.character
+      && fenceMatch[1].length >= fence.length
+      && fenceMatch[2].trim() === '') {
+      fence = null;
+    }
+    return '';
+  }).join('\n');
 }
 
 function lineNumberAt(content, offset) {
@@ -120,6 +134,60 @@ function sectionContent(markdown, sectionName) {
   return markdown.slice(start, end);
 }
 
+export function featureSpecFailures(relativeFile, content) {
+  const failures = [];
+  const status = content.match(/^Status: (Draft|Active|Implemented|Superseded)$/mu)?.[1];
+  if (!status) {
+    failures.push(`${relativeFile} must declare Status: Draft, Active, Implemented, or Superseded`);
+  }
+
+  for (const section of requiredFeatureSections) {
+    if (sectionContent(content, section) === null) {
+      failures.push(`${relativeFile} is missing the "## ${section}" section`);
+    }
+  }
+
+  const acceptanceCriteria = sectionContent(content, 'Acceptance criteria') ?? '';
+  const checkboxRows = [...acceptanceCriteria.matchAll(/^- \[[^\]\n]*\].*$/gmu)];
+  const criterionPattern = /^- \[([ xX])\] `?(AC-\d{2})`?:/u;
+  const malformedRows = checkboxRows.filter((match) => !criterionPattern.test(match[0]));
+  for (const malformedRow of malformedRows) {
+    failures.push(
+      `${relativeFile} has malformed acceptance criterion checkbox: ${malformedRow[0]}`,
+    );
+  }
+
+  const criterionMatches = checkboxRows
+    .map((match) => match[0].match(criterionPattern))
+    .filter(Boolean);
+  if (criterionMatches.length === 0) {
+    failures.push(`${relativeFile} must define checkbox criteria with stable AC-01 style identifiers`);
+    return failures;
+  }
+
+  const criterionIds = criterionMatches.map((match) => match[2]);
+  const duplicateIds = criterionIds.filter((id, index) => criterionIds.indexOf(id) !== index);
+  for (const duplicateId of new Set(duplicateIds)) {
+    failures.push(`${relativeFile} repeats acceptance criterion ${duplicateId}`);
+  }
+
+  if (status === 'Implemented') {
+    const incomplete = criterionMatches.filter((match) => match[1].toLowerCase() !== 'x');
+    if (incomplete.length > 0) {
+      failures.push(`${relativeFile} is Implemented but has incomplete acceptance criteria`);
+    }
+  }
+
+  const verification = sectionContent(content, 'Verification') ?? '';
+  for (const criterionId of criterionIds) {
+    if (!verification.includes(criterionId)) {
+      failures.push(`${relativeFile} does not map ${criterionId} in the Verification section`);
+    }
+  }
+
+  return failures;
+}
+
 async function checkFeatureSpecs() {
   const featureDirectory = path.join(repositoryRoot, 'specs/features');
   const entries = await readdir(featureDirectory, { withFileTypes: true });
@@ -139,43 +207,7 @@ async function checkFeatureSpecs() {
   for (const file of validatedFiles) {
     const relativeFile = path.relative(repositoryRoot, file);
     const content = await readFile(file, 'utf8');
-    const status = content.match(/^Status: (Draft|Active|Implemented|Superseded)$/mu)?.[1];
-    if (!status) {
-      failures.push(`${relativeFile} must declare Status: Draft, Active, Implemented, or Superseded`);
-    }
-
-    for (const section of requiredFeatureSections) {
-      if (sectionContent(content, section) === null) {
-        failures.push(`${relativeFile} is missing the "## ${section}" section`);
-      }
-    }
-
-    const acceptanceCriteria = sectionContent(content, 'Acceptance criteria') ?? '';
-    const criterionMatches = [...acceptanceCriteria.matchAll(/^- \[([ xX])\] `?(AC-\d{2})`?:/gmu)];
-    if (criterionMatches.length === 0) {
-      failures.push(`${relativeFile} must define checkbox criteria with stable AC-01 style identifiers`);
-      continue;
-    }
-
-    const criterionIds = criterionMatches.map((match) => match[2]);
-    const duplicateIds = criterionIds.filter((id, index) => criterionIds.indexOf(id) !== index);
-    for (const duplicateId of new Set(duplicateIds)) {
-      failures.push(`${relativeFile} repeats acceptance criterion ${duplicateId}`);
-    }
-
-    if (status === 'Implemented') {
-      const incomplete = criterionMatches.filter((match) => match[1].toLowerCase() !== 'x');
-      if (incomplete.length > 0) {
-        failures.push(`${relativeFile} is Implemented but has incomplete acceptance criteria`);
-      }
-    }
-
-    const verification = sectionContent(content, 'Verification') ?? '';
-    for (const criterionId of criterionIds) {
-      if (!verification.includes(criterionId)) {
-        failures.push(`${relativeFile} does not map ${criterionId} in the Verification section`);
-      }
-    }
+    failures.push(...featureSpecFailures(relativeFile, content));
   }
 
   return { failures, specCount: specFiles.length };
