@@ -96,16 +96,10 @@ for (let run = 1; run <= runCount; run += 1) {
       { message: 'fixture private edge reaches the final canvas input' },
     ).toBeGreaterThanOrEqual(1);
 
-    const actionBodies = await Promise.all(serverActionResponses.map(async (response) => {
-      await response.finished();
-      try {
-        return (await response.body()).toString('utf8');
-      } catch {
-        return '';
-      }
-    }));
     expect(
-      actionBodies.filter((body) => body.includes(AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX)),
+      serverActionResponses.filter(
+        (response) => response.request().headers()['next-action'] === overlayActionId,
+      ),
       'exactly one overlay response after Graph click',
     ).toHaveLength(1);
     await assertNoBrowserFailures();
