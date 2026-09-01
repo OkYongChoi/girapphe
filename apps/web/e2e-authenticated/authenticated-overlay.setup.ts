@@ -29,7 +29,7 @@ setup('sign in synthetic user and save authentication state', async ({ page }) =
   await page.goto('/login');
   await clerk.signIn({ page, emailAddress: syntheticEmail });
   await page.goto('/grid');
-  await expect(page.getByTitle(syntheticEmail)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Log out of your account' })).toBeVisible();
 
   await page.context().storageState({ path: authFile });
 });
