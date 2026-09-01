@@ -37,7 +37,8 @@ Out of scope:
   private edge owned by that user. It also leaves one public-to-private link
   when the target database contains a public graph node.
 - [x] `AC-02`: A signed-in `/grid` load sends no overlay Server Action request;
-  one Graph click receives exactly one overlay response with HTTP 200.
+  one Graph click sends exactly one overlay request and receives exactly one
+  overlay response with HTTP 200.
 - [x] `AC-03`: After the click, the 3D canvas input contains the two fixture nodes
   and their private edge, with no uncaught page or console errors.
 - [x] `AC-04`: Preview evidence contains three fresh-context runs for desktop and
@@ -46,6 +47,7 @@ Out of scope:
 - [x] `AC-05`: The evidence suite is absent from normal CI and is available only
   through an explicit authenticated-performance command or manual workflow;
   Preview resolves and checks out the exact head of an open same-repository PR;
+  each target's health revision must match that checked-out SHA before seeding;
   production requires an additional explicit confirmation, uses a short-lived
   backend sign-in token instead of a development-only testing token, is limited
   to the protected `main` branch, and runs once.
@@ -65,10 +67,10 @@ written to the repository or Playwright artifacts.
 | Criterion | Evidence |
 | --- | --- |
 | `AC-01` | `apps/web/scripts/authenticated-overlay-fixture.test.mjs` and the setup result in the manual workflow. |
-| `AC-02` | `apps/web/e2e-authenticated/authenticated-overlay-performance.spec.ts`. |
+| `AC-02` | `apps/web/e2e-authenticated/authenticated-overlay-performance.spec.ts`, including request-event counting by overlay action ID. |
 | `AC-03` | `apps/web/e2e-authenticated/authenticated-overlay-performance.spec.ts` plus `data-visible-private-*` canvas-input counts. |
 | `AC-04` | `pnpm browser:authenticated-overlay` and its `test-results/authenticated-overlay-performance/summary.md` artifact. |
-| `AC-05` | Inspection of `.github/workflows/authenticated-performance.yml`, `playwright.authenticated.config.ts`, and the normal `playwright.config.ts`. |
+| `AC-05` | Inspection of `.github/workflows/authenticated-performance.yml`, `.github/workflows/deploy-cloudflare.yml`, `playwright.authenticated.config.ts`, and the normal `playwright.config.ts`; `apps/web/scripts/verify-deployment-revision.test.mjs`. |
 
 Preview workflow run
 [`33466410279`](https://github.com/OkYongChoi/girapphe/actions/runs/33466410279)

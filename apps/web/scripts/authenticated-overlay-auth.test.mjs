@@ -65,4 +65,16 @@ test('preview evidence checks out the open same-repository PR head', async () =>
   assert.match(workflow, /\[ "\$head_repository" != "\$GITHUB_REPOSITORY" \]/);
   assert.match(workflow, /preview_head_sha: \$\{\{ steps\.validate-inputs\.outputs\.preview_head_sha \}\}/);
   assert.match(workflow, /ref: \$\{\{ needs\.validate\.outputs\.preview_head_sha \}\}/);
+  assert.match(workflow, /VERIFY_EXPECTED_REVISION: \$\{\{ needs\.validate\.outputs\.preview_head_sha \}\}/);
+  assert.match(workflow, /node apps\/web\/scripts\/verify-deployment-revision\.mjs/);
+});
+
+test('deployment workflow publishes the served Git revision for Preview and production', async () => {
+  const workflowUrl = new URL('../../../.github/workflows/deploy-cloudflare.yml', import.meta.url);
+  const workflow = await fs.readFile(workflowUrl, 'utf8');
+
+  assert.match(workflow, /GIRAPPHE_REVISION: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.match(workflow, /GIRAPPHE_REVISION: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /APP_BASE_URL GIRAPPHE_REVISION/);
+  assert.match(workflow, /'GIRAPPHE_REVISION'/);
 });

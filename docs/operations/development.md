@@ -144,9 +144,9 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    label to run the opt-in preview job from that PR, or dispatch
    `target=preview` with an open `preview_pr_number`. The workflow rejects closed
    and fork PRs, resolves the exact same-repository PR head SHA through GitHub,
-   and checks out that SHA for the measurement. Desktop and mobile each run three
-   times against that PR's Preview Worker, preview Clerk instance, and preview
-   database.
+   checks out that SHA, and waits until `/api/health` reports the same deployed
+   revision. Desktop and mobile each run three times against that PR's Preview
+   Worker, preview Clerk instance, and preview database.
 3. Review the uploaded summary before changing performance code. Separate
    Clerk, Worker-to-Neon, private-graph, and link-target time if the result is
    slow.
@@ -155,7 +155,8 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    desired. Dispatch `target=production` with the exact confirmation
    `RUN_PRODUCTION_SYNTHETIC` from the protected `main` branch; the workflow
    rejects every other ref before exposing production credentials. Desktop and
-   mobile each run once against `https://www.girapphe.com`.
+   mobile each run once against `https://www.girapphe.com`, after its health
+   revision matches the checked-out `main` SHA.
 
 The workflow is opt-in and never becomes a required release check merely by
 being present. A failed measurement is evidence for a separate investigation;

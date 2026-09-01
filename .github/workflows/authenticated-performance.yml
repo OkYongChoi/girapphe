@@ -121,6 +121,11 @@ jobs:
           echo "PLAYWRIGHT_BASE_URL=$preview_url" >> "$GITHUB_ENV"
           echo "Target: $preview_url" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Verify Preview Worker revision
+        env:
+          VERIFY_EXPECTED_REVISION: ${{ needs.validate.outputs.preview_head_sha }}
+        run: VERIFY_BASE_URL="$PLAYWRIGHT_BASE_URL" node apps/web/scripts/verify-deployment-revision.mjs
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
@@ -176,6 +181,12 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify production Worker revision
+        env:
+          VERIFY_BASE_URL: https://www.girapphe.com
+          VERIFY_EXPECTED_REVISION: ${{ github.sha }}
+        run: node apps/web/scripts/verify-deployment-revision.mjs
 
       - name: Install
         run: pnpm install --frozen-lockfile

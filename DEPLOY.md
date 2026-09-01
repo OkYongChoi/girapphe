@@ -129,7 +129,8 @@ The opt-in `authenticated-performance.yml` workflow is not part of deployment or
 the required quality gate. Run its preview target first by applying the
 `authenticated-performance` label after the PR Preview is ready, or dispatch it
 manually with an open same-repository PR number. The workflow rejects closed and
-fork PRs and checks out the resolved PR head SHA before measuring its Preview.
+fork PRs, checks out the resolved PR head SHA, and requires `/api/health` to
+report that exact deployed revision before measuring its Preview.
 Its production target writes only deterministic synthetic rows for the dedicated
 Clerk test owner, requires the exact `RUN_PRODUCTION_SYNTHETIC` confirmation, and
 accepts dispatches only from the protected `main` branch.

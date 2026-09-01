@@ -78,6 +78,8 @@ for (let run = 1; run <= runCount; run += 1) {
     await overlayResponse.finished();
     const overlayFinishedAt = performance.now();
     expect(overlayResponse.status(), 'overlay response status').toBe(200);
+    const overlayActionId = overlayResponse.request().headers()['next-action'];
+    expect(overlayActionId, 'overlay Server Action identifier').toBeTruthy();
     const overlayBody = await overlayResponse.body();
     expect(overlayBody.byteLength, 'overlay response body bytes').toBeGreaterThan(0);
 
@@ -105,6 +107,12 @@ for (let run = 1; run <= runCount; run += 1) {
       'exactly one overlay response after Graph click',
     ).toHaveLength(1);
     await assertNoBrowserFailures();
+    expect(
+      serverActionRequests.filter(
+        (request) => request.headers()['next-action'] === overlayActionId,
+      ),
+      'exactly one overlay request after Graph click',
+    ).toHaveLength(1);
 
     let transferredBodyBytes: number | null = null;
     try {
