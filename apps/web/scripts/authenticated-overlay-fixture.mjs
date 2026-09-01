@@ -162,9 +162,6 @@ export async function seedAuthenticatedOverlayFixtureWithClient(client, userIdIn
       'SELECT id FROM graph_nodes ORDER BY id LIMIT 1',
     );
     const publicNodeId = publicNodeResult.rows[0]?.id;
-    if (!publicNodeId) {
-      throw new Error('Authenticated overlay fixture requires at least one seeded public graph node.');
-    }
 
     await client.query(
       `INSERT INTO user_graph_edges (
@@ -192,31 +189,33 @@ export async function seedAuthenticatedOverlayFixtureWithClient(client, userIdIn
       [ids.privateEdgeId, userId, ids.nodeIds[0], ids.nodeIds[1]],
     );
 
-    await client.query(
-      `INSERT INTO user_graph_edges (
-         id, user_id, source_private_node_id, source_public_node_id,
-         target_private_node_id, target_public_node_id, type, weight, origin,
-         relation_origin, confirmed_at, source_batch_id, created_at, deleted_at, purge_at
-       ) VALUES (
-         $1, $2, NULL, $3, $4, NULL, 'related', 1, 'manual',
-         'explicit_user', NOW(), NULL, NOW(), NULL, NULL
-       )
-       ON CONFLICT (id) DO UPDATE SET
-         source_private_node_id = NULL,
-         source_public_node_id = EXCLUDED.source_public_node_id,
-         target_private_node_id = EXCLUDED.target_private_node_id,
-         target_public_node_id = NULL,
-         type = 'related',
-         weight = 1,
-         origin = 'manual',
-         relation_origin = 'explicit_user',
-         confirmed_at = NOW(),
-         source_batch_id = NULL,
-         deleted_at = NULL,
-         purge_at = NULL
-       WHERE user_graph_edges.user_id = EXCLUDED.user_id`,
-      [ids.publicEdgeId, userId, String(publicNodeId), ids.nodeIds[0]],
-    );
+    if (publicNodeId) {
+      await client.query(
+        `INSERT INTO user_graph_edges (
+           id, user_id, source_private_node_id, source_public_node_id,
+           target_private_node_id, target_public_node_id, type, weight, origin,
+           relation_origin, confirmed_at, source_batch_id, created_at, deleted_at, purge_at
+         ) VALUES (
+           $1, $2, NULL, $3, $4, NULL, 'related', 1, 'manual',
+           'explicit_user', NOW(), NULL, NOW(), NULL, NULL
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           source_private_node_id = NULL,
+           source_public_node_id = EXCLUDED.source_public_node_id,
+           target_private_node_id = EXCLUDED.target_private_node_id,
+           target_public_node_id = NULL,
+           type = 'related',
+           weight = 1,
+           origin = 'manual',
+           relation_origin = 'explicit_user',
+           confirmed_at = NOW(),
+           source_batch_id = NULL,
+           deleted_at = NULL,
+           purge_at = NULL
+         WHERE user_graph_edges.user_id = EXCLUDED.user_id`,
+        [ids.publicEdgeId, userId, String(publicNodeId), ids.nodeIds[0]],
+      );
+    }
 
     const verification = await client.query(
       `SELECT
@@ -230,7 +229,7 @@ export async function seedAuthenticatedOverlayFixtureWithClient(client, userIdIn
       [userId, ids.nodeIds, ids.privateEdgeId, ids.publicEdgeId],
     );
     const counts = verification.rows[0] ?? {};
-    if (Number(counts.private_nodes) < 2 || Number(counts.private_edges) < 1 || Number(counts.public_links) < 1) {
+    if (Number(counts.private_nodes) < 2 || Number(counts.private_edges) < 1) {
       throw new Error('Authenticated overlay fixture verification did not find the required owner-scoped rows.');
     }
 

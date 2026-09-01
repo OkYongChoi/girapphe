@@ -88,9 +88,12 @@ pnpm harness:browser
 
 The authenticated overlay suite is deliberately separate from `browser:smoke`,
 `harness:browser`, and normal CI. It creates or reuses one marker-named Clerk
-synthetic user, seeds two private nodes plus private and public-to-private links
-idempotently, and measures the Server Action that runs only after Graph is
-opened from `/grid`.
+synthetic user, idempotently seeds two private nodes and their private edge, and
+adds a public-to-private link when a public graph node exists. It measures the
+Server Action that runs only after Graph is opened from `/grid`. Schema-only
+Preview databases may have no public graph rows; there the required fixture
+remains two private nodes and their private edge, and the reported public-link
+count is zero.
 
 Runtime inputs are injected temporarily; do not copy their values into tracked
 files:

@@ -14,8 +14,9 @@ the already-verified public `/grid` route performance.
 In scope:
 
 - Create or reuse one dedicated Clerk synthetic user.
-- Seed two owner-scoped private nodes, one private edge, and one public-to-private
-  link idempotently in the matching database.
+- Seed two owner-scoped private nodes and one private edge idempotently in the
+  matching database. Add one public-to-private link when that environment has a
+  seeded public graph node.
 - Measure the authenticated `/grid` overlay on desktop and mobile without adding
   an external-provider dependency to normal CI.
 - Save per-run metrics plus median and worst values for graph display latency,
@@ -32,8 +33,9 @@ Out of scope:
 ## Acceptance criteria
 
 - [ ] `AC-01`: Setup creates or reuses only a marker-named Clerk synthetic user
-  and idempotently leaves at least two active private nodes, one active private
-  edge, and one active public-to-private link owned by that user.
+  and idempotently leaves at least two active private nodes and one active
+  private edge owned by that user. It also leaves one public-to-private link
+  when the target database contains a public graph node.
 - [ ] `AC-02`: A signed-in `/grid` load sends no overlay Server Action request;
   one Graph click receives exactly one overlay response with HTTP 200.
 - [ ] `AC-03`: After the click, the 3D canvas input contains the two fixture nodes

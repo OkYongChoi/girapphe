@@ -91,3 +91,22 @@ test('database fixture is owner-bound and repeatable', async () => {
   assert.ok(mutations.every((call) => !call.text.includes('user_synthetic')));
   assert.ok(mutations.every((call) => call.values.includes('user_synthetic')));
 });
+
+test('database fixture remains valid when a schema-only preview has no public nodes', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.startsWith('SELECT id FROM graph_nodes')) return { rows: [] };
+      if (text.includes('AS private_nodes')) {
+        return { rows: [{ private_nodes: 2, private_edges: 1, public_links: 0 }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const fixture = await seedAuthenticatedOverlayFixtureWithClient(client, 'user_synthetic');
+  assert.deepEqual(fixture.counts, { privateNodes: 2, privateEdges: 1, publicLinks: 0 });
+  assert.equal(calls.filter((call) => call.text.startsWith('INSERT INTO user_graph_edges')).length, 1);
+  assert.equal(calls.some((call) => call.text === 'ROLLBACK'), false);
+});
