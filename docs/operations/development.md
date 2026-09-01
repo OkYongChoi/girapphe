@@ -110,11 +110,15 @@ PLAYWRIGHT_RUNS
 `E2E_CLERK_USER_EMAIL` must contain the exact
 `+clerk_test_girapphe_overlay_e2e` marker. Setup rejects an existing account
 unless its Clerk public metadata marks it for `authenticated-overlay-e2e`, so a
-normal user cannot become the fixture owner accidentally. Authentication uses
-Clerk's Playwright testing token, `clerk.signIn()` by email address, and an
-ignored `playwright/.clerk/` storage-state file. See Clerk's current
+normal user cannot become the fixture owner accidentally. Preview authentication
+uses Clerk's Playwright testing token and `clerk.signIn()` by email address.
+Production cannot mint testing tokens, so its explicitly confirmed one-shot run
+uses a five-minute backend sign-in token for the same marked synthetic owner.
+Both paths write only an ignored `playwright/.clerk/` storage-state file. See
+Clerk's current
 [Playwright testing guide](https://clerk.com/docs/guides/development/testing/playwright/overview)
-and [authentication-state reuse guide](https://clerk.com/docs/guides/development/testing/playwright/test-authenticated-flows).
+and [authentication-state reuse guide](https://clerk.com/docs/guides/development/testing/playwright/test-authenticated-flows),
+plus the [backend sign-in token reference](https://clerk.com/docs/reference/backend-api/tag/Sign-in-Tokens#operation/CreateSignInToken).
 
 With the matching environment supplied securely, run:
 

@@ -102,6 +102,7 @@ jobs:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_PREVIEW }}
           DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
           E2E_CLERK_USER_EMAIL: ${{ vars.AUTHENTICATED_OVERLAY_E2E_USER_EMAIL_PREVIEW }}
+          E2E_CLERK_AUTH_MODE: testing-token
           PLAYWRIGHT_RUNS: '3'
         run: pnpm browser:authenticated-overlay
 
@@ -158,6 +159,7 @@ jobs:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           E2E_CLERK_USER_EMAIL: ${{ vars.AUTHENTICATED_OVERLAY_E2E_USER_EMAIL }}
+          E2E_CLERK_AUTH_MODE: sign-in-token
           PLAYWRIGHT_RUNS: '1'
         run: pnpm browser:authenticated-overlay
 

@@ -43,11 +43,15 @@ function attachBrowserFailureGuards(page: Page) {
 for (let run = 1; run <= runCount; run += 1) {
   test(`authenticated overlay measurement ${run} of ${runCount}`, async ({ page }, testInfo) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+    const serverActionRequests: Request[] = [];
     const serverActionResponses: Response[] = [];
     const serverActionStartedAt = new WeakMap<Request, number>();
 
     page.on('request', (request) => {
-      if (isSameOriginServerAction(request)) serverActionStartedAt.set(request, performance.now());
+      if (isSameOriginServerAction(request)) {
+        serverActionRequests.push(request);
+        serverActionStartedAt.set(request, performance.now());
+      }
     });
     page.on('response', (response) => {
       if (isSameOriginServerAction(response.request())) serverActionResponses.push(response);
@@ -59,7 +63,7 @@ for (let run = 1; run <= runCount; run += 1) {
     const graphButton = page.getByRole('button', { name: '3D Graph View' });
     await expect(graphButton).toBeVisible();
     await page.waitForTimeout(250);
-    expect(serverActionResponses, 'overlay Server Action requests before Graph click').toHaveLength(0);
+    expect(serverActionRequests, 'Server Action requests sent before Graph click').toHaveLength(0);
 
     const overlayResponsePromise = page.waitForResponse(responseContainsFixture, { timeout: 30_000 });
     const clickStartedAt = performance.now();
@@ -117,7 +121,7 @@ for (let run = 1; run <= runCount; run += 1) {
       overlayBodyBytes: overlayBody.byteLength,
       overlayTransferredBodyBytes: transferredBodyBytes,
       overlayStatus: overlayResponse.status(),
-      serverActionRequestCount: serverActionResponses.length,
+      serverActionRequestCount: serverActionRequests.length,
       visiblePrivateNodes: Number(await graph.getAttribute('data-visible-private-node-count')),
       visiblePrivateEdges: Number(await graph.getAttribute('data-visible-private-edge-count')),
     };
