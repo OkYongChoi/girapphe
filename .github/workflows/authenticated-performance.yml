@@ -24,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: authenticated-overlay-performance-${{ github.event.pull_request.number || inputs.target }}
@@ -35,9 +36,13 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'authenticated-performance'
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    outputs:
+      preview_head_sha: ${{ steps.validate-inputs.outputs.preview_head_sha }}
     steps:
       - name: Validate dispatch inputs
+        id: validate-inputs
         env:
+          GH_TOKEN: ${{ github.token }}
           TARGET: ${{ github.event_name == 'pull_request' && 'preview' || inputs.target }}
           PREVIEW_PR_NUMBER: ${{ github.event.pull_request.number || inputs.preview_pr_number }}
           PRODUCTION_CONFIRMATION: ${{ inputs.production_confirmation }}
@@ -49,6 +54,26 @@ jobs:
               echo "preview_pr_number must be an open PR number."
               exit 1
             fi
+            response="$(curl --fail --silent --show-error \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "Accept: application/vnd.github+json" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$PREVIEW_PR_NUMBER")"
+            state="$(node --input-type=module -e 'const value = JSON.parse(process.argv[1]); process.stdout.write(String(value.state ?? ""));' "$response")"
+            head_sha="$(node --input-type=module -e 'const value = JSON.parse(process.argv[1]); process.stdout.write(String(value.head?.sha ?? ""));' "$response")"
+            head_repository="$(node --input-type=module -e 'const value = JSON.parse(process.argv[1]); process.stdout.write(String(value.head?.repo?.full_name ?? ""));' "$response")"
+            if [ "$state" != "open" ]; then
+              echo "preview_pr_number must identify an open PR."
+              exit 1
+            fi
+            if [ "$head_repository" != "$GITHUB_REPOSITORY" ]; then
+              echo "Authenticated Preview evidence accepts only same-repository PRs."
+              exit 1
+            fi
+            if ! [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "The Preview PR head SHA is invalid."
+              exit 1
+            fi
+            echo "preview_head_sha=$head_sha" >> "$GITHUB_OUTPUT"
           elif [ "$RUN_REF" != "refs/heads/main" ]; then
             echo "Production authenticated evidence must be dispatched from main."
             exit 1
@@ -66,6 +91,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.preview_head_sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6

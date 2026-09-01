@@ -45,6 +45,7 @@ Out of scope:
   response bytes.
 - [x] `AC-05`: The evidence suite is absent from normal CI and is available only
   through an explicit authenticated-performance command or manual workflow;
+  Preview resolves and checks out the exact head of an open same-repository PR;
   production requires an additional explicit confirmation, uses a short-lived
   backend sign-in token instead of a development-only testing token, is limited
   to the protected `main` branch, and runs once.

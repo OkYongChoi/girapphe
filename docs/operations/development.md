@@ -142,9 +142,11 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    variable using the required marker.
 2. After the PR Preview deploy succeeds, apply the `authenticated-performance`
    label to run the opt-in preview job from that PR, or dispatch
-   `target=preview` with an open `preview_pr_number`. Desktop and mobile each run
-   three times against that PR's Preview Worker, preview Clerk instance, and
-   preview database.
+   `target=preview` with an open `preview_pr_number`. The workflow rejects closed
+   and fork PRs, resolves the exact same-repository PR head SHA through GitHub,
+   and checks out that SHA for the measurement. Desktop and mobile each run three
+   times against that PR's Preview Worker, preview Clerk instance, and preview
+   database.
 3. Review the uploaded summary before changing performance code. Separate
    Clerk, Worker-to-Neon, private-graph, and link-target time if the result is
    slow.

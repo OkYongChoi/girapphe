@@ -54,3 +54,15 @@ test('production evidence can expose live credentials only from protected main',
     /if: inputs\.target == 'production' && github\.ref == 'refs\/heads\/main'/,
   );
 });
+
+test('preview evidence checks out the open same-repository PR head', async () => {
+  const workflowUrl = new URL('../../../.github/workflows/authenticated-performance.yml', import.meta.url);
+  const workflow = await fs.readFile(workflowUrl, 'utf8');
+
+  assert.match(workflow, /pull-requests: read/);
+  assert.match(workflow, /"\$GITHUB_API_URL\/repos\/\$GITHUB_REPOSITORY\/pulls\/\$PREVIEW_PR_NUMBER"/);
+  assert.match(workflow, /\[ "\$state" != "open" \]/);
+  assert.match(workflow, /\[ "\$head_repository" != "\$GITHUB_REPOSITORY" \]/);
+  assert.match(workflow, /preview_head_sha: \$\{\{ steps\.validate-inputs\.outputs\.preview_head_sha \}\}/);
+  assert.match(workflow, /ref: \$\{\{ needs\.validate\.outputs\.preview_head_sha \}\}/);
+});
