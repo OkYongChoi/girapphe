@@ -90,6 +90,9 @@ test('database fixture is owner-bound and repeatable', async () => {
   assert.ok(mutations.every((call) => call.text.includes('ON CONFLICT (id) DO UPDATE')));
   assert.ok(mutations.every((call) => !call.text.includes('user_synthetic')));
   assert.ok(mutations.every((call) => call.values.includes('user_synthetic')));
+  const privateEdgeMutation = mutations.find((call) => call.values.includes(first.privateEdgeId));
+  assert.match(privateEdgeMutation?.text ?? '', /type = 'related'/);
+  assert.doesNotMatch(privateEdgeMutation?.text ?? '', /supports/);
 });
 
 test('database fixture remains valid when a schema-only preview has no public nodes', async () => {

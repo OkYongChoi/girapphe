@@ -169,7 +169,7 @@ export async function seedAuthenticatedOverlayFixtureWithClient(client, userIdIn
          target_private_node_id, target_public_node_id, type, weight, origin,
          relation_origin, confirmed_at, source_batch_id, created_at, deleted_at, purge_at
        ) VALUES (
-         $1, $2, $3, NULL, $4, NULL, 'supports', 1, 'manual',
+         $1, $2, $3, NULL, $4, NULL, 'related', 1, 'manual',
          'explicit_user', NOW(), NULL, NOW(), NULL, NULL
        )
        ON CONFLICT (id) DO UPDATE SET
@@ -177,7 +177,7 @@ export async function seedAuthenticatedOverlayFixtureWithClient(client, userIdIn
          source_public_node_id = NULL,
          target_private_node_id = EXCLUDED.target_private_node_id,
          target_public_node_id = NULL,
-         type = 'supports',
+         type = 'related',
          weight = 1,
          origin = 'manual',
          relation_origin = 'explicit_user',
