@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type Page, type Request, type Response } from '@playwright/test';
+import { isNoArgumentServerActionBody } from '../scripts/authenticated-overlay-network.mjs';
 
 const toleratedConsoleErrors = [/favicon\.ico/i];
 const AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX = 'Girapphe authenticated overlay fixture';
@@ -14,13 +15,9 @@ function isSameOriginServerAction(request: Request) {
     && Boolean(request.headers()['next-action']);
 }
 
-async function responseContainsFixture(response: Response) {
-  if (!isSameOriginServerAction(response.request())) return false;
-  try {
-    return (await response.body()).toString('utf8').includes(AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX);
-  } catch {
-    return false;
-  }
+function isOverlayServerAction(request: Request) {
+  return isSameOriginServerAction(request)
+    && isNoArgumentServerActionBody(request.postData());
 }
 
 function attachBrowserFailureGuards(page: Page) {
@@ -67,7 +64,10 @@ for (let run = 1; run <= runCount; run += 1) {
     await page.waitForTimeout(PRE_CLICK_IDLE_OBSERVATION_MS);
     expect(serverActionRequests, 'Server Action requests sent before Graph click').toHaveLength(0);
 
-    const overlayResponsePromise = page.waitForResponse(responseContainsFixture, { timeout: 30_000 });
+    const overlayResponsePromise = page.waitForResponse(
+      (response) => isOverlayServerAction(response.request()),
+      { timeout: 30_000 },
+    );
     const clickStartedAt = performance.now();
     await graphButton.click();
 
@@ -84,6 +84,10 @@ for (let run = 1; run <= runCount; run += 1) {
     expect(overlayActionId, 'overlay Server Action identifier').toBeTruthy();
     const overlayBody = await overlayResponse.body();
     expect(overlayBody.byteLength, 'overlay response body bytes').toBeGreaterThan(0);
+    expect(
+      overlayBody.toString('utf8'),
+      'overlay response contains the owner-scoped fixture',
+    ).toContain(AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX);
 
     const graphSearch = page.getByTestId('graph-controls').locator('input[type="search"]');
     await graphSearch.fill(AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX);
