@@ -50,6 +50,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@clerk/backend": "^3.16.13",
+    "@clerk/testing": "^2.2.31",
     "@opennextjs/cloudflare": "^1.20.2",
     "@tailwindcss/postcss": "^4",
     "@types/katex": "^0.16.8",

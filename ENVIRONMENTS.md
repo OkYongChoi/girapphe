@@ -28,6 +28,11 @@ Preview-only secrets:
 - `CLERK_SECRET_KEY_PREVIEW`
 - `DATABASE_URL_PREVIEW`
 
+Preview-only authenticated evidence variable:
+
+- `AUTHENTICATED_OVERLAY_E2E_USER_EMAIL_PREVIEW` (dedicated
+  `+clerk_test_girapphe_overlay_e2e` address)
+
 Production-only secrets:
 
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
@@ -35,6 +40,11 @@ Production-only secrets:
 - `DATABASE_URL`
 - `ADMIN_CLERK_USER_ID`
 - `PERSONAL_KNOWLEDGE_PURGE_TOKEN` (random shared secret for the daily expired personal-card cleanup job)
+
+Production-only authenticated evidence variable:
+
+- `AUTHENTICATED_OVERLAY_E2E_USER_EMAIL` (independent dedicated
+  `+clerk_test_girapphe_overlay_e2e` address)
 
 Optional monetization groups must be configured as a complete group or left entirely absent.
 Preview uses the same names with `_PREVIEW` appended except for production-only AdSense; PR
@@ -53,6 +63,10 @@ Environments rather than the Worker. See `apps/mobile/SETUP.md` for the exact na
 Repository variable:
 
 - `APP_BASE_URL=https://www.girapphe.com`
+
+The two authenticated-evidence email variables are consumed only by the manual
+`Authenticated overlay performance` workflow. They are not Worker runtime
+configuration and are not read by normal CI or deployments.
 
 The preview URL is derived from the Cloudflare account at runtime, so no Workers.dev
 subdomain variable is stored in GitHub. Preview admin access is intentionally disabled.

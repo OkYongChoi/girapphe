@@ -46,11 +46,13 @@ Configure these under GitHub repository Settings → Secrets and variables → A
 | Preview | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW` | Test/development Clerk instance. |
 | Preview | `CLERK_SECRET_KEY_PREVIEW` | Matching preview Clerk secret. |
 | Preview | `DATABASE_URL_PREVIEW` | Isolated **schema-only** Neon branch/database for PR QA; never production. |
+| Preview evidence | `AUTHENTICATED_OVERLAY_E2E_USER_EMAIL_PREVIEW` | Repository variable for the dedicated marker-named preview synthetic user; used only by the manual authenticated-performance workflow. |
 | Production | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Live Clerk publishable key. |
 | Production | `CLERK_SECRET_KEY` | Live Clerk secret key. |
 | Production | `DATABASE_URL` | Production Neon connection string. |
 | Production | `ADMIN_CLERK_USER_ID` | Clerk user ID permitted to use `/admin`. |
 | Production | `PERSONAL_KNOWLEDGE_PURGE_TOKEN` | Random shared secret used only by the daily expired-personal-card cleanup job. |
+| Production evidence | `AUTHENTICATED_OVERLAY_E2E_USER_EMAIL` | Repository variable for the independently owned production synthetic user; used only after explicit manual confirmation. |
 | Variable | `APP_BASE_URL` | `https://www.girapphe.com` |
 
 Monetization is optional, but each enabled provider group must be complete. Preview names add
@@ -122,6 +124,20 @@ For production, the `main` deployment job is the source of truth for synchronize
 runtime secrets. Do not copy them manually from GitHub or commit them locally. A local Wrangler
 session is optional; it requires a separately authenticated Cloudflare account or a securely
 injected `CLOUDFLARE_API_TOKEN` and should only inspect secret names, never values.
+
+The opt-in `authenticated-performance.yml` workflow is not part of deployment or
+the required quality gate. Run its preview target first by applying the
+`authenticated-performance` label after the PR Preview is ready, or dispatch it
+manually with an open same-repository PR number. The workflow rejects closed and
+fork PRs, checks out the resolved PR head SHA, and requires `/api/health` to
+report that exact deployed revision before measuring its Preview.
+Its production target writes only deterministic synthetic rows for the dedicated
+Clerk test owner, requires the exact `RUN_PRODUCTION_SYNTHETIC` confirmation, and
+accepts dispatches only from the protected `main` branch.
+`GIRAPPHE_REVISION` is workflow-owned deployment metadata attached to the Worker
+version upload, not a repository secret or a value to configure manually.
+See [Development and Operations](docs/operations/development.md#authenticated-graph-overlay-evidence)
+for inputs, evidence artifacts, and the three-run/one-run policy.
 
 ## Scheduled personal-card cleanup
 

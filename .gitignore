@@ -17,6 +17,7 @@ pnpm-lock.yaml.bak
 coverage
 playwright-report/
 test-results/
+playwright/.clerk/
 
 # turborepo
 .turbo/

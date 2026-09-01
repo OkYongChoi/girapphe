@@ -244,6 +244,12 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
     [edges],
   );
   const renderBudget = getKnowledgeGraphRenderBudget(graphData.nodes.length);
+  const visiblePrivateNodeCount = graphData.nodes.filter(
+    (node) => node.group === 'card' && node.isPersonal,
+  ).length;
+  const visiblePrivateEdgeCount = graphData.links.filter(
+    (link) => link.scope === 'private',
+  ).length;
 
   const selectedRelationships = useMemo(() => {
     if (!selectedNode || selectedNode.group === 'domain') return [];
@@ -347,7 +353,12 @@ export default function KnowledgeGraph3D({ access, cards, edges = [], onClose }:
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black">
+    <div
+      data-testid="knowledge-graph-canvas"
+      data-visible-private-node-count={visiblePrivateNodeCount}
+      data-visible-private-edge-count={visiblePrivateEdgeCount}
+      className="fixed inset-0 z-50 bg-black"
+    >
       {/* 3D Graph Canvas */}
       <ForceGraph3D
         ref={fgRef}

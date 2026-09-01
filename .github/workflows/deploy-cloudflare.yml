@@ -144,6 +144,7 @@ jobs:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW }}
           NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN: ${{ vars.NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN_PREVIEW }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_PREVIEW }}
+          GIRAPPHE_REVISION: ${{ github.event.pull_request.head.sha }}
           NEXT_PUBLIC_CLERK_SIGN_IN_URL: /login
           NEXT_PUBLIC_CLERK_SIGN_UP_URL: /signup
           NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /practice
@@ -173,7 +174,7 @@ jobs:
           umask 077
           secrets_file="$(mktemp)"
           trap 'rm -f "$secrets_file"' EXIT
-          for key in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY NEXT_PUBLIC_CLERK_SIGN_IN_URL NEXT_PUBLIC_CLERK_SIGN_UP_URL NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL DATABASE_URL APP_BASE_URL; do
+          for key in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY NEXT_PUBLIC_CLERK_SIGN_IN_URL NEXT_PUBLIC_CLERK_SIGN_UP_URL NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL DATABASE_URL APP_BASE_URL GIRAPPHE_REVISION; do
             printf '%s=%s\n' "$key" "${!key}" >> "$secrets_file"
           done
           for key in STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_PRICE_AD_FREE_MONTHLY STRIPE_PRICE_AD_FREE_ANNUAL REVENUECAT_WEBHOOK_AUTHORIZATION REVENUECAT_WEBHOOK_SIGNING_SECRET REVENUECAT_APP_IDS REVENUECAT_SECRET_API_KEY REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS TOSS_BILLING_ENABLED NEXT_PUBLIC_TOSS_CLIENT_KEY TOSS_SECRET_KEY TOSS_BILLING_ENCRYPTION_KEY TOSS_MONTHLY_AMOUNT_KRW TOSS_ANNUAL_AMOUNT_KRW TOSS_BILLING_CRON_TOKEN NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN; do
@@ -387,11 +388,16 @@ jobs:
         run: |
           pnpm build:cf
           node ../../scripts/check-worker-size.mjs
-          pnpm exec wrangler deploy --env prod .open-next/worker.js
+          umask 077
+          revision_secrets_file="$(mktemp)"
+          trap 'rm -f "$revision_secrets_file"' EXIT
+          printf '{"GIRAPPHE_REVISION":"%s"}\n' "$GIRAPPHE_REVISION" > "$revision_secrets_file"
+          pnpm exec wrangler deploy --env prod .open-next/worker.js --secrets-file "$revision_secrets_file"
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN: ${{ vars.NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          GIRAPPHE_REVISION: ${{ github.sha }}
           NEXT_PUBLIC_CLERK_SIGN_IN_URL: /login
           NEXT_PUBLIC_CLERK_SIGN_UP_URL: /signup
           NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /practice
