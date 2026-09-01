@@ -26,7 +26,7 @@ setup('sign in synthetic user and save authentication state', async ({ page }) =
   expect(syntheticEmail, 'synthetic user setup completed before authentication').not.toBe('');
   await fs.mkdir(path.dirname(authFile), { recursive: true });
 
-  await page.goto('/');
+  await page.goto('/login');
   await clerk.signIn({ page, emailAddress: syntheticEmail });
   await page.goto('/grid');
   await expect(page.getByTitle(syntheticEmail)).toBeVisible();
