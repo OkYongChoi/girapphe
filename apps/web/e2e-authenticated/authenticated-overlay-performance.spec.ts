@@ -55,6 +55,7 @@ for (let run = 1; run <= runCount; run += 1) {
 
     await page.goto('/grid', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Log out of your account' })).toBeVisible();
     const graphButton = page.getByRole('button', { name: '3D Graph View' });
     await expect(graphButton).toBeVisible();
     await page.waitForTimeout(250);
