@@ -130,7 +130,8 @@ the required quality gate. Run its preview target first by applying the
 `authenticated-performance` label after the PR Preview is ready, or dispatch it
 manually with an open PR number.
 Its production target writes only deterministic synthetic rows for the dedicated
-Clerk test owner and requires the exact `RUN_PRODUCTION_SYNTHETIC` confirmation.
+Clerk test owner, requires the exact `RUN_PRODUCTION_SYNTHETIC` confirmation, and
+accepts dispatches only from the protected `main` branch.
 See [Development and Operations](docs/operations/development.md#authenticated-graph-overlay-evidence)
 for inputs, evidence artifacts, and the three-run/one-run policy.
 

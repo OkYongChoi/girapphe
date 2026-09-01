@@ -151,8 +151,9 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
 4. Configure the independently owned production variable
    `AUTHENTICATED_OVERLAY_E2E_USER_EMAIL` only when production evidence is
    desired. Dispatch `target=production` with the exact confirmation
-   `RUN_PRODUCTION_SYNTHETIC`; desktop and mobile each run once against
-   `https://www.girapphe.com`.
+   `RUN_PRODUCTION_SYNTHETIC` from the protected `main` branch; the workflow
+   rejects every other ref before exposing production credentials. Desktop and
+   mobile each run once against `https://www.girapphe.com`.
 
 The workflow is opt-in and never becomes a required release check merely by
 being present. A failed measurement is evidence for a separate investigation;

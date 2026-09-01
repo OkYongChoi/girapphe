@@ -46,7 +46,8 @@ Out of scope:
 - [x] `AC-05`: The evidence suite is absent from normal CI and is available only
   through an explicit authenticated-performance command or manual workflow;
   production requires an additional explicit confirmation, uses a short-lived
-  backend sign-in token instead of a development-only testing token, and runs once.
+  backend sign-in token instead of a development-only testing token, is limited
+  to the protected `main` branch, and runs once.
 
 ## Privacy and data boundaries
 

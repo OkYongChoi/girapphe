@@ -41,6 +41,7 @@ jobs:
           TARGET: ${{ github.event_name == 'pull_request' && 'preview' || inputs.target }}
           PREVIEW_PR_NUMBER: ${{ github.event.pull_request.number || inputs.preview_pr_number }}
           PRODUCTION_CONFIRMATION: ${{ inputs.production_confirmation }}
+          RUN_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           if [ "$TARGET" = "preview" ]; then
@@ -48,6 +49,9 @@ jobs:
               echo "preview_pr_number must be an open PR number."
               exit 1
             fi
+          elif [ "$RUN_REF" != "refs/heads/main" ]; then
+            echo "Production authenticated evidence must be dispatched from main."
+            exit 1
           elif [ "$PRODUCTION_CONFIRMATION" != "RUN_PRODUCTION_SYNTHETIC" ]; then
             echo "Production requires the exact RUN_PRODUCTION_SYNTHETIC confirmation."
             exit 1
@@ -126,7 +130,7 @@ jobs:
 
   production:
     name: Production desktop and mobile (1 run each)
-    if: inputs.target == 'production'
+    if: inputs.target == 'production' && github.ref == 'refs/heads/main'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 20

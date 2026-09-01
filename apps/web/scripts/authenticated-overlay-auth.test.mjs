@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import test from 'node:test';
 import {
   AUTHENTICATED_OVERLAY_AUTH_MODES,
@@ -40,4 +41,16 @@ test('production-compatible sign-in ticket is short lived and owner scoped', asy
 
   assert.equal(ticket, 'short-lived-ticket');
   assert.deepEqual(calls, [{ userId: 'user_synthetic', expiresInSeconds: 300 }]);
+});
+
+test('production evidence can expose live credentials only from protected main', async () => {
+  const workflowUrl = new URL('../../../.github/workflows/authenticated-performance.yml', import.meta.url);
+  const workflow = await fs.readFile(workflowUrl, 'utf8');
+
+  assert.match(workflow, /RUN_REF: \$\{\{ github\.ref \}\}/);
+  assert.match(workflow, /\[ "\$RUN_REF" != "refs\/heads\/main" \]/);
+  assert.match(
+    workflow,
+    /if: inputs\.target == 'production' && github\.ref == 'refs\/heads\/main'/,
+  );
 });
