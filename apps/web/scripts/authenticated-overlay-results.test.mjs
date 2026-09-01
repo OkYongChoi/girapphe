@@ -11,18 +11,18 @@ test('authenticated overlay summary reports median and worst values per device',
       project: 'authenticated-desktop',
       run: index + 1,
       clickToCanvasMs,
-      overlayDurationMs: clickToCanvasMs / 2,
-      overlayBodyBytes: 1_024 + index * 1_024,
-      overlayTransferredBodyBytes: 512 + index * 512,
+      overlayResponseHeadersMs: clickToCanvasMs / 2,
+      overlayDecodedBytesAtCanvas: 1_024 + index * 1_024,
+      overlayTransferredBytesAtCanvas: 512 + index * 512,
       overlayStatus: 200,
     },
     {
       project: 'authenticated-mobile',
       run: index + 1,
       clickToCanvasMs: clickToCanvasMs + 50,
-      overlayDurationMs: clickToCanvasMs / 2 + 25,
-      overlayBodyBytes: 1_024 + index * 1_024,
-      overlayTransferredBodyBytes: null,
+      overlayResponseHeadersMs: clickToCanvasMs / 2 + 25,
+      overlayDecodedBytesAtCanvas: 1_024 + index * 1_024,
+      overlayTransferredBytesAtCanvas: null,
       overlayStatus: 200,
     },
   ]));
@@ -32,15 +32,16 @@ test('authenticated overlay summary reports median and worst values per device',
     median: 200,
     worst: 300,
   });
-  assert.deepEqual(summary.projects['authenticated-mobile'].overlayDurationMs, {
+  assert.deepEqual(summary.projects['authenticated-mobile'].overlayResponseHeadersMs, {
     median: 125,
     worst: 175,
   });
-  assert.equal(summary.projects['authenticated-desktop'].overlayBodyBytes.median, 2_048);
-  assert.equal(summary.projects['authenticated-mobile'].overlayTransferredBodyBytes, null);
+  assert.equal(summary.projects['authenticated-desktop'].overlayDecodedBytesAtCanvas.median, 2_048);
+  assert.equal(summary.projects['authenticated-mobile'].overlayTransferredBytesAtCanvas, null);
 
   const markdown = renderAuthenticatedOverlaySummary(summary);
   assert.match(markdown, /authenticated-desktop \| 3 \| 200 ms \/ 300 ms/);
   assert.match(markdown, /2 KiB \/ 3 KiB/);
+  assert.match(markdown, /streaming RSC responses/i);
   assert.match(markdown, /synthetic Playwright measurements/i);
 });

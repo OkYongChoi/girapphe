@@ -20,7 +20,8 @@ In scope:
 - Measure the authenticated `/grid` overlay on desktop and mobile without adding
   an external-provider dependency to normal CI.
 - Save per-run metrics plus median and worst values for graph display latency,
-  overlay request latency, and overlay response size.
+  overlay request-to-response-headers latency, and decoded/transfer bytes
+  received through canvas display without waiting for streaming RSC closure.
 
 Out of scope:
 
@@ -43,8 +44,8 @@ Out of scope:
 - [x] `AC-03`: After the click, the 3D canvas input contains the two fixture nodes
   and their private edge, with no uncaught page or console errors.
 - [x] `AC-04`: Preview evidence contains three fresh-context runs for desktop and
-  mobile and reports median and worst graph-display time, overlay time, and
-  response bytes.
+  mobile and reports median and worst graph-display time, overlay response-
+  headers time, and response bytes received through canvas display.
 - [x] `AC-05`: The evidence suite is absent from normal CI and is available only
   through an explicit authenticated-performance command or manual workflow;
   Preview resolves and checks out the exact head of an open same-repository PR;
