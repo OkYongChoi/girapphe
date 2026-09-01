@@ -1,6 +1,6 @@
 # Authenticated graph overlay evidence
 
-Status: Active
+Status: Implemented
 
 ## User outcome
 
@@ -32,18 +32,18 @@ Out of scope:
 
 ## Acceptance criteria
 
-- [ ] `AC-01`: Setup creates or reuses only a marker-named Clerk synthetic user
+- [x] `AC-01`: Setup creates or reuses only a marker-named Clerk synthetic user
   and idempotently leaves at least two active private nodes and one active
   private edge owned by that user. It also leaves one public-to-private link
   when the target database contains a public graph node.
-- [ ] `AC-02`: A signed-in `/grid` load sends no overlay Server Action request;
+- [x] `AC-02`: A signed-in `/grid` load sends no overlay Server Action request;
   one Graph click receives exactly one overlay response with HTTP 200.
-- [ ] `AC-03`: After the click, the 3D canvas input contains the two fixture nodes
+- [x] `AC-03`: After the click, the 3D canvas input contains the two fixture nodes
   and their private edge, with no uncaught page or console errors.
-- [ ] `AC-04`: Preview evidence contains three fresh-context runs for desktop and
+- [x] `AC-04`: Preview evidence contains three fresh-context runs for desktop and
   mobile and reports median and worst graph-display time, overlay time, and
   response bytes.
-- [ ] `AC-05`: The evidence suite is absent from normal CI and is available only
+- [x] `AC-05`: The evidence suite is absent from normal CI and is available only
   through an explicit authenticated-performance command or manual workflow;
   production requires an additional explicit confirmation and runs once.
 
@@ -66,6 +66,23 @@ written to the repository or Playwright artifacts.
 | `AC-03` | `apps/web/e2e-authenticated/authenticated-overlay-performance.spec.ts` plus `data-visible-private-*` canvas-input counts. |
 | `AC-04` | `pnpm browser:authenticated-overlay` and its `test-results/authenticated-overlay-performance/summary.md` artifact. |
 | `AC-05` | Inspection of `.github/workflows/authenticated-performance.yml`, `playwright.authenticated.config.ts`, and the normal `playwright.config.ts`. |
+
+Preview workflow run
+[`33466410279`](https://github.com/OkYongChoi/girapphe/actions/runs/33466410279)
+passed against PR #160 on 2026-09-01. The schema-only Preview database had no
+public graph row, so setup reported two private nodes, one private edge, and
+zero optional public links. Every measured run had HTTP 200, a 2,406-byte
+decoded overlay body, two private nodes, and one private edge. The click-to-
+canvas / overlay median and worst values were:
+
+| Device project | Click to canvas median / worst | Overlay median / worst | Transfer body median / worst |
+| --- | ---: | ---: | ---: |
+| Desktop | 2,282.7 ms / 2,577.9 ms | 963.6 ms / 980.2 ms | 1,380 B / 1,382 B |
+| Mobile | 1,985.2 ms / 2,029.9 ms | 802.4 ms / 870.2 ms | 1,377 B / 1,382 B |
+
+Each click produced the expected public-snapshot and private-overlay Server
+Actions; exactly one response contained the owner-scoped fixture. No overlay
+Server Action ran before the click.
 
 ## Rollout
 
