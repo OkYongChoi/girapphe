@@ -129,10 +129,12 @@ pnpm browser:authenticated-overlay
 The command uses fresh browser contexts and writes per-run JSON, failure
 screenshots, and `summary.md` under
 `test-results/authenticated-overlay-performance/`. The summary reports median
-and worst Graph-click-to-canvas time, overlay time, decoded response bytes, and
-transfer body bytes when Playwright exposes them. It also requires HTTP 200,
-exactly one fixture-bearing overlay response, at least two final private canvas
-nodes, at least one final private canvas edge, and zero console/page errors.
+and worst Graph-click-to-canvas time, overlay request-to-response-headers time,
+and decoded/transfer bytes received through canvas display. CDP collects those
+network values without waiting for a streaming production RSC response to close.
+The suite also requires HTTP 200, exactly one no-argument overlay request, at
+least two final fixture-filtered private canvas nodes, at least one final private
+canvas edge, and zero console/page errors.
 Before Graph is clicked, the suite waits for the page load event plus a
 three-second idle observation and fails on any Server Action request.
 Authenticated traces and videos stay disabled because they can retain session

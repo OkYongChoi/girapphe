@@ -26,14 +26,14 @@ export function buildAuthenticatedOverlaySummary(metrics, generatedAt = new Date
   const byProject = Map.groupBy(metrics, (metric) => metric.project);
   const projects = Object.fromEntries([...byProject.entries()].map(([project, rows]) => {
     const transferred = rows
-      .map((row) => row.overlayTransferredBodyBytes)
+      .map((row) => row.overlayTransferredBytesAtCanvas)
       .filter((value) => Number.isFinite(value));
     return [project, {
       runs: rows.length,
       clickToCanvasMs: summarize(rows.map((row) => row.clickToCanvasMs)),
-      overlayDurationMs: summarize(rows.map((row) => row.overlayDurationMs)),
-      overlayBodyBytes: summarize(rows.map((row) => row.overlayBodyBytes)),
-      overlayTransferredBodyBytes: transferred.length > 0 ? summarize(transferred) : null,
+      overlayResponseHeadersMs: summarize(rows.map((row) => row.overlayResponseHeadersMs)),
+      overlayDecodedBytesAtCanvas: summarize(rows.map((row) => row.overlayDecodedBytesAtCanvas)),
+      overlayTransferredBytesAtCanvas: transferred.length > 0 ? summarize(transferred) : null,
       worstStatus: Math.max(...rows.map((row) => row.overlayStatus)),
     }];
   }));
@@ -44,16 +44,16 @@ export function renderAuthenticatedOverlaySummary(summary) {
   return [
   '# Authenticated overlay performance',
   '',
-  '| Project | Runs | Click to canvas median / worst | Overlay median / worst | Body median / worst | Transfer body median / worst |',
+  '| Project | Runs | Click to canvas median / worst | Overlay headers median / worst | Decoded by canvas median / worst | Transfer by canvas median / worst |',
   '| --- | ---: | ---: | ---: | ---: | ---: |',
   ...Object.entries(summary.projects).map(([project, value]) => {
-    const transfer = value.overlayTransferredBodyBytes
-      ? `${formatBytes(value.overlayTransferredBodyBytes.median)} / ${formatBytes(value.overlayTransferredBodyBytes.worst)}`
+    const transfer = value.overlayTransferredBytesAtCanvas
+      ? `${formatBytes(value.overlayTransferredBytesAtCanvas.median)} / ${formatBytes(value.overlayTransferredBytesAtCanvas.worst)}`
       : 'n/a';
-    return `| ${project} | ${value.runs} | ${value.clickToCanvasMs.median} ms / ${value.clickToCanvasMs.worst} ms | ${value.overlayDurationMs.median} ms / ${value.overlayDurationMs.worst} ms | ${formatBytes(value.overlayBodyBytes.median)} / ${formatBytes(value.overlayBodyBytes.worst)} | ${transfer} |`;
+    return `| ${project} | ${value.runs} | ${value.clickToCanvasMs.median} ms / ${value.clickToCanvasMs.worst} ms | ${value.overlayResponseHeadersMs.median} ms / ${value.overlayResponseHeadersMs.worst} ms | ${formatBytes(value.overlayDecodedBytesAtCanvas.median)} / ${formatBytes(value.overlayDecodedBytesAtCanvas.worst)} | ${transfer} |`;
   }),
   '',
-  'Synthetic Playwright measurements; they are not Chrome DevTools traces or production user telemetry.',
+  'Synthetic Playwright measurements. Overlay timing ends at response headers, and byte counts include data received through canvas display so streaming RSC responses do not block the evidence run. These are not production user telemetry.',
   '',
   ].join('\n');
 }
