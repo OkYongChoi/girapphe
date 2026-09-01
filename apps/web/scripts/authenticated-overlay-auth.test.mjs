@@ -74,7 +74,16 @@ test('deployment workflow publishes the served Git revision for Preview and prod
   const workflow = await fs.readFile(workflowUrl, 'utf8');
 
   assert.match(workflow, /GIRAPPHE_REVISION: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
-  assert.match(workflow, /GIRAPPHE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.match(workflow, /APP_BASE_URL GIRAPPHE_REVISION/);
-  assert.match(workflow, /'GIRAPPHE_REVISION'/);
+  const productionSecretSync = workflow.slice(
+    workflow.indexOf('- name: Sync Worker runtime secrets (prod)'),
+    workflow.indexOf('- name: Deploy Worker'),
+  );
+  assert.doesNotMatch(productionSecretSync, /GIRAPPHE_REVISION/);
+  const productionDeploy = workflow.slice(
+    workflow.indexOf('- name: Deploy Worker'),
+    workflow.indexOf('- name: Smoke Test (prod)'),
+  );
+  assert.match(productionDeploy, /GIRAPPHE_REVISION: \$\{\{ github\.sha \}\}/);
+  assert.match(productionDeploy, /--secrets-file "\$revision_secrets_file"/);
 });

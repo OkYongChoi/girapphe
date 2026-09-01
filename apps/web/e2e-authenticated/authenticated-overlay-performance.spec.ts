@@ -4,6 +4,7 @@ import { expect, test, type Page, type Request, type Response } from '@playwrigh
 
 const toleratedConsoleErrors = [/favicon\.ico/i];
 const AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX = 'Girapphe authenticated overlay fixture';
+const PRE_CLICK_IDLE_OBSERVATION_MS = 3_000;
 const baseURL = new URL(process.env.PLAYWRIGHT_BASE_URL!);
 const runCount = Math.min(10, Math.max(1, Number.parseInt(process.env.PLAYWRIGHT_RUNS ?? '3', 10) || 3));
 
@@ -62,7 +63,8 @@ for (let run = 1; run <= runCount; run += 1) {
     await expect(page.getByRole('button', { name: 'Log out of your account' })).toBeVisible();
     const graphButton = page.getByRole('button', { name: '3D Graph View' });
     await expect(graphButton).toBeVisible();
-    await page.waitForTimeout(250);
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(PRE_CLICK_IDLE_OBSERVATION_MS);
     expect(serverActionRequests, 'Server Action requests sent before Graph click').toHaveLength(0);
 
     const overlayResponsePromise = page.waitForResponse(responseContainsFixture, { timeout: 30_000 });
@@ -124,6 +126,7 @@ for (let run = 1; run <= runCount; run += 1) {
     const metrics = {
       project: testInfo.project.name,
       run,
+      preClickIdleObservationMs: PRE_CLICK_IDLE_OBSERVATION_MS,
       clickToCanvasMs: Math.round((canvasVisibleAt - clickStartedAt) * 10) / 10,
       overlayDurationMs: Math.round((overlayFinishedAt - overlayStartedAt) * 10) / 10,
       overlayBodyBytes: overlayBody.byteLength,

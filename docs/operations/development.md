@@ -133,6 +133,8 @@ and worst Graph-click-to-canvas time, overlay time, decoded response bytes, and
 transfer body bytes when Playwright exposes them. It also requires HTTP 200,
 exactly one fixture-bearing overlay response, at least two final private canvas
 nodes, at least one final private canvas edge, and zero console/page errors.
+Before Graph is clicked, the suite waits for the page load event plus a
+three-second idle observation and fails on any Server Action request.
 Authenticated traces and videos stay disabled because they can retain session
 headers; the ignored storage state is never uploaded with evidence artifacts.
 
@@ -157,6 +159,10 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    rejects every other ref before exposing production credentials. Desktop and
    mobile each run once against `https://www.girapphe.com`, after its health
    revision matches the checked-out `main` SHA.
+
+The deployment workflow attaches `GIRAPPHE_REVISION` atomically to each uploaded
+Worker version. Production bulk-secret synchronization intentionally excludes
+it, so a failed code upload cannot advance the revision reported by health.
 
 The workflow is opt-in and never becomes a required release check merely by
 being present. A failed measurement is evidence for a separate investigation;

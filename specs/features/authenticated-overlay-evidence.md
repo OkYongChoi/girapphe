@@ -36,9 +36,10 @@ Out of scope:
   and idempotently leaves at least two active private nodes and one active
   private edge owned by that user. It also leaves one public-to-private link
   when the target database contains a public graph node.
-- [x] `AC-02`: A signed-in `/grid` load sends no overlay Server Action request;
-  one Graph click sends exactly one overlay request and receives exactly one
-  overlay response with HTTP 200.
+- [x] `AC-02`: After the signed-in `/grid` load event and a three-second idle
+  observation, no overlay Server Action request has started; one Graph click
+  sends exactly one overlay request and receives exactly one overlay response
+  with HTTP 200.
 - [x] `AC-03`: After the click, the 3D canvas input contains the two fixture nodes
   and their private edge, with no uncaught page or console errors.
 - [x] `AC-04`: Preview evidence contains three fresh-context runs for desktop and
@@ -51,6 +52,10 @@ Out of scope:
   production requires an additional explicit confirmation, uses a short-lived
   backend sign-in token instead of a development-only testing token, is limited
   to the protected `main` branch, and runs once.
+
+The deployment workflow attaches the revision to the Worker version upload. It
+does not update the production revision in the earlier bulk-secret step, so a
+failed code deployment cannot make stale production code claim the incoming SHA.
 
 ## Privacy and data boundaries
 

@@ -134,6 +134,8 @@ report that exact deployed revision before measuring its Preview.
 Its production target writes only deterministic synthetic rows for the dedicated
 Clerk test owner, requires the exact `RUN_PRODUCTION_SYNTHETIC` confirmation, and
 accepts dispatches only from the protected `main` branch.
+`GIRAPPHE_REVISION` is workflow-owned deployment metadata attached to the Worker
+version upload, not a repository secret or a value to configure manually.
 See [Development and Operations](docs/operations/development.md#authenticated-graph-overlay-evidence)
 for inputs, evidence artifacts, and the three-run/one-run policy.
 
