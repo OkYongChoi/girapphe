@@ -1,0 +1,180 @@
+name: Authenticated overlay performance
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deployment and matching Clerk/DB environment to measure
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+      preview_pr_number:
+        description: Open PR number whose deployed Preview Worker should be measured
+        required: false
+        type: string
+      production_confirmation:
+        description: For production only, enter RUN_PRODUCTION_SYNTHETIC
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authenticated-overlay-performance-${{ github.event.pull_request.number || inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate manual target
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'authenticated-performance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Validate dispatch inputs
+        env:
+          TARGET: ${{ github.event_name == 'pull_request' && 'preview' || inputs.target }}
+          PREVIEW_PR_NUMBER: ${{ github.event.pull_request.number || inputs.preview_pr_number }}
+          PRODUCTION_CONFIRMATION: ${{ inputs.production_confirmation }}
+        run: |
+          set -euo pipefail
+          if [ "$TARGET" = "preview" ]; then
+            if ! [[ "$PREVIEW_PR_NUMBER" =~ ^[0-9]+$ ]]; then
+              echo "preview_pr_number must be an open PR number."
+              exit 1
+            fi
+          elif [ "$PRODUCTION_CONFIRMATION" != "RUN_PRODUCTION_SYNTHETIC" ]; then
+            echo "Production requires the exact RUN_PRODUCTION_SYNTHETIC confirmation."
+            exit 1
+          fi
+
+  preview:
+    name: Preview desktop and mobile (3 runs each)
+    if: (github.event_name == 'pull_request' && github.event.label.name == 'authenticated-performance') || (github.event_name == 'workflow_dispatch' && inputs.target == 'preview')
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Resolve Preview Worker URL
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PREVIEW_PR_NUMBER: ${{ github.event.pull_request.number || inputs.preview_pr_number }}
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
+          subdomain="$(node --input-type=module -e 'const input = await new Promise((resolve) => { let data = ""; process.stdin.on("data", (chunk) => { data += chunk; }); process.stdin.on("end", () => resolve(data)); }); const value = JSON.parse(input).result?.subdomain; if (!value || !/^[a-z0-9-]+$/i.test(value)) process.exit(1); process.stdout.write(value);' <<< "$response")"
+          preview_url="https://pr-${PREVIEW_PR_NUMBER}-girapphe-preview.${subdomain}.workers.dev"
+          echo "PLAYWRIGHT_BASE_URL=$preview_url" >> "$GITHUB_ENV"
+          echo "Target: $preview_url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Measure authenticated overlay
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_PREVIEW }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
+          E2E_CLERK_USER_EMAIL: ${{ vars.AUTHENTICATED_OVERLAY_E2E_USER_EMAIL_PREVIEW }}
+          PLAYWRIGHT_RUNS: '3'
+        run: pnpm browser:authenticated-overlay
+
+      - name: Add measurement summary
+        if: ${{ always() }}
+        run: |
+          if [ -f test-results/authenticated-overlay-performance/summary.md ]; then
+            cat test-results/authenticated-overlay-performance/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload authenticated overlay evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: authenticated-overlay-preview-pr-${{ github.event.pull_request.number || inputs.preview_pr_number }}
+          path: |
+            playwright-report/authenticated-overlay/
+            test-results/authenticated-overlay-performance/
+          if-no-files-found: warn
+          retention-days: 14
+
+  production:
+    name: Production desktop and mobile (1 run each)
+    if: inputs.target == 'production'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Measure authenticated overlay once
+        env:
+          PLAYWRIGHT_BASE_URL: https://www.girapphe.com
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          E2E_CLERK_USER_EMAIL: ${{ vars.AUTHENTICATED_OVERLAY_E2E_USER_EMAIL }}
+          PLAYWRIGHT_RUNS: '1'
+        run: pnpm browser:authenticated-overlay
+
+      - name: Add measurement summary
+        if: ${{ always() }}
+        run: |
+          if [ -f test-results/authenticated-overlay-performance/summary.md ]; then
+            cat test-results/authenticated-overlay-performance/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload authenticated overlay evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: authenticated-overlay-production-${{ github.run_id }}
+          path: |
+            playwright-report/authenticated-overlay/
+            test-results/authenticated-overlay-performance/
+          if-no-files-found: warn
+          retention-days: 14

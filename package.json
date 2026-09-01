@@ -21,6 +21,8 @@
     "smoke": "pnpm --filter @stem-brain/web smoke",
     "browser:smoke": "playwright test",
     "browser:smoke:headed": "playwright test --headed",
+    "browser:authenticated-overlay": "playwright test --config=playwright.authenticated.config.ts && node apps/web/scripts/summarize-authenticated-overlay-results.mjs",
+    "browser:authenticated-overlay:summary": "node apps/web/scripts/summarize-authenticated-overlay-results.mjs",
     "check:worker-size": "node scripts/check-worker-size.mjs",
     "verify:image-size-hardening": "node scripts/verify-image-size-hardening.mjs",
     "harness": "pnpm harness:local",

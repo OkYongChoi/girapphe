@@ -84,6 +84,73 @@ pnpm browser:smoke
 pnpm harness:browser
 ```
 
+### Authenticated graph overlay evidence
+
+The authenticated overlay suite is deliberately separate from `browser:smoke`,
+`harness:browser`, and normal CI. It creates or reuses one marker-named Clerk
+synthetic user, seeds two private nodes plus private and public-to-private links
+idempotently, and measures the Server Action that runs only after Graph is
+opened from `/grid`.
+
+Runtime inputs are injected temporarily; do not copy their values into tracked
+files:
+
+```text
+PLAYWRIGHT_BASE_URL
+CLERK_PUBLISHABLE_KEY
+CLERK_SECRET_KEY
+DATABASE_URL
+E2E_CLERK_USER_EMAIL
+PLAYWRIGHT_RUNS
+```
+
+`E2E_CLERK_USER_EMAIL` must contain the exact
+`+clerk_test_girapphe_overlay_e2e` marker. Setup rejects an existing account
+unless its Clerk public metadata marks it for `authenticated-overlay-e2e`, so a
+normal user cannot become the fixture owner accidentally. Authentication uses
+Clerk's Playwright testing token, `clerk.signIn()` by email address, and an
+ignored `playwright/.clerk/` storage-state file. See Clerk's current
+[Playwright testing guide](https://clerk.com/docs/guides/development/testing/playwright/overview)
+and [authentication-state reuse guide](https://clerk.com/docs/guides/development/testing/playwright/test-authenticated-flows).
+
+With the matching environment supplied securely, run:
+
+```bash
+pnpm browser:authenticated-overlay
+```
+
+The command uses fresh browser contexts and writes per-run JSON, failure
+screenshots, and `summary.md` under
+`test-results/authenticated-overlay-performance/`. The summary reports median
+and worst Graph-click-to-canvas time, overlay time, decoded response bytes, and
+transfer body bytes when Playwright exposes them. It also requires HTTP 200,
+exactly one fixture-bearing overlay response, at least two final private canvas
+nodes, at least one final private canvas edge, and zero console/page errors.
+Authenticated traces and videos stay disabled because they can retain session
+headers; the ignored storage state is never uploaded with evidence artifacts.
+
+Prefer the manual **Authenticated overlay performance** GitHub workflow:
+
+1. Configure `AUTHENTICATED_OVERLAY_E2E_USER_EMAIL_PREVIEW` as a repository
+   variable using the required marker.
+2. After the PR Preview deploy succeeds, apply the `authenticated-performance`
+   label to run the opt-in preview job from that PR, or dispatch
+   `target=preview` with an open `preview_pr_number`. Desktop and mobile each run
+   three times against that PR's Preview Worker, preview Clerk instance, and
+   preview database.
+3. Review the uploaded summary before changing performance code. Separate
+   Clerk, Worker-to-Neon, private-graph, and link-target time if the result is
+   slow.
+4. Configure the independently owned production variable
+   `AUTHENTICATED_OVERLAY_E2E_USER_EMAIL` only when production evidence is
+   desired. Dispatch `target=production` with the exact confirmation
+   `RUN_PRODUCTION_SYNTHETIC`; desktop and mobile each run once against
+   `https://www.girapphe.com`.
+
+The workflow is opt-in and never becomes a required release check merely by
+being present. A failed measurement is evidence for a separate investigation;
+it does not reopen PR #158's already-verified public-route work automatically.
+
 If Chromium is not installed locally yet, run:
 
 ```bash
