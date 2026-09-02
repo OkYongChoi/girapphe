@@ -85,6 +85,25 @@ test('mobile multi-column editors preserve inline code with :: and | across bund
   const bracketExpression = buildMobileKnowledgeBundle('expression', bracketExample);
   assert.equal(bracketExpression.type, 'expression');
   assert.deepEqual(bracketExpression.examples, [{ text: '[x, y] is an interval' }]);
+
+  const quotedArrayExample = mobileKnowledgeBundleEditValues(expression);
+  quotedArrayExample[8] = '["a", "b"] is a JavaScript array';
+  const quotedArrayExpression = buildMobileKnowledgeBundle('expression', quotedArrayExample);
+  assert.equal(quotedArrayExpression.type, 'expression');
+  assert.deepEqual(quotedArrayExpression.examples, [{ text: '["a", "b"] is a JavaScript array' }]);
+
+  for (const malformedStep of [
+    '["Step", "Detail"],',
+    '["Step", "Detail"]junk',
+    '["Step", "Detail"] ,',
+    '["Step",] explanatory tail',
+    '["Step" "Detail"] explanatory tail',
+    '["Step", undefined] explanatory tail',
+  ]) {
+    const malformedProcedure = mobileKnowledgeBundleEditValues(bundles[1]!);
+    malformedProcedure[2] = malformedStep;
+    assert.throws(() => buildMobileKnowledgeBundle('procedure', malformedProcedure), /JSON pair/);
+  }
 });
 
 test('mobile structured answers expose every populated field', () => {

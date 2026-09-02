@@ -98,10 +98,20 @@ test('multi-column editor JSON rows preserve inline code delimiters and optional
 test('JSON row intent does not reject bracket-prefixed legacy or plain text', () => {
   assert.equal(knowledgeBundleRowUsesJsonSyntax('[Optional] :: Handle x'), false);
   assert.equal(knowledgeBundleRowUsesJsonSyntax('[x, y] is an interval'), false);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["a", "b"] is a JavaScript array'), false);
   assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", "right"]'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", "right"],'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", "right"]junk'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", "right"] ,'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left",] explanatory tail'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left" "right"] explanatory tail'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", undefined] explanatory tail'), true);
   assert.equal(knowledgeBundleRowUsesJsonSyntax('  [  "left", "right"]'), true);
   assert.equal(knowledgeBundleRowUsesJsonSyntax('["left"'), true);
   assert.equal(knowledgeBundleRowUsesJsonSyntax('[]'), true);
+  assert.deepEqual(parseExpressionBundleExamples('["a", "b"] is a JavaScript array'), [
+    { text: '["a", "b"] is a JavaScript array' },
+  ]);
 });
 
 test('rejects mismatched types, invalid nested references, unknown fields, and unsupported versions', () => {

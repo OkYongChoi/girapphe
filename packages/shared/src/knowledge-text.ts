@@ -212,6 +212,10 @@ export function parseKnowledgeText(
       }
 
       const runLength = backtickRunLength(source, index);
+      if (runLength <= 2) {
+        appendText(tokens, source.slice(index));
+        break;
+      }
       appendText(tokens, source.slice(index, index + runLength));
       index += runLength;
       continue;

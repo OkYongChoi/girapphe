@@ -80,6 +80,22 @@ test('keeps notation inside an unclosed fenced block literal', () => {
   ] satisfies KnowledgeTextToken[]);
 });
 
+test('keeps notation inside an unclosed inline code span literal', () => {
+  for (const source of ['Before `open \\(x\\)', 'Before ``open \\(x\\)']) {
+    assert.deepEqual(parseKnowledgeText(source), [{ type: 'text', value: source }]);
+    assert.equal(hasKnowledgeNotation(source), false);
+  }
+
+  const legacySource = 'Before `open $x$';
+  assert.deepEqual(parseKnowledgeText(legacySource, { legacyDollarMath: true }), [{ type: 'text', value: legacySource }]);
+  assert.equal(hasKnowledgeNotation(legacySource, { legacyDollarMath: true }), false);
+
+  assert.deepEqual(parseKnowledgeText('\\(outside\\) then `open \\(inside\\)'), [
+    { type: 'math', value: 'outside', display: false, source: '\\(outside\\)' },
+    { type: 'text', value: ' then `open \\(inside\\)' },
+  ] satisfies KnowledgeTextToken[]);
+});
+
 test('skips whole mismatched closing backtick runs', () => {
   for (const source of ['`a``', '`a```', '``a```', '``a````']) {
     assert.deepEqual(parseKnowledgeText(source), [{ type: 'text', value: source }]);

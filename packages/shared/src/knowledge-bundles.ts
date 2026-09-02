@@ -135,9 +135,46 @@ export type EventChronology = {
 
 export type ExpressionBundleExample = { text: string; translation?: string; note?: string };
 
-// Every supported structured row starts with a string; keep other bracket-prefixed prose on the legacy path.
+function completeJsonArrayEnd(value: string) {
+  const closingStack: string[] = [];
+  let escaped = false;
+  let inString = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+
+    if (character === '"') inString = true;
+    else if (character === '[') closingStack.push(']');
+    else if (character === '{') closingStack.push('}');
+    else if (character === ']' || character === '}') {
+      if (closingStack.pop() !== character) return -1;
+      if (closingStack.length === 0) return index + 1;
+    }
+  }
+  return -1;
+}
+
+// Every supported structured row starts with a string; keep completed JSON-like prose on the legacy path.
 export function knowledgeBundleRowUsesJsonSyntax(line: string) {
-  return /^\[\s*(?:"|\])/.test(line.trim());
+  const value = line.trim();
+  if (!/^\[\s*(?:"|\])/.test(value)) return false;
+  const completedArrayEnd = completeJsonArrayEnd(value);
+  if (completedArrayEnd === -1) return true;
+  try {
+    JSON.parse(value.slice(0, completedArrayEnd));
+  } catch {
+    return true;
+  }
+  const trailing = value.slice(completedArrayEnd);
+  if (!trailing.trim()) return true;
+  if (!/^\s/.test(trailing)) return true;
+  return /^[\s]*[,}\]]/.test(trailing);
 }
 
 export type ExpressionBundleContent = {
