@@ -135,6 +135,11 @@ export type EventChronology = {
 
 export type ExpressionBundleExample = { text: string; translation?: string; note?: string };
 
+// Every supported structured row starts with a string; keep other bracket-prefixed prose on the legacy path.
+export function knowledgeBundleRowUsesJsonSyntax(line: string) {
+  return /^\[\s*(?:"|\])/.test(line.trim());
+}
+
 export type ExpressionBundleContent = {
   type: 'expression';
   expression: string;

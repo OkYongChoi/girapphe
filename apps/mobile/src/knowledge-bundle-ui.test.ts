@@ -73,6 +73,18 @@ test('mobile multi-column editors preserve inline code with :: and | across bund
   const partialPair = mobileKnowledgeBundleEditValues(bundles[0]!);
   partialPair[4] = '["`std::vector`"';
   assert.throws(() => buildMobileKnowledgeBundle('concept', partialPair), /JSON pair/);
+
+  const bracketPrefixedPair = mobileKnowledgeBundleEditValues(bundles[0]!);
+  bracketPrefixedPair[4] = '[Optional] :: Handle x';
+  const bracketConcept = buildMobileKnowledgeBundle('concept', bracketPrefixedPair);
+  assert.equal(bracketConcept.type, 'concept');
+  assert.deepEqual(bracketConcept.misconceptions, [{ claim: '[Optional]', correction: 'Handle x' }]);
+
+  const bracketExample = mobileKnowledgeBundleEditValues(expression);
+  bracketExample[8] = '[x, y] is an interval';
+  const bracketExpression = buildMobileKnowledgeBundle('expression', bracketExample);
+  assert.equal(bracketExpression.type, 'expression');
+  assert.deepEqual(bracketExpression.examples, [{ text: '[x, y] is an interval' }]);
 });
 
 test('mobile structured answers expose every populated field', () => {

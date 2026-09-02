@@ -33,6 +33,7 @@ export {
   createEmptyKnowledgeBundleContent,
   createKnowledgeBundleContentFromLegacy,
   historicalTimePointKey,
+  knowledgeBundleRowUsesJsonSyntax,
   isKnowledgeLanguageTag,
   isKnowledgeBundleType,
   parseComparisonCriteriaRows,

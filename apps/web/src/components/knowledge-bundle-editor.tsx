@@ -7,6 +7,7 @@ import {
   EVENT_TIME_PRECISIONS,
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
   KNOWLEDGE_BUNDLE_TYPES,
+  knowledgeBundleRowUsesJsonSyntax,
   parseComparisonCriteriaRows,
   parseExpressionBundleExamples,
   parseStructureComponentRows,
@@ -46,7 +47,7 @@ function listValue(values: string[]) { return values.join('\n'); }
 
 function jsonRowsAreValid(value: string, isRow: (row: unknown) => boolean) {
   return textLines(value).every((line) => {
-    if (!line.startsWith('[')) return true;
+    if (!knowledgeBundleRowUsesJsonSyntax(line)) return true;
     try {
       return isRow(JSON.parse(line));
     } catch {

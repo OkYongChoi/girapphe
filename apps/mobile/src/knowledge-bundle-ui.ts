@@ -1,6 +1,7 @@
 import {
   EVENT_TIME_PRECISIONS,
   historicalTimePointKey,
+  knowledgeBundleRowUsesJsonSyntax,
   parseComparisonCriteriaRows,
   parseExpressionBundleExamples,
   parseStructureComponentRows,
@@ -97,7 +98,7 @@ function slug(value: string, index: number) { return value.toLowerCase().replace
 
 function jsonRowsAreValid(value: string, isRow: (row: unknown) => boolean) {
   return lines(value).every((line) => {
-    if (!line.startsWith('[')) return true;
+    if (!knowledgeBundleRowUsesJsonSyntax(line)) return true;
     try {
       return isRow(JSON.parse(line));
     } catch {
@@ -130,7 +131,7 @@ function componentRows(value: string) {
   const validJson = jsonRowsAreValid(value, (row) => Array.isArray(row) && (row.length === 3 || row.length === 4) && row.every((item) => typeof item === 'string'));
   if (!validJson) throw new Error('Enter one valid structure component JSON row per line.');
   return rows.map(([rawId, rawLabel, role, parentId], index) => {
-    const isJson = sourceRows[index]?.startsWith('[') ?? false;
+    const isJson = sourceRows[index] ? knowledgeBundleRowUsesJsonSyntax(sourceRows[index]) : false;
     if (isJson && (!rawId.trim() || !rawLabel.trim())) throw new Error('Each JSON component row needs an id and label.');
     const label = rawLabel || rawId;
     if (!label.trim()) throw new Error('Each structure component needs a label.');

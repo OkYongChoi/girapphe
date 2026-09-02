@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   KNOWLEDGE_BUNDLE_TYPES,
   createKnowledgeBundleContentFromLegacy,
+  knowledgeBundleRowUsesJsonSyntax,
   parseComparisonCriteriaRows,
   parseExpressionBundleExamples,
   parseStructureComponentRows,
@@ -92,6 +93,15 @@ test('multi-column editor JSON rows preserve inline code delimiters and optional
   const relations: Array<[string, string, string]> = [['root', 'child', '`std::vector` maps `a | b` and x :: y']];
   assert.deepEqual(parseStructureRelationRows(serializeStructureRelationRows(relations)), relations);
   assert.deepEqual(parseStructureRelationRows('root :: child :: contains'), [['root', 'child', 'contains']]);
+});
+
+test('JSON row intent does not reject bracket-prefixed legacy or plain text', () => {
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('[Optional] :: Handle x'), false);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('[x, y] is an interval'), false);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", "right"]'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('  [  "left", "right"]'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left"'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('[]'), true);
 });
 
 test('rejects mismatched types, invalid nested references, unknown fields, and unsupported versions', () => {
