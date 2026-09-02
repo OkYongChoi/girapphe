@@ -8,6 +8,7 @@ import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
 import type { Translate } from '@/i18n/core';
 import TranslationFallbackBadge from '@/components/translation-fallback-badge';
+import KnowledgeText from '@/components/knowledge-text';
 
 export const dynamic = 'force-dynamic';
 
@@ -154,7 +155,7 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
               return (
                 <li key={card.id} className="bg-white border rounded-xl p-4 flex flex-col shadow-sm hover:shadow-md transition-shadow">
                   <div className="flex justify-between items-start gap-2 mb-2">
-                    <h2 className="font-semibold text-gray-900 text-base leading-snug">{card.title}</h2>
+                    <h2 className="font-semibold text-gray-900 text-base leading-snug"><KnowledgeText text={card.title} /></h2>
                     <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full border ${statusStyle}`}>
                       {getStatusLabel(card.status, t)}
                     </span>
@@ -164,7 +165,7 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
                     status={card.translation_status}
                     className="mb-2 self-start"
                   />
-                  <p className="text-sm text-gray-600 mb-3 leading-relaxed">{card.summary}</p>
+                  <p className="text-sm text-gray-600 mb-3 leading-relaxed"><KnowledgeText text={card.summary} /></p>
                   <div className="mt-auto flex justify-between items-center text-xs text-gray-500">
                     <span className="font-medium">{card.domain_label ?? localizeDomain(locale, card.domain)}</span>
                     <div className="flex items-center gap-3">

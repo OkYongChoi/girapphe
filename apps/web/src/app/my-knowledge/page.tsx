@@ -26,6 +26,7 @@ import { getServerI18n } from '@/i18n/server';
 import type { Translate } from '@/i18n/core';
 import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
 import KnowledgeBundleView from '@/components/knowledge-bundle-view';
+import KnowledgeText from '@/components/knowledge-text';
 import { isKnowledgeBundleType, KNOWLEDGE_BUNDLE_TYPES } from '@stem-brain/shared';
 
 export const dynamic = 'force-dynamic';
@@ -471,7 +472,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                       className="flex cursor-pointer items-start justify-between gap-3 list-none"
                     >
                       <div className="min-w-0 flex-1">
-                        <h3 className="font-semibold text-gray-900">{item.title}</h3>
+                        <h3 className="font-semibold text-gray-900"><KnowledgeText text={item.title} allowCodeCopy={false} /></h3>
                         <p className="mt-0.5 text-xs text-gray-500">
                           {!actor.isGuest && isActive ? (
                             <LocalizedLink href={`/topics/${encodeURIComponent(item.topic)}`} className="inline-block rounded bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700 hover:bg-blue-100 hover:underline">
@@ -494,7 +495,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                           </div>
                         ) : null}
                         {(item.summary || item.content) && (
-                          <p className="mt-2 line-clamp-2 text-sm text-gray-600">{item.summary || item.content}</p>
+                          <p className="mt-2 line-clamp-2 text-sm text-gray-600"><KnowledgeText text={item.summary || item.content} allowCodeCopy={false} /></p>
                         )}
                       </div>
                       <span

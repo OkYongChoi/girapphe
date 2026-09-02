@@ -5,6 +5,7 @@ import { useFormStatus } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
 import KnowledgeBundleView from '@/components/knowledge-bundle-view';
+import KnowledgeText from '@/components/knowledge-text';
 import { LocalizedLink, localizeHref } from '@/i18n/navigation';
 import { useI18n } from '@/i18n/client';
 import type { TranslationValues } from '@/i18n';
@@ -121,7 +122,7 @@ function BundlePreview({ value }: { value: Seed }) {
     <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
       <KnowledgeBundleView type={value.knowledge_type} centralQuestion={value.central_question} content={value.structured_content} compact />
     </div>
-  ) : value.content ? <p className="mt-3 line-clamp-5 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{value.content}</p> : null;
+  ) : value.content ? <p className="mt-3 line-clamp-5 whitespace-pre-wrap text-sm leading-relaxed text-slate-600"><KnowledgeText text={value.content} legacyDollarMath /></p> : null;
 }
 
 export default function DraftResolutionPanel({
@@ -255,9 +256,9 @@ export default function DraftResolutionPanel({
                   <span className="text-slate-500">{Math.round(suggestion.score * 100)}%</span>
                   <span className="text-slate-500">v{suggestion.version}</span>
                 </div>
-                <h3 className="mt-2 font-bold text-slate-950">{suggestion.title}</h3>
-                {suggestion.central_question ? <p className="mt-1 text-sm font-semibold text-blue-950">{suggestion.central_question}</p> : null}
-                {suggestion.summary ? <p className="mt-2 line-clamp-3 text-sm text-slate-600">{suggestion.summary}</p> : null}
+                <h3 className="mt-2 font-bold text-slate-950"><KnowledgeText text={suggestion.title} /></h3>
+                {suggestion.central_question ? <p className="mt-1 text-sm font-semibold text-blue-950"><KnowledgeText text={suggestion.central_question} /></p> : null}
+                {suggestion.summary ? <p className="mt-2 line-clamp-3 text-sm text-slate-600"><KnowledgeText text={suggestion.summary} /></p> : null}
                 <LocalizedLink href={`/knowledge-inbox/${encodeURIComponent(batchId)}/${encodeURIComponent(draft.id)}/resolve?target=${encodeURIComponent(suggestion.id)}`} className="mt-3 inline-flex rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700">{t('resolution.compare')}</LocalizedLink>
               </li>
             ))}
@@ -272,16 +273,16 @@ export default function DraftResolutionPanel({
           <div className="mt-3 grid gap-4 lg:grid-cols-2">
             <article className="rounded-2xl border border-amber-200 bg-white p-5">
               <p className="text-xs font-bold uppercase text-amber-700">{t('resolution.candidateVersion', { version: draft.version })}</p>
-              <h3 className="mt-2 text-lg font-black text-slate-950">{candidate.title}</h3>
-              {candidate.central_question ? <p className="mt-1 font-semibold text-blue-950">{candidate.central_question}</p> : null}
-              {candidate.summary ? <p className="mt-2 text-sm text-slate-600">{candidate.summary}</p> : null}
+              <h3 className="mt-2 text-lg font-black text-slate-950"><KnowledgeText text={candidate.title} /></h3>
+              {candidate.central_question ? <p className="mt-1 font-semibold text-blue-950"><KnowledgeText text={candidate.central_question} /></p> : null}
+              {candidate.summary ? <p className="mt-2 text-sm text-slate-600"><KnowledgeText text={candidate.summary} /></p> : null}
               <BundlePreview value={candidate} />
             </article>
             <article className="rounded-2xl border border-violet-200 bg-white p-5">
               <p className="text-xs font-bold uppercase text-violet-700">{t('resolution.existingVersion', { version: target.version })}</p>
-              <h3 className="mt-2 text-lg font-black text-slate-950">{existing.title}</h3>
-              {existing.central_question ? <p className="mt-1 font-semibold text-blue-950">{existing.central_question}</p> : null}
-              {existing.summary ? <p className="mt-2 text-sm text-slate-600">{existing.summary}</p> : null}
+              <h3 className="mt-2 text-lg font-black text-slate-950"><KnowledgeText text={existing.title} /></h3>
+              {existing.central_question ? <p className="mt-1 font-semibold text-blue-950"><KnowledgeText text={existing.central_question} /></p> : null}
+              {existing.summary ? <p className="mt-2 text-sm text-slate-600"><KnowledgeText text={existing.summary} /></p> : null}
               <BundlePreview value={existing} />
             </article>
           </div>

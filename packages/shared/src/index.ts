@@ -35,10 +35,16 @@ export {
   historicalTimePointKey,
   isKnowledgeLanguageTag,
   isKnowledgeBundleType,
+  parseComparisonCriteriaRows,
   parseExpressionBundleExamples,
+  parseStructureComponentRows,
+  parseStructureRelationRows,
   parseStringTuplePairs,
   projectKnowledgeBundleContent,
+  serializeComparisonCriteriaRows,
   serializeExpressionBundleExamples,
+  serializeStructureComponentRows,
+  serializeStructureRelationRows,
   serializeStringTuplePairs,
   type ClaimEvidenceBundleContent,
   type ComparisonBundleContent,
@@ -58,3 +64,11 @@ export {
   type QuestionBundleContent,
   type StructureBundleContent,
 } from './knowledge-bundles';
+
+export {
+  hasKnowledgeNotation,
+  knowledgeTextRequiresBlockContainer,
+  parseKnowledgeText,
+  type KnowledgeTextToken,
+  type ParseKnowledgeTextOptions,
+} from './knowledge-text';

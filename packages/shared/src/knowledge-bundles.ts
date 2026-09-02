@@ -188,6 +188,73 @@ export function serializeStringTuplePairs(pairs: ReadonlyArray<readonly [string,
   return pairs.map((pair) => JSON.stringify(pair)).join('\n');
 }
 
+export function parseComparisonCriteriaRows(value: string): Array<[string, string[]]> {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (
+        Array.isArray(parsed)
+        && parsed.length === 2
+        && typeof parsed[0] === 'string'
+        && Array.isArray(parsed[1])
+        && parsed[1].every((item) => typeof item === 'string')
+      ) {
+        return [parsed[0], parsed[1]];
+      }
+    } catch {
+      // Retain the legacy "criterion :: first | second" input format for compatibility.
+    }
+    const [name = '', ...rest] = line.split('::');
+    return [name.trim(), rest.join('::').split('|').map((item) => item.trim()).filter(Boolean)];
+  });
+}
+
+export function serializeComparisonCriteriaRows(rows: ReadonlyArray<readonly [string, readonly string[]]>): string {
+  return rows.map((row) => JSON.stringify(row)).join('\n');
+}
+
+export function parseStructureComponentRows(value: string): Array<[string, string, string, string]> {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (
+        Array.isArray(parsed)
+        && (parsed.length === 3 || parsed.length === 4)
+        && parsed.every((item) => typeof item === 'string')
+      ) {
+        return [parsed[0], parsed[1], parsed[2], parsed[3] ?? ''];
+      }
+    } catch {
+      // Retain the legacy "id :: label :: role :: parent" input format for compatibility.
+    }
+    const [id = '', label = '', role = '', parent = ''] = line.split('::').map((item) => item.trim());
+    return [id, label, role, parent];
+  });
+}
+
+export function serializeStructureComponentRows(rows: ReadonlyArray<readonly [string, string, string, string?]>): string {
+  return rows.map(([id, label, role, parent = '']) => JSON.stringify([id, label, role, parent])).join('\n');
+}
+
+export function parseStructureRelationRows(value: string): Array<[string, string, string]> {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (Array.isArray(parsed) && parsed.length === 3 && parsed.every((item) => typeof item === 'string')) {
+        return [parsed[0], parsed[1], parsed[2]];
+      }
+    } catch {
+      // Retain the legacy "source :: target :: relationship" input format for compatibility.
+    }
+    const [source = '', target = '', label = ''] = line.split('::').map((item) => item.trim());
+    return [source, target, label];
+  });
+}
+
+export function serializeStructureRelationRows(rows: ReadonlyArray<readonly [string, string, string]>): string {
+  return rows.map((row) => JSON.stringify(row)).join('\n');
+}
+
 export type KnowledgeBundleContent =
   | ConceptBundleContent
   | ProcedureBundleContent

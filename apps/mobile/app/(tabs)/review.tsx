@@ -5,7 +5,10 @@ import { AuthRequired } from '@/components/auth-required';
 import { mobileApi, type MobileCard } from '@/api';
 import { useI18n } from '@/i18n';
 import { localizeDomain, localizeType } from '@stem-brain/shared';
+import { KnowledgeText } from '@/components/knowledge-text';
+import { KnowledgeNotationGroup } from '@/components/knowledge-notation-group';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
+import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
 
 export default function ReviewScreen() {
   return <AuthRequired><ReviewContent /></AuthRequired>;
@@ -53,6 +56,9 @@ function ReviewContent() {
         data={visibleCards}
         keyExtractor={(card) => card.id}
         contentContainerStyle={styles.content}
+        initialNumToRender={8}
+        maxToRenderPerBatch={6}
+        windowSize={5}
         ListHeaderComponent={(
           <View>
             <Text style={styles.kicker}>{t('review.kicker')}</Text>
@@ -78,12 +84,24 @@ function ReviewContent() {
             <Pressable accessibilityRole="button" accessibilityLabel={t('review.start')} onPress={() => router.push('/(tabs)/practice')} style={styles.primary}><Text style={styles.primaryText}>{t('review.start')}</Text></Pressable>
           </View>
         ) : null}
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>{item.title}</Text><Text style={styles.sub}>{item.domain_label ?? localizeDomain(locale, item.domain)}</Text><Text numberOfLines={3} style={styles.copy}>{item.summary}</Text><TranslationFallbackNotice translation={item} />
-            <Pressable accessibilityRole="button" accessibilityLabel={`${t('common.remove')} ${item.title}`} onPress={() => remove(item)}><Text style={styles.link}>{t('common.remove')}</Text></Pressable>
-          </View>
-        )}
+        renderItem={({ item }) => {
+          const notationBlocks = buildKnowledgeNotationGroupBlocks([
+            { source: item.title, tone: 'title', numberOfLines: 2 },
+            { source: item.domain_label ?? localizeDomain(locale, item.domain), tone: 'meta' },
+            { source: item.summary, tone: 'summary', numberOfLines: 3 },
+          ]);
+          return (
+            <View style={styles.card}>
+              <KnowledgeNotationGroup blocks={notationBlocks} direction={direction}>
+                <KnowledgeText value={item.title} direction={direction} numberOfLines={2} style={styles.cardTitle} />
+                <Text style={styles.sub}>{item.domain_label ?? localizeDomain(locale, item.domain)}</Text>
+                <KnowledgeText value={item.summary} direction={direction} numberOfLines={3} style={styles.copy} />
+              </KnowledgeNotationGroup>
+              <TranslationFallbackNotice translation={item} />
+              <Pressable accessibilityRole="button" accessibilityLabel={`${t('common.remove')} ${item.title}`} onPress={() => remove(item)}><Text style={styles.link}>{t('common.remove')}</Text></Pressable>
+            </View>
+          );
+        }}
       />
     </SafeAreaView>
   );

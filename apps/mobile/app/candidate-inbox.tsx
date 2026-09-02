@@ -1,9 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { ActivityIndicator, Alert, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Linking, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import type { Locale } from '@stem-brain/shared';
 import { AuthRequired } from '@/components/auth-required';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
+import { KnowledgeNotationGroup } from '@/components/knowledge-notation-group';
+import { KnowledgeText } from '@/components/knowledge-text';
 import {
   mobileApi,
   MobileApiRequestError,
@@ -18,7 +20,8 @@ import {
   removePendingCandidate,
   selectCandidateBatch,
 } from '@/candidate-inbox-requests';
-import { knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
+import { knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
+import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
 
 type InboxCopy = {
   back: string; eyebrow: string; title: string; subtitle: string; boundary: string; batches: string; candidates: string;
@@ -153,49 +156,81 @@ function CandidateInboxContent() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}><Text style={styles.backText}>← {copy.back}</Text></Pressable>
-        <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
-        <Text style={styles.title}>{copy.title}</Text>
-        <Text style={styles.subtitle}>{copy.subtitle}</Text>
-        <View style={styles.boundary}><Text style={styles.boundaryText}>{copy.boundary}</Text></View>
+      <FlatList
+        style={styles.list}
+        data={selectedBatch ? drafts : []}
+        keyExtractor={(draft) => draft.id}
+        contentContainerStyle={styles.content}
+        initialNumToRender={4}
+        maxToRenderPerBatch={4}
+        windowSize={5}
+        extraData={mutatingIds}
+        ListHeaderComponent={(
+          <View style={styles.listHeader}>
+            <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}><Text style={styles.backText}>← {copy.back}</Text></Pressable>
+            <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
+            <Text style={styles.title}>{copy.title}</Text>
+            <Text style={styles.subtitle}>{copy.subtitle}</Text>
+            <View style={styles.boundary}><Text style={styles.boundaryText}>{copy.boundary}</Text></View>
 
-        {error ? <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.errorCard}><Text style={styles.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => void load()}><Text style={styles.retry}>{copy.retry}</Text></Pressable></View> : null}
-        {notice ? <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.noticeCard}><Text style={styles.notice}>{notice}</Text></View> : null}
-        {loading ? <ActivityIndicator accessibilityLabel={t('common.loading')} color="#2563eb" size="large" /> : null}
+            {error ? <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.errorCard}><Text style={styles.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => void load()}><Text style={styles.retry}>{copy.retry}</Text></Pressable></View> : null}
+            {notice ? <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.noticeCard}><Text style={styles.notice}>{notice}</Text></View> : null}
+            {loading ? <ActivityIndicator accessibilityLabel={t('common.loading')} color="#2563eb" size="large" /> : null}
 
-        <Text accessibilityRole="header" style={styles.sectionTitle}>{copy.batches} · {batches.length}</Text>
-        {batches.length === 0 && !loading ? <Text style={styles.empty}>{copy.empty}</Text> : (
-          <View style={styles.batchRow}>
-            {batches.map((batch) => <Pressable key={batch.id} accessibilityRole="button" accessibilityState={{ selected: selectedBatch?.id === batch.id }} onPress={() => void loadBatch(batch)} style={[styles.batchButton, selectedBatch?.id === batch.id && styles.batchButtonActive]}><Text style={[styles.batchProvider, selectedBatch?.id === batch.id && styles.batchTextActive]}>{batch.provider}</Text><Text style={[styles.batchMeta, selectedBatch?.id === batch.id && styles.batchTextActive]}>{batch.pending_count} · {formatDate(batch.created_at)}</Text></Pressable>)}
+            <Text accessibilityRole="header" style={styles.sectionTitle}>{copy.batches} · {batches.length}</Text>
+            {batches.length === 0 && !loading ? <Text style={styles.empty}>{copy.empty}</Text> : (
+              <View style={styles.batchRow}>
+                {batches.map((batch) => <Pressable key={batch.id} accessibilityRole="button" accessibilityState={{ selected: selectedBatch?.id === batch.id }} onPress={() => void loadBatch(batch)} style={[styles.batchButton, selectedBatch?.id === batch.id && styles.batchButtonActive]}><Text style={[styles.batchProvider, selectedBatch?.id === batch.id && styles.batchTextActive]}>{batch.provider}</Text><Text style={[styles.batchMeta, selectedBatch?.id === batch.id && styles.batchTextActive]}>{batch.pending_count} · {formatDate(batch.created_at)}</Text></Pressable>)}
+              </View>
+            )}
+
+            {selectedBatch ? (
+              <>
+                <View style={styles.sourceScope}>
+                  <Text style={styles.sourceTitle}>{selectedBatch.provider} · {interpolate(copy.batchCount, { count: selectedBatch.pending_count })}</Text>
+                  {selectedBatch.conversation_ref ? <Text style={styles.sourceRef}>{selectedBatch.conversation_ref}</Text> : null}
+                  {isHttpsUrl(selectedBatch.source_url) ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(selectedBatch.source_url!)}><Text style={styles.sourceLink}>{copy.openSource} ↗</Text></Pressable> : null}
+                </View>
+                <Text accessibilityRole="header" style={styles.sectionTitle}>{copy.candidates}</Text>
+              </>
+            ) : null}
           </View>
         )}
-
-        {selectedBatch ? (
-          <>
-            <View style={styles.sourceScope}>
-              <Text style={styles.sourceTitle}>{selectedBatch.provider} · {interpolate(copy.batchCount, { count: selectedBatch.pending_count })}</Text>
-              {selectedBatch.conversation_ref ? <Text style={styles.sourceRef}>{selectedBatch.conversation_ref}</Text> : null}
-              {isHttpsUrl(selectedBatch.source_url) ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(selectedBatch.source_url!)}><Text style={styles.sourceLink}>{copy.openSource} ↗</Text></Pressable> : null}
-            </View>
-            <Text accessibilityRole="header" style={styles.sectionTitle}>{copy.candidates}</Text>
-            {drafts.map((draft) => (
-              <View key={draft.id} style={styles.card}>
-                <View style={styles.badgeRow}><Text style={styles.candidateBadge}>{copy.candidate}</Text><Text style={styles.versionBadge}>v{draft.version}</Text>{draft.knowledge_type ? <Text style={styles.typeBadge}>{knowledgeBundleTypeLabel(locale, draft.knowledge_type)}</Text> : null}</View>
-                <Text style={styles.cardTitle}>{draft.title}</Text>
-                {draft.central_question ? <Text style={styles.centralQuestion}>{draft.central_question}</Text> : null}
-                {draft.summary ? <Text style={styles.body}>{draft.summary}</Text> : null}
-                {draft.structured_content ? <View style={styles.bundle}><MobileKnowledgeBundleView content={draft.structured_content} locale={locale} /></View> : draft.explanation ? <Text style={styles.body}>{draft.explanation}</Text> : null}
-                {draft.duplicate_suggestions.length > 0 ? <View style={styles.duplicateWarning}><Text style={styles.duplicateTitle}>{draft.duplicate_suggestions.length} {copy.duplicate}</Text><Text style={styles.duplicateBody}>{copy.webMerge}</Text>{draft.duplicate_suggestions.slice(0, 3).map((item) => <Text key={item.id} style={styles.duplicateItem}>• {item.title} · {Math.round(item.score * 100)}%</Text>)}</View> : null}
-                <View style={styles.actions}>
-                  <Pressable accessibilityRole="button" disabled={mutatingIds.has(draft.id)} onPress={() => resolve(draft, 'approve-candidate')} style={[styles.saveButton, mutatingIds.has(draft.id) && styles.disabled]}><Text style={styles.saveText}>{mutatingIds.has(draft.id) ? copy.saving : copy.save}</Text></Pressable>
-                  <Pressable accessibilityRole="button" disabled={mutatingIds.has(draft.id)} onPress={() => resolve(draft, 'ignore-candidate')} style={[styles.ignoreButton, mutatingIds.has(draft.id) && styles.disabled]}><Text style={styles.ignoreText}>{copy.ignore}</Text></Pressable>
-                </View>
+        renderItem={({ item: draft }) => {
+          const duplicateSuggestionValues = draft.duplicate_suggestions
+            .slice(0, 3)
+            .map((item) => `${item.title} · ${Math.round(item.score * 100)}%`);
+          const notationBlocks = [
+            ...buildKnowledgeNotationGroupBlocks([
+            { source: draft.title, tone: 'title' },
+            { source: draft.central_question, tone: 'question' },
+            { source: draft.summary, tone: 'summary' },
+            ...(!draft.structured_content ? [{ source: draft.explanation, tone: 'body' as const }] : []),
+            ], draft.structured_content, locale),
+            ...(duplicateSuggestionValues.length ? buildKnowledgeNotationGroupBlocks([
+              { source: `${draft.duplicate_suggestions.length} ${copy.duplicate}`, tone: 'meta' },
+              { source: copy.webMerge, tone: 'body' },
+            ]) : []),
+            ...(duplicateSuggestionValues.length ? [{ kind: 'lines' as const, values: duplicateSuggestionValues, tone: 'warn' as const }] : []),
+          ];
+          return (
+            <View style={styles.card}>
+              <View style={styles.badgeRow}><Text style={styles.candidateBadge}>{copy.candidate}</Text><Text style={styles.versionBadge}>v{draft.version}</Text>{draft.knowledge_type ? <Text style={styles.typeBadge}>{knowledgeBundleTypeLabel(locale, draft.knowledge_type)}</Text> : null}</View>
+              <KnowledgeNotationGroup accessibilityLabel={draft.structured_content ? knowledgeBundleRecallPrompt(locale, draft.structured_content.type) : copy.candidate} blocks={notationBlocks} direction={direction}>
+                <KnowledgeText value={draft.title} direction={direction} style={styles.cardTitle} />
+                {draft.central_question ? <KnowledgeText value={draft.central_question} direction={direction} style={styles.centralQuestion} /> : null}
+                {draft.summary ? <KnowledgeText value={draft.summary} direction={direction} style={styles.body} /> : null}
+                {draft.structured_content ? <View style={styles.bundle}><MobileKnowledgeBundleView content={draft.structured_content} locale={locale} /></View> : draft.explanation ? <KnowledgeText value={draft.explanation} direction={direction} style={styles.body} /> : null}
+                {draft.duplicate_suggestions.length > 0 ? <View style={styles.duplicateWarning}><Text style={styles.duplicateTitle}>{draft.duplicate_suggestions.length} {copy.duplicate}</Text><Text style={styles.duplicateBody}>{copy.webMerge}</Text>{draft.duplicate_suggestions.slice(0, 3).map((item) => <KnowledgeText key={item.id} value={`• ${item.title} · ${Math.round(item.score * 100)}%`} direction={direction} style={styles.duplicateItem} />)}</View> : null}
+              </KnowledgeNotationGroup>
+              <View style={styles.actions}>
+                <Pressable accessibilityRole="button" disabled={mutatingIds.has(draft.id)} onPress={() => resolve(draft, 'approve-candidate')} style={[styles.saveButton, mutatingIds.has(draft.id) && styles.disabled]}><Text style={styles.saveText}>{mutatingIds.has(draft.id) ? copy.saving : copy.save}</Text></Pressable>
+                <Pressable accessibilityRole="button" disabled={mutatingIds.has(draft.id)} onPress={() => resolve(draft, 'ignore-candidate')} style={[styles.ignoreButton, mutatingIds.has(draft.id) && styles.disabled]}><Text style={styles.ignoreText}>{copy.ignore}</Text></Pressable>
               </View>
-            ))}
-          </>
-        ) : null}
-      </ScrollView>
+            </View>
+          );
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -206,7 +241,9 @@ export default function CandidateInboxScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#f8fafc' },
+  list: { flex: 1 },
   content: { padding: 18, paddingBottom: 48, gap: 10 },
+  listHeader: { gap: 10 },
   backButton: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center' },
   backText: { color: '#1d4ed8', fontSize: 15, fontWeight: '800' },
   eyebrow: { color: '#b45309', fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1.3 },

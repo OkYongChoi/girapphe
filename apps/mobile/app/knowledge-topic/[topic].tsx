@@ -1,12 +1,15 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { ActivityIndicator, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Linking, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import type { Locale } from '@stem-brain/shared';
 import { AuthRequired } from '@/components/auth-required';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
+import { KnowledgeNotationGroup } from '@/components/knowledge-notation-group';
+import { KnowledgeText } from '@/components/knowledge-text';
 import { mobileApi, type MobileTopicHub } from '@/api';
 import { useI18n } from '@/i18n';
-import { eventChronologyLabel, knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
+import { eventChronologyLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
+import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
 import { eventTimelineSortKey } from '@/knowledge-topic';
 
 type TopicCopy = {
@@ -77,6 +80,21 @@ function isHttpsUrl(value: string | null) {
   try { return new URL(value).protocol === 'https:'; } catch { return false; }
 }
 
+type HubItem = MobileTopicHub['items'][number];
+type HubRelation = MobileTopicHub['relations'][number];
+type HubActivity = MobileTopicHub['activity'][number];
+type HubSource = MobileTopicHub['sources'][number];
+
+type TopicListRow =
+  | { kind: 'section'; key: string; label: string }
+  | { kind: 'empty'; key: string; label: string }
+  | { kind: 'question'; key: string; item: HubItem }
+  | { kind: 'knowledge'; key: string; item: HubItem }
+  | { kind: 'relation'; key: string; relation: HubRelation }
+  | { kind: 'event'; key: string; item: HubItem }
+  | { kind: 'activity'; key: string; entry: HubActivity }
+  | { kind: 'source'; key: string; source: HubSource };
+
 function TopicScreenContent() {
   const router = useRouter();
   const params = useLocalSearchParams<{ topic?: string | string[] }>();
@@ -123,89 +141,138 @@ function TopicScreenContent() {
     return leftKey - rightKey;
   });
   const activity = [...(hub?.activity ?? [])].sort((left, right) => +new Date(right.created_at) - +new Date(left.created_at));
+  const rows: TopicListRow[] = [];
+  if (!loading && hub) {
+    rows.push({ kind: 'section', key: 'section:open-questions', label: copy.openQuestions });
+    if (openQuestions.length === 0) rows.push({ kind: 'empty', key: 'empty:open-questions', label: copy.noOpen });
+    else rows.push(...openQuestions.map((item) => ({ kind: 'question' as const, key: `question:${item.id}`, item })));
+
+    rows.push({ kind: 'section', key: 'section:knowledge', label: copy.knowledge });
+    rows.push(...hub.items.map((item) => ({ kind: 'knowledge' as const, key: `knowledge:${item.id}`, item })));
+
+    rows.push({ kind: 'section', key: 'section:relationships', label: copy.relationships });
+    if (hub.relations.length === 0) rows.push({ kind: 'empty', key: 'empty:relationships', label: copy.noRelations });
+    else rows.push(...hub.relations.map((relation) => ({ kind: 'relation' as const, key: `relation:${relation.id}`, relation })));
+
+    rows.push({ kind: 'section', key: 'section:timeline', label: copy.timeline });
+    rows.push(...events.map((item) => ({ kind: 'event' as const, key: `event:${item.id}`, item })));
+
+    rows.push({ kind: 'section', key: 'section:recent-activity', label: copy.recentActivity });
+    rows.push(...activity.map((entry) => ({ kind: 'activity' as const, key: `activity:${entry.id}`, entry })));
+
+    rows.push({ kind: 'section', key: 'section:sources', label: copy.sources });
+    if (hub.sources.length === 0) rows.push({ kind: 'empty', key: 'empty:sources', label: copy.noSources });
+    else rows.push(...hub.sources.map((source) => ({ kind: 'source' as const, key: `source:${source.id}`, source })));
+  }
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}><Text style={styles.backText}>← {copy.back}</Text></Pressable>
+      <FlatList
+        style={styles.list}
+        contentContainerStyle={styles.content}
+        data={rows}
+        keyExtractor={(row) => row.key}
+        initialNumToRender={6}
+        maxToRenderPerBatch={4}
+        windowSize={5}
+        ListHeaderComponent={(
+          <View style={styles.listHeader}>
+            <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}><Text style={styles.backText}>← {copy.back}</Text></Pressable>
 
-        <View style={styles.hero}>
-          <Text style={styles.kicker}>{copy.workspace}</Text>
-          <Text style={styles.title}>{hub?.topic ?? topic}</Text>
-          <Text style={styles.heroBody}>{copy.heroBody}</Text>
-          <View style={styles.stats}>
-            <View style={styles.stat}><Text style={styles.statValue}>{hub?.items.length ?? 0}</Text><Text style={styles.statLabel}>{copy.confirmed}</Text></View>
-            <View style={styles.stat}><Text style={styles.statValue}>{openQuestions.length}</Text><Text style={styles.statLabel}>{copy.open}</Text></View>
-            <View style={styles.stat}><Text style={styles.statValue}>{decisions.length}</Text><Text style={styles.statLabel}>{copy.decisions}</Text></View>
-            <View style={styles.stat}><Text style={styles.statValue}>{events.length}</Text><Text style={styles.statLabel}>{copy.events}</Text></View>
+            <View style={styles.hero}>
+              <Text style={styles.kicker}>{copy.workspace}</Text>
+              <KnowledgeText value={hub?.topic ?? topic} direction={direction} style={styles.title} />
+              <Text style={styles.heroBody}>{copy.heroBody}</Text>
+              <View style={styles.stats}>
+                <View style={styles.stat}><Text style={styles.statValue}>{hub?.items.length ?? 0}</Text><Text style={styles.statLabel}>{copy.confirmed}</Text></View>
+                <View style={styles.stat}><Text style={styles.statValue}>{openQuestions.length}</Text><Text style={styles.statLabel}>{copy.open}</Text></View>
+                <View style={styles.stat}><Text style={styles.statValue}>{decisions.length}</Text><Text style={styles.statLabel}>{copy.decisions}</Text></View>
+                <View style={styles.stat}><Text style={styles.statValue}>{events.length}</Text><Text style={styles.statLabel}>{copy.events}</Text></View>
+              </View>
+            </View>
+
+            {loading ? <ActivityIndicator accessibilityLabel={t('common.loading')} color="#2563eb" size="large" /> : null}
+            {error ? <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.errorCard}><Text style={styles.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => void load()} style={styles.retryButton}><Text style={styles.retryText}>{copy.retry}</Text></Pressable></View> : null}
+            {!loading && hub ? <View style={styles.confirmedNotice}><Text style={styles.confirmedNoticeText}>{copy.confirmedNotice}</Text></View> : null}
           </View>
-        </View>
-
-        {loading ? <ActivityIndicator accessibilityLabel={t('common.loading')} color="#2563eb" size="large" /> : null}
-        {error ? <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.errorCard}><Text style={styles.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => void load()} style={styles.retryButton}><Text style={styles.retryText}>{copy.retry}</Text></Pressable></View> : null}
-
-        {!loading && hub ? (
-          <>
-            <View style={styles.confirmedNotice}><Text style={styles.confirmedNoticeText}>{copy.confirmedNotice}</Text></View>
-
-            <SectionTitle label={copy.openQuestions} />
-            {openQuestions.length === 0 ? <Text style={styles.empty}>{copy.noOpen}</Text> : openQuestions.map((item) => {
-              const question = item.structured_content?.type === 'question' ? item.structured_content : null;
-              return <View key={item.id} style={[styles.card, styles.questionCard]}><Text style={styles.badge}>{copy.open} · v{item.version}</Text><Text style={styles.cardTitle}>{question?.question ?? item.central_question ?? item.title}</Text>{question?.context ? <Text style={styles.body}>{question.context}</Text> : null}{question && question.next_steps.length > 0 ? <Text style={styles.meta}>{copy.next}: {question.next_steps.join(' · ')}</Text> : null}</View>;
-            })}
-
-            <SectionTitle label={copy.knowledge} />
-            {hub.items.map((item) => (
-              <View key={item.id} style={styles.card}>
+        )}
+        renderItem={({ item: row }) => {
+          if (row.kind === 'section') return <SectionTitle label={row.label} />;
+          if (row.kind === 'empty') return <Text style={styles.empty}>{row.label}</Text>;
+          if (row.kind === 'question') {
+            const question = row.item.structured_content?.type === 'question' ? row.item.structured_content : null;
+            const questionTitle = question?.question ?? row.item.central_question ?? row.item.title;
+            const nextSteps = question && question.next_steps.length > 0 ? `${copy.next}: ${question.next_steps.join(' · ')}` : '';
+            const notationBlocks = buildKnowledgeNotationGroupBlocks([
+              { source: questionTitle, tone: 'title' },
+              { source: question?.context, tone: 'body' },
+              { source: nextSteps, tone: 'meta' },
+            ]);
+            return <View style={[styles.card, styles.questionCard]}><Text style={styles.badge}>{copy.open} · v{row.item.version}</Text><KnowledgeNotationGroup accessibilityLabel={knowledgeBundleRecallPrompt(locale, 'question')} blocks={notationBlocks} direction={direction}><KnowledgeText value={questionTitle} direction={direction} style={styles.cardTitle} />{question?.context ? <KnowledgeText value={question.context} direction={direction} style={styles.body} /> : null}{question && question.next_steps.length > 0 ? <KnowledgeText value={question.next_steps.join(' · ')} prefix={`${copy.next}: `} direction={direction} style={styles.meta} /> : null}</KnowledgeNotationGroup></View>;
+          }
+          if (row.kind === 'knowledge') {
+            const { item } = row;
+            const notationBlocks = buildKnowledgeNotationGroupBlocks([
+              { source: item.title, tone: 'title' },
+              { source: item.central_question, tone: 'question' },
+              { source: item.summary, tone: 'summary' },
+              ...(!item.structured_content ? [{ source: item.content, tone: 'body' as const }] : []),
+            ], item.structured_content, locale);
+            return (
+              <View style={styles.card}>
                 <View style={styles.badgeRow}>
                   <Text style={styles.confirmedBadge}>{copy.confirmedByYou}</Text>
                   <Text style={styles.versionBadge}>v{item.version}</Text>
                   {item.knowledge_type ? <Text style={styles.typeBadge}>{knowledgeBundleTypeLabel(locale, item.knowledge_type)}</Text> : null}
                 </View>
-                <Text style={styles.cardTitle}>{item.title}</Text>
-                {item.central_question ? <Text style={styles.centralQuestion}>{item.central_question}</Text> : null}
-                {item.summary ? <Text style={styles.body}>{item.summary}</Text> : null}
-                {item.structured_content ? <View style={styles.bundle}><MobileKnowledgeBundleView content={item.structured_content} locale={locale} /></View> : item.content ? <Text style={styles.body}>{item.content}</Text> : null}
+                <KnowledgeNotationGroup accessibilityLabel={item.structured_content ? knowledgeBundleRecallPrompt(locale, item.structured_content.type) : undefined} blocks={notationBlocks} direction={direction}>
+                  <KnowledgeText value={item.title} direction={direction} style={styles.cardTitle} />
+                  {item.central_question ? <KnowledgeText value={item.central_question} direction={direction} style={styles.centralQuestion} /> : null}
+                  {item.summary ? <KnowledgeText value={item.summary} direction={direction} style={styles.body} /> : null}
+                  {item.structured_content ? <View style={styles.bundle}><MobileKnowledgeBundleView content={item.structured_content} locale={locale} /></View> : item.content ? <KnowledgeText value={item.content} direction={direction} style={styles.body} /> : null}
+                </KnowledgeNotationGroup>
                 <Text style={styles.meta}>{copy.updated} {formatDate(item.updated_at)}{item.last_verified_at ? ` · ${copy.verified} ${formatDate(item.last_verified_at)}` : ''}</Text>
               </View>
-            ))}
-
-            <SectionTitle label={copy.relationships} />
-            {hub.relations.length === 0 ? <Text style={styles.empty}>{copy.noRelations}</Text> : hub.relations.map((relation) => (
-              <View key={relation.id} style={styles.relationship}>
-                <Text style={styles.relationshipText}>{itemLabels.get(privateId(relation.source)) ?? privateId(relation.source)} {relationArrow(relation.type)} {tokenLabel(locale, relation.type)} {relationArrow(relation.type)} {itemLabels.get(privateId(relation.target)) ?? privateId(relation.target)}</Text>
+            );
+          }
+          if (row.kind === 'relation') {
+            const { relation } = row;
+            return (
+              <View style={styles.relationship}>
+                <KnowledgeText value={`${itemLabels.get(privateId(relation.source)) ?? privateId(relation.source)} ${relationArrow(relation.type)} ${tokenLabel(locale, relation.type)} ${relationArrow(relation.type)} ${itemLabels.get(privateId(relation.target)) ?? privateId(relation.target)}`} direction={direction} style={styles.relationshipText} />
                 <Text style={styles.origin}>{tokenLabel(locale, relation.relation_origin)}</Text>
                 {relation.evidence_span_ids.length > 0 ? <Text style={styles.meta}>{copy.evidence}: {relation.evidence_span_ids.length}</Text> : null}
               </View>
-            ))}
+            );
+          }
+          if (row.kind === 'event') {
+            const event = row.item.structured_content?.type === 'event' ? row.item.structured_content : null;
+            const parseableOccurredAt = event?.occurred_at ? new Date(event.occurred_at) : null;
+            const dateLabel = event?.chronology
+              ? eventChronologyLabel(event.chronology)
+              : parseableOccurredAt && !Number.isNaN(parseableOccurredAt.getTime())
+                ? formatDate(parseableOccurredAt.toISOString())
+                : event?.occurred_at || copy.undated;
+            const eventTitle = event?.event ?? row.item.title;
+            const notationBlocks = buildKnowledgeNotationGroupBlocks([
+              { source: eventTitle, tone: 'title' },
+              { source: event?.context, tone: 'body' },
+            ]);
+            return <View style={[styles.timelineItem, styles.eventItem]}><Text style={styles.badge}>{copy.observedEvent} · {dateLabel}</Text><KnowledgeNotationGroup accessibilityLabel={knowledgeBundleRecallPrompt(locale, 'event')} blocks={notationBlocks} direction={direction}><KnowledgeText value={eventTitle} direction={direction} style={styles.cardTitle} />{event?.context ? <KnowledgeText value={event.context} direction={direction} style={styles.body} /> : null}</KnowledgeNotationGroup></View>;
+          }
+          if (row.kind === 'activity') return <View style={styles.timelineItem}><KnowledgeText value={itemLabels.get(row.entry.knowledge_item_id) ?? row.entry.knowledge_item_id} prefix={`${tokenLabel(locale, row.entry.activity_type)} · `} direction={direction} style={styles.body} /><Text style={styles.meta}>{formatDate(row.entry.created_at)}</Text></View>;
 
-            <SectionTitle label={copy.timeline} />
-            {events.map((item) => {
-              const event = item.structured_content?.type === 'event' ? item.structured_content : null;
-              const parseableOccurredAt = event?.occurred_at ? new Date(event.occurred_at) : null;
-              const dateLabel = event?.chronology
-                ? eventChronologyLabel(event.chronology)
-                : parseableOccurredAt && !Number.isNaN(parseableOccurredAt.getTime())
-                  ? formatDate(parseableOccurredAt.toISOString())
-                  : event?.occurred_at || copy.undated;
-              return <View key={`event:${item.id}`} style={[styles.timelineItem, styles.eventItem]}><Text style={styles.badge}>{copy.observedEvent} · {dateLabel}</Text><Text style={styles.cardTitle}>{event?.event ?? item.title}</Text>{event?.context ? <Text style={styles.body}>{event.context}</Text> : null}</View>;
-            })}
-
-            <SectionTitle label={copy.recentActivity} />
-            {activity.map((entry) => <View key={entry.id} style={styles.timelineItem}><Text style={styles.body}>{tokenLabel(locale, entry.activity_type)} · {itemLabels.get(entry.knowledge_item_id) ?? entry.knowledge_item_id}</Text><Text style={styles.meta}>{formatDate(entry.created_at)}</Text></View>)}
-
-            <SectionTitle label={copy.sources} />
-            {hub.sources.length === 0 ? <Text style={styles.empty}>{copy.noSources}</Text> : hub.sources.map((source) => (
-              <View key={source.id} style={styles.sourceCard}>
-                <Text style={styles.badge}>{source.provider.toUpperCase()} · {tokenLabel(locale, source.relation_origin)}</Text>
-                <Text style={styles.cardTitle}>{itemLabels.get(source.knowledge_item_id) ?? source.source_type}</Text>
-                {isHttpsUrl(source.source_url) ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(source.source_url!)}><Text style={styles.link}>{copy.openSource} ↗</Text></Pressable> : source.conversation_ref ? <Text style={styles.meta}>{source.conversation_ref}</Text> : null}
-                <Text style={styles.meta}>{source.discussed_at ? formatDate(source.discussed_at) : formatDate(source.created_at)}</Text>
-              </View>
-            ))}
-          </>
-        ) : null}
-      </ScrollView>
+          const { source } = row;
+          return (
+            <View style={styles.sourceCard}>
+              <Text style={styles.badge}>{source.provider.toUpperCase()} · {tokenLabel(locale, source.relation_origin)}</Text>
+              <KnowledgeText value={itemLabels.get(source.knowledge_item_id) ?? source.source_type} direction={direction} style={styles.cardTitle} />
+              {isHttpsUrl(source.source_url) ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(source.source_url!)}><Text style={styles.link}>{copy.openSource} ↗</Text></Pressable> : source.conversation_ref ? <Text style={styles.meta}>{source.conversation_ref}</Text> : null}
+              <Text style={styles.meta}>{source.discussed_at ? formatDate(source.discussed_at) : formatDate(source.created_at)}</Text>
+            </View>
+          );
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -220,7 +287,9 @@ export default function MobileKnowledgeTopicScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#f8fafc' },
+  list: { flex: 1 },
   content: { padding: 18, paddingBottom: 48, gap: 12 },
+  listHeader: { gap: 12 },
   backButton: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center' },
   backText: { color: '#1d4ed8', fontSize: 15, fontWeight: '800' },
   hero: { borderRadius: 22, backgroundColor: '#0f172a', padding: 22, gap: 10 },

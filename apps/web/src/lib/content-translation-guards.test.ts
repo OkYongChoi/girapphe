@@ -113,6 +113,17 @@ test('restores formulas, code, URLs and exact line structure', () => {
   assert.equal(restored.match(/\n/g)?.length, 2);
 });
 
+test('preserves explicit chemistry, unit, and fenced-code notation byte-for-byte', () => {
+  const source = 'Balance \\(\\ce{2H2 + O2 -> 2H2O}\\) with \\(\\pu{5 mol}\\).\n```ts\nconst amount = 5;\n```';
+  const masked = maskProtectedContent(source);
+  const protectedValues = masked.placeholders.map((placeholder) => placeholder.value);
+
+  assert.ok(protectedValues.includes('\\(\\ce{2H2 + O2 -> 2H2O}\\)'));
+  assert.ok(protectedValues.includes('\\(\\pu{5 mol}\\)'));
+  assert.ok(protectedValues.includes('```ts\nconst amount = 5;\n```'));
+  assert.equal(restoreProtectedContent(masked.masked.replace('Balance', 'Equilibre'), masked), source.replace('Balance', 'Equilibre'));
+});
+
 test('preserves unquoted commands, flags, property paths and file paths', () => {
   const source = 'Run npm install, then keep process.env.API_KEY, --frozen-lockfile, src/lib/foo.ts, ./scripts/check.sh, and C:\\repo\\file.ts.';
   const masked = maskProtectedContent(source);

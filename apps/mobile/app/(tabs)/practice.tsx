@@ -9,6 +9,7 @@ import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
 import { expressionHasReverseRecallCue, expressionRecallCue, expressionRecallDirectionLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, type ExpressionRecallDirection } from '@/knowledge-bundle-ui';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
+import { KnowledgeText } from '@/components/knowledge-text';
 import {
   getNodeExplanation,
   getNodeSummary,
@@ -142,14 +143,14 @@ function LocalPracticeScreen() {
                 <Text style={styles.difficultyText}>{t('home.difficulty', { value: formatNumber(currentNode.difficulty) })}</Text>
               </View>
 
-              <Text style={styles.cardTitle}>{labelFor(currentNode)}</Text>
-              <Text style={styles.cardSummary}>{content?.summary ?? getNodeSummary(currentNode.id)}</Text>
+              <KnowledgeText value={labelFor(currentNode)} direction={direction} style={styles.cardTitle} />
+              <KnowledgeText value={content?.summary ?? getNodeSummary(currentNode.id)} direction={direction} style={styles.cardSummary} />
               <TranslationFallbackNotice dark translation={content} />
 
               {isRevealed ? (
                 <View style={styles.answerPanel}>
                   <Text style={styles.answerTitle}>{t('practice.explanation')}</Text>
-                  <Text style={styles.answerText}>{content?.explanation ?? getNodeExplanation(currentNode.id)}</Text>
+                  <KnowledgeText value={content?.explanation ?? getNodeExplanation(currentNode.id)} direction={direction} legacyDollarMath style={styles.answerText} />
                 </View>
               ) : (
                 <Pressable
@@ -342,8 +343,8 @@ function SyncedPracticeScreen() {
                 <Text style={styles.difficultyText}>{localizeLevel(locale, card.level)}</Text>
               </View>
               {card.knowledge_type ? <Text style={styles.bundleBadge}>{knowledgeBundleTypeLabel(locale, card.knowledge_type)}</Text> : null}
-              <Text style={styles.cardTitle}>{expressionContent && !isRevealed ? expressionCue : card.title}</Text>
-              {!expressionContent || isRevealed ? <Text style={styles.cardSummary}>{card.central_question || card.summary}</Text> : null}
+              <KnowledgeText value={expressionContent && !isRevealed ? expressionCue : card.title} direction={direction} style={styles.cardTitle} />
+              {!expressionContent || isRevealed ? <KnowledgeText value={card.central_question || card.summary} direction={direction} style={styles.cardSummary} /> : null}
               {expressionContent && hasExpressionReverseCue && !isRevealed ? <View style={styles.expressionDirectionRow}>{(['forward', 'reverse'] as const).map((value) => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: expressionDirection === value }} onPress={() => setExpressionDirection(value)} style={[styles.expressionDirectionButton, expressionDirection === value && styles.expressionDirectionButtonActive]}><Text style={[styles.expressionDirectionText, expressionDirection === value && styles.expressionDirectionTextActive]}>{expressionRecallDirectionLabel(locale, value)}</Text></Pressable>)}</View> : null}
               {!isRevealed && card.knowledge_type ? <Text style={styles.recallPrompt}>{knowledgeBundleRecallPrompt(locale, card.knowledge_type)}</Text> : null}
               <TranslationFallbackNotice dark translation={card} />
@@ -352,7 +353,7 @@ function SyncedPracticeScreen() {
                   <Text style={styles.answerTitle}>{t('practice.explanation')}</Text>
                   {card.structured_content
                     ? <MobileKnowledgeBundleView content={card.structured_content} locale={locale} />
-                    : <Text style={styles.answerText}>{card.explanation}</Text>}
+                    : <KnowledgeText value={card.explanation} direction={direction} legacyDollarMath style={styles.answerText} />}
                 </View>
               ) : (
                 <Pressable accessibilityRole="button" accessibilityLabel={t('practice.reveal')} onPress={() => setIsRevealed(true)} style={styles.revealButton}><Text style={styles.revealButtonText}>{t('practice.reveal')}</Text></Pressable>

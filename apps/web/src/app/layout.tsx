@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import 'katex/dist/katex.min.css';
 import './globals.css';
 import { I18nProvider } from '@/i18n/client';
 import { getServerI18n } from '@/i18n/server';

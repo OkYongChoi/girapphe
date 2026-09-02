@@ -33,16 +33,32 @@ test('mobile rejects invalid non-empty chronology instead of silently deleting i
   );
 });
 
-test('mobile expression examples preserve literal delimiters and structured fields', () => {
+test('mobile multi-column editors preserve inline code with :: and | across bundle types', () => {
+  const code = '`std::vector`';
+  const expressionCode = '`a | b`';
+  const withStructuredRows: KnowledgeBundleContent[] = [
+    { ...bundles[0] as Extract<KnowledgeBundleContent, { type: 'concept' }>, misconceptions: [{ claim: code, correction: expressionCode }] },
+    { ...bundles[1] as Extract<KnowledgeBundleContent, { type: 'procedure' }>, steps: [{ title: code, detail: expressionCode }], branches: [{ condition: expressionCode, action: code }], failure_modes: [{ symptom: code, response: expressionCode }] },
+    { ...bundles[2] as Extract<KnowledgeBundleContent, { type: 'comparison' }>, criteria: [{ name: code, values: [expressionCode, 'x :: y'] }], choice_guide: [{ condition: expressionCode, recommendation: code }] },
+    { ...bundles[3] as Extract<KnowledgeBundleContent, { type: 'mechanism' }>, stages: [{ title: code, detail: expressionCode }] },
+    { ...bundles[4] as Extract<KnowledgeBundleContent, { type: 'structure' }>, components: [{ id: 'root', label: code, role: expressionCode }, { id: 'child', label: expressionCode, role: 'x :: y', parent_id: 'root' }], relations: [{ source_id: 'root', target_id: 'child', label: `${code} → ${expressionCode}` }] },
+    { ...bundles[5] as Extract<KnowledgeBundleContent, { type: 'claim_evidence' }>, evidence: [{ statement: code, source: expressionCode }] },
+    { ...bundles[7] as Extract<KnowledgeBundleContent, { type: 'decision' }>, options: [{ name: code, tradeoffs: expressionCode }] },
+  ];
+
+  for (const bundle of withStructuredRows) {
+    assert.deepEqual(buildMobileKnowledgeBundle(bundle.type, mobileKnowledgeBundleEditValues(bundle)), bundle);
+  }
+
   const expression = bundles[9];
   assert.equal(expression?.type, 'expression');
   if (!expression || expression.type !== 'expression') return;
   const withDelimiters: KnowledgeBundleContent = {
     ...expression,
-    translations: [{ language: 'ko', text: '경로 :: 이름' }],
-    examples: [{ text: 'namespace :: name', translation: '경로 :: 이름', note: 'C:\\names :: note' }],
-    contrasts: [{ expression: 'namespace :: value', difference: 'distinction :: detail' }],
-    common_mistakes: [{ incorrect: 'name :: space', correction: 'name :: value' }],
+    translations: [{ language: code, text: expressionCode }],
+    examples: [{ text: code, translation: expressionCode, note: 'C:\\names :: note' }],
+    contrasts: [{ expression: code, difference: expressionCode }],
+    common_mistakes: [{ incorrect: expressionCode, correction: code }],
   };
   assert.deepEqual(
     buildMobileKnowledgeBundle('expression', mobileKnowledgeBundleEditValues(withDelimiters)),
@@ -53,6 +69,10 @@ test('mobile expression examples preserve literal delimiters and structured fiel
   const direct = buildMobileKnowledgeBundle('expression', directFields);
   assert.equal(direct.type, 'expression');
   assert.deepEqual(direct.examples, [{ text: 'namespace :: name' }]);
+
+  const partialPair = mobileKnowledgeBundleEditValues(bundles[0]!);
+  partialPair[4] = '["`std::vector`"';
+  assert.throws(() => buildMobileKnowledgeBundle('concept', partialPair), /JSON pair/);
 });
 
 test('mobile structured answers expose every populated field', () => {

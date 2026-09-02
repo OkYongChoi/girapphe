@@ -13,6 +13,7 @@ import { useI18n } from '@/i18n';
 import { useLocalizedContent } from '@/localized-content';
 import { localizeDomain, localizeType } from '@stem-brain/shared';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
+import { KnowledgeText } from '@/components/knowledge-text';
 
 export default function TopicDetailScreen() {
   const router = useRouter();
@@ -66,8 +67,8 @@ export default function TopicDetailScreen() {
             <View style={[styles.domainDot, { backgroundColor: getDomainColor(node.domain) }]} />
             <Text style={styles.domainText}>{content?.domain_label ?? localizeDomain(locale, node.domain)}</Text>
           </View>
-          <Text style={styles.title}>{content?.label ?? content?.title ?? node.label}</Text>
-          <Text style={styles.summary}>{content?.summary ?? getNodeSummary(node.id)}</Text>
+          <KnowledgeText value={content?.label ?? content?.title ?? node.label} direction={direction} style={styles.title} />
+          <KnowledgeText value={content?.summary ?? getNodeSummary(node.id)} direction={direction} style={styles.summary} />
           <TranslationFallbackNotice dark translation={content} />
           <View style={styles.metaRow}>
             <Text style={styles.metaChip}>{content?.type_label ?? localizeType(locale, node.type)}</Text>
@@ -78,7 +79,7 @@ export default function TopicDetailScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('topic.explanation')}</Text>
-          <Text style={styles.bodyText}>{content?.explanation ?? getNodeExplanation(node.id)}</Text>
+          <KnowledgeText value={content?.explanation ?? getNodeExplanation(node.id)} direction={direction} legacyDollarMath style={styles.bodyText} />
         </View>
 
         <RelationshipSection title={t('topic.prerequisites')} nodes={prerequisites} onPress={openTopic} translatedNodes={content?.related_nodes} />

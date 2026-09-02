@@ -1,9 +1,15 @@
 import {
   EVENT_TIME_PRECISIONS,
   historicalTimePointKey,
+  parseComparisonCriteriaRows,
   parseExpressionBundleExamples,
+  parseStructureComponentRows,
+  parseStructureRelationRows,
   parseStringTuplePairs,
+  serializeComparisonCriteriaRows,
   serializeExpressionBundleExamples,
+  serializeStructureComponentRows,
+  serializeStructureRelationRows,
   serializeStringTuplePairs,
   type EventChronology,
   type HistoricalTimePoint,
@@ -87,8 +93,59 @@ export function knowledgeBundleAnswerLines(content: KnowledgeBundleContent, loca
 
 function lines(value: string) { return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean); }
 function segments(value: string) { return value.split('::').map((item) => item.trim()); }
-function pairs(value: string) { return lines(value).map((item) => { const [first = '', ...rest] = segments(item); return [first, rest.join(' :: ')] as const; }).filter(([first]) => first); }
 function slug(value: string, index: number) { return value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || `component_${index + 1}`; }
+
+function jsonRowsAreValid(value: string, isRow: (row: unknown) => boolean) {
+  return lines(value).every((line) => {
+    if (!line.startsWith('[')) return true;
+    try {
+      return isRow(JSON.parse(line));
+    } catch {
+      return false;
+    }
+  });
+}
+
+function pairRows(value: string, requireRight: boolean) {
+  const rows = parseStringTuplePairs(value);
+  const validJson = jsonRowsAreValid(value, (row) => Array.isArray(row) && row.length === 2 && row.every((item) => typeof item === 'string'));
+  if (!validJson || rows.some(([left, right]) => !left.trim() || (requireRight && !right.trim()))) {
+    throw new Error('Enter one JSON pair per line or complete a legacy pair.');
+  }
+  return rows;
+}
+
+function criteriaRows(value: string) {
+  const rows = parseComparisonCriteriaRows(value);
+  const validJson = jsonRowsAreValid(value, (row) => Array.isArray(row) && row.length === 2 && typeof row[0] === 'string' && Array.isArray(row[1]) && row[1].every((item) => typeof item === 'string'));
+  if (!validJson || rows.some(([name, values]) => !name.trim() || values.length === 0 || values.some((item) => !item.trim()))) {
+    throw new Error('Enter one valid comparison criterion JSON row per line.');
+  }
+  return rows;
+}
+
+function componentRows(value: string) {
+  const sourceRows = lines(value);
+  const rows = parseStructureComponentRows(value);
+  const validJson = jsonRowsAreValid(value, (row) => Array.isArray(row) && (row.length === 3 || row.length === 4) && row.every((item) => typeof item === 'string'));
+  if (!validJson) throw new Error('Enter one valid structure component JSON row per line.');
+  return rows.map(([rawId, rawLabel, role, parentId], index) => {
+    const isJson = sourceRows[index]?.startsWith('[') ?? false;
+    if (isJson && (!rawId.trim() || !rawLabel.trim())) throw new Error('Each JSON component row needs an id and label.');
+    const label = rawLabel || rawId;
+    if (!label.trim()) throw new Error('Each structure component needs a label.');
+    return { id: rawLabel ? rawId : slug(label, index), label, role, ...(parentId ? { parent_id: parentId } : {}) };
+  });
+}
+
+function relationRows(value: string) {
+  const rows = parseStructureRelationRows(value);
+  const validJson = jsonRowsAreValid(value, (row) => Array.isArray(row) && row.length === 3 && row.every((item) => typeof item === 'string'));
+  if (!validJson || rows.some((row) => row.some((item) => !item.trim()))) {
+    throw new Error('Enter one valid structure relation JSON row per line.');
+  }
+  return rows;
+}
 
 function historicalPoint(era: string, year: string, month: string, day: string): HistoricalTimePoint | null {
   if (era !== 'bce' && era !== 'ce') return null;
@@ -171,41 +228,41 @@ export function expressionRecallCue(content: Extract<KnowledgeBundleContent, { t
 
 export function buildMobileKnowledgeBundle(type: KnowledgeBundleType, fields: string[]): KnowledgeBundleContent {
   const [one = '', two = '', three = '', four = '', five = '', six = '', seven = '', eight = '', nine = '', ten = '', eleven = ''] = fields;
-  if (type === 'concept') return { type, definition: one.trim(), key_points: lines(two), examples: lines(three), non_examples: lines(four), misconceptions: pairs(five).filter(([, correction]) => correction).map(([claim, correction]) => ({ claim, correction })) };
-  if (type === 'procedure') return { type, goal: one.trim(), prerequisites: lines(two), steps: pairs(three).map(([title, detail]) => ({ title, detail })), branches: pairs(four).filter(([, action]) => action).map(([condition, action]) => ({ condition, action })), failure_modes: pairs(five).filter(([, response]) => response).map(([symptom, response]) => ({ symptom, response })), done_when: lines(six) };
-  if (type === 'comparison') return { type, targets: lines(one), criteria: pairs(two).map(([name, values]) => ({ name, values: values.split('|').map((item) => item.trim()).filter(Boolean) })).filter((item) => item.values.length), commonalities: lines(three), differences: lines(four), choice_guide: pairs(five).filter(([, recommendation]) => recommendation).map(([condition, recommendation]) => ({ condition, recommendation })) };
-  if (type === 'mechanism') return { type, causes: lines(one), stages: pairs(two).map(([title, detail]) => ({ title, detail })), results: lines(three), conditions: lines(four), exceptions: lines(five) };
-  if (type === 'structure') return { type, purpose: one.trim(), components: lines(two).map((line, index) => { const [rawId = '', rawLabel = '', role = '', parentId = ''] = segments(line); const label = rawLabel || rawId; return { id: rawLabel ? rawId : slug(label, index), label, role, ...(parentId ? { parent_id: parentId } : {}) }; }).filter((item) => item.label), relations: lines(three).map((line) => { const [source_id = '', target_id = '', label = ''] = segments(line); return { source_id, target_id, label }; }).filter((item) => item.source_id && item.target_id && item.label), boundaries: lines(four) };
+  if (type === 'concept') return { type, definition: one.trim(), key_points: lines(two), examples: lines(three), non_examples: lines(four), misconceptions: pairRows(five, true).map(([claim, correction]) => ({ claim, correction })) };
+  if (type === 'procedure') return { type, goal: one.trim(), prerequisites: lines(two), steps: pairRows(three, false).map(([title, detail]) => ({ title, detail })), branches: pairRows(four, true).map(([condition, action]) => ({ condition, action })), failure_modes: pairRows(five, true).map(([symptom, response]) => ({ symptom, response })), done_when: lines(six) };
+  if (type === 'comparison') return { type, targets: lines(one), criteria: criteriaRows(two).map(([name, values]) => ({ name, values })), commonalities: lines(three), differences: lines(four), choice_guide: pairRows(five, true).map(([condition, recommendation]) => ({ condition, recommendation })) };
+  if (type === 'mechanism') return { type, causes: lines(one), stages: pairRows(two, false).map(([title, detail]) => ({ title, detail })), results: lines(three), conditions: lines(four), exceptions: lines(five) };
+  if (type === 'structure') return { type, purpose: one.trim(), components: componentRows(two), relations: relationRows(three).map(([source_id, target_id, label]) => ({ source_id, target_id, label })), boundaries: lines(four) };
   if (type === 'question') return { type, question: one.trim(), context: two.trim(), known_facts: lines(three), hypotheses: lines(four), next_steps: lines(five), answer_summary: six.trim(), status: seven.trim().toLowerCase() === 'answered' ? 'answered' : 'open' };
-  if (type === 'decision') return { type, decision: one.trim(), context: two.trim(), options: pairs(three).map(([name, tradeoffs]) => ({ name, tradeoffs })), criteria: lines(four), rationale: lines(five), reconsider_when: lines(six), outcome: seven.trim() };
+  if (type === 'decision') return { type, decision: one.trim(), context: two.trim(), options: pairRows(three, false).map(([name, tradeoffs]) => ({ name, tradeoffs })), criteria: lines(four), rationale: lines(five), reconsider_when: lines(six), outcome: seven.trim() };
   if (type === 'event') {
     const chronology = parseMobileChronology(seven);
     if (chronology === null) throw new Error('Enter a valid event chronology or leave it blank.');
     return { type, event: one.trim(), occurred_at: two.trim(), context: three.trim(), changes: lines(four), causes: lines(five), consequences: lines(six), ...(chronology ? { chronology } : {}) };
   }
   if (type === 'expression') {
-    const translations = parseStringTuplePairs(five);
-    const contrasts = parseStringTuplePairs(ten);
-    const commonMistakes = parseStringTuplePairs(eleven);
-    if ([...translations, ...contrasts, ...commonMistakes].some(([left, right]) => !left || !right)) {
-      throw new Error('Enter expression pairs as JSON tuples or complete legacy pairs.');
-    }
-    return { type, expression: one.trim(), language: two.trim(), pronunciation: three.trim(), meanings: lines(four), translations: translations.map(([language, text]) => ({ language, text })), register: six.trim(), nuance: seven.trim(), usage_contexts: lines(eight), examples: parseExpressionBundleExamples(nine), contrasts: contrasts.map(([expression, difference]) => ({ expression, difference })), common_mistakes: commonMistakes.map(([incorrect, correction]) => ({ incorrect, correction })) };
+    const translations = pairRows(five, true);
+    const contrasts = pairRows(ten, true);
+    const commonMistakes = pairRows(eleven, true);
+    const validExamples = jsonRowsAreValid(nine, (row) => Array.isArray(row) && row.length >= 1 && row.length <= 3 && row.every((item) => typeof item === 'string') && Boolean(row[0].trim()));
+    const examples = parseExpressionBundleExamples(nine);
+    if (!validExamples || examples.some((item) => !item.text.trim())) throw new Error('Enter one valid expression example JSON row per line.');
+    return { type, expression: one.trim(), language: two.trim(), pronunciation: three.trim(), meanings: lines(four), translations: translations.map(([language, text]) => ({ language, text })), register: six.trim(), nuance: seven.trim(), usage_contexts: lines(eight), examples, contrasts: contrasts.map(([expression, difference]) => ({ expression, difference })), common_mistakes: commonMistakes.map(([incorrect, correction]) => ({ incorrect, correction })) };
   }
   const confidence = six.trim().toLowerCase();
-  return { type, claim: one.trim(), evidence: pairs(two).map(([statement, source]) => ({ statement, ...(source ? { source } : {}) })), counterevidence: lines(three), scope: lines(four), limitations: lines(five), ...(['low', 'medium', 'high'].includes(confidence) ? { confidence: confidence as 'low' | 'medium' | 'high' } : {}) };
+  return { type, claim: one.trim(), evidence: pairRows(two, false).map(([statement, source]) => ({ statement, ...(source ? { source } : {}) })), counterevidence: lines(three), scope: lines(four), limitations: lines(five), ...(['low', 'medium', 'high'].includes(confidence) ? { confidence: confidence as 'low' | 'medium' | 'high' } : {}) };
 }
 
 export function mobileKnowledgeBundleEditValues(value: KnowledgeBundleContent | null, legacyContent = ''): string[] {
   if (!value) return [legacyContent, '', '', '', '', ''];
-  if (value.type === 'concept') return [value.definition, value.key_points.join('\n'), value.examples.join('\n'), value.non_examples.join('\n'), value.misconceptions.map((item) => `${item.claim} :: ${item.correction}`).join('\n'), ''];
-  if (value.type === 'procedure') return [value.goal, value.prerequisites.join('\n'), value.steps.map((item) => `${item.title}${item.detail ? ` :: ${item.detail}` : ''}`).join('\n'), value.branches.map((item) => `${item.condition} :: ${item.action}`).join('\n'), value.failure_modes.map((item) => `${item.symptom} :: ${item.response}`).join('\n'), value.done_when.join('\n')];
-  if (value.type === 'comparison') return [value.targets.join('\n'), value.criteria.map((item) => `${item.name} :: ${item.values.join(' | ')}`).join('\n'), value.commonalities.join('\n'), value.differences.join('\n'), value.choice_guide.map((item) => `${item.condition} :: ${item.recommendation}`).join('\n'), ''];
-  if (value.type === 'mechanism') return [value.causes.join('\n'), value.stages.map((item) => `${item.title}${item.detail ? ` :: ${item.detail}` : ''}`).join('\n'), value.results.join('\n'), value.conditions.join('\n'), value.exceptions.join('\n'), ''];
-  if (value.type === 'structure') return [value.purpose, value.components.map((item) => [item.id, item.label, item.role, item.parent_id ?? ''].join(' :: ')).join('\n'), value.relations.map((item) => `${item.source_id} :: ${item.target_id} :: ${item.label}`).join('\n'), value.boundaries.join('\n'), '', ''];
+  if (value.type === 'concept') return [value.definition, value.key_points.join('\n'), value.examples.join('\n'), value.non_examples.join('\n'), serializeStringTuplePairs(value.misconceptions.map((item) => [item.claim, item.correction])), ''];
+  if (value.type === 'procedure') return [value.goal, value.prerequisites.join('\n'), serializeStringTuplePairs(value.steps.map((item) => [item.title, item.detail])), serializeStringTuplePairs(value.branches.map((item) => [item.condition, item.action])), serializeStringTuplePairs(value.failure_modes.map((item) => [item.symptom, item.response])), value.done_when.join('\n')];
+  if (value.type === 'comparison') return [value.targets.join('\n'), serializeComparisonCriteriaRows(value.criteria.map((item) => [item.name, item.values])), value.commonalities.join('\n'), value.differences.join('\n'), serializeStringTuplePairs(value.choice_guide.map((item) => [item.condition, item.recommendation])), ''];
+  if (value.type === 'mechanism') return [value.causes.join('\n'), serializeStringTuplePairs(value.stages.map((item) => [item.title, item.detail])), value.results.join('\n'), value.conditions.join('\n'), value.exceptions.join('\n'), ''];
+  if (value.type === 'structure') return [value.purpose, serializeStructureComponentRows(value.components.map((item) => [item.id, item.label, item.role, item.parent_id ?? ''])), serializeStructureRelationRows(value.relations.map((item) => [item.source_id, item.target_id, item.label])), value.boundaries.join('\n'), '', ''];
   if (value.type === 'question') return [value.question, value.context, value.known_facts.join('\n'), value.hypotheses.join('\n'), value.next_steps.join('\n'), value.answer_summary, value.status];
-  if (value.type === 'decision') return [value.decision, value.context, value.options.map((item) => `${item.name}${item.tradeoffs ? ` :: ${item.tradeoffs}` : ''}`).join('\n'), value.criteria.join('\n'), value.rationale.join('\n'), value.reconsider_when.join('\n'), value.outcome];
+  if (value.type === 'decision') return [value.decision, value.context, serializeStringTuplePairs(value.options.map((item) => [item.name, item.tradeoffs])), value.criteria.join('\n'), value.rationale.join('\n'), value.reconsider_when.join('\n'), value.outcome];
   if (value.type === 'event') return [value.event, value.occurred_at, value.context, value.changes.join('\n'), value.causes.join('\n'), value.consequences.join('\n'), serializeMobileChronology(value.chronology)];
   if (value.type === 'expression') return [value.expression, value.language, value.pronunciation, value.meanings.join('\n'), serializeStringTuplePairs(value.translations.map((item) => [item.language, item.text])), value.register, value.nuance, value.usage_contexts.join('\n'), serializeExpressionBundleExamples(value.examples), serializeStringTuplePairs(value.contrasts.map((item) => [item.expression, item.difference])), serializeStringTuplePairs(value.common_mistakes.map((item) => [item.incorrect, item.correction]))];
-  return [value.claim, value.evidence.map((item) => `${item.statement}${item.source ? ` :: ${item.source}` : ''}`).join('\n'), value.counterevidence.join('\n'), value.scope.join('\n'), value.limitations.join('\n'), value.confidence ?? ''];
+  return [value.claim, serializeStringTuplePairs(value.evidence.map((item) => [item.statement, item.source ?? ''])), value.counterevidence.join('\n'), value.scope.join('\n'), value.limitations.join('\n'), value.confidence ?? ''];
 }

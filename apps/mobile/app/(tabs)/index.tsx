@@ -30,6 +30,7 @@ import { mobileApi, type GraphCardSummary, type PersonalNoteSummary } from '@/ap
 import { isCurrentPrivateGraphOwner } from '@/browse-concepts';
 import { useMobileAuth } from '@/auth';
 import { LanguageSelector } from '@/components/language-selector';
+import { KnowledgeText } from '@/components/knowledge-text';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 import { useI18n } from '@/i18n';
 import { normalizeCardNodeId, useLocalizedContent } from '@/localized-content';
@@ -169,8 +170,8 @@ export default function HomeScreen() {
                 <View style={[styles.domainDot, { backgroundColor: getDomainColor(selectedNode.domain) }]} />
                 <Text style={styles.detailDomain}>{domainFor(selectedNode)}</Text>
               </View>
-              <Text style={styles.detailTitle}>{labelFor(selectedNode)}</Text>
-              <Text style={styles.detailText}>{summaryFor(selectedNode)}</Text>
+              <KnowledgeText value={labelFor(selectedNode)} direction={direction} numberOfLines={2} style={styles.detailTitle} />
+              <KnowledgeText value={summaryFor(selectedNode)} direction={direction} numberOfLines={5} style={styles.detailText} />
               <TranslationFallbackNotice dark translation={localized.get(selectedNode.id)} />
               <View style={styles.metaRow}>
                 <Text style={styles.metaChip}>{typeFor(selectedNode)}</Text>
@@ -196,7 +197,16 @@ export default function HomeScreen() {
                   </Pressable>
                 </View>
                 <Text style={styles.personalCopy}>{t('home.privateNotesCopy')}</Text>
-                {currentPersonalNotes.slice(0, 3).map((note) => <Text key={note.id} style={styles.personalNote} numberOfLines={1}>● {note.title}</Text>)}
+                {currentPersonalNotes.slice(0, 3).map((note) => (
+                  <KnowledgeText
+                    key={note.id}
+                    value={note.title}
+                    direction={direction}
+                    numberOfLines={1}
+                    prefix="● "
+                    style={styles.personalNote}
+                  />
+                ))}
               </View>
             ) : null}
 
