@@ -117,12 +117,12 @@ function IgnoreButton() {
   return <button type="submit" disabled={pending} onClick={(event) => { if (!window.confirm(t('resolution.ignoreConfirm'))) event.preventDefault(); }} className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">{pending ? t('resolution.ignoring') : t('resolution.ignore')}</button>;
 }
 
-function BundlePreview({ value }: { value: Seed }) {
+function BundlePreview({ value, legacyExplanation = false }: { value: Seed; legacyExplanation?: boolean }) {
   return value.knowledge_type && value.central_question && value.structured_content ? (
     <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
       <KnowledgeBundleView type={value.knowledge_type} centralQuestion={value.central_question} content={value.structured_content} compact />
     </div>
-  ) : value.content ? <p className="mt-3 line-clamp-5 whitespace-pre-wrap text-sm leading-relaxed text-slate-600"><KnowledgeText text={value.content} legacyDollarMath /></p> : null;
+  ) : value.content ? <p className="mt-3 line-clamp-5 whitespace-pre-wrap text-sm leading-relaxed text-slate-600"><KnowledgeText text={value.content} legacyDollarMath={legacyExplanation} /></p> : null;
 }
 
 export default function DraftResolutionPanel({
@@ -276,7 +276,7 @@ export default function DraftResolutionPanel({
               <h3 className="mt-2 text-lg font-black text-slate-950"><KnowledgeText text={candidate.title} /></h3>
               {candidate.central_question ? <p className="mt-1 font-semibold text-blue-950"><KnowledgeText text={candidate.central_question} /></p> : null}
               {candidate.summary ? <p className="mt-2 text-sm text-slate-600"><KnowledgeText text={candidate.summary} /></p> : null}
-              <BundlePreview value={candidate} />
+              <BundlePreview value={candidate} legacyExplanation />
             </article>
             <article className="rounded-2xl border border-violet-200 bg-white p-5">
               <p className="text-xs font-bold uppercase text-violet-700">{t('resolution.existingVersion', { version: target.version })}</p>

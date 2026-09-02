@@ -307,6 +307,9 @@ test('leaves legacy dollar math literal unless explicitly enabled', () => {
     { type: 'math', value: 'z = 3', display: true, source: '$$z = 3$$' },
     { type: 'text', value: '.' },
   ] satisfies KnowledgeTextToken[]);
+
+  const currency = 'Budget is $10 and coffee is $5';
+  assert.deepEqual(parseKnowledgeText(currency), [{ type: 'text', value: currency }]);
 });
 
 test('preserves unmatched legacy dollar delimiters when compatibility is enabled', () => {
@@ -386,4 +389,21 @@ test('renders the draft resolution heading through the rich knowledge renderer',
     source,
     /<h1[^>]*><KnowledgeText text=\{context\.draft\.title\} allowCodeCopy=\{false\} \/><\/h1>/,
   );
+});
+
+test('limits legacy dollar compatibility to known explanation surfaces', () => {
+  const topicPage = readFileSync(
+    new URL('../app/topics/[topic]/page.tsx', import.meta.url),
+    'utf8',
+  );
+  const resolutionPanel = readFileSync(
+    new URL('../components/draft-resolution-panel.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(topicPage, /<KnowledgeText text=\{item\.content\} \/>/);
+  assert.doesNotMatch(topicPage, /<KnowledgeText text=\{item\.content\} legacyDollarMath/);
+  assert.match(resolutionPanel, /legacyDollarMath=\{legacyExplanation\}/);
+  assert.match(resolutionPanel, /<BundlePreview value=\{candidate\} legacyExplanation \/>/);
+  assert.match(resolutionPanel, /<BundlePreview value=\{existing\} \/>/);
 });

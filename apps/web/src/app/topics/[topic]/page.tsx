@@ -287,7 +287,7 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
                         <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/40 p-4">
                           <KnowledgeBundleView type={item.knowledge_type} centralQuestion={item.central_question} content={item.structured_content} />
                         </div>
-                      ) : item.content ? <p className="mt-5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"><KnowledgeText text={item.content} legacyDollarMath /></p> : null}
+                      ) : item.content ? <p className="mt-5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"><KnowledgeText text={item.content} /></p> : null}
 
                       <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
                         {item.tags.map((tag) => <span key={tag} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">#{tag}</span>)}
