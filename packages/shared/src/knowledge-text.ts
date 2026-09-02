@@ -12,6 +12,8 @@ type ParsedToken = {
   end: number;
 };
 
+type FencedCodeResult = ParsedToken | { unclosed: true } | null;
+
 type ExplicitMathCloseIndexes = {
   display: Int32Array;
   inline: Int32Array;
@@ -43,7 +45,7 @@ function lineEnd(source: string, start: number) {
   };
 }
 
-function parseFencedCode(source: string, start: number): ParsedToken | null {
+function parseFencedCode(source: string, start: number): FencedCodeResult {
   if (!isLineStart(source, start) || !source.startsWith(FENCE, start)) return null;
 
   const header = lineEnd(source, start + FENCE.length);
@@ -73,7 +75,7 @@ function parseFencedCode(source: string, start: number): ParsedToken | null {
     closingStart = closingLine.newline + 1;
   }
 
-  return null;
+  return { unclosed: true };
 }
 
 function backtickRunLength(source: string, start: number) {
@@ -193,6 +195,10 @@ export function parseKnowledgeText(
     if (source[index] === '`') {
       const fenced = parseFencedCode(source, index);
       if (fenced) {
+        if ('unclosed' in fenced) {
+          appendText(tokens, source.slice(index));
+          break;
+        }
         tokens.push(fenced.token);
         index = fenced.end;
         continue;

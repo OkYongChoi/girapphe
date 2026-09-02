@@ -69,6 +69,17 @@ test('preserves unmatched explicit delimiters and code fences as literal text', 
   }
 });
 
+test('keeps notation inside an unclosed fenced block literal', () => {
+  const source = 'Before\n```ts\nconst formula = "\\(x\\)";\nconst code = `x`;';
+  assert.deepEqual(parseKnowledgeText(source), [{ type: 'text', value: source }]);
+  assert.equal(hasKnowledgeNotation(source), false);
+
+  assert.deepEqual(parseKnowledgeText('\\(outside\\)\n```ts\n\\(inside\\)'), [
+    { type: 'math', value: 'outside', display: false, source: '\\(outside\\)' },
+    { type: 'text', value: '\n```ts\n\\(inside\\)' },
+  ] satisfies KnowledgeTextToken[]);
+});
+
 test('skips whole mismatched closing backtick runs', () => {
   for (const source of ['`a``', '`a```', '``a```', '``a````']) {
     assert.deepEqual(parseKnowledgeText(source), [{ type: 'text', value: source }]);
