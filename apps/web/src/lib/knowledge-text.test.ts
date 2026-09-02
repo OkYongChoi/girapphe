@@ -69,6 +69,20 @@ test('preserves unmatched explicit delimiters and code fences as literal text', 
   }
 });
 
+test('skips whole mismatched closing backtick runs', () => {
+  for (const source of ['`a``', '`a```', '``a```', '``a````']) {
+    assert.deepEqual(parseKnowledgeText(source), [{ type: 'text', value: source }]);
+    assert.equal(hasKnowledgeNotation(source), false);
+  }
+
+  assert.deepEqual(parseKnowledgeText('`a``b`'), [
+    { type: 'code', value: 'a``b', block: false },
+  ] satisfies KnowledgeTextToken[]);
+  assert.deepEqual(parseKnowledgeText('``a````b``'), [
+    { type: 'code', value: 'a````b', block: false },
+  ] satisfies KnowledgeTextToken[]);
+});
+
 test('handles many unmatched explicit math openers in linear time', () => {
   const source = '\\('.repeat(30_000);
   const startedAt = performance.now();

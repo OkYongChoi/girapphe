@@ -86,8 +86,9 @@ function findInlineCodeEnd(source: string, start: number, delimiterLength: numbe
   const delimiter = '`'.repeat(delimiterLength);
   let candidate = source.indexOf(delimiter, start);
   while (candidate !== -1) {
-    if (backtickRunLength(source, candidate) === delimiterLength) return candidate;
-    candidate = source.indexOf(delimiter, candidate + delimiterLength);
+    const candidateRunLength = backtickRunLength(source, candidate);
+    if (candidateRunLength === delimiterLength) return candidate;
+    candidate = source.indexOf(delimiter, candidate + candidateRunLength);
   }
   return -1;
 }
