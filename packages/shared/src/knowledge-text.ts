@@ -14,6 +14,10 @@ type ParsedToken = {
 
 type FencedCodeResult = ParsedToken | { unclosed: true } | null;
 
+type CodePartition =
+  | { type: 'source'; value: string; parseMath: boolean }
+  | Exclude<KnowledgeTextToken, { type: 'text' }>;
+
 type ExplicitMathCloseIndexes = {
   display: Int32Array;
   inline: Int32Array;
@@ -30,6 +34,20 @@ function appendText(tokens: KnowledgeTextToken[], value: string) {
     return;
   }
   tokens.push({ type: 'text', value });
+}
+
+function appendCodeSource(
+  partitions: CodePartition[],
+  value: string,
+  parseMath: boolean,
+) {
+  if (!value) return;
+  const previous = partitions[partitions.length - 1];
+  if (previous?.type === 'source' && previous.parseMath === parseMath) {
+    previous.value += value;
+    return;
+  }
+  partitions.push({ type: 'source', value, parseMath });
 }
 
 function isLineStart(source: string, index: number) {
@@ -107,6 +125,47 @@ function parseInlineCode(source: string, start: number): ParsedToken | null {
   };
 }
 
+function partitionKnowledgeCode(source: string): CodePartition[] {
+  const partitions: CodePartition[] = [];
+  let index = 0;
+
+  while (index < source.length) {
+    if (source[index] !== '`') {
+      appendCodeSource(partitions, source[index] ?? '', true);
+      index += 1;
+      continue;
+    }
+
+    const fenced = parseFencedCode(source, index);
+    if (fenced) {
+      if ('unclosed' in fenced) {
+        appendCodeSource(partitions, source.slice(index), false);
+        break;
+      }
+      partitions.push(fenced.token);
+      index = fenced.end;
+      continue;
+    }
+
+    const inline = parseInlineCode(source, index);
+    if (inline) {
+      partitions.push(inline.token);
+      index = inline.end;
+      continue;
+    }
+
+    const runLength = backtickRunLength(source, index);
+    if (runLength <= 2) {
+      appendCodeSource(partitions, source.slice(index), false);
+      break;
+    }
+    appendCodeSource(partitions, source.slice(index, index + runLength), true);
+    index += runLength;
+  }
+
+  return partitions;
+}
+
 function indexExplicitMathClosers(source: string): ExplicitMathCloseIndexes {
   const display = new Int32Array(source.length + 1);
   const inline = new Int32Array(source.length + 1);
@@ -181,9 +240,9 @@ function parseLegacyDollarMath(source: string, start: number): ParsedToken | nul
   };
 }
 
-export function parseKnowledgeText(
+function parseMathSource(
   source: string,
-  options: ParseKnowledgeTextOptions = {},
+  options: ParseKnowledgeTextOptions,
 ): KnowledgeTextToken[] {
   const tokens: KnowledgeTextToken[] = [];
   const explicitMathCloseIndexes = source.includes('\\(') || source.includes('\\[')
@@ -192,35 +251,6 @@ export function parseKnowledgeText(
   let index = 0;
 
   while (index < source.length) {
-    if (source[index] === '`') {
-      const fenced = parseFencedCode(source, index);
-      if (fenced) {
-        if ('unclosed' in fenced) {
-          appendText(tokens, source.slice(index));
-          break;
-        }
-        tokens.push(fenced.token);
-        index = fenced.end;
-        continue;
-      }
-
-      const inline = parseInlineCode(source, index);
-      if (inline) {
-        tokens.push(inline.token);
-        index = inline.end;
-        continue;
-      }
-
-      const runLength = backtickRunLength(source, index);
-      if (runLength <= 2) {
-        appendText(tokens, source.slice(index));
-        break;
-      }
-      appendText(tokens, source.slice(index, index + runLength));
-      index += runLength;
-      continue;
-    }
-
     const explicitMath = explicitMathCloseIndexes
       ? parseExplicitMath(source, index, explicitMathCloseIndexes)
       : null;
@@ -245,6 +275,30 @@ export function parseKnowledgeText(
 
     appendText(tokens, source[index] ?? '');
     index += 1;
+  }
+
+  return tokens;
+}
+
+export function parseKnowledgeText(
+  source: string,
+  options: ParseKnowledgeTextOptions = {},
+): KnowledgeTextToken[] {
+  const tokens: KnowledgeTextToken[] = [];
+
+  for (const partition of partitionKnowledgeCode(source)) {
+    if (partition.type !== 'source') {
+      tokens.push(partition);
+      continue;
+    }
+    if (!partition.parseMath) {
+      appendText(tokens, partition.value);
+      continue;
+    }
+    for (const token of parseMathSource(partition.value, options)) {
+      if (token.type === 'text') appendText(tokens, token.value);
+      else tokens.push(token);
+    }
   }
 
   return tokens;

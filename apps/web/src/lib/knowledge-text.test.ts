@@ -41,6 +41,73 @@ test('gives inline and fenced code precedence over math delimiters', () => {
   ] satisfies KnowledgeTextToken[]);
 });
 
+test('does not close math across inline or fenced code boundaries', () => {
+  assert.deepEqual(parseKnowledgeText('before \\(open `\\)` after'), [
+    { type: 'text', value: 'before \\(open ' },
+    { type: 'code', value: '\\)', block: false },
+    { type: 'text', value: ' after' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(parseKnowledgeText('before \\(open `code` \\) after'), [
+    { type: 'text', value: 'before \\(open ' },
+    { type: 'code', value: 'code', block: false },
+    { type: 'text', value: ' \\) after' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(parseKnowledgeText('before \\(open `\\)` then \\(real\\)'), [
+    { type: 'text', value: 'before \\(open ' },
+    { type: 'code', value: '\\)', block: false },
+    { type: 'text', value: ' then ' },
+    { type: 'math', value: 'real', display: false, source: '\\(real\\)' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(parseKnowledgeText('\\(done\\) then `\\)`'), [
+    { type: 'math', value: 'done', display: false, source: '\\(done\\)' },
+    { type: 'text', value: ' then ' },
+    { type: 'code', value: '\\)', block: false },
+  ] satisfies KnowledgeTextToken[]);
+
+  const fenced = 'before \\(open\n```txt\n\\)\n```\nafter';
+  assert.deepEqual(parseKnowledgeText(fenced), [
+    { type: 'text', value: 'before \\(open\n' },
+    { type: 'code', value: '\\)\n', block: true, language: 'txt' },
+    { type: 'text', value: '\nafter' },
+  ] satisfies KnowledgeTextToken[]);
+
+  const displayFenced = 'before \\[open\n```txt\n\\]\n```\nafter';
+  assert.deepEqual(parseKnowledgeText(displayFenced), [
+    { type: 'text', value: 'before \\[open\n' },
+    { type: 'code', value: '\\]\n', block: true, language: 'txt' },
+    { type: 'text', value: '\nafter' },
+  ] satisfies KnowledgeTextToken[]);
+});
+
+test('does not treat unsupported backtick runs or invalid fences as code barriers', () => {
+  assert.deepEqual(parseKnowledgeText('\\(a ``` b\\)'), [
+    { type: 'math', value: 'a ``` b', display: false, source: '\\(a ``` b\\)' },
+  ] satisfies KnowledgeTextToken[]);
+
+  const invalidFence = '\\(a\n```not valid!\n\\)';
+  assert.deepEqual(parseKnowledgeText(invalidFence), [
+    { type: 'math', value: 'a\n```not valid!\n', display: false, source: invalidFence },
+  ] satisfies KnowledgeTextToken[]);
+});
+
+test('does not close legacy dollar math across code boundaries', () => {
+  assert.deepEqual(parseKnowledgeText('before $open `$` after', { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $open ' },
+    { type: 'code', value: '$', block: false },
+    { type: 'text', value: ' after' },
+  ] satisfies KnowledgeTextToken[]);
+
+  const fenced = 'before $$open\n```txt\n$$\n```\nafter';
+  assert.deepEqual(parseKnowledgeText(fenced, { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $$open\n' },
+    { type: 'code', value: '$$\n', block: true, language: 'txt' },
+    { type: 'text', value: '\nafter' },
+  ] satisfies KnowledgeTextToken[]);
+});
+
 test('parses a language-free fence and preserves blank lines and indentation', () => {
   const source = 'Before\n```\nfirst\n\n  second\n```\nAfter';
   assert.deepEqual(parseKnowledgeText(source), [
