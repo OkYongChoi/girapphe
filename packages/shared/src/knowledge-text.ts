@@ -18,6 +18,14 @@ type CodePartition =
   | { type: 'source'; value: string; parseMath: boolean }
   | Exclude<KnowledgeTextToken, { type: 'text' }>;
 
+type LegacyMathDelimiter = '$' | '$$';
+
+type ParsedMathSource = {
+  tokens: KnowledgeTextToken[];
+  unmatchedLegacyDelimiters: Set<LegacyMathDelimiter>;
+  blockedLegacyDelimiters: Set<LegacyMathDelimiter>;
+};
+
 type ExplicitMathCloseIndexes = {
   display: Int32Array;
   inline: Int32Array;
@@ -219,6 +227,35 @@ function findSingleDollarEnd(source: string, start: number) {
   return -1;
 }
 
+function legacyDelimiterMatchesAt(
+  source: string,
+  index: number,
+  delimiter: LegacyMathDelimiter,
+) {
+  if (delimiter === '$$') return source.startsWith('$$', index);
+  return source[index] === '$' && source[index - 1] !== '$' && source[index + 1] !== '$';
+}
+
+function sourceContainsLegacyDelimiter(source: string, delimiter: LegacyMathDelimiter) {
+  return delimiter === '$$'
+    ? source.includes('$$')
+    : findSingleDollarEnd(source, 0) !== -1;
+}
+
+function advanceLegacyDelimiterState(
+  source: string,
+  delimiters: Set<LegacyMathDelimiter>,
+) {
+  for (const delimiter of delimiters) {
+    if (
+      sourceContainsLegacyDelimiter(source, delimiter)
+      || (delimiter === '$' && source.includes('\n'))
+    ) {
+      delimiters.delete(delimiter);
+    }
+  }
+}
+
 function parseLegacyDollarMath(source: string, start: number): ParsedToken | null {
   if (source[start] !== '$') return null;
   const display = source.startsWith('$$', start);
@@ -243,11 +280,14 @@ function parseLegacyDollarMath(source: string, start: number): ParsedToken | nul
 function parseMathSource(
   source: string,
   options: ParseKnowledgeTextOptions,
-): KnowledgeTextToken[] {
+  initialBlockedLegacyDelimiters: ReadonlySet<LegacyMathDelimiter>,
+): ParsedMathSource {
   const tokens: KnowledgeTextToken[] = [];
   const explicitMathCloseIndexes = source.includes('\\(') || source.includes('\\[')
     ? indexExplicitMathClosers(source)
     : null;
+  const blockedLegacyDelimiters = new Set(initialBlockedLegacyDelimiters);
+  const unmatchedLegacyDelimiters = new Set<LegacyMathDelimiter>();
   let index = 0;
 
   while (index < source.length) {
@@ -255,29 +295,52 @@ function parseMathSource(
       ? parseExplicitMath(source, index, explicitMathCloseIndexes)
       : null;
     if (explicitMath) {
+      const explicitSource = source.slice(index, explicitMath.end);
+      advanceLegacyDelimiterState(explicitSource, blockedLegacyDelimiters);
+      advanceLegacyDelimiterState(explicitSource, unmatchedLegacyDelimiters);
       tokens.push(explicitMath.token);
       index = explicitMath.end;
       continue;
     }
 
     if (options.legacyDollarMath && source[index] === '$') {
+      const delimiter: LegacyMathDelimiter = source.startsWith('$$', index) ? '$$' : '$';
+      if (blockedLegacyDelimiters.has(delimiter)) {
+        const closesBlockedPair = legacyDelimiterMatchesAt(
+          source,
+          index,
+          delimiter,
+        );
+        appendText(tokens, source.slice(index, index + delimiter.length));
+        index += delimiter.length;
+        if (closesBlockedPair) blockedLegacyDelimiters.delete(delimiter);
+        continue;
+      }
       const legacyMath = parseLegacyDollarMath(source, index);
       if (legacyMath) {
+        const legacySource = source.slice(index, legacyMath.end);
+        advanceLegacyDelimiterState(legacySource, blockedLegacyDelimiters);
+        advanceLegacyDelimiterState(legacySource, unmatchedLegacyDelimiters);
+        unmatchedLegacyDelimiters.delete(delimiter);
         tokens.push(legacyMath.token);
         index = legacyMath.end;
         continue;
       }
-      const delimiterLength = source.startsWith('$$', index) ? 2 : 1;
-      appendText(tokens, source.slice(index, index + delimiterLength));
-      index += delimiterLength;
+      unmatchedLegacyDelimiters.add(delimiter);
+      appendText(tokens, source.slice(index, index + delimiter.length));
+      index += delimiter.length;
       continue;
     }
 
     appendText(tokens, source[index] ?? '');
+    if (source[index] === '\n') {
+      blockedLegacyDelimiters.delete('$');
+      unmatchedLegacyDelimiters.delete('$');
+    }
     index += 1;
   }
 
-  return tokens;
+  return { tokens, unmatchedLegacyDelimiters, blockedLegacyDelimiters };
 }
 
 export function parseKnowledgeText(
@@ -285,9 +348,21 @@ export function parseKnowledgeText(
   options: ParseKnowledgeTextOptions = {},
 ): KnowledgeTextToken[] {
   const tokens: KnowledgeTextToken[] = [];
+  // A legacy opener split from its greedy closer by code keeps ownership of one
+  // compatible closer, but both delimiters remain literal across that boundary.
+  let blockedLegacyDelimiters = new Set<LegacyMathDelimiter>();
+  let unmatchedLegacyDelimiters = new Set<LegacyMathDelimiter>();
 
   for (const partition of partitionKnowledgeCode(source)) {
     if (partition.type !== 'source') {
+      for (const delimiter of unmatchedLegacyDelimiters) {
+        blockedLegacyDelimiters.add(delimiter);
+      }
+      unmatchedLegacyDelimiters = new Set();
+      if (partition.type === 'code') {
+        if (partition.block) blockedLegacyDelimiters.delete('$');
+        advanceLegacyDelimiterState(partition.value, blockedLegacyDelimiters);
+      }
       tokens.push(partition);
       continue;
     }
@@ -295,7 +370,10 @@ export function parseKnowledgeText(
       appendText(tokens, partition.value);
       continue;
     }
-    for (const token of parseMathSource(partition.value, options)) {
+    const parsed = parseMathSource(partition.value, options, blockedLegacyDelimiters);
+    blockedLegacyDelimiters = parsed.blockedLegacyDelimiters;
+    unmatchedLegacyDelimiters = parsed.unmatchedLegacyDelimiters;
+    for (const token of parsed.tokens) {
       if (token.type === 'text') appendText(tokens, token.value);
       else tokens.push(token);
     }

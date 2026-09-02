@@ -106,6 +106,115 @@ test('does not close legacy dollar math across code boundaries', () => {
     { type: 'code', value: '$$\n', block: true, language: 'txt' },
     { type: 'text', value: '\nafter' },
   ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(parseKnowledgeText('before $open `code` $ after $real$', { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $open ' },
+    { type: 'code', value: 'code', block: false },
+    { type: 'text', value: ' $ after ' },
+    { type: 'math', value: 'real', display: false, source: '$real$' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(parseKnowledgeText('before $open `$` after $real$', { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $open ' },
+    { type: 'code', value: '$', block: false },
+    { type: 'text', value: ' after ' },
+    { type: 'math', value: 'real', display: false, source: '$real$' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(parseKnowledgeText('before $open `code` $real$', { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $open ' },
+    { type: 'code', value: 'code', block: false },
+    { type: 'text', value: ' $real$' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(parseKnowledgeText('before $open `code` $$real$$', { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $open ' },
+    { type: 'code', value: 'code', block: false },
+    { type: 'text', value: ' ' },
+    { type: 'math', value: 'real', display: true, source: '$$real$$' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(parseKnowledgeText('before $$open `code` $real$', { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $$open ' },
+    { type: 'code', value: 'code', block: false },
+    { type: 'text', value: ' ' },
+    { type: 'math', value: 'real', display: false, source: '$real$' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(
+    parseKnowledgeText('before $open `code` \\(inside $ closer\\) after $real$', { legacyDollarMath: true }),
+    [
+      { type: 'text', value: 'before $open ' },
+      { type: 'code', value: 'code', block: false },
+      { type: 'text', value: ' ' },
+      { type: 'math', value: 'inside $ closer', display: false, source: '\\(inside $ closer\\)' },
+      { type: 'text', value: ' after ' },
+      { type: 'math', value: 'real', display: false, source: '$real$' },
+    ] satisfies KnowledgeTextToken[],
+  );
+
+  assert.deepEqual(
+    parseKnowledgeText('before $$open `code` \\[inside $$ closer\\] after $$real$$', { legacyDollarMath: true }),
+    [
+      { type: 'text', value: 'before $$open ' },
+      { type: 'code', value: 'code', block: false },
+      { type: 'text', value: ' ' },
+      { type: 'math', value: 'inside $$ closer', display: true, source: '\\[inside $$ closer\\]' },
+      { type: 'text', value: ' after ' },
+      { type: 'math', value: 'real', display: true, source: '$$real$$' },
+    ] satisfies KnowledgeTextToken[],
+  );
+
+  const inlineAcrossFence = 'before $open\n```txt\ncode\n```\n$real$';
+  assert.deepEqual(parseKnowledgeText(inlineAcrossFence, { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $open\n' },
+    { type: 'code', value: 'code\n', block: true, language: 'txt' },
+    { type: 'text', value: '\n' },
+    { type: 'math', value: 'real', display: false, source: '$real$' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(parseKnowledgeText('before $open `code`\n$real$', { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $open ' },
+    { type: 'code', value: 'code', block: false },
+    { type: 'text', value: '\n' },
+    { type: 'math', value: 'real', display: false, source: '$real$' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(parseKnowledgeText('before $open `multi\nline` $real$', { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $open ' },
+    { type: 'code', value: 'multi\nline', block: false },
+    { type: 'text', value: ' ' },
+    { type: 'math', value: 'real', display: false, source: '$real$' },
+  ] satisfies KnowledgeTextToken[]);
+
+  assert.deepEqual(
+    parseKnowledgeText('before $open `code` \\[inside\nmath\\] after $real$', { legacyDollarMath: true }),
+    [
+      { type: 'text', value: 'before $open ' },
+      { type: 'code', value: 'code', block: false },
+      { type: 'text', value: ' ' },
+      { type: 'math', value: 'inside\nmath', display: true, source: '\\[inside\nmath\\]' },
+      { type: 'text', value: ' after ' },
+      { type: 'math', value: 'real', display: false, source: '$real$' },
+    ] satisfies KnowledgeTextToken[],
+  );
+
+  assert.deepEqual(parseKnowledgeText('before $a\n$b$ `code` $real$', { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $a\n' },
+    { type: 'math', value: 'b', display: false, source: '$b$' },
+    { type: 'text', value: ' ' },
+    { type: 'code', value: 'code', block: false },
+    { type: 'text', value: ' ' },
+    { type: 'math', value: 'real', display: false, source: '$real$' },
+  ] satisfies KnowledgeTextToken[]);
+
+  const resynchronizedDisplay = 'before $$open\n```txt\ncode\n```\n$$ after $$real$$';
+  assert.deepEqual(parseKnowledgeText(resynchronizedDisplay, { legacyDollarMath: true }), [
+    { type: 'text', value: 'before $$open\n' },
+    { type: 'code', value: 'code\n', block: true, language: 'txt' },
+    { type: 'text', value: '\n$$ after ' },
+    { type: 'math', value: 'real', display: true, source: '$$real$$' },
+  ] satisfies KnowledgeTextToken[]);
 });
 
 test('parses a language-free fence and preserves blank lines and indentation', () => {
