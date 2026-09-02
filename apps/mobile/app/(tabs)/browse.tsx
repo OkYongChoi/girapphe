@@ -32,6 +32,8 @@ import { useI18n } from '@/i18n';
 import { knowledgeBundleTypeLabel, quickNoteLabel } from '@/knowledge-bundle-ui';
 import { normalizeCardNodeId, useLocalizedContent } from '@/localized-content';
 import { KNOWLEDGE_BUNDLE_TYPES, localizeDomain, localizeType, type KnowledgeBundleType } from '@stem-brain/shared';
+import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
+import { KnowledgeText } from '@/components/knowledge-text';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 
 const DIFFICULTY_OPTIONS: DifficultyOption[] = ['All', 1, 2, 3, 4, 5];
@@ -276,18 +278,29 @@ export default function BrowseScreen() {
                         : ''}
                   </Text>
                 </View>
-                <Text style={styles.previewTitle}>
-                  {activeNote?.title ?? (activeNode ? labelFor(activeNode) : '')}
-                </Text>
+                <KnowledgeText
+                  value={activeNote?.title ?? (activeNode ? labelFor(activeNode) : '')}
+                  direction={direction}
+                  numberOfLines={2}
+                  style={styles.previewTitle}
+                />
                 {activeNote?.knowledge_type ? <Text style={styles.bundleBadge}>{knowledgeBundleTypeLabel(locale, activeNote.knowledge_type)}</Text> : null}
-                {activeNote?.central_question ? <Text style={styles.previewQuestion}>{activeNote.central_question}</Text> : null}
-                <Text style={styles.previewText} numberOfLines={6}>
-                  {activeNote
+                {activeNote?.central_question ? <KnowledgeText value={activeNote.central_question} direction={direction} numberOfLines={3} style={styles.previewQuestion} /> : null}
+                <KnowledgeText
+                  value={activeNote
                     ? activeNote.summary || activeNote.content || t('browse.privateCopy')
                     : activeNode
                       ? summaryFor(activeNode)
                       : ''}
-                </Text>
+                  direction={direction}
+                  numberOfLines={6}
+                  style={styles.previewText}
+                />
+                {activeNote?.structured_content ? (
+                  <View style={styles.previewBundle}>
+                    <MobileKnowledgeBundleView content={activeNote.structured_content} locale={locale} />
+                  </View>
+                ) : null}
                 {activeNode ? <TranslationFallbackNotice dark translation={localized.get(activeNode.id)} /> : null}
                 {activeNote?.tags.length ? (
                   <View style={styles.relatedRow}>
@@ -508,6 +521,11 @@ const styles = StyleSheet.create({
     color: '#d7dee8',
     fontSize: 15,
     lineHeight: 22,
+  },
+  previewBundle: {
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    padding: 12,
   },
   relatedRow: {
     flexDirection: 'row',

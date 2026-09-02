@@ -1,4 +1,3 @@
-import 'katex/dist/katex.min.css';
 import { getNextCard, getUserStats } from '@/actions/card-actions';
 import CardViewer from '@/components/card-viewer';
 import Navbar from '@/components/navbar';

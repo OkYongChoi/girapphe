@@ -45,6 +45,7 @@ import {
 import type { Locale } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 import { isPrivateKnowledgeMapEdgeType } from '@/lib/knowledge-map-private-edges';
+import KnowledgeText from '@/components/knowledge-text';
 
 const KnowledgeGraph3D = dynamic(() => import('./knowledge-graph-3d'), {
   ssr: false,
@@ -845,7 +846,7 @@ function KnowledgeCardItem({
             {getStatusLabel(card.status)}
           </span>
         </div>
-        <h3 className="font-bold text-lg mb-1 leading-tight text-gray-900">{card.title}</h3>
+        <h3 className="font-bold text-lg mb-1 leading-tight text-gray-900"><KnowledgeText text={card.title} allowCodeCopy={false} /></h3>
         {card.isPersonal && card.createdAt ? (
           <p className="mb-2 text-xs text-gray-500">
             {t('knowledge.added', { date: new Date(card.createdAt).toLocaleDateString() })}
@@ -867,7 +868,7 @@ function KnowledgeCardItem({
             ))}
           </div>
         ) : null}
-        <p className="text-sm text-gray-700 line-clamp-2 mb-3">{card.summary}</p>
+        <p className="text-sm text-gray-700 line-clamp-2 mb-3"><KnowledgeText text={card.summary} allowCodeCopy={false} /></p>
       </div>
 
       {card.wiki_url && (

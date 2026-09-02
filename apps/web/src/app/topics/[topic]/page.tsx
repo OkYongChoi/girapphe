@@ -1,6 +1,7 @@
 import Navbar from '@/components/navbar';
 import { historicalTimePointKey } from '@stem-brain/shared';
 import KnowledgeBundleView from '@/components/knowledge-bundle-view';
+import KnowledgeText from '@/components/knowledge-text';
 import TopicLocalGraph from '@/components/topic-local-graph';
 import TopicContextPackSelector from '@/components/topic-context-pack-selector';
 import KnowledgeLifecycleControls from '@/components/knowledge-lifecycle-controls';
@@ -137,14 +138,14 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
         <nav aria-label={t('nav.topics')} className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-600">
           <LocalizedLink href="/topics" className="text-blue-700 hover:underline">{t('nav.topics')}</LocalizedLink>
           <span aria-hidden="true">/</span>
-          <span aria-current="page">{hub.topic}</span>
+          <span aria-current="page"><KnowledgeText text={hub.topic} /></span>
         </nav>
 
         <header className="mt-5 overflow-hidden rounded-3xl border border-blue-200 bg-gradient-to-br from-blue-950 via-slate-950 to-cyan-950 p-6 text-white shadow-xl md:p-9">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div className="max-w-3xl">
               <p className="text-xs font-bold uppercase tracking-[0.22em] text-cyan-300">{t('topic.index.eyebrow')}</p>
-              <h1 className="mt-3 break-words text-3xl font-black tracking-tight md:text-5xl">{hub.topic}</h1>
+              <h1 className="mt-3 break-words text-3xl font-black tracking-tight md:text-5xl"><KnowledgeText text={hub.topic} /></h1>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-300 md:text-base">
                 {t('topic.index.body')}
               </p>
@@ -231,9 +232,9 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
                 return (
                   <li key={item.id} className="rounded-2xl border border-violet-200 bg-white p-5 shadow-sm">
                     <p className="text-xs font-bold uppercase tracking-wide text-violet-700">{t('bundle.status.open')} · {t('topic.index.confirmed')} v{item.version}</p>
-                    <a href={`#item-${encodeURIComponent(item.id)}`} className="mt-2 block text-lg font-bold text-slate-950 hover:text-blue-700 hover:underline">{content?.question ?? item.central_question ?? item.title}</a>
-                    {content?.context ? <p className="mt-2 text-sm leading-relaxed text-slate-600">{content.context}</p> : null}
-                    {content && content.next_steps.length > 0 ? <p className="mt-3 text-xs font-semibold text-slate-500">{t('topic.hub.next', { value: content.next_steps.join(' · ') })}</p> : null}
+                    <a href={`#item-${encodeURIComponent(item.id)}`} className="mt-2 block text-lg font-bold text-slate-950 hover:text-blue-700 hover:underline"><KnowledgeText text={content?.question ?? item.central_question ?? item.title} allowCodeCopy={false} /></a>
+                    {content?.context ? <p className="mt-2 text-sm leading-relaxed text-slate-600"><KnowledgeText text={content.context} /></p> : null}
+                    {content && content.next_steps.length > 0 ? <p className="mt-3 text-xs font-semibold text-slate-500"><KnowledgeText text={t('topic.hub.next', { value: content.next_steps.join(' · ') })} /></p> : null}
                   </li>
                 );
               })}
@@ -272,9 +273,9 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
                             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">v{item.version}</span>
                             <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">{item.knowledge_type ? t(`bundle.type.${item.knowledge_type}` as MessageKey) : t('topic.context.legacy')}</span>
                           </div>
-                          <h3 className="mt-3 text-xl font-black tracking-tight text-slate-950">{item.title}</h3>
-                          {item.central_question ? <p className="mt-2 text-base font-semibold leading-relaxed text-blue-950">{item.central_question}</p> : null}
-                          {item.summary ? <p className="mt-2 text-sm leading-relaxed text-slate-600">{item.summary}</p> : null}
+                          <h3 className="mt-3 text-xl font-black tracking-tight text-slate-950"><KnowledgeText text={item.title} /></h3>
+                          {item.central_question ? <p className="mt-2 text-base font-semibold leading-relaxed text-blue-950"><KnowledgeText text={item.central_question} /></p> : null}
+                          {item.summary ? <p className="mt-2 text-sm leading-relaxed text-slate-600"><KnowledgeText text={item.summary} /></p> : null}
                         </div>
                         <div className="text-end text-xs text-slate-500">
                           <p>{t('notes.updated', { date: formatDate(item.updated_at, { dateStyle: 'medium' }) })}</p>
@@ -286,7 +287,7 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
                         <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/40 p-4">
                           <KnowledgeBundleView type={item.knowledge_type} centralQuestion={item.central_question} content={item.structured_content} />
                         </div>
-                      ) : item.content ? <p className="mt-5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{item.content}</p> : null}
+                      ) : item.content ? <p className="mt-5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"><KnowledgeText text={item.content} /></p> : null}
 
                       <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
                         {item.tags.map((tag) => <span key={tag} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">#{tag}</span>)}
@@ -327,8 +328,8 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
                 return (
                   <li key={`event:${item.id}`} className="relative mb-5 rounded-2xl border border-cyan-200 bg-white p-4 shadow-sm before:absolute before:-start-[1.95rem] before:top-5 before:h-3 before:w-3 before:rounded-full before:bg-cyan-500 before:ring-4 before:ring-cyan-100">
                     <p className="text-xs font-bold uppercase tracking-wide text-cyan-700">{t('topic.hub.observedEvent')} · {eventTimeLabel(item) || t('topic.hub.undated')}</p>
-                    <h3 className="mt-2 font-bold text-slate-950">{content?.event ?? item.title}</h3>
-                    {content?.context ? <p className="mt-1 text-sm leading-relaxed text-slate-600">{content.context}</p> : null}
+                    <h3 className="mt-2 font-bold text-slate-950"><KnowledgeText text={content?.event ?? item.title} /></h3>
+                    {content?.context ? <p className="mt-1 text-sm leading-relaxed text-slate-600"><KnowledgeText text={content.context} /></p> : null}
                   </li>
                 );
               })}
@@ -340,7 +341,7 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">{t('topic.hub.history')}</p>
           <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">{t('topic.hub.history')}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">{t('topic.hub.historyBody')}</p>
-          {recentActivity.length > 0 ? <article className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="font-bold text-slate-950">{t('topic.hub.recentActivity')}</h3><ol className="mt-3 grid gap-2">{recentActivity.map((entry) => <li key={entry.id} className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-sm font-semibold text-slate-800">{activityDescription(entry, itemById, t(ACTIVITY_LABEL_KEYS[entry.activity_type]))}</p><p className="mt-1 text-xs text-slate-500">{formatDate(entry.created_at, { dateStyle: 'medium', timeStyle: 'short' })}</p></li>)}</ol></article> : null}
+          {recentActivity.length > 0 ? <article className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="font-bold text-slate-950">{t('topic.hub.recentActivity')}</h3><ol className="mt-3 grid gap-2">{recentActivity.map((entry) => <li key={entry.id} className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-sm font-semibold text-slate-800"><KnowledgeText text={activityDescription(entry, itemById, t(ACTIVITY_LABEL_KEYS[entry.activity_type]))} /></p><p className="mt-1 text-xs text-slate-500">{formatDate(entry.created_at, { dateStyle: 'medium', timeStyle: 'short' })}</p></li>)}</ol></article> : null}
           {hub.revisions.length === 0 && hub.supersessions.length === 0 ? (
             <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">{t('topic.hub.historyEmpty')}</p>
           ) : (
@@ -354,10 +355,10 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
                     return (
                       <li key={revision.id} className="rounded-xl bg-amber-50 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          {current ? <a href={`#item-${encodeURIComponent(current.id)}`} className="font-semibold text-slate-900 hover:text-blue-700 hover:underline">{title}</a> : <span className="font-semibold text-slate-900">{title} <span className="text-xs font-normal text-slate-500">({t('topic.hub.activity.superseded')})</span></span>}
+                          {current ? <a href={`#item-${encodeURIComponent(current.id)}`} className="font-semibold text-slate-900 hover:text-blue-700 hover:underline"><KnowledgeText text={title} allowCodeCopy={false} /></a> : <span className="font-semibold text-slate-900"><KnowledgeText text={title} /> <span className="text-xs font-normal text-slate-500">({t('topic.hub.activity.superseded')})</span></span>}
                           <span className="rounded-full bg-white px-2 py-1 text-xs font-bold text-amber-800">v{revision.version}</span>
                         </div>
-                        <p className="mt-1 text-xs text-slate-500">{formatDate(revision.created_at, { dateStyle: 'medium', timeStyle: 'short' })}{revision.change_reason ? ` · ${revision.change_reason}` : ''}</p>
+                        <p className="mt-1 text-xs text-slate-500">{formatDate(revision.created_at, { dateStyle: 'medium', timeStyle: 'short' })}{revision.change_reason ? <> · <KnowledgeText text={revision.change_reason} /></> : null}</p>
                       </li>
                     );
                   })}
@@ -374,8 +375,8 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
                     const replacementTitle = replacement?.title ?? historicalTitleById.get(entry.replacement_item_id) ?? t('topic.hub.replacementKnowledge');
                     return (
                       <li key={entry.id} className="rounded-xl bg-rose-50 p-3 text-sm">
-                        <p className="font-semibold text-slate-900">{oldTitle} <span aria-hidden="true">→</span> {replacement ? <a href={`#item-${encodeURIComponent(replacement.id)}`} className="text-blue-700 hover:underline">{replacementTitle}</a> : replacementTitle}</p>
-                        <p className="mt-1 text-xs text-slate-500">{formatDate(entry.created_at, { dateStyle: 'medium', timeStyle: 'short' })}{entry.reason ? ` · ${entry.reason}` : ''}</p>
+                        <p className="font-semibold text-slate-900"><KnowledgeText text={oldTitle} /> <span aria-hidden="true">→</span> {replacement ? <a href={`#item-${encodeURIComponent(replacement.id)}`} className="text-blue-700 hover:underline"><KnowledgeText text={replacementTitle} allowCodeCopy={false} /></a> : <KnowledgeText text={replacementTitle} />}</p>
+                        <p className="mt-1 text-xs text-slate-500">{formatDate(entry.created_at, { dateStyle: 'medium', timeStyle: 'short' })}{entry.reason ? <> · <KnowledgeText text={entry.reason} /></> : null}</p>
                       </li>
                     );
                   })}
@@ -406,7 +407,7 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{source.source_type}</span>
                       <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">{t(`topic.graph.origin.${source.relation_origin}` as MessageKey)}</span>
                     </div>
-                    <h3 className="mt-3 font-bold text-slate-950">{item?.title ?? t('topic.hub.confirmedSource')}</h3>
+                    <h3 className="mt-3 font-bold text-slate-950"><KnowledgeText text={item?.title ?? t('topic.hub.confirmedSource')} /></h3>
                     {location ? source.source_url ? (
                       <a href={source.source_url} target="_blank" rel="noreferrer noopener" className="mt-2 block break-all text-sm font-semibold text-blue-700 hover:underline">{t('topic.hub.openSource')} ↗</a>
                     ) : <p className="mt-2 break-all font-mono text-xs text-slate-600">{t('topic.hub.conversationReference', { value: location })}</p> : null}

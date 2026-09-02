@@ -3,10 +3,17 @@ import test from 'node:test';
 import {
   KNOWLEDGE_BUNDLE_TYPES,
   createKnowledgeBundleContentFromLegacy,
+  knowledgeBundleRowUsesJsonSyntax,
+  parseComparisonCriteriaRows,
   parseExpressionBundleExamples,
+  parseStructureComponentRows,
+  parseStructureRelationRows,
   parseStringTuplePairs,
   projectKnowledgeBundleContent,
+  serializeComparisonCriteriaRows,
   serializeExpressionBundleExamples,
+  serializeStructureComponentRows,
+  serializeStructureRelationRows,
   serializeStringTuplePairs,
   type KnowledgeBundleContent,
 } from '@stem-brain/shared';
@@ -57,20 +64,54 @@ test('preserves a legacy note body when starting each explicit bundle conversion
   }
 });
 
-test('expression example editor tuples preserve delimiters and optional fields', () => {
+test('multi-column editor JSON rows preserve inline code delimiters and optional fields', () => {
   const examples = [{
-    text: 'namespace :: name',
-    translation: '경로 :: 이름',
+    text: '`std::vector`',
+    translation: '`a | b`',
     note: 'C:\\names :: note',
   }];
   assert.deepEqual(parseExpressionBundleExamples(serializeExpressionBundleExamples(examples)), examples);
   assert.deepEqual(parseExpressionBundleExamples('namespace :: name'), [{ text: 'namespace :: name' }]);
   const pairs: Array<[string, string]> = [
+    ['`std::vector`', '`a | b`'],
     ['namespace :: name', 'distinction :: detail'],
-    ['incorrect :: value', 'correct :: value'],
   ];
   assert.deepEqual(parseStringTuplePairs(serializeStringTuplePairs(pairs)), pairs);
   assert.deepEqual(parseStringTuplePairs('legacy :: pair :: detail'), [['legacy', 'pair :: detail']]);
+
+  const criteria: Array<[string, string[]]> = [['`std::vector` :: choice', ['`a | b`', 'x :: y']]];
+  assert.deepEqual(parseComparisonCriteriaRows(serializeComparisonCriteriaRows(criteria)), criteria);
+  assert.deepEqual(parseComparisonCriteriaRows('Cost :: Low | High'), [['Cost', ['Low', 'High']]]);
+
+  const components: Array<[string, string, string, string]> = [
+    ['root', '`std::vector`', 'Combines `a | b` with x :: y', ''],
+    ['child', '`a | b`', 'Child role', 'root'],
+  ];
+  assert.deepEqual(parseStructureComponentRows(serializeStructureComponentRows(components)), components);
+  assert.deepEqual(parseStructureComponentRows('root :: Root :: Parent :: '), [['root', 'Root', 'Parent', '']]);
+
+  const relations: Array<[string, string, string]> = [['root', 'child', '`std::vector` maps `a | b` and x :: y']];
+  assert.deepEqual(parseStructureRelationRows(serializeStructureRelationRows(relations)), relations);
+  assert.deepEqual(parseStructureRelationRows('root :: child :: contains'), [['root', 'child', 'contains']]);
+});
+
+test('JSON row intent does not reject bracket-prefixed legacy or plain text', () => {
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('[Optional] :: Handle x'), false);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('[x, y] is an interval'), false);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["a", "b"] is a JavaScript array'), false);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", "right"]'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", "right"],'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", "right"]junk'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", "right"] ,'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left",] explanatory tail'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left" "right"] explanatory tail'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left", undefined] explanatory tail'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('  [  "left", "right"]'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('["left"'), true);
+  assert.equal(knowledgeBundleRowUsesJsonSyntax('[]'), true);
+  assert.deepEqual(parseExpressionBundleExamples('["a", "b"] is a JavaScript array'), [
+    { text: '["a", "b"] is a JavaScript array' },
+  ]);
 });
 
 test('rejects mismatched types, invalid nested references, unknown fields, and unsupported versions', () => {

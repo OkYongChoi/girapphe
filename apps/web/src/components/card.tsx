@@ -8,6 +8,7 @@ import { localizeDomain, localizeLevel } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 import TranslationFallbackBadge from '@/components/translation-fallback-badge';
 import KnowledgeBundleView from '@/components/knowledge-bundle-view';
+import KnowledgeText from '@/components/knowledge-text';
 
 const MathText = dynamic(() => import('./math-text'), {
   loading: () => <div className="h-12 animate-pulse rounded bg-amber-100/70" aria-hidden="true" />,
@@ -70,12 +71,14 @@ export default function Card({ card, revealed = true }: CardProps) {
       </div>
 
       <h2 className="text-2xl font-bold text-gray-900">
-        {!revealed && expressionDirection === 'reverse' && canReverseExpression ? t('bundle.type.expression') : card.title}
+        {!revealed && expressionDirection === 'reverse' && canReverseExpression
+          ? t('bundle.type.expression')
+          : <KnowledgeText text={card.title} />}
       </h2>
 
       {revealed ? (
         <div className="space-y-3 text-gray-600 leading-relaxed flex-grow">
-          <p>{card.summary}</p>
+          <p><KnowledgeText text={card.summary} /></p>
           {card.knowledge_type && card.central_question && card.structured_content ? (
             <KnowledgeBundleView type={card.knowledge_type} centralQuestion={card.central_question} content={card.structured_content} compact />
           ) : null}
@@ -93,9 +96,9 @@ export default function Card({ card, revealed = true }: CardProps) {
               <button type="button" aria-pressed={expressionDirection === 'forward'} onClick={() => setExpressionDirection('forward')} className={`min-h-10 rounded-lg px-3 text-xs font-bold ${expressionDirection === 'forward' ? 'bg-blue-700 text-white' : 'border border-blue-200 bg-white text-blue-800'}`}>{t('bundle.recall.expressionForward')}</button>
               <button type="button" disabled={!canReverseExpression} aria-pressed={expressionDirection === 'reverse'} onClick={() => setExpressionDirection('reverse')} className={`min-h-10 rounded-lg px-3 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40 ${expressionDirection === 'reverse' ? 'bg-blue-700 text-white' : 'border border-blue-200 bg-white text-blue-800'}`}>{t('bundle.recall.expressionReverse')}</button>
             </div>
-            <p className="text-lg font-semibold text-blue-950">{expressionCue}</p>
+            <p className="text-lg font-semibold text-blue-950"><KnowledgeText text={expressionCue} /></p>
             <p className="text-sm text-blue-800">{t('bundle.recall.expression')}</p>
-          </div> : card.central_question && card.knowledge_type ? <div className="mt-3 space-y-2"><p className="text-base font-semibold text-blue-950">{card.central_question}</p><p className="text-sm text-blue-800">{t(`bundle.recall.${card.knowledge_type}`)}</p></div> : <ul className="mt-3 space-y-2 text-sm text-blue-950">
+          </div> : card.central_question && card.knowledge_type ? <div className="mt-3 space-y-2"><p className="text-base font-semibold text-blue-950"><KnowledgeText text={card.central_question} /></p><p className="text-sm text-blue-800">{t(`bundle.recall.${card.knowledge_type}`)}</p></div> : <ul className="mt-3 space-y-2 text-sm text-blue-950">
             {frontPrompts.map((prompt) => (
               <li key={prompt} className="flex gap-2">
                 <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" aria-hidden="true" />

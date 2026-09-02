@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import Navbar from '@/components/navbar';
 import DraftResolutionPanel from '@/components/draft-resolution-panel';
+import KnowledgeText from '@/components/knowledge-text';
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
 import { getKnowledgeDraftBatch } from '@/actions/knowledge-ingestion-actions';
@@ -58,7 +59,7 @@ export default async function CandidateResolutionPage({ params, searchParams }: 
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="max-w-3xl">
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">{t('inbox.currentImport')}</p>
-              <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950">{context.draft.title}</h1>
+              <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950"><KnowledgeText text={context.draft.title} allowCodeCopy={false} /></h1>
               <p className="mt-3 text-sm leading-relaxed text-slate-600">{t('inbox.reviewSubtitle')}</p>
             </div>
             <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-end text-xs text-slate-600">

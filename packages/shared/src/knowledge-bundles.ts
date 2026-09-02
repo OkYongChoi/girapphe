@@ -135,6 +135,48 @@ export type EventChronology = {
 
 export type ExpressionBundleExample = { text: string; translation?: string; note?: string };
 
+function completeJsonArrayEnd(value: string) {
+  const closingStack: string[] = [];
+  let escaped = false;
+  let inString = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+
+    if (character === '"') inString = true;
+    else if (character === '[') closingStack.push(']');
+    else if (character === '{') closingStack.push('}');
+    else if (character === ']' || character === '}') {
+      if (closingStack.pop() !== character) return -1;
+      if (closingStack.length === 0) return index + 1;
+    }
+  }
+  return -1;
+}
+
+// Every supported structured row starts with a string; keep completed JSON-like prose on the legacy path.
+export function knowledgeBundleRowUsesJsonSyntax(line: string) {
+  const value = line.trim();
+  if (!/^\[\s*(?:"|\])/.test(value)) return false;
+  const completedArrayEnd = completeJsonArrayEnd(value);
+  if (completedArrayEnd === -1) return true;
+  try {
+    JSON.parse(value.slice(0, completedArrayEnd));
+  } catch {
+    return true;
+  }
+  const trailing = value.slice(completedArrayEnd);
+  if (!trailing.trim()) return true;
+  if (!/^\s/.test(trailing)) return true;
+  return /^[\s]*[,}\]]/.test(trailing);
+}
+
 export type ExpressionBundleContent = {
   type: 'expression';
   expression: string;
@@ -186,6 +228,73 @@ export function parseStringTuplePairs(value: string): Array<[string, string]> {
 
 export function serializeStringTuplePairs(pairs: ReadonlyArray<readonly [string, string]>): string {
   return pairs.map((pair) => JSON.stringify(pair)).join('\n');
+}
+
+export function parseComparisonCriteriaRows(value: string): Array<[string, string[]]> {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (
+        Array.isArray(parsed)
+        && parsed.length === 2
+        && typeof parsed[0] === 'string'
+        && Array.isArray(parsed[1])
+        && parsed[1].every((item) => typeof item === 'string')
+      ) {
+        return [parsed[0], parsed[1]];
+      }
+    } catch {
+      // Retain the legacy "criterion :: first | second" input format for compatibility.
+    }
+    const [name = '', ...rest] = line.split('::');
+    return [name.trim(), rest.join('::').split('|').map((item) => item.trim()).filter(Boolean)];
+  });
+}
+
+export function serializeComparisonCriteriaRows(rows: ReadonlyArray<readonly [string, readonly string[]]>): string {
+  return rows.map((row) => JSON.stringify(row)).join('\n');
+}
+
+export function parseStructureComponentRows(value: string): Array<[string, string, string, string]> {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (
+        Array.isArray(parsed)
+        && (parsed.length === 3 || parsed.length === 4)
+        && parsed.every((item) => typeof item === 'string')
+      ) {
+        return [parsed[0], parsed[1], parsed[2], parsed[3] ?? ''];
+      }
+    } catch {
+      // Retain the legacy "id :: label :: role :: parent" input format for compatibility.
+    }
+    const [id = '', label = '', role = '', parent = ''] = line.split('::').map((item) => item.trim());
+    return [id, label, role, parent];
+  });
+}
+
+export function serializeStructureComponentRows(rows: ReadonlyArray<readonly [string, string, string, string?]>): string {
+  return rows.map(([id, label, role, parent = '']) => JSON.stringify([id, label, role, parent])).join('\n');
+}
+
+export function parseStructureRelationRows(value: string): Array<[string, string, string]> {
+  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (Array.isArray(parsed) && parsed.length === 3 && parsed.every((item) => typeof item === 'string')) {
+        return [parsed[0], parsed[1], parsed[2]];
+      }
+    } catch {
+      // Retain the legacy "source :: target :: relationship" input format for compatibility.
+    }
+    const [source = '', target = '', label = ''] = line.split('::').map((item) => item.trim());
+    return [source, target, label];
+  });
+}
+
+export function serializeStructureRelationRows(rows: ReadonlyArray<readonly [string, string, string]>): string {
+  return rows.map((row) => JSON.stringify(row)).join('\n');
 }
 
 export type KnowledgeBundleContent =

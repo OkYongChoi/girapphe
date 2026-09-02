@@ -1,15 +1,22 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useId, useMemo, useState } from 'react';
 import {
   createEmptyKnowledgeBundleContent,
   createKnowledgeBundleContentFromLegacy,
   EVENT_TIME_PRECISIONS,
   KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
   KNOWLEDGE_BUNDLE_TYPES,
+  knowledgeBundleRowUsesJsonSyntax,
+  parseComparisonCriteriaRows,
   parseExpressionBundleExamples,
+  parseStructureComponentRows,
+  parseStructureRelationRows,
   parseStringTuplePairs,
+  serializeComparisonCriteriaRows,
   serializeExpressionBundleExamples,
+  serializeStructureComponentRows,
+  serializeStructureRelationRows,
   serializeStringTuplePairs,
   type KnowledgeBundleContent,
   type KnowledgeBundleType,
@@ -19,6 +26,7 @@ import {
 } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 import type { Translate } from '@/i18n/core';
+import KnowledgeBundleView from './knowledge-bundle-view';
 
 type KnowledgeBundleEditorProps = {
   defaultType?: KnowledgeBundleType | null;
@@ -35,47 +43,31 @@ function textLines(value: string) {
   return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
-function pairLines(value: string, left: string, right: string) {
-  return textLines(value).map((line) => {
-    const [first, ...rest] = line.split('::');
-    return { [left]: first.trim(), [right]: rest.join('::').trim() };
-  }).filter((item) => String(item[left]).length > 0 && String(item[right]).length > 0);
-}
-
 function listValue(values: string[]) { return values.join('\n'); }
-function pairValue(values: Array<Record<string, unknown>>, left: string, right: string) {
-  return values.map((item) => `${String(item[left] ?? '')} :: ${String(item[right] ?? '')}`).join('\n');
+
+function jsonRowsAreValid(value: string, isRow: (row: unknown) => boolean) {
+  return textLines(value).every((line) => {
+    if (!knowledgeBundleRowUsesJsonSyntax(line)) return true;
+    try {
+      return isRow(JSON.parse(line));
+    } catch {
+      return false;
+    }
+  });
 }
 
-function ExpressionExamplesArea({ examples, onChange, t }: {
-  examples: ExpressionBundleExample[];
-  onChange: (examples: ExpressionBundleExample[]) => void;
-  t: Translate;
-}) {
-  const [draft, setDraft] = useState(() => serializeExpressionBundleExamples(examples));
-  return (
-    <label className="grid gap-1 text-xs font-medium text-slate-700">
-      {t('bundle.field.examples')}
-      <textarea
-        className={areaClass}
-        value={draft}
-        onChange={(event) => {
-          setDraft(event.target.value);
-          onChange(parseExpressionBundleExamples(event.target.value));
-        }}
-      />
-      <span className="font-normal text-slate-500">{t('bundle.exampleTupleHelp')}</span>
-    </label>
-  );
-}
-
-function TuplePairsArea({ label, pairs, onChange, t }: {
+function StructuredRowsArea<Row>({ label, initialValue, help, parse, isJsonRow, isValidRows, onChange }: {
   label: string;
-  pairs: Array<[string, string]>;
-  onChange: (pairs: Array<[string, string]>) => void;
-  t: Translate;
+  initialValue: string;
+  help: string;
+  parse: (value: string) => Row[];
+  isJsonRow: (value: unknown) => boolean;
+  isValidRows: (rows: Row[]) => boolean;
+  onChange: (rows: Row[]) => void;
 }) {
-  const [draft, setDraft] = useState(() => serializeStringTuplePairs(pairs));
+  // Callers key this component by bundle type and field. Keeping the textarea
+  // draft local preserves exact valid input and incomplete JSON between renders.
+  const [draft, setDraft] = useState(initialValue);
   return (
     <label className="grid gap-1 text-xs font-medium text-slate-700">
       {label}
@@ -84,15 +76,112 @@ function TuplePairsArea({ label, pairs, onChange, t }: {
         value={draft}
         onChange={(event) => {
           const nextDraft = event.target.value;
-          const nextPairs = parseStringTuplePairs(nextDraft);
-          const valid = nextPairs.every(([left, right]) => Boolean(left && right));
-          event.currentTarget.setCustomValidity(valid ? '' : t('bundle.pairTupleHelp'));
+          const nextRows = parse(nextDraft);
+          const valid = jsonRowsAreValid(nextDraft, isJsonRow) && isValidRows(nextRows);
+          event.currentTarget.setCustomValidity(valid ? '' : help);
           setDraft(nextDraft);
-          if (valid) onChange(nextPairs);
+          if (valid) onChange(nextRows);
         }}
       />
-      <span className="font-normal text-slate-500">{t('bundle.pairTupleHelp')}</span>
+      <span className="font-normal text-slate-500">{help}</span>
     </label>
+  );
+}
+
+function ExpressionExamplesArea({ examples, onChange, t }: {
+  examples: ExpressionBundleExample[];
+  onChange: (examples: ExpressionBundleExample[]) => void;
+  t: Translate;
+}) {
+  return (
+    <StructuredRowsArea
+      label={t('bundle.field.examples')}
+      initialValue={serializeExpressionBundleExamples(examples)}
+      help={t('bundle.exampleTupleHelp')}
+      parse={parseExpressionBundleExamples}
+      isJsonRow={(row) => Array.isArray(row) && row.length >= 1 && row.length <= 3 && row.every((item) => typeof item === 'string') && Boolean(row[0].trim())}
+      isValidRows={(rows) => rows.every((row) => Boolean(row.text.trim()))}
+      onChange={onChange}
+    />
+  );
+}
+
+function TuplePairsArea({ label, pairs, requireRight = true, onChange, t }: {
+  label: string;
+  pairs: Array<[string, string]>;
+  requireRight?: boolean;
+  onChange: (pairs: Array<[string, string]>) => void;
+  t: Translate;
+}) {
+  return (
+    <StructuredRowsArea
+      label={label}
+      initialValue={serializeStringTuplePairs(pairs)}
+      help={t('bundle.pairTupleHelp')}
+      parse={parseStringTuplePairs}
+      isJsonRow={(row) => Array.isArray(row) && row.length === 2 && row.every((item) => typeof item === 'string')}
+      isValidRows={(rows) => rows.every(([left, right]) => Boolean(left.trim()) && (!requireRight || Boolean(right.trim())))}
+      onChange={onChange}
+    />
+  );
+}
+
+function CriteriaRowsArea({ criteria, onChange, t }: {
+  criteria: Array<{ name: string; values: string[] }>;
+  onChange: (criteria: Array<{ name: string; values: string[] }>) => void;
+  t: Translate;
+}) {
+  return (
+    <StructuredRowsArea
+      label={t('bundle.field.criteria')}
+      initialValue={serializeComparisonCriteriaRows(criteria.map((item) => [item.name, item.values]))}
+      help={t('bundle.criteriaHelp')}
+      parse={parseComparisonCriteriaRows}
+      isJsonRow={(row) => Array.isArray(row) && row.length === 2 && typeof row[0] === 'string' && Array.isArray(row[1]) && row[1].every((item) => typeof item === 'string')}
+      isValidRows={(rows) => rows.every(([name, values]) => Boolean(name.trim()) && values.length > 0 && values.every((value) => Boolean(value.trim())))}
+      onChange={(rows) => onChange(rows.map(([name, values]) => ({ name, values })))}
+    />
+  );
+}
+
+function ComponentRowsArea({ components, onChange, t }: {
+  components: Array<{ id: string; label: string; role: string; parent_id?: string }>;
+  onChange: (components: Array<{ id: string; label: string; role: string; parent_id?: string }>) => void;
+  t: Translate;
+}) {
+  return (
+    <StructuredRowsArea
+      label={t('bundle.field.components')}
+      initialValue={serializeStructureComponentRows(components.map((item) => [item.id, item.label, item.role, item.parent_id ?? '']))}
+      help={t('bundle.componentsHelp')}
+      parse={parseStructureComponentRows}
+      isJsonRow={(row) => Array.isArray(row) && (row.length === 3 || row.length === 4) && row.every((item) => typeof item === 'string')}
+      isValidRows={(rows) => rows.every(([id, label]) => Boolean(id.trim() && label.trim()))}
+      onChange={(rows) => onChange(rows.map(([id, label, role, parentId]) => ({
+        id,
+        label,
+        role,
+        ...(parentId ? { parent_id: parentId } : {}),
+      })))}
+    />
+  );
+}
+
+function RelationRowsArea({ relations, onChange, t }: {
+  relations: Array<{ source_id: string; target_id: string; label: string }>;
+  onChange: (relations: Array<{ source_id: string; target_id: string; label: string }>) => void;
+  t: Translate;
+}) {
+  return (
+    <StructuredRowsArea
+      label={t('bundle.field.internalRelations')}
+      initialValue={serializeStructureRelationRows(relations.map((item) => [item.source_id, item.target_id, item.label]))}
+      help={t('bundle.relationsHelp')}
+      parse={parseStructureRelationRows}
+      isJsonRow={(row) => Array.isArray(row) && row.length === 3 && row.every((item) => typeof item === 'string')}
+      isValidRows={(rows) => rows.every((row) => row.every((value) => Boolean(value.trim())))}
+      onChange={(rows) => onChange(rows.map(([source_id, target_id, label]) => ({ source_id, target_id, label })))}
+    />
   );
 }
 
@@ -106,14 +195,20 @@ export default function KnowledgeBundleEditor({
   const { t } = useI18n();
   const [hydrated, setHydrated] = useState(false);
   const [type, setType] = useState<KnowledgeBundleType | null>(defaultType);
+  const [question, setQuestion] = useState(defaultQuestion ?? '');
   const [content, setContent] = useState<KnowledgeBundleContent | null>(
     defaultType ? defaultContent ?? createEmptyKnowledgeBundleContent(defaultType) : null,
   );
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const previewId = useId();
   const serialized = useMemo(() => content ? JSON.stringify(content) : '', [content]);
+  const deferredQuestion = useDeferredValue(question);
+  const deferredContent = useDeferredValue(content);
 
   useEffect(() => setHydrated(true), []);
 
   function chooseType(next: string) {
+    setPreviewOpen(false);
     if (!next) { setType(null); setContent(null); return; }
     const selected = next as KnowledgeBundleType;
     setType(selected);
@@ -144,10 +239,54 @@ export default function KnowledgeBundleEditor({
           <input type="hidden" name="structured_content" value={serialized} />
           <label className="grid gap-1 text-xs font-medium text-slate-700">
             {t('bundle.centralQuestion')}
-            <input name="central_question" required defaultValue={defaultQuestion ?? ''} maxLength={500} className={fieldClass} placeholder={t('bundle.centralQuestionPlaceholder')} />
+            <input
+              name="central_question"
+              required
+              value={question}
+              maxLength={500}
+              className={fieldClass}
+              placeholder={t('bundle.centralQuestionPlaceholder')}
+              onChange={(event) => setQuestion(event.target.value)}
+            />
           </label>
           <p className="text-xs text-slate-500">{t('bundle.linesHelp')}</p>
+          <aside className="grid gap-2 rounded-lg border border-cyan-100 bg-cyan-50/70 p-3 text-xs text-slate-700">
+            <p>{t('bundle.notationHelp')}</p>
+            <ul className="flex flex-wrap gap-2" aria-label={t('bundle.notationSyntax')}>
+              <li className="rounded-md bg-white px-2 py-1">
+                {t('bundle.notationInline')}: <code dir="ltr">{'\\(E = mc^2\\)'}</code>
+              </li>
+              <li className="rounded-md bg-white px-2 py-1">
+                {t('bundle.notationDisplay')}: <code dir="ltr">{'\\[E = mc^2\\]'}</code>
+              </li>
+              <li className="rounded-md bg-white px-2 py-1">
+                {t('bundle.notationChemistry')}: <code dir="ltr">{'\\(\\ce{2H2 + O2 -> 2H2O}\\) / \\(\\pu{9.81 m/s^2}\\)'}</code>
+              </li>
+              <li className="grid gap-1 rounded-md bg-white px-2 py-1">
+                <span>{t('bundle.notationCode')}: <code dir="ltr">{'`code`'}</code></span>
+                <pre className="overflow-x-auto rounded bg-slate-950 px-2 py-1 text-slate-100" dir="ltr"><code>{'```ts\nconst value = 1;\n```'}</code></pre>
+              </li>
+            </ul>
+          </aside>
           <BundleFields content={content} update={updateContent} t={t} />
+          <button
+            type="button"
+            className="min-h-11 justify-self-start rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            aria-controls={previewId}
+            aria-expanded={previewOpen}
+            onClick={() => setPreviewOpen((open) => !open)}
+          >
+            {t('bundle.notationPreview')}
+          </button>
+          {previewOpen && deferredContent ? (
+            <section id={previewId} aria-label={t('bundle.notationPreview')} className="rounded-xl border border-blue-100 bg-white p-3">
+              <KnowledgeBundleView
+                type={type}
+                centralQuestion={deferredQuestion || t('bundle.centralQuestionPlaceholder')}
+                content={deferredContent}
+              />
+            </section>
+          ) : null}
         </>
       ) : (
         <p className="text-xs text-slate-500">{t('bundle.quickNoteHelp')}</p>
@@ -175,39 +314,39 @@ function BundleFields({ content, update, t }: {
       {area(t('bundle.field.keyPoints'), listValue(content.key_points), (value) => update({ ...content, key_points: textLines(value) }))}
       {area(t('bundle.field.examples'), listValue(content.examples), (value) => update({ ...content, examples: textLines(value) }))}
       {area(t('bundle.field.nonExamples'), listValue(content.non_examples), (value) => update({ ...content, non_examples: textLines(value) }))}
-      {area(t('bundle.field.misconceptions'), pairValue(content.misconceptions, 'claim', 'correction'), (value) => update({ ...content, misconceptions: pairLines(value, 'claim', 'correction') as typeof content.misconceptions }), t('bundle.pairHelp'))}
+      <TuplePairsArea key="concept-misconceptions" label={t('bundle.field.misconceptions')} pairs={content.misconceptions.map((item) => [item.claim, item.correction])} onChange={(pairs) => update({ ...content, misconceptions: pairs.map(([claim, correction]) => ({ claim, correction })) })} t={t} />
     </>;
     case 'procedure': return <>
       {area(t('bundle.field.goal'), content.goal, (value) => update({ ...content, goal: value }))}
       {area(t('bundle.field.prerequisites'), listValue(content.prerequisites), (value) => update({ ...content, prerequisites: textLines(value) }))}
-      {area(t('bundle.field.steps'), pairValue(content.steps, 'title', 'detail'), (value) => update({ ...content, steps: pairLines(value, 'title', 'detail') as typeof content.steps }), t('bundle.pairHelp'))}
-      {area(t('bundle.field.branches'), pairValue(content.branches, 'condition', 'action'), (value) => update({ ...content, branches: pairLines(value, 'condition', 'action') as typeof content.branches }), t('bundle.pairHelp'))}
-      {area(t('bundle.field.failureModes'), pairValue(content.failure_modes, 'symptom', 'response'), (value) => update({ ...content, failure_modes: pairLines(value, 'symptom', 'response') as typeof content.failure_modes }), t('bundle.pairHelp'))}
+      <TuplePairsArea key="procedure-steps" label={t('bundle.field.steps')} pairs={content.steps.map((item) => [item.title, item.detail])} requireRight={false} onChange={(pairs) => update({ ...content, steps: pairs.map(([title, detail]) => ({ title, detail })) })} t={t} />
+      <TuplePairsArea key="procedure-branches" label={t('bundle.field.branches')} pairs={content.branches.map((item) => [item.condition, item.action])} onChange={(pairs) => update({ ...content, branches: pairs.map(([condition, action]) => ({ condition, action })) })} t={t} />
+      <TuplePairsArea key="procedure-failure-modes" label={t('bundle.field.failureModes')} pairs={content.failure_modes.map((item) => [item.symptom, item.response])} onChange={(pairs) => update({ ...content, failure_modes: pairs.map(([symptom, response]) => ({ symptom, response })) })} t={t} />
       {area(t('bundle.field.doneWhen'), listValue(content.done_when), (value) => update({ ...content, done_when: textLines(value) }))}
     </>;
     case 'comparison': return <>
       {area(t('bundle.field.targets'), listValue(content.targets), (value) => update({ ...content, targets: textLines(value) }))}
-      {area(t('bundle.field.criteria'), content.criteria.map((item) => `${item.name} :: ${item.values.join(' | ')}`).join('\n'), (value) => update({ ...content, criteria: textLines(value).map((line) => { const [name, ...rest] = line.split('::'); return { name: name.trim(), values: rest.join('::').split('|').map((item) => item.trim()).filter(Boolean) }; }).filter((item) => item.name && item.values.length > 0) }), t('bundle.criteriaHelp'))}
+      <CriteriaRowsArea key="comparison-criteria" criteria={content.criteria} onChange={(criteria) => update({ ...content, criteria })} t={t} />
       {area(t('bundle.field.commonalities'), listValue(content.commonalities), (value) => update({ ...content, commonalities: textLines(value) }))}
       {area(t('bundle.field.differences'), listValue(content.differences), (value) => update({ ...content, differences: textLines(value) }))}
-      {area(t('bundle.field.choiceGuide'), pairValue(content.choice_guide, 'condition', 'recommendation'), (value) => update({ ...content, choice_guide: pairLines(value, 'condition', 'recommendation') as typeof content.choice_guide }), t('bundle.pairHelp'))}
+      <TuplePairsArea key="comparison-choice-guide" label={t('bundle.field.choiceGuide')} pairs={content.choice_guide.map((item) => [item.condition, item.recommendation])} onChange={(pairs) => update({ ...content, choice_guide: pairs.map(([condition, recommendation]) => ({ condition, recommendation })) })} t={t} />
     </>;
     case 'mechanism': return <>
       {area(t('bundle.field.causes'), listValue(content.causes), (value) => update({ ...content, causes: textLines(value) }))}
-      {area(t('bundle.field.stages'), pairValue(content.stages, 'title', 'detail'), (value) => update({ ...content, stages: pairLines(value, 'title', 'detail') as typeof content.stages }), t('bundle.pairHelp'))}
+      <TuplePairsArea key="mechanism-stages" label={t('bundle.field.stages')} pairs={content.stages.map((item) => [item.title, item.detail])} requireRight={false} onChange={(pairs) => update({ ...content, stages: pairs.map(([title, detail]) => ({ title, detail })) })} t={t} />
       {area(t('bundle.field.results'), listValue(content.results), (value) => update({ ...content, results: textLines(value) }))}
       {area(t('bundle.field.conditions'), listValue(content.conditions), (value) => update({ ...content, conditions: textLines(value) }))}
       {area(t('bundle.field.exceptions'), listValue(content.exceptions), (value) => update({ ...content, exceptions: textLines(value) }))}
     </>;
     case 'structure': return <>
       {area(t('bundle.field.purpose'), content.purpose, (value) => update({ ...content, purpose: value }))}
-      {area(t('bundle.field.components'), content.components.map((item) => [item.id, item.label, item.role, item.parent_id ?? ''].join(' :: ')).join('\n'), (value) => update({ ...content, components: textLines(value).map((line) => { const [id = '', label = '', role = '', parent = ''] = line.split('::').map((item) => item.trim()); return { id, label, role, ...(parent ? { parent_id: parent } : {}) }; }).filter((item) => item.id && item.label) }), t('bundle.componentsHelp'))}
-      {area(t('bundle.field.internalRelations'), content.relations.map((item) => [item.source_id, item.target_id, item.label].join(' :: ')).join('\n'), (value) => update({ ...content, relations: textLines(value).map((line) => { const [source_id = '', target_id = '', label = ''] = line.split('::').map((item) => item.trim()); return { source_id, target_id, label }; }).filter((item) => item.source_id && item.target_id && item.label) }), t('bundle.relationsHelp'))}
+      <ComponentRowsArea key="structure-components" components={content.components} onChange={(components) => update({ ...content, components })} t={t} />
+      <RelationRowsArea key="structure-relations" relations={content.relations} onChange={(relations) => update({ ...content, relations })} t={t} />
       {area(t('bundle.field.boundaries'), listValue(content.boundaries), (value) => update({ ...content, boundaries: textLines(value) }))}
     </>;
     case 'claim_evidence': return <>
       {area(t('bundle.field.claim'), content.claim, (value) => update({ ...content, claim: value }))}
-      {area(t('bundle.field.evidence'), content.evidence.map((item) => `${item.statement}${item.source ? ` :: ${item.source}` : ''}`).join('\n'), (value) => update({ ...content, evidence: textLines(value).map((line) => { const [statement, ...rest] = line.split('::'); const source = rest.join('::').trim(); return { statement: statement.trim(), ...(source ? { source } : {}) }; }).filter((item) => item.statement) }), t('bundle.pairHelp'))}
+      <TuplePairsArea key="claim-evidence" label={t('bundle.field.evidence')} pairs={content.evidence.map((item) => [item.statement, item.source ?? ''])} requireRight={false} onChange={(pairs) => update({ ...content, evidence: pairs.map(([statement, source]) => ({ statement, ...(source ? { source } : {}) })) })} t={t} />
       {area(t('bundle.field.counterevidence'), listValue(content.counterevidence), (value) => update({ ...content, counterevidence: textLines(value) }))}
       {area(t('bundle.field.scope'), listValue(content.scope), (value) => update({ ...content, scope: textLines(value) }))}
       {area(t('bundle.field.limitations'), listValue(content.limitations), (value) => update({ ...content, limitations: textLines(value) }))}
@@ -225,7 +364,7 @@ function BundleFields({ content, update, t }: {
     case 'decision': return <>
       {area(t('bundle.field.decision'), content.decision, (value) => update({ ...content, decision: value }))}
       {area(t('bundle.field.context'), content.context, (value) => update({ ...content, context: value }))}
-      {area(t('bundle.field.options'), pairValue(content.options, 'name', 'tradeoffs'), (value) => update({ ...content, options: pairLines(value, 'name', 'tradeoffs') as typeof content.options }), t('bundle.pairHelp'))}
+      <TuplePairsArea key="decision-options" label={t('bundle.field.options')} pairs={content.options.map((item) => [item.name, item.tradeoffs])} requireRight={false} onChange={(pairs) => update({ ...content, options: pairs.map(([name, tradeoffs]) => ({ name, tradeoffs })) })} t={t} />
       {area(t('bundle.field.criteria'), listValue(content.criteria), (value) => update({ ...content, criteria: textLines(value) }))}
       {area(t('bundle.field.rationale'), listValue(content.rationale), (value) => update({ ...content, rationale: textLines(value) }))}
       {area(t('bundle.field.reconsiderWhen'), listValue(content.reconsider_when), (value) => update({ ...content, reconsider_when: textLines(value) }))}
@@ -249,13 +388,13 @@ function BundleFields({ content, update, t }: {
       {area(t('bundle.field.language'), content.language, (value) => update({ ...content, language: value }), undefined, true)}
       {area(t('bundle.field.pronunciation'), content.pronunciation, (value) => update({ ...content, pronunciation: value }))}
       {area(t('bundle.field.meanings'), listValue(content.meanings), (value) => update({ ...content, meanings: textLines(value) }))}
-      <TuplePairsArea label={t('bundle.field.translations')} pairs={content.translations.map((item) => [item.language, item.text])} onChange={(pairs) => update({ ...content, translations: pairs.map(([language, text]) => ({ language, text })) })} t={t} />
+      <TuplePairsArea key="expression-translations" label={t('bundle.field.translations')} pairs={content.translations.map((item) => [item.language, item.text])} onChange={(pairs) => update({ ...content, translations: pairs.map(([language, text]) => ({ language, text })) })} t={t} />
       {area(t('bundle.field.register'), content.register, (value) => update({ ...content, register: value }))}
       {area(t('bundle.field.nuance'), content.nuance, (value) => update({ ...content, nuance: value }))}
       {area(t('bundle.field.usageContexts'), listValue(content.usage_contexts), (value) => update({ ...content, usage_contexts: textLines(value) }))}
-      <ExpressionExamplesArea examples={content.examples} onChange={(examples) => update({ ...content, examples })} t={t} />
-      <TuplePairsArea label={t('bundle.field.contrasts')} pairs={content.contrasts.map((item) => [item.expression, item.difference])} onChange={(pairs) => update({ ...content, contrasts: pairs.map(([expression, difference]) => ({ expression, difference })) })} t={t} />
-      <TuplePairsArea label={t('bundle.field.commonMistakes')} pairs={content.common_mistakes.map((item) => [item.incorrect, item.correction])} onChange={(pairs) => update({ ...content, common_mistakes: pairs.map(([incorrect, correction]) => ({ incorrect, correction })) })} t={t} />
+      <ExpressionExamplesArea key="expression-examples" examples={content.examples} onChange={(examples) => update({ ...content, examples })} t={t} />
+      <TuplePairsArea key="expression-contrasts" label={t('bundle.field.contrasts')} pairs={content.contrasts.map((item) => [item.expression, item.difference])} onChange={(pairs) => update({ ...content, contrasts: pairs.map(([expression, difference]) => ({ expression, difference })) })} t={t} />
+      <TuplePairsArea key="expression-common-mistakes" label={t('bundle.field.commonMistakes')} pairs={content.common_mistakes.map((item) => [item.incorrect, item.correction])} onChange={(pairs) => update({ ...content, common_mistakes: pairs.map(([incorrect, correction]) => ({ incorrect, correction })) })} t={t} />
     </>;
   }
 }
