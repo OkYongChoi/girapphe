@@ -4,8 +4,10 @@ import test from 'node:test';
 import type { KnowledgeBundleContent } from '@stem-brain/shared';
 import {
   buildKnowledgeBundleNotationBlocks,
+  buildKnowledgeNotationGroupBlocks,
   hasKnowledgeBundleNotation,
   knowledgeBundleNotationAccessibilityText,
+  knowledgeBundleNotationBlocksHaveNotation,
   knowledgeBundleNotationSources,
 } from './knowledge-bundle-notation';
 
@@ -61,6 +63,20 @@ test('builder keeps field boundaries and fenced code at the start of a list valu
   assert.equal(hasKnowledgeBundleNotation(content), true);
 });
 
+test('aggregate text blocks opt into legacy dollar math only when requested', () => {
+  const legacySource = 'Legacy explanation $x^2$';
+  const legacyBlocks = buildKnowledgeNotationGroupBlocks([
+    { source: legacySource, tone: 'body', legacyDollarMath: true },
+  ]);
+  const explicitOnlyBlocks = buildKnowledgeNotationGroupBlocks([
+    { source: legacySource, tone: 'body' },
+  ]);
+
+  assert.deepEqual(legacyBlocks, [{ kind: 'text', source: legacySource, tone: 'body', legacyDollarMath: true }]);
+  assert.equal(knowledgeBundleNotationBlocksHaveNotation(legacyBlocks), true);
+  assert.equal(knowledgeBundleNotationBlocksHaveNotation(explicitOnlyBlocks), false);
+});
+
 test('structured bundles have one aggregate DOM call site and inline DOM documents shrink-wrap', () => {
   const bundleView = readFileSync(new URL('./components/knowledge-bundle-view.tsx', import.meta.url), 'utf8');
   const notationGroup = readFileSync(new URL('./components/knowledge-notation-group.tsx', import.meta.url), 'utf8');
@@ -74,6 +90,7 @@ test('structured bundles have one aggregate DOM call site and inline DOM documen
   assert.match(domSource, /token\.type === 'math'\) return token\.source/);
   assert.match(domSource, /knowledgeTextRequiresBlockContainer\(tokens\)/);
   assert.match(domSource, /inline && !containsBlockToken \? 'span' : 'div'/);
+  assert.match(domSource, /parseKnowledgeText\(source, \{ legacyDollarMath \}\)/);
 });
 
 test('selected detail surfaces render notation while pressable list rows stay native', () => {
@@ -128,5 +145,7 @@ test('virtualized mobile cards aggregate notation into at most one DOM boundary 
   assert.match(candidates, /duplicateSuggestionValues[\s\S]*kind: 'lines'/);
   assert.match(candidates, /duplicate_suggestions[\s\S]*<KnowledgeText key=\{item\.id\}/);
   assert.match(candidates, /knowledgeBundleRecallPrompt\(locale, draft\.structured_content\.type\)/);
+  assert.match(candidates, /source: draft\.explanation, tone: 'body' as const, legacyDollarMath: true/);
+  assert.match(candidates, /<KnowledgeText value=\{draft\.explanation\} direction=\{direction\} legacyDollarMath/);
   assert.doesNotMatch(candidates, /<KnowledgeNotationGroup accessibilityLabel=\{draft\.title\}/);
 });

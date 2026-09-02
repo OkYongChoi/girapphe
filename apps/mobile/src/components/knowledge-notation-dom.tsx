@@ -122,8 +122,8 @@ function Token({ token }: { token: KnowledgeTextToken }) {
   return <code className="knowledge-code-inline" dir="ltr">{token.value}</code>;
 }
 
-function KnowledgeSource({ source, className = '', inline = false }: { source: string; className?: string; inline?: boolean }) {
-  const tokens = parseKnowledgeText(source);
+function KnowledgeSource({ source, className = '', inline = false, legacyDollarMath = false }: { source: string; className?: string; inline?: boolean; legacyDollarMath?: boolean }) {
+  const tokens = parseKnowledgeText(source, { legacyDollarMath });
   const containsBlockToken = knowledgeTextRequiresBlockContainer(tokens);
   const Tag = inline && !containsBlockToken ? 'span' : 'div';
   return (
@@ -142,7 +142,7 @@ function BundleBlock({ block }: { block: KnowledgeBundleNotationBlock }) {
     case 'text':
       return (
         <div style={lineClampStyle(block.numberOfLines)}>
-          <KnowledgeSource source={block.source} className={textToneClass(block.tone)} inline={block.tone === 'language' || block.tone === 'status'} />
+          <KnowledgeSource source={block.source} className={textToneClass(block.tone)} inline={block.tone === 'language' || block.tone === 'status'} legacyDollarMath={block.legacyDollarMath} />
         </div>
       );
     case 'lines':

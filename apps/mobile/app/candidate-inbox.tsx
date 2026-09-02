@@ -205,7 +205,7 @@ function CandidateInboxContent() {
             { source: draft.title, tone: 'title' },
             { source: draft.central_question, tone: 'question' },
             { source: draft.summary, tone: 'summary' },
-            ...(!draft.structured_content ? [{ source: draft.explanation, tone: 'body' as const }] : []),
+            ...(!draft.structured_content ? [{ source: draft.explanation, tone: 'body' as const, legacyDollarMath: true }] : []),
             ], draft.structured_content, locale),
             ...(duplicateSuggestionValues.length ? buildKnowledgeNotationGroupBlocks([
               { source: `${draft.duplicate_suggestions.length} ${copy.duplicate}`, tone: 'meta' },
@@ -220,7 +220,7 @@ function CandidateInboxContent() {
                 <KnowledgeText value={draft.title} direction={direction} style={styles.cardTitle} />
                 {draft.central_question ? <KnowledgeText value={draft.central_question} direction={direction} style={styles.centralQuestion} /> : null}
                 {draft.summary ? <KnowledgeText value={draft.summary} direction={direction} style={styles.body} /> : null}
-                {draft.structured_content ? <View style={styles.bundle}><MobileKnowledgeBundleView content={draft.structured_content} locale={locale} /></View> : draft.explanation ? <KnowledgeText value={draft.explanation} direction={direction} style={styles.body} /> : null}
+                {draft.structured_content ? <View style={styles.bundle}><MobileKnowledgeBundleView content={draft.structured_content} locale={locale} /></View> : draft.explanation ? <KnowledgeText value={draft.explanation} direction={direction} legacyDollarMath style={styles.body} /> : null}
                 {draft.duplicate_suggestions.length > 0 ? <View style={styles.duplicateWarning}><Text style={styles.duplicateTitle}>{draft.duplicate_suggestions.length} {copy.duplicate}</Text><Text style={styles.duplicateBody}>{copy.webMerge}</Text>{draft.duplicate_suggestions.slice(0, 3).map((item) => <KnowledgeText key={item.id} value={`• ${item.title} · ${Math.round(item.score * 100)}%`} direction={direction} style={styles.duplicateItem} />)}</View> : null}
               </KnowledgeNotationGroup>
               <View style={styles.actions}>

@@ -25,7 +25,7 @@ export type KnowledgeBundleTextTone =
   | 'title';
 
 export type KnowledgeBundleNotationBlock =
-  | { kind: 'text'; source: string; tone: KnowledgeBundleTextTone; numberOfLines?: number }
+  | { kind: 'text'; source: string; tone: KnowledgeBundleTextTone; legacyDollarMath?: boolean; numberOfLines?: number }
   | { kind: 'lines'; values: string[]; tone: 'good' | 'plain' | 'warn' }
   | { kind: 'pairs'; values: Array<{ first: string; second: string }> }
   | { kind: 'steps'; values: Array<{ number: number; title: string; detail: string }> }
@@ -48,8 +48,14 @@ function hierarchyDepth(content: Extract<KnowledgeBundleContent, { type: 'struct
   return depth;
 }
 
-function text(source: string, tone: KnowledgeBundleTextTone, numberOfLines?: number): KnowledgeBundleNotationBlock[] {
-  return source ? [{ kind: 'text', source, tone, ...(numberOfLines ? { numberOfLines } : {}) }] : [];
+function text(source: string, tone: KnowledgeBundleTextTone, numberOfLines?: number, legacyDollarMath = false): KnowledgeBundleNotationBlock[] {
+  return source ? [{
+    kind: 'text',
+    source,
+    tone,
+    ...(legacyDollarMath ? { legacyDollarMath: true } : {}),
+    ...(numberOfLines ? { numberOfLines } : {}),
+  }] : [];
 }
 
 function lines(values: string[], tone: 'good' | 'plain' | 'warn' = 'plain'): KnowledgeBundleNotationBlock[] {
@@ -61,12 +67,12 @@ function pairs(values: Array<{ first: string; second: string }>): KnowledgeBundl
 }
 
 export function buildKnowledgeNotationGroupBlocks(
-  fields: ReadonlyArray<{ source?: string | null; tone: KnowledgeBundleTextTone; numberOfLines?: number }>,
+  fields: ReadonlyArray<{ source?: string | null; tone: KnowledgeBundleTextTone; legacyDollarMath?: boolean; numberOfLines?: number }>,
   content?: KnowledgeBundleContent | null,
   locale?: Locale,
 ): KnowledgeBundleNotationBlock[] {
   return [
-    ...fields.flatMap(({ source, tone, numberOfLines }) => source ? text(source, tone, numberOfLines) : []),
+    ...fields.flatMap(({ source, tone, legacyDollarMath, numberOfLines }) => source ? text(source, tone, numberOfLines, legacyDollarMath) : []),
     ...(content ? buildKnowledgeBundleNotationBlocks(content, locale) : []),
   ];
 }
@@ -225,7 +231,12 @@ export function hasKnowledgeBundleNotation(content: KnowledgeBundleContent) {
 }
 
 export function knowledgeBundleNotationBlocksHaveNotation(blocks: KnowledgeBundleNotationBlock[]) {
-  return knowledgeBundleNotationSources(blocks).some((source) => hasSourceNotation(source));
+  return blocks.some((block) => {
+    if (block.kind === 'text') {
+      return hasSourceNotation(block.source, { legacyDollarMath: block.legacyDollarMath });
+    }
+    return knowledgeBundleNotationSources([block]).some((source) => hasSourceNotation(source));
+  });
 }
 
 export function knowledgeBundleNotationAccessibilityText(blocks: KnowledgeBundleNotationBlock[]) {
