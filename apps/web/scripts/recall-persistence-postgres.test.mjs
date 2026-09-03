@@ -11,21 +11,36 @@ function quoteIdentifier(value) {
   return `"${value}"`;
 }
 
+async function collectCleanupFailure(failures, label, cleanup) {
+  try {
+    await cleanup();
+  } catch (error) {
+    failures.push(new Error(`Recall PostgreSQL cleanup failed: ${label}`, { cause: error }));
+  }
+}
+
+function surfaceCleanupFailures(bodyCompleted, failures) {
+  if (bodyCompleted && failures.length > 0) {
+    throw new AggregateError(failures, 'Recall PostgreSQL cleanup did not complete.');
+  }
+}
+
 test('Recall migration preserves Practice rows and enforces honest schedule snapshots', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
-}, async () => {
+}, async (context) => {
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });
   const client = await pool.connect();
   const schemaName = `recall_test_${crypto.randomUUID().replaceAll('-', '_')}`;
   const schema = quoteIdentifier(schemaName);
-  const migrationSql = await readFile(
-    new URL('../drizzle/migrations/0019_recall_ping_persistence.sql', import.meta.url),
-    'utf8',
-  );
-  const statements = parsePreviewMigration(migrationSql);
   const enrolledAt = '2026-09-03T00:00:00.000Z';
+  let bodyCompleted = false;
 
   try {
+    const migrationSql = await readFile(
+      new URL('../drizzle/migrations/0019_recall_ping_persistence.sql', import.meta.url),
+      'utf8',
+    );
+    const statements = parsePreviewMigration(migrationSql);
     await client.query(`CREATE SCHEMA ${schema}`);
     await client.query(`SET search_path TO ${schema}, public`);
     await client.query(`
@@ -98,7 +113,11 @@ test('Recall migration preserves Practice rows and enforces honest schedule snap
         for (const statement of statements) await client.query(statement);
         await client.query('COMMIT');
       } catch (error) {
-        await client.query('ROLLBACK');
+        try {
+          await client.query('ROLLBACK');
+        } catch {
+          context.diagnostic('ROLLBACK cleanup also failed; preserving the primary migration error.');
+        }
         throw error;
       }
     }
@@ -206,11 +225,27 @@ test('Recall migration preserves Practice rows and enforces honest schedule snap
       INSERT INTO knowledge_card_sources (id, knowledge_item_id, supported_item_version)
       VALUES ('false-source', 'historical-item', 2)
     `), /knowledge_card_sources_supported_revision_fk/);
+    bodyCompleted = true;
   } finally {
-    await client.query('RESET search_path').catch(() => {});
-    await client.query(`DROP SCHEMA IF EXISTS ${schema} CAS`).catch(() => {});
-    client.release();
-    await pool.end();
+    const cleanupFailures = [];
+    await collectCleanupFailure(cleanupFailures, 'reset isolated search path', () => (
+      client.query('RESET search_path')
+    ));
+    await collectCleanupFailure(cleanupFailures, 'drop isolated schema', () => (
+      client.query(`DROP SCHEMA IF EXISTS ${schema} CAS`)
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify isolated schema removal', async () => {
+      const exists = (await client.query(
+        'SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = $1) AS exists',
+        [schemaName],
+      )).rows[0]?.exists;
+      assert.equal(exists, false);
+    });
+    await collectCleanupFailure(cleanupFailures, 'release isolated database client', async () => {
+      client.release();
+    });
+    await collectCleanupFailure(cleanupFailures, 'close isolated database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
   }
 });
 
@@ -232,6 +267,7 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
   const revisionId = `live-recall-revision-${crypto.randomUUID()}`;
   const enrolledAt = '2026-09-03T00:00:00.000Z';
   const firstDueAt = '2026-09-04T00:00:00.000Z';
+  let bodyCompleted = false;
 
   try {
     await pool.query(
@@ -389,7 +425,7 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
       nextPreferredDeliveryAt: '2026-09-05T00:00:00.000Z',
     });
     const staleD1 = await recall.persistRecallScheduleDecisionForUser(
-      userId, itemId, retrySchedule, staleD1Decision,
+      userId, itemId, retrySchedule, staleD1Decision, retrySchedule.snapshot.dueAt,
     );
     assert.equal(staleD1.kind, 'conflict');
     assert.equal(staleD1.schedule?.snapshot.state, 'd7_pending');
@@ -418,15 +454,42 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
       recall_enrolled_at: null,
       recall_schedule_version: null,
     }]);
+    bodyCompleted = true;
   } finally {
-    await pool.query(
-      `DELETE FROM user_knowledge_items WHERE id = $1 AND user_id = $2`,
-      [itemId, userId],
-    ).catch(() => {});
-    await pool.query(
-      `DELETE FROM knowledge_ingestion_batches WHERE id = $1 AND user_id = $2`,
-      [batchId, userId],
-    ).catch(() => {});
-    await pool.end();
+    const cleanupFailures = [];
+    await collectCleanupFailure(cleanupFailures, 'delete synthetic knowledge item', () => (
+      pool.query(
+        `DELETE FROM user_knowledge_items WHERE id = $1 AND user_id = $2`,
+        [itemId, userId],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete synthetic ingestion batch', () => (
+      pool.query(
+        `DELETE FROM knowledge_ingestion_batches WHERE id = $1 AND user_id = $2`,
+        [batchId, userId],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify synthetic row removal', async () => {
+      const remaining = (await pool.query(
+        `SELECT
+           EXISTS (SELECT 1 FROM user_knowledge_items WHERE id = $1) AS item_exists,
+           EXISTS (SELECT 1 FROM user_private_card_states WHERE knowledge_item_id = $1) AS state_exists,
+           EXISTS (SELECT 1 FROM knowledge_item_revisions WHERE id = $2) AS revision_exists,
+           EXISTS (SELECT 1 FROM knowledge_card_sources WHERE id = $3) AS source_exists,
+           EXISTS (SELECT 1 FROM knowledge_card_drafts WHERE id = $4) AS draft_exists,
+           EXISTS (SELECT 1 FROM knowledge_ingestion_batches WHERE id = $5) AS batch_exists`,
+        [itemId, revisionId, sourceId, draftId, batchId],
+      )).rows[0];
+      assert.deepEqual(remaining, {
+        item_exists: false,
+        state_exists: false,
+        revision_exists: false,
+        source_exists: false,
+        draft_exists: false,
+        batch_exists: false,
+      });
+    });
+    await collectCleanupFailure(cleanupFailures, 'close repository database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
   }
 });

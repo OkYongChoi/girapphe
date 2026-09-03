@@ -3,6 +3,9 @@ import 'server-only';
 import {
   RECALL_D1_INITIAL_DELIVERY_CLOSE_MS,
   RECALL_D7_CLOSE_MS,
+  RECALL_D7_OPEN_MS,
+  RECALL_POST_D7_INTERVAL_MS,
+  RECALL_SNOOZE_MS,
   classifyRecallWindow,
   createRecallEnrollmentSchedule,
   type RecallInstant,
@@ -297,14 +300,9 @@ function desiredPractice(
 
 function validateProjection(
   projection: RecallPracticeProjection,
-  transitionedAt: RecallInstant | undefined,
+  transitionedAt: string,
 ): string | null {
-  if (projection.action === 'preserve') {
-    if (transitionedAt !== undefined) {
-      throw new Error('Preserved Practice projection cannot change lastSeen.');
-    }
-    return null;
-  }
+  if (projection.action === 'preserve') return null;
   const known = projection.status === 'known'
     && projection.knowledgeState === 'known'
     && projection.progressState === 'review';
@@ -312,10 +310,7 @@ function validateProjection(
     && projection.knowledgeState === 'unknown'
     && projection.progressState === 'learning';
   if (!known && !saved) throw new Error('Invalid Practice projection.');
-  if (transitionedAt === undefined) {
-    throw new Error('Practice projection requires transitionedAt.');
-  }
-  return normalizeInstant(transitionedAt, 'transitionedAt');
+  return transitionedAt;
 }
 
 type ProjectionKind = 'preserve' | 'known' | 'saved';
@@ -329,6 +324,7 @@ function validateScheduleTransition(
   expected: RecallScheduleSnapshot,
   next: RecallScheduleSnapshot,
   projection: RecallPracticeProjection,
+  transitionedAt: string,
 ): void {
   const projected = projectionKind(projection);
   if (snapshotEquals(expected, next)) {
@@ -340,6 +336,13 @@ function validateScheduleTransition(
 
   const expectedDueAt = new Date(expected.dueAt).getTime();
   const nextDueAt = new Date(next.dueAt).getTime();
+  const eventAt = new Date(transitionedAt).getTime();
+  const enrolledAt = new Date(expected.enrolledAt).getTime();
+  const d7OpensAt = enrolledAt + RECALL_D7_OPEN_MS;
+  const d7ClosesAt = enrolledAt + RECALL_D7_CLOSE_MS;
+  if (eventAt < expectedDueAt) {
+    throw new Error('A Recall transition cannot precede its current due instant.');
+  }
   if (nextDueAt <= expectedDueAt) {
     throw new Error('A Recall transition must move its due instant forward.');
   }
@@ -352,12 +355,25 @@ function validateScheduleTransition(
 
   if (expected.state === 'd1_pending' || expected.state === 'd1_retry') {
     if (next.state === 'd1_retry') {
+      if (eventAt >= d7OpensAt || nextDueAt <= eventAt) {
+        throw new Error('A D+1 retry must be scheduled after its event and before D+7.');
+      }
       if (projected === 'known') {
         throw new Error('A remembered D+1 result must advance to D+7.');
       }
       return;
     }
     if (next.state === 'd7_pending') {
+      if (eventAt >= d7ClosesAt) {
+        throw new Error('A D+7 delivery must remain inside the open D+7 window.');
+      }
+      if (projected === 'preserve') {
+        if (eventAt < d7OpensAt && nextDueAt <= eventAt) {
+          throw new Error('A pre-D+7 delivery must be scheduled after its D+1 event.');
+        }
+      } else if (eventAt >= d7OpensAt || nextDueAt <= eventAt) {
+        throw new Error('A D+1 assessment must schedule D+7 after the event and before D+7 opens.');
+      }
       const allowed = next.d1FinalizedIncomplete
         ? projected === 'saved' || projected === 'preserve'
         : projected === 'known';
@@ -367,11 +383,12 @@ function validateScheduleTransition(
       return;
     }
     if (next.state === 'ordinary_practice') {
-      const closeAt = new Date(next.enrolledAt).getTime() + RECALL_D7_CLOSE_MS;
+      const closeAt = d7ClosesAt;
       if (next.d7Outcome !== 'unassessed'
         || !next.d1FinalizedIncomplete
         || projected !== 'preserve'
-        || nextDueAt !== closeAt) {
+        || nextDueAt !== closeAt
+        || eventAt < closeAt) {
         throw new Error('D+1 can skip to ordinary Practice only after an unassessed D+7 close.');
       }
       return;
@@ -384,7 +401,7 @@ function validateScheduleTransition(
       throw new Error('D+7 cannot rewrite the finalized D+1 result.');
     }
     if (next.state === 'd7_pending') {
-      if (projected !== 'preserve') {
+      if (eventAt >= d7ClosesAt || nextDueAt <= eventAt || projected !== 'preserve') {
         throw new Error('A pending D+7 reschedule must preserve Practice.');
       }
       return;
@@ -396,9 +413,21 @@ function validateScheduleTransition(
       if (projected !== requiredProjection) {
         throw new Error('The D+7 outcome does not match its Practice projection.');
       }
-      if (next.d7Outcome !== 'remembered') {
-        const closeAt = new Date(next.enrolledAt).getTime() + RECALL_D7_CLOSE_MS;
-        if (nextDueAt !== closeAt) {
+      if (next.d7Outcome === 'unassessed') {
+        const closesNowOrAfterOneSnooze = eventAt >= d7ClosesAt
+          || eventAt + RECALL_SNOOZE_MS >= d7ClosesAt;
+        if (!closesNowOrAfterOneSnooze || nextDueAt !== d7ClosesAt) {
+          throw new Error('An unassessed D+7 result returns at the D+7 close.');
+        }
+      } else {
+        if (eventAt >= d7ClosesAt) {
+          throw new Error('A D+7 assessment must occur before the D+7 close.');
+        }
+        if (next.d7Outcome === 'remembered') {
+          if (nextDueAt !== eventAt + RECALL_POST_D7_INTERVAL_MS) {
+            throw new Error('A remembered D+7 result returns 14 days after its assessment.');
+          }
+        } else if (nextDueAt !== d7ClosesAt || nextDueAt <= eventAt) {
           throw new Error('An incomplete D+7 result returns at the D+7 close.');
         }
       }
@@ -506,7 +535,7 @@ export async function persistRecallScheduleDecisionForUser(
   knowledgeItemId: string,
   expectedInput: PersistedRecallSchedule,
   decision: RecallScheduleDecision,
-  transitionedAt?: RecallInstant,
+  transitionedAt: RecallInstant,
 ): Promise<RecallDecisionPersistenceResult> {
   const expected = normalizePersistedSchedule(expectedInput);
   if (expected.knowledgeItemId !== knowledgeItemId) {
@@ -516,8 +545,14 @@ export async function persistRecallScheduleDecisionForUser(
   if (nextSnapshot.enrolledAt !== expected.snapshot.enrolledAt) {
     throw new Error('Recall enrollment instant cannot change.');
   }
-  validateScheduleTransition(expected.snapshot, nextSnapshot, decision.practiceProjection);
-  const normalizedTransitionedAt = validateProjection(decision.practiceProjection, transitionedAt);
+  const normalizedEventAt = normalizeInstant(transitionedAt, 'transitionedAt');
+  validateScheduleTransition(
+    expected.snapshot,
+    nextSnapshot,
+    decision.practiceProjection,
+    normalizedEventAt,
+  );
+  const normalizedTransitionedAt = validateProjection(decision.practiceProjection, normalizedEventAt);
   if (snapshotEquals(expected.snapshot, nextSnapshot)
     && decision.practiceProjection.action === 'preserve') {
     const [, current] = await db.accountTransaction<RecallScheduleRow>(userId, [

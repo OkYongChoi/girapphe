@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { RecallScheduleDecision, RecallScheduleSnapshot } from '@stem-brain/shared';
+import {
+  requestRecallSnooze,
+  rollRecallWindow,
+  type RecallInstant,
+  type RecallScheduleDecision,
+  type RecallScheduleSnapshot,
+} from '@stem-brain/shared';
 import db from '@/lib/db';
 import {
   cancelRecallScheduleForItem,
@@ -17,7 +23,7 @@ const ENROLLED_AT = '2026-09-01T00:00:00.000Z';
 const D1_DUE_AT = '2026-09-02T06:00:00.000Z';
 const D1_RETRY_AT = '2026-09-03T12:00:00.000Z';
 const D7_DUE_AT = '2026-09-08T06:00:00.000Z';
-const ORDINARY_DUE_AT = '2026-09-22T06:00:00.000Z';
+const ORDINARY_DUE_AT = '2026-09-22T07:00:00.000Z';
 
 const EMPTY_PRACTICE: PersistedRecallPractice = {
   status: null,
@@ -212,6 +218,7 @@ test('applies a preserve decision with a full schedule snapshot CAS', async (con
     ITEM_ID,
     expected,
     decision,
+    D1_DUE_AT,
   );
 
   assert.deepEqual(result, { kind: 'applied', schedule: applied });
@@ -228,6 +235,74 @@ test('applies a preserve decision with a full schedule snapshot CAS', async (con
   assert.match(update.text, /recall_schedule_version = s\.recall_schedule_version \+ 1/);
   assert.equal(update.params?.[17], false);
   assert.equal(update.params?.[21], null);
+});
+
+test('persists a late D+7 rollover whose preferred delivery is already due', async (context) => {
+  const original = db.accountTransaction;
+  const expected = persistedSchedule({
+    scheduleVersion: 2,
+    snapshot: snapshot({ state: 'd1_retry', dueAt: D1_RETRY_AT }),
+  });
+  const rolloverAt = '2026-09-08T02:00:00.000Z';
+  const decision = rollRecallWindow(expected.snapshot, {
+    at: rolloverAt,
+    nextD7DeliveryAt: '2026-09-08T01:00:00.000Z',
+  });
+  const applied = persistedSchedule({
+    scheduleVersion: 3,
+    snapshot: decision.snapshot,
+  });
+  context.after(() => { db.accountTransaction = original; });
+  db.accountTransaction = (async () => [
+    { rows: [] },
+    { rows: [scheduleRow(applied)] },
+    { rows: [scheduleRow(applied)] },
+  ] as never) as typeof db.accountTransaction;
+
+  const result = await persistRecallScheduleDecisionForUser(
+    USER_ID,
+    ITEM_ID,
+    expected,
+    decision,
+    rolloverAt,
+  );
+
+  assert.deepEqual(result, { kind: 'applied', schedule: applied });
+  assert.ok(new Date(decision.snapshot.dueAt) < new Date(rolloverAt));
+});
+
+test('persists a D+7 snooze that closes at the milestone boundary', async (context) => {
+  const original = db.accountTransaction;
+  const expected = persistedSchedule({
+    scheduleVersion: 2,
+    snapshot: snapshot({ state: 'd7_pending', dueAt: D7_DUE_AT }),
+  });
+  const snoozedAt = '2026-09-08T23:30:00.000Z';
+  const decision = requestRecallSnooze(expected.snapshot, {
+    at: snoozedAt,
+    alreadySnoozed: false,
+  });
+  const applied = persistedSchedule({
+    scheduleVersion: 3,
+    snapshot: decision.snapshot,
+  });
+  context.after(() => { db.accountTransaction = original; });
+  db.accountTransaction = (async () => [
+    { rows: [] },
+    { rows: [scheduleRow(applied)] },
+    { rows: [scheduleRow(applied)] },
+  ] as never) as typeof db.accountTransaction;
+
+  const result = await persistRecallScheduleDecisionForUser(
+    USER_ID,
+    ITEM_ID,
+    expected,
+    decision,
+    snoozedAt,
+  );
+
+  assert.equal(decision.kind, 'cancelled_for_boundary');
+  assert.deepEqual(result, { kind: 'applied', schedule: applied });
 });
 
 test('atomically writes a one-shot Practice projection and transition instant', async (context) => {
@@ -363,6 +438,7 @@ test('recognizes an identical CAS replay but reports a different winner as a con
     ITEM_ID,
     expected,
     decision,
+    D1_DUE_AT,
   );
   assert.deepEqual(replay, { kind: 'unchanged', schedule: replayed });
 
@@ -375,6 +451,7 @@ test('recognizes an identical CAS replay but reports a different winner as a con
     ITEM_ID,
     expected,
     decision,
+    D1_DUE_AT,
   );
   assert.deepEqual(conflict, { kind: 'conflict', schedule: current });
 });
@@ -408,6 +485,7 @@ test('a preserve replay remains idempotent after an independent Practice update'
     ITEM_ID,
     expected,
     decision,
+    D1_DUE_AT,
   );
   assert.deepEqual(result, { kind: 'unchanged', schedule: current });
 });
@@ -433,6 +511,7 @@ test('an unchanged preserve decision verifies current state without incrementing
       snapshot: expected.snapshot,
       practiceProjection: { action: 'preserve' },
     },
+    D1_DUE_AT,
   );
 
   assert.deepEqual(result, { kind: 'unchanged', schedule: expected });
@@ -454,7 +533,7 @@ test('rejects invalid snapshots and projection writes before opening a transacti
     persistRecallScheduleDecisionForUser(USER_ID, ITEM_ID, expected, {
       snapshot: snapshot({ state: 'd7_pending' }),
       practiceProjection: { action: 'preserve' },
-    }),
+    }, D1_DUE_AT),
     /d7_pending must stay inside the D\+7 window/,
   );
   await assert.rejects(
@@ -466,15 +545,15 @@ test('rejects invalid snapshots and projection writes before opening a transacti
         knowledgeState: 'unknown',
         progressState: 'learning',
       },
-    }),
-    /requires transitionedAt/,
+    }, undefined as unknown as RecallInstant),
+    /Invalid transitionedAt/,
   );
   await assert.rejects(
     persistRecallScheduleDecisionForUser(USER_ID, ITEM_ID, expected, {
       snapshot: snapshot({ state: 'd1_retry', dueAt: D1_RETRY_AT }),
       practiceProjection: { action: 'preserve' },
     }, D1_RETRY_AT),
-    /cannot change lastSeen/,
+    /scheduled after its event/,
   );
   await assert.rejects(
     persistRecallScheduleDecisionForUser(
@@ -487,6 +566,7 @@ test('rejects invalid snapshots and projection writes before opening a transacti
         snapshot: snapshot({ state: 'd1_retry', dueAt: D1_RETRY_AT }),
         practiceProjection: { action: 'preserve' },
       },
+      D7_DUE_AT,
     ),
     /move its due instant forward|cannot transition/,
   );
@@ -499,7 +579,7 @@ test('rejects invalid snapshots and projection writes before opening a transacti
         d7Outcome: 'remembered',
       }),
       practiceProjection: { action: 'preserve' },
-    }),
+    }, '2026-09-09T00:00:00.000Z'),
     /only after an unassessed D\+7 close/,
   );
   await assert.rejects(
@@ -525,6 +605,37 @@ test('rejects invalid snapshots and projection writes before opening a transacti
       '2026-09-08T07:00:00.000Z',
     ),
     /does not match its Practice projection/,
+  );
+  await assert.rejects(
+    persistRecallScheduleDecisionForUser(USER_ID, ITEM_ID, expected, {
+      snapshot: snapshot({ state: 'd1_retry', dueAt: D1_RETRY_AT }),
+      practiceProjection: { action: 'preserve' },
+    }, '2026-09-02T05:59:59.999Z'),
+    /cannot precede its current due instant/,
+  );
+  await assert.rejects(
+    persistRecallScheduleDecisionForUser(
+      USER_ID,
+      ITEM_ID,
+      persistedSchedule({
+        snapshot: snapshot({ state: 'd7_pending', dueAt: D7_DUE_AT }),
+      }),
+      {
+        snapshot: snapshot({
+          state: 'ordinary_practice',
+          dueAt: '2026-09-22T08:00:00.000Z',
+          d7Outcome: 'remembered',
+        }),
+        practiceProjection: {
+          action: 'set',
+          status: 'known',
+          knowledgeState: 'known',
+          progressState: 'review',
+        },
+      },
+      '2026-09-08T07:00:00.000Z',
+    ),
+    /returns 14 days after its assessment/,
   );
   assert.equal(calls, 0);
 });
