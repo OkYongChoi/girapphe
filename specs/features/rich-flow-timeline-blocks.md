@@ -26,8 +26,9 @@ In scope:
 - localized editor guidance and live preview on the existing web and mobile
   knowledge editors.
 
-The renderer accepts at most 24 rows, 6,000 source Unicode code points, and 500
-Unicode code points per tuple value. Tuple values must be single-line strings without
+The renderer accepts at most 24 rows, 4,000 source UTF-16 code units (matching
+the persisted scalar prose-field limit), and 500 Unicode code points per tuple
+value. Tuple values must be single-line strings without
 decoded control characters and required values must be non-empty after
 trimming; only a timeline detail may be empty. Invalid, oversized, unclosed, or
 empty visual blocks remain literal source text. Blank source lines inside a

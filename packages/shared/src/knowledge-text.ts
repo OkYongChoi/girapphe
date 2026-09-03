@@ -39,7 +39,8 @@ type ExplicitMathCloseIndexes = {
 
 const FENCE = '```';
 const FENCE_LANGUAGE = /^[A-Za-z0-9_+.-]+$/;
-const VISUAL_BLOCK_MAX_SOURCE_LENGTH = 6_000;
+// Matches the persisted scalar prose-field limit used by bundle validation.
+const VISUAL_BLOCK_MAX_SOURCE_CODE_UNITS = 4_000;
 const VISUAL_BLOCK_MAX_ROWS = 24;
 const VISUAL_BLOCK_MAX_VALUE_LENGTH = 500;
 
@@ -134,7 +135,7 @@ function parseVisualRows(
   body: string,
   source: string,
 ): KnowledgeVisualToken | null {
-  if (!withinCodePointLimit(source, VISUAL_BLOCK_MAX_SOURCE_LENGTH)) return null;
+  if (source.length > VISUAL_BLOCK_MAX_SOURCE_CODE_UNITS) return null;
 
   const lines = body.split(/\r?\n/).filter((line) => Boolean(line.trim()));
   if (lines.length < 1 || lines.length > VISUAL_BLOCK_MAX_ROWS) return null;

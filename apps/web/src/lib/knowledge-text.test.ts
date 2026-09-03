@@ -141,7 +141,7 @@ test('preserves CRLF and ignored blank lines in exact visual source', () => {
   }] satisfies KnowledgeTextToken[]);
 });
 
-test('enforces visual row, source, and Unicode value limits', () => {
+test('enforces visual row, persisted source, and Unicode cell-value limits', () => {
   const emoji500 = '🧠'.repeat(500);
   const accepted = [':::flow', JSON.stringify([emoji500, 'B', 'causes']), ':::'].join('\n');
   assert.equal(parseKnowledgeText(accepted)[0]?.type, 'flow');
@@ -157,8 +157,14 @@ test('enforces visual row, source, and Unicode value limits', () => {
   assert.deepEqual(parseKnowledgeText(rows25), [{ type: 'text', value: rows25 }]);
 
   const longRow = JSON.stringify(['A'.repeat(450), 'B'.repeat(450), 'R'.repeat(450)]);
-  const oversizedSource = [':::flow', longRow, longRow, longRow, longRow, longRow, ':::'].join('\n');
-  assert.ok(Array.from(oversizedSource).length > 6_000);
+  const acceptedSource = [':::flow', longRow, longRow, ':::'].join('\n');
+  assert.ok(acceptedSource.length <= 4_000);
+  assert.equal(parseKnowledgeText(acceptedSource)[0]?.type, 'flow');
+
+  const emojiRow = JSON.stringify(['🧠'.repeat(350), '🧠'.repeat(350), '🧠'.repeat(350)]);
+  const oversizedSource = [':::flow', emojiRow, emojiRow, ':::'].join('\n');
+  assert.ok(oversizedSource.length > 4_000);
+  assert.ok(Array.from(oversizedSource).length <= 4_000);
   assert.deepEqual(parseKnowledgeText(oversizedSource), [{ type: 'text', value: oversizedSource }]);
 });
 
