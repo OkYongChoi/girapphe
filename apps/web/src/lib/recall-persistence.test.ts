@@ -13,6 +13,7 @@ import {
   enrollApprovedRecallScheduleForUser,
   getRecallScheduleForUser,
   persistRecallScheduleDecisionForUser,
+  type RecallCancellationExpectation,
   type PersistedRecallPractice,
   type PersistedRecallSchedule,
 } from './recall-persistence';
@@ -56,6 +57,16 @@ function persistedSchedule(
     snapshot: snapshot(),
     practice: EMPTY_PRACTICE,
     ...overrides,
+  };
+}
+
+function cancellationExpectation(
+  schedule: PersistedRecallSchedule = persistedSchedule(),
+): RecallCancellationExpectation {
+  return {
+    itemVersion: schedule.itemVersion,
+    scheduleVersion: schedule.scheduleVersion,
+    enrolledAt: schedule.snapshot.enrolledAt,
   };
 }
 
@@ -662,7 +673,11 @@ test('cancellation deletes an unassessed row and clears only Recall fields for a
         ] as never;
   }) as typeof db.accountTransaction;
 
-  const deleted = await cancelRecallScheduleForItem(USER_ID, ITEM_ID, 1);
+  const deleted = await cancelRecallScheduleForItem(
+    USER_ID,
+    ITEM_ID,
+    cancellationExpectation(),
+  );
   assert.deepEqual(deleted, { kind: 'cancelled', retainedPractice: false });
   assert.match(queries[0]!.text, /pg_advisory_xact_lock/);
   assert.match(queries[1]!.text, /DELETE FROM user_private_card_states s/);
@@ -673,9 +688,17 @@ test('cancellation deletes an unassessed row and clears only Recall fields for a
     /archived_at|deleted_at|purge_at|supported_item_version|knowledge_item_supersessions/,
   );
   assert.doesNotMatch(queries[1]!.text, /s\.recall_item_version = i\.version/);
+  assert.match(queries[1]!.text, /s\.recall_item_version = \$3/);
+  assert.match(queries[1]!.text, /s\.recall_schedule_version = \$4/);
+  assert.match(queries[1]!.text, /s\.recall_enrolled_at = \$5::timestamptz/);
+  assert.deepEqual(queries[1]!.params, [USER_ID, ITEM_ID, 1, 1, ENROLLED_AT]);
 
   assessed = true;
-  const cleared = await cancelRecallScheduleForItem(USER_ID, ITEM_ID, 1);
+  const cleared = await cancelRecallScheduleForItem(
+    USER_ID,
+    ITEM_ID,
+    cancellationExpectation(),
+  );
   assert.deepEqual(cleared, { kind: 'cancelled', retainedPractice: true });
   const clearSql = queries[2]!.text;
   assert.match(clearSql, /SET recall_enrolled_at = NULL/);
@@ -691,12 +714,23 @@ test('cancellation deletes an unassessed row and clears only Recall fields for a
     /archived_at|deleted_at|purge_at|supported_item_version|knowledge_item_supersessions/,
   );
   assert.doesNotMatch(clearSql, /s\.recall_item_version = i\.version/);
+  assert.match(clearSql, /s\.recall_item_version = \$3/);
+  assert.match(clearSql, /s\.recall_schedule_version = \$4/);
+  assert.match(clearSql, /s\.recall_enrolled_at = \$5::timestamptz/);
+  assert.deepEqual(queries[2]!.params, [USER_ID, ITEM_ID, 1, 1, ENROLLED_AT]);
 });
 
-test('cancellation remains owner-scoped after revision or archival and rejects a stale schedule version', async (context) => {
+test('cancellation stays owner-scoped and rejects stale versions or enrollment generations', async (context) => {
   const original = db.accountTransaction;
   const active = persistedSchedule({ scheduleVersion: 2 });
+  const replacement = persistedSchedule({
+    snapshot: snapshot({
+      enrolledAt: '2026-09-02T00:00:00.000Z',
+      dueAt: '2026-09-03T06:00:00.000Z',
+    }),
+  });
   let conflict = false;
+  let conflictSchedule = active;
   let queries: Parameters<typeof db.accountTransaction>[1] = [];
   context.after(() => { db.accountTransaction = original; });
   db.accountTransaction = (async (_userId, inputQueries) => {
@@ -706,7 +740,11 @@ test('cancellation remains owner-scoped after revision or archival and rejects a
           { rows: [] },
           { rows: [] },
           { rows: [] },
-          { rows: [{ owner_item_id: ITEM_ID, state_row_item_id: ITEM_ID, ...scheduleRow(active) }] },
+          { rows: [{
+            owner_item_id: ITEM_ID,
+            state_row_item_id: ITEM_ID,
+            ...scheduleRow(conflictSchedule),
+          }] },
         ] as never
       : [
           { rows: [] },
@@ -716,7 +754,8 @@ test('cancellation remains owner-scoped after revision or archival and rejects a
         ] as never;
   }) as typeof db.accountTransaction;
 
-  const replay = await cancelRecallScheduleForItem(USER_ID, ITEM_ID, 1);
+  const expected = cancellationExpectation();
+  const replay = await cancelRecallScheduleForItem(USER_ID, ITEM_ID, expected);
   assert.deepEqual(replay, { kind: 'unchanged', retainedPractice: false });
 
   const ownerProbeSql = queries[3]!.text;
@@ -725,6 +764,13 @@ test('cancellation remains owner-scoped after revision or archival and rejects a
   assert.doesNotMatch(ownerProbeSql, /supported_item_version|i\.version = s\.recall_item_version/);
 
   conflict = true;
-  const stale = await cancelRecallScheduleForItem(USER_ID, ITEM_ID, 1);
+  const stale = await cancelRecallScheduleForItem(USER_ID, ITEM_ID, expected);
   assert.deepEqual(stale, { kind: 'conflict', schedule: active });
+
+  conflictSchedule = replacement;
+  const delayed = await cancelRecallScheduleForItem(USER_ID, ITEM_ID, expected);
+  assert.deepEqual(delayed, { kind: 'conflict', schedule: replacement });
+  assert.equal(delayed.schedule.scheduleVersion, expected.scheduleVersion);
+  assert.equal(delayed.schedule.itemVersion, expected.itemVersion);
+  assert.notEqual(delayed.schedule.snapshot.enrolledAt, expected.enrolledAt);
 });

@@ -39,6 +39,12 @@ export type RecallDecisionPersistenceResult =
   | { kind: 'conflict'; schedule: PersistedRecallSchedule }
   | { kind: 'not_found'; schedule: null };
 
+export type RecallCancellationExpectation = {
+  itemVersion: number;
+  scheduleVersion: number;
+  enrolledAt: RecallInstant;
+};
+
 export type RecallCancellationPersistenceResult =
   | { kind: 'cancelled' | 'unchanged'; retainedPractice: boolean }
   | { kind: 'conflict'; schedule: PersistedRecallSchedule }
@@ -674,9 +680,11 @@ export async function persistRecallScheduleDecisionForUser(
 export async function cancelRecallScheduleForItem(
   userId: string,
   knowledgeItemId: string,
-  expectedScheduleVersion: number,
+  expected: RecallCancellationExpectation,
 ): Promise<RecallCancellationPersistenceResult> {
-  requirePositiveInteger(expectedScheduleVersion, 'expectedScheduleVersion');
+  requirePositiveInteger(expected.itemVersion, 'expected.itemVersion');
+  requirePositiveInteger(expected.scheduleVersion, 'expected.scheduleVersion');
+  const expectedEnrolledAt = normalizeInstant(expected.enrolledAt, 'expected.enrolledAt');
   const [, deleted, cleared, probe] = await db.accountTransaction<RecallCancellationRow>(userId, [
     {
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
@@ -687,7 +695,9 @@ export async function cancelRecallScheduleForItem(
       USING user_knowledge_items i
       WHERE s.user_id = $1
         AND s.knowledge_item_id = $2
-        AND s.recall_schedule_version = $3
+        AND s.recall_item_version = $3
+        AND s.recall_schedule_version = $4
+        AND s.recall_enrolled_at = $5::timestamptz
         AND i.id = s.knowledge_item_id
         AND i.user_id = s.user_id
         AND i.user_id = $1
@@ -696,7 +706,13 @@ export async function cancelRecallScheduleForItem(
         AND s.progress_state IS NULL
         AND s.last_seen IS NULL
       RETURNING s.knowledge_item_id, FALSE AS retained_practice`,
-      params: [userId, knowledgeItemId, expectedScheduleVersion],
+      params: [
+        userId,
+        knowledgeItemId,
+        expected.itemVersion,
+        expected.scheduleVersion,
+        expectedEnrolledAt,
+      ],
     },
     {
       text: `UPDATE user_private_card_states s
@@ -709,7 +725,9 @@ export async function cancelRecallScheduleForItem(
       FROM user_knowledge_items i
       WHERE s.user_id = $1
         AND s.knowledge_item_id = $2
-        AND s.recall_schedule_version = $3
+        AND s.recall_item_version = $3
+        AND s.recall_schedule_version = $4
+        AND s.recall_enrolled_at = $5::timestamptz
         AND i.id = s.knowledge_item_id
         AND i.user_id = s.user_id
         AND i.user_id = $1
@@ -718,7 +736,13 @@ export async function cancelRecallScheduleForItem(
         AND s.progress_state IS NOT NULL
         AND s.last_seen IS NOT NULL
       RETURNING s.knowledge_item_id, TRUE AS retained_practice`,
-      params: [userId, knowledgeItemId, expectedScheduleVersion],
+      params: [
+        userId,
+        knowledgeItemId,
+        expected.itemVersion,
+        expected.scheduleVersion,
+        expectedEnrolledAt,
+      ],
     },
     {
       text: `SELECT

@@ -25,6 +25,14 @@ function surfaceCleanupFailures(bodyCompleted, failures) {
   }
 }
 
+function cancellationExpectation(schedule) {
+  return {
+    itemVersion: schedule.itemVersion,
+    scheduleVersion: schedule.scheduleVersion,
+    enrolledAt: schedule.snapshot.enrolledAt,
+  };
+}
+
 test('Recall migration bootstraps an absent Practice table, preserves rows, and enforces honest snapshots', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
 }, async (context) => {
@@ -426,7 +434,7 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
       '2026-09-04T00:00:00.123Z',
     ), { kind: 'not_found', schedule: null });
     assert.deepEqual(await recall.cancelRecallScheduleForItem(
-      otherUserId, itemId, enrolledSchedule.scheduleVersion,
+      otherUserId, itemId, cancellationExpectation(enrolledSchedule),
     ), { kind: 'not_found', schedule: null });
     const unchangedOwnerSchedule = await recall.getRecallScheduleForUser(userId, itemId);
     assert.equal(unchangedOwnerSchedule?.scheduleVersion, 1);
@@ -508,7 +516,7 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
     const cancellation = await recall.cancelRecallScheduleForItem(
       userId,
       itemId,
-      d7Result.schedule.scheduleVersion,
+      cancellationExpectation(d7Result.schedule),
     );
     assert.deepEqual(cancellation, { kind: 'cancelled', retainedPractice: true });
     assert.deepEqual((await pool.query(
@@ -523,6 +531,42 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
       recall_enrolled_at: null,
       recall_schedule_version: null,
     }]);
+
+    const replacementEnrolledAt = '2026-09-10T00:00:00.000Z';
+    const replacementDueAt = '2026-09-11T00:00:00.000Z';
+    await pool.query(
+      `UPDATE user_knowledge_items
+       SET version = 1, archived_at = NULL
+       WHERE id = $1 AND user_id = $2`,
+      [itemId, userId],
+    );
+    const replacementEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      itemId,
+      1,
+      replacementEnrolledAt,
+      replacementDueAt,
+    );
+    assert.equal(replacementEnrollment.kind, 'enrolled');
+    assert.ok(replacementEnrollment.schedule);
+    assert.equal(replacementEnrollment.schedule.scheduleVersion, 1);
+    assert.equal(replacementEnrollment.schedule.snapshot.enrolledAt, replacementEnrolledAt);
+
+    const delayedCancellation = await recall.cancelRecallScheduleForItem(
+      userId,
+      itemId,
+      cancellationExpectation(enrolledSchedule),
+    );
+    assert.equal(delayedCancellation.kind, 'conflict');
+    assert.equal(delayedCancellation.schedule?.itemVersion, enrolledSchedule.itemVersion);
+    assert.equal(delayedCancellation.schedule?.scheduleVersion, enrolledSchedule.scheduleVersion);
+    assert.equal(delayedCancellation.schedule?.snapshot.enrolledAt, replacementEnrolledAt);
+
+    assert.deepEqual(await recall.cancelRecallScheduleForItem(
+      userId,
+      itemId,
+      cancellationExpectation(replacementEnrollment.schedule),
+    ), { kind: 'cancelled', retainedPractice: true });
     bodyCompleted = true;
   } finally {
     const cleanupFailures = [];

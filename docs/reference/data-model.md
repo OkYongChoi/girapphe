@@ -172,10 +172,12 @@ Recall persistence adds a content-free schedule snapshot to the same row:
 Database checks enforce the D+1, D+7, and post-D+7 elapsed-time windows and
 reject partial nullable Practice projections. Owner-scoped repository writes
 also compare the complete expected snapshot and schedule version, so a stale
-D+1 transition cannot overwrite a newer D+7 state. This persistence slice is
-runtime-inert: approval hooks, Practice lifecycle integration, attempts,
-delivery claims, notification preferences, device tokens, and UI are separate
-feature stages.
+D+1 transition cannot overwrite a newer D+7 state. Cancellation also compares
+the expected item version, enrollment anchor, and schedule version, so a
+delayed cancellation from an earlier enrollment cannot remove a later
+re-enrollment whose counter restarted. This persistence slice is runtime-inert:
+approval hooks, Practice lifecycle integration, attempts, delivery claims,
+notification preferences, device tokens, and UI are separate feature stages.
 
 ## Billing and Entitlements
 
