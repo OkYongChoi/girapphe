@@ -13,10 +13,12 @@ This folder contains technical documentation for the Personal STEM Brain project
 - [Knowledge Graph Spec](./reference/knowledge-graph-spec.md)
 - [API Specification](./reference/api-spec.md)
 - [MCP Card-Draft Ingestion](./reference/mcp-card-ingestion.md)
+- [Recall Ping Selected Wireflow](./reference/recall-ping-wireflow.md)
 - [WebMCP Browser Tools](./reference/webmcp.md)
 - [Ads and Subscriptions](./reference/monetization.md)
 - [Data Model](./reference/data-model.md)
 - [Development & Operations](./operations/development.md)
+- [Recall Ping Seven-Day Pilot](./operations/recall-ping-pilot.md)
 - [Resource Planning](./operations/resource-planning.md)
 - [Admin Operations](./operations/admin.md)
 
