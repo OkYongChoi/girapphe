@@ -65,10 +65,9 @@ type RecallScheduleRow = {
   last_seen: Date | string | null;
 };
 
-type RecallCancellationRow = Partial<RecallScheduleRow> & {
-  knowledge_item_id?: string;
+type RecallCancellationRow = Omit<Partial<RecallScheduleRow>, 'knowledge_item_id'> & {
+  knowledge_item_id?: string | null;
   owner_item_id?: string;
-  state_row_item_id?: string | null;
   retained_practice?: boolean;
 };
 
@@ -747,7 +746,7 @@ export async function cancelRecallScheduleForItem(
     {
       text: `SELECT
         i.id AS owner_item_id,
-        s.knowledge_item_id AS state_row_item_id,
+        s.knowledge_item_id,
         s.recall_item_version AS item_version,
         s.recall_schedule_version AS schedule_version,
         s.recall_enrolled_at,
@@ -775,7 +774,7 @@ export async function cancelRecallScheduleForItem(
   const probeRow = probe.rows[0];
   if (!probeRow?.owner_item_id) return { kind: 'not_found', schedule: null };
   if (!probeRow.recall_enrolled_at) {
-    return { kind: 'unchanged', retainedPractice: Boolean(probeRow.state_row_item_id) };
+    return { kind: 'unchanged', retainedPractice: Boolean(probeRow.knowledge_item_id) };
   }
   return { kind: 'conflict', schedule: mapRecallScheduleRow(probeRow as RecallScheduleRow) };
 }

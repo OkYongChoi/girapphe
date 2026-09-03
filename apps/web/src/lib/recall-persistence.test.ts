@@ -742,7 +742,6 @@ test('cancellation stays owner-scoped and rejects stale versions or enrollment g
           { rows: [] },
           { rows: [{
             owner_item_id: ITEM_ID,
-            state_row_item_id: ITEM_ID,
             ...scheduleRow(conflictSchedule),
           }] },
         ] as never
@@ -750,7 +749,7 @@ test('cancellation stays owner-scoped and rejects stale versions or enrollment g
           { rows: [] },
           { rows: [] },
           { rows: [] },
-          { rows: [{ owner_item_id: ITEM_ID, state_row_item_id: null }] },
+          { rows: [{ owner_item_id: ITEM_ID, knowledge_item_id: null }] },
         ] as never;
   }) as typeof db.accountTransaction;
 
@@ -760,6 +759,8 @@ test('cancellation stays owner-scoped and rejects stale versions or enrollment g
 
   const ownerProbeSql = queries[3]!.text;
   assert.match(ownerProbeSql, /i\.user_id = \$1/);
+  assert.match(ownerProbeSql, /s\.knowledge_item_id,/);
+  assert.doesNotMatch(ownerProbeSql, /state_row_item_id/);
   assert.doesNotMatch(ownerProbeSql, /archived_at|deleted_at|purge_at|knowledge_item_supersessions/);
   assert.doesNotMatch(ownerProbeSql, /supported_item_version|i\.version = s\.recall_item_version/);
 
