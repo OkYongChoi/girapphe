@@ -9,7 +9,7 @@ The platform maintains six main data groups:
 3. Legacy card model (`knowledge_cards`, `user_card_states`)
 4. Private user graph and lifecycle (`user_knowledge_items`,
    `user_graph_nodes`, `user_graph_edges`, revisions, activity,
-   supersessions, and evidence selectors)
+   supersessions, evidence selectors, and private Practice/Recall state)
 5. Conversation draft ingestion and scoped reuse
    (`knowledge_ingestion_batches`, `knowledge_card_drafts`,
    `knowledge_card_sources`, `mcp_access_tokens`,
@@ -109,6 +109,11 @@ is regenerated as a compatibility projection for search, graph, practice, and
 older clients. Approval creates the personal card, private node, source
 record, and valid edges in one database transaction.
 
+Every newly written conversation source records the exact
+`supported_item_version` whose immutable revision it supports. Historical
+source rows remain nullable: the application does not infer a revision from
+timestamps or present a legacy source as evidence for a later owner edit.
+
 The version-one discriminator set is `concept`, `procedure`, `comparison`,
 `mechanism`, `structure`, `claim_evidence`, `question`, `decision`, `event`,
 and `expression`. Question bundles carry an explicit open/answered status, decision
@@ -140,6 +145,37 @@ bounded rolling-window counter per token and user; it never stores raw tokens.
 `mcp_deleted_account_markers` permanently stores only a domain-separated
 SHA-256 fingerprint, never a raw Clerk user ID, and blocks stale account-owned
 knowledge, practice, PAT, OAuth, MCP, and new billing-initiation writes after account deletion.
+
+## Private Practice and Recall Schedule State
+
+`user_private_card_states.due_at` is the only authoritative due instant shared
+by private Practice and Recall Ping. Recall persistence does not create a
+second queue or due-time column. Existing assessed rows keep one of the exact
+Practice projections `known/known/review` or `saved/unknown/learning` with a
+non-null `last_seen`.
+
+An enrolled item that has not yet been assessed instead stores all four
+Practice projection fields (`status`, `knowledge_state`, `progress_state`, and
+`last_seen`) as null. That shape is valid only while Recall enrollment metadata
+is present, preventing enrollment from being falsely recorded as saved,
+unknown, learning, or already seen.
+
+Recall persistence adds a content-free schedule snapshot to the same row:
+
+- `recall_enrolled_at`: immutable elapsed-time anchor;
+- `recall_item_version`: exact eligible item revision enrolled;
+- `recall_schedule_state`: `d1_pending`, `d1_retry`, `d7_pending`, or
+  `ordinary_practice`;
+- `recall_d1_finalized_incomplete` and `recall_d7_outcome`: milestone results;
+- `recall_schedule_version`: compare-and-swap version for concurrent devices.
+
+Database checks enforce the D+1, D+7, and post-D+7 elapsed-time windows and
+reject partial nullable Practice projections. Owner-scoped repository writes
+also compare the complete expected snapshot and schedule version, so a stale
+D+1 transition cannot overwrite a newer D+7 state. This persistence slice is
+runtime-inert: approval hooks, Practice lifecycle integration, attempts,
+delivery claims, notification preferences, device tokens, and UI are separate
+feature stages.
 
 ## Billing and Entitlements
 
@@ -208,6 +244,9 @@ Card tables:
 - `user_card_states`
   - Legacy compatibility field: `status` (`known` | `saved`)
   - Canonical fields: `knowledge_state`, `progress_state`, `due_at`
+- `user_private_card_states`
+  - Nullable assessed/unassessed Practice projection
+  - Shared `due_at` plus the content-free Recall schedule snapshot
 
 Key constraints:
 

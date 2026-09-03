@@ -85,20 +85,23 @@ async function purgePrivateProductData(userId: string) {
        deleted_evidence_spans AS (
          DELETE FROM knowledge_evidence_spans WHERE user_id = $1 RETURNING id
        ),
+       deleted_sources AS (
+         DELETE FROM knowledge_card_sources
+         WHERE user_id = $1
+           AND (SELECT COUNT(*) FROM deleted_evidence_spans) >= 0
+         RETURNING id
+       ),
        deleted_revisions AS (
-         DELETE FROM knowledge_item_revisions WHERE user_id = $1 RETURNING id
+         DELETE FROM knowledge_item_revisions
+         WHERE user_id = $1
+           AND (SELECT COUNT(*) FROM deleted_sources) >= 0
+         RETURNING id
        ),
        deleted_activity AS (
          DELETE FROM knowledge_item_activity WHERE user_id = $1 RETURNING id
        ),
        deleted_supersessions AS (
          DELETE FROM knowledge_item_supersessions WHERE user_id = $1 RETURNING id
-       ),
-       deleted_sources AS (
-         DELETE FROM knowledge_card_sources
-         WHERE user_id = $1
-           AND (SELECT COUNT(*) FROM deleted_evidence_spans) >= 0
-         RETURNING id
        ),
        deleted_graph_edges AS (
          DELETE FROM user_graph_edges WHERE user_id = $1 RETURNING id
