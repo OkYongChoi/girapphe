@@ -234,11 +234,17 @@ export const userKnowledgeCreateRequests = pgTable("user_knowledge_create_reques
 export const userPrivateCardStates = pgTable("user_private_card_states", {
   userId: text("user_id").notNull(),
   knowledgeItemId: text("knowledge_item_id").notNull(),
-  status: text("status").notNull(),
-  knowledgeState: text("knowledge_state").notNull(),
-  progressState: text("progress_state").notNull(),
+  status: text("status"),
+  knowledgeState: text("knowledge_state"),
+  progressState: text("progress_state"),
   dueAt: timestamp("due_at", { withTimezone: true }),
-  lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
+  lastSeen: timestamp("last_seen", { withTimezone: true }),
+  recallEnrolledAt: timestamp("recall_enrolled_at", { withTimezone: true }),
+  recallItemVersion: integer("recall_item_version"),
+  recallScheduleState: text("recall_schedule_state"),
+  recallD1FinalizedIncomplete: boolean("recall_d1_finalized_incomplete"),
+  recallD7Outcome: text("recall_d7_outcome"),
+  recallScheduleVersion: integer("recall_schedule_version"),
 }, (t) => [
   primaryKey({ columns: [t.userId, t.knowledgeItemId] }),
   foreignKey({
@@ -248,10 +254,77 @@ export const userPrivateCardStates = pgTable("user_private_card_states", {
   }).onDelete("cascade"),
   index("idx_user_private_card_states_user_status").on(t.userId, t.status),
   index("idx_user_private_card_states_user_due").on(t.userId, t.dueAt),
-  check("user_private_card_states_status_check", sql`${t.status} IN ('known', 'saved')`),
-  check("user_private_card_states_knowledge_state_check", sql`${t.knowledgeState} IN ('unknown', 'known')`),
-  check("user_private_card_states_progress_state_check", sql`${t.progressState} IN ('learning', 'review')`),
-  check("user_private_card_states_consistency_check", sql`(${t.status} = 'known' AND ${t.knowledgeState} = 'known' AND ${t.progressState} = 'review') OR (${t.status} = 'saved' AND ${t.knowledgeState} = 'unknown' AND ${t.progressState} = 'learning')`),
+  check("user_private_card_states_status_check", sql`${t.status} IS NULL OR ${t.status} IN ('known', 'saved')`),
+  check("user_private_card_states_knowledge_state_check", sql`${t.knowledgeState} IS NULL OR ${t.knowledgeState} IN ('unknown', 'known')`),
+  check("user_private_card_states_progress_state_check", sql`${t.progressState} IS NULL OR ${t.progressState} IN ('learning', 'review')`),
+  check("user_private_card_states_consistency_check", sql`COALESCE(
+    (
+      ${t.status} IS NULL
+      AND ${t.knowledgeState} IS NULL
+      AND ${t.progressState} IS NULL
+      AND ${t.lastSeen} IS NULL
+      AND ${t.recallEnrolledAt} IS NOT NULL
+    )
+    OR (
+      ${t.status} = 'known'
+      AND ${t.knowledgeState} = 'known'
+      AND ${t.progressState} = 'review'
+      AND ${t.lastSeen} IS NOT NULL
+    )
+    OR (
+      ${t.status} = 'saved'
+      AND ${t.knowledgeState} = 'unknown'
+      AND ${t.progressState} = 'learning'
+      AND ${t.lastSeen} IS NOT NULL
+    ),
+    FALSE
+  )`),
+  check("user_private_card_states_recall_schedule_check", sql`COALESCE(
+    (
+      ${t.recallEnrolledAt} IS NULL
+      AND ${t.recallItemVersion} IS NULL
+      AND ${t.recallScheduleState} IS NULL
+      AND ${t.recallD1FinalizedIncomplete} IS NULL
+      AND ${t.recallD7Outcome} IS NULL
+      AND ${t.recallScheduleVersion} IS NULL
+    )
+    OR (
+      ${t.recallEnrolledAt} IS NOT NULL
+      AND ${t.recallItemVersion} >= 1
+      AND ${t.recallScheduleVersion} >= 1
+      AND ${t.recallD1FinalizedIncomplete} IS NOT NULL
+      AND ${t.recallScheduleState} IN ('d1_pending', 'd1_retry', 'd7_pending', 'ordinary_practice')
+      AND ${t.dueAt} IS NOT NULL
+      AND (
+        (
+          ${t.recallScheduleState} = 'd1_pending'
+          AND ${t.recallD1FinalizedIncomplete} = FALSE
+          AND ${t.recallD7Outcome} IS NULL
+          AND ${t.dueAt} >= ${t.recallEnrolledAt} + INTERVAL '24 hours'
+          AND ${t.dueAt} < ${t.recallEnrolledAt} + INTERVAL '48 hours'
+        )
+        OR (
+          ${t.recallScheduleState} = 'd1_retry'
+          AND ${t.recallD1FinalizedIncomplete} = FALSE
+          AND ${t.recallD7Outcome} IS NULL
+          AND ${t.dueAt} >= ${t.recallEnrolledAt} + INTERVAL '24 hours'
+          AND ${t.dueAt} < ${t.recallEnrolledAt} + INTERVAL '168 hours'
+        )
+        OR (
+          ${t.recallScheduleState} = 'd7_pending'
+          AND ${t.recallD7Outcome} IS NULL
+          AND ${t.dueAt} >= ${t.recallEnrolledAt} + INTERVAL '168 hours'
+          AND ${t.dueAt} < ${t.recallEnrolledAt} + INTERVAL '192 hours'
+        )
+        OR (
+          ${t.recallScheduleState} = 'ordinary_practice'
+          AND ${t.recallD7Outcome} IN ('remembered', 'partial', 'missed', 'unassessed')
+          AND ${t.dueAt} >= ${t.recallEnrolledAt} + INTERVAL '192 hours'
+        )
+      )
+    ),
+    FALSE
+  )`),
 ]);
 
 export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", {
@@ -437,47 +510,6 @@ export const userGraphEdges = pgTable("user_graph_edges", {
   check("user_graph_edges_weight_check", sql`${t.weight} > 0 AND ${t.weight} <= 1`),
 ]);
 
-export const knowledgeCardSources = pgTable("knowledge_card_sources", {
-  id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
-  knowledgeItemId: text("knowledge_item_id").notNull().references(() => userKnowledgeItems.id, { onDelete: "cascade" }),
-  batchId: text("batch_id").references(() => knowledgeIngestionBatches.id, { onDelete: "set null" }),
-  draftId: text("draft_id").references(() => knowledgeCardDrafts.id, { onDelete: "set null" }),
-  sourceType: text("source_type").notNull().default("conversation"),
-  provider: text("provider").notNull(),
-  conversationRef: text("conversation_ref"),
-  sourceUrl: text("source_url"),
-  sourceLocator: jsonb("source_locator").$type<Record<string, unknown>>(),
-  discussedAt: timestamp("discussed_at", { withTimezone: true }),
-  relationOrigin: text("relation_origin").default("extracted_from_source"),
-  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-}, (t) => [
-  unique("knowledge_card_sources_item_draft_key").on(t.knowledgeItemId, t.draftId),
-  uniqueIndex("idx_knowledge_card_sources_id_user_item").on(t.id, t.userId, t.knowledgeItemId),
-  foreignKey({
-    columns: [t.knowledgeItemId, t.userId],
-    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
-    name: "knowledge_card_sources_item_owner_fk",
-  }).onDelete("cascade"),
-  index("idx_knowledge_card_sources_user_item").on(t.userId, t.knowledgeItemId),
-  index("idx_knowledge_card_sources_user_discussed").on(t.userId, t.discussedAt)
-    .where(sql`${t.discussedAt} IS NOT NULL`),
-  check("knowledge_card_sources_source_url_check", sql`${t.sourceUrl} IS NULL OR (
-    char_length(${t.sourceUrl}) BETWEEN 1 AND 2048
-    AND ${t.sourceUrl} ~ '^https://[^/?#[:space:]]+'
-    AND ${t.sourceUrl} !~ '^https://[^/?#]*@'
-    AND position('?' in ${t.sourceUrl}) = 0
-    AND position('#' in ${t.sourceUrl}) = 0
-  )`),
-  check("knowledge_card_sources_conversation_ref_check", sql`${t.conversationRef} IS NULL OR (
-    char_length(${t.conversationRef}) BETWEEN 1 AND 240
-    AND ${t.conversationRef} !~* '^[a-z][a-z0-9+.-]*://'
-  )`),
-  check("knowledge_card_sources_locator_check", sql`${t.sourceLocator} IS NULL OR jsonb_typeof(${t.sourceLocator}) = 'object'`),
-  check("knowledge_card_sources_relation_origin_check", sql`${t.relationOrigin} IN ('explicit_user', 'extracted_from_source', 'model_inferred')`),
-]);
-
 export const knowledgeItemRevisions = pgTable("knowledge_item_revisions", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),
@@ -496,6 +528,54 @@ export const knowledgeItemRevisions = pgTable("knowledge_item_revisions", {
   index("idx_knowledge_item_revisions_user_item").on(t.userId, t.knowledgeItemId, t.version),
   check("knowledge_item_revisions_version_check", sql`${t.version} >= 1`),
   check("knowledge_item_revisions_snapshot_check", sql`jsonb_typeof(${t.snapshot}) = 'object'`),
+]);
+
+export const knowledgeCardSources = pgTable("knowledge_card_sources", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  knowledgeItemId: text("knowledge_item_id").notNull().references(() => userKnowledgeItems.id, { onDelete: "cascade" }),
+  batchId: text("batch_id").references(() => knowledgeIngestionBatches.id, { onDelete: "set null" }),
+  draftId: text("draft_id").references(() => knowledgeCardDrafts.id, { onDelete: "set null" }),
+  sourceType: text("source_type").notNull().default("conversation"),
+  provider: text("provider").notNull(),
+  conversationRef: text("conversation_ref"),
+  sourceUrl: text("source_url"),
+  sourceLocator: jsonb("source_locator").$type<Record<string, unknown>>(),
+  supportedItemVersion: integer("supported_item_version"),
+  discussedAt: timestamp("discussed_at", { withTimezone: true }),
+  relationOrigin: text("relation_origin").default("extracted_from_source"),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (t) => [
+  unique("knowledge_card_sources_item_draft_key").on(t.knowledgeItemId, t.draftId),
+  uniqueIndex("idx_knowledge_card_sources_id_user_item").on(t.id, t.userId, t.knowledgeItemId),
+  foreignKey({
+    columns: [t.knowledgeItemId, t.userId],
+    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
+    name: "knowledge_card_sources_item_owner_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [t.knowledgeItemId, t.supportedItemVersion],
+    foreignColumns: [knowledgeItemRevisions.knowledgeItemId, knowledgeItemRevisions.version],
+    name: "knowledge_card_sources_supported_revision_fk",
+  }),
+  index("idx_knowledge_card_sources_user_item").on(t.userId, t.knowledgeItemId),
+  index("idx_knowledge_card_sources_user_discussed").on(t.userId, t.discussedAt)
+    .where(sql`${t.discussedAt} IS NOT NULL`),
+  check("knowledge_card_sources_source_url_check", sql`${t.sourceUrl} IS NULL OR (
+    char_length(${t.sourceUrl}) BETWEEN 1 AND 2048
+    AND ${t.sourceUrl} ~ '^https://[^/?#[:space:]]+'
+    AND ${t.sourceUrl} !~ '^https://[^/?#]*@'
+    AND position('?' in ${t.sourceUrl}) = 0
+    AND position('#' in ${t.sourceUrl}) = 0
+  )`),
+  check("knowledge_card_sources_conversation_ref_check", sql`${t.conversationRef} IS NULL OR (
+    char_length(${t.conversationRef}) BETWEEN 1 AND 240
+    AND ${t.conversationRef} !~* '^[a-z][a-z0-9+.-]*://'
+  )`),
+  check("knowledge_card_sources_locator_check", sql`${t.sourceLocator} IS NULL OR jsonb_typeof(${t.sourceLocator}) = 'object'`),
+  check("knowledge_card_sources_supported_item_version_check", sql`${t.supportedItemVersion} IS NULL OR ${t.supportedItemVersion} >= 1`),
+  check("knowledge_card_sources_relation_origin_check", sql`${t.relationOrigin} IN ('explicit_user', 'extracted_from_source', 'model_inferred')`),
 ]);
 
 export const knowledgeItemActivity = pgTable("knowledge_item_activity", {

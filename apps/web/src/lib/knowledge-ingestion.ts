@@ -387,6 +387,7 @@ const memoryKnowledgeSources = new Map<string, Array<{
   conversation_ref: string | null;
   source_url: string | null;
   source_locator: Record<string, unknown> | null;
+  supported_item_version: number;
   discussed_at: string | null;
   relation_origin: KnowledgeRelationOrigin;
   confirmed_at: string;
@@ -863,7 +864,7 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           batch_id TEXT REFERENCES knowledge_ingestion_batches(id) ON DELETE SET NULL,
           draft_id TEXT REFERENCES knowledge_card_drafts(id) ON DELETE SET NULL,
           source_type TEXT NOT NULL DEFAULT 'conversation', provider TEXT NOT NULL, conversation_ref TEXT,
-          source_url TEXT, source_locator JSONB, discussed_at TIMESTAMPTZ,
+          source_url TEXT, source_locator JSONB, supported_item_version INTEGER, discussed_at TIMESTAMPTZ,
           relation_origin TEXT DEFAULT 'extracted_from_source', confirmed_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(knowledge_item_id, draft_id),
           CONSTRAINT knowledge_card_sources_item_owner_fk
@@ -872,6 +873,8 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
             CHECK (source_url IS NULL OR char_length(source_url) BETWEEN 1 AND 4096),
           CONSTRAINT knowledge_card_sources_locator_check
             CHECK (source_locator IS NULL OR jsonb_typeof(source_locator) = 'object'),
+          CONSTRAINT knowledge_card_sources_supported_item_version_check
+            CHECK (supported_item_version IS NULL OR supported_item_version >= 1),
           CONSTRAINT knowledge_card_sources_relation_origin_check
             CHECK (relation_origin IN ('explicit_user', 'extracted_from_source', 'model_inferred'))
         );
@@ -886,6 +889,7 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
       await pool.query(`ALTER TABLE knowledge_card_sources
         ADD COLUMN IF NOT EXISTS source_url TEXT,
         ADD COLUMN IF NOT EXISTS source_locator JSONB,
+        ADD COLUMN IF NOT EXISTS supported_item_version INTEGER,
         ADD COLUMN IF NOT EXISTS discussed_at TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS relation_origin TEXT,
         ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ`);
@@ -1011,6 +1015,7 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
         DROP CONSTRAINT IF EXISTS knowledge_card_sources_source_url_check,
         DROP CONSTRAINT IF EXISTS knowledge_card_sources_conversation_ref_check,
         DROP CONSTRAINT IF EXISTS knowledge_card_sources_locator_check,
+        DROP CONSTRAINT IF EXISTS knowledge_card_sources_supported_item_version_check,
         DROP CONSTRAINT IF EXISTS knowledge_card_sources_relation_origin_check`);
       await pool.query(`ALTER TABLE knowledge_card_sources
         ADD CONSTRAINT knowledge_card_sources_item_owner_fk
@@ -1031,6 +1036,8 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           )) NOT VALID,
         ADD CONSTRAINT knowledge_card_sources_locator_check
           CHECK (source_locator IS NULL OR jsonb_typeof(source_locator) = 'object') NOT VALID,
+        ADD CONSTRAINT knowledge_card_sources_supported_item_version_check
+          CHECK (supported_item_version IS NULL OR supported_item_version >= 1) NOT VALID,
         ADD CONSTRAINT knowledge_card_sources_relation_origin_check
           CHECK (relation_origin IN ('explicit_user', 'extracted_from_source', 'model_inferred')) NOT VALID`);
       await pool.query(`
@@ -1046,6 +1053,12 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           CONSTRAINT knowledge_item_revisions_snapshot_check CHECK (jsonb_typeof(snapshot) = 'object')
         );
       `);
+      await pool.query(`ALTER TABLE knowledge_card_sources
+        DROP CONSTRAINT IF EXISTS knowledge_card_sources_supported_revision_fk`);
+      await pool.query(`ALTER TABLE knowledge_card_sources
+        ADD CONSTRAINT knowledge_card_sources_supported_revision_fk
+          FOREIGN KEY (knowledge_item_id, supported_item_version)
+          REFERENCES knowledge_item_revisions(knowledge_item_id, version) NOT VALID`);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS knowledge_item_activity (
           id TEXT PRIMARY KEY, user_id TEXT NOT NULL, knowledge_item_id TEXT NOT NULL,
@@ -3511,7 +3524,7 @@ export async function approveKnowledgeDraftsForUser(
       const plannedEndpoint = plannedNodes.get(plan.draft.id)!;
       plannedEndpoint.privateNodeId = node.graph_node_id;
       plannedEndpoint.key = `private:${node.graph_node_id}`;
-      recordMemoryConversationSource(userId, item.id, batch, plan.draft, plan.draft.proposed_evidence, plan.evidenceIds);
+      recordMemoryConversationSource(userId, item.id, item.version, batch, plan.draft, plan.draft.proposed_evidence, plan.evidenceIds);
     }
     for (const candidate of candidates) {
       if (insertResolvedMemoryEdgeForUser(
@@ -3645,14 +3658,27 @@ export async function approveKnowledgeDraftsForUser(
         [plan.nodeId, plan.itemId, userId, batchId]
       ));
       queries.push(tx.query(
+        `INSERT INTO knowledge_item_revisions
+          (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+         SELECT $1, i.user_id, i.id, i.version, to_jsonb(i), 'confirmed'
+         FROM user_knowledge_items i WHERE i.id = $2 AND i.user_id = $3
+         ON CONFLICT (knowledge_item_id, version) DO NOTHING
+         RETURNING id`,
+        [plan.revisionId, plan.itemId, userId]
+      ));
+      queries.push(tx.query(
         `INSERT INTO knowledge_card_sources
           (id, user_id, knowledge_item_id, batch_id, draft_id, source_type, provider,
-           conversation_ref, source_url, source_locator, discussed_at, relation_origin, confirmed_at)
+           conversation_ref, source_url, source_locator, supported_item_version,
+           discussed_at, relation_origin, confirmed_at)
          SELECT $1, $2, $3, b.id, d.id, 'conversation', b.provider, b.conversation_ref,
-           b.source_url, $6::jsonb, b.discussed_at, 'extracted_from_source', NOW()
-         FROM knowledge_card_drafts d JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id
+           b.source_url, $6::jsonb, i.version, b.discussed_at, 'extracted_from_source', NOW()
+         FROM knowledge_card_drafts d
+         JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id
+         JOIN user_knowledge_items i ON i.id = $3 AND i.user_id = $2
+         JOIN knowledge_item_revisions r
+           ON r.knowledge_item_id = i.id AND r.user_id = i.user_id AND r.version = i.version
          WHERE d.id = $4 AND d.batch_id = $5 AND d.user_id = $2
-           AND EXISTS (SELECT 1 FROM user_knowledge_items i WHERE i.id = $3 AND i.user_id = $2)
          ON CONFLICT DO NOTHING RETURNING id`,
         [
           plan.sourceId,
@@ -3666,15 +3692,6 @@ export async function approveKnowledgeDraftsForUser(
             client_card_id: plan.draft.client_card_id,
           }),
         ]
-      ));
-      queries.push(tx.query(
-        `INSERT INTO knowledge_item_revisions
-          (id, user_id, knowledge_item_id, version, snapshot, change_reason)
-         SELECT $1, i.user_id, i.id, i.version, to_jsonb(i), 'confirmed'
-         FROM user_knowledge_items i WHERE i.id = $2 AND i.user_id = $3
-         ON CONFLICT (knowledge_item_id, version) DO NOTHING
-         RETURNING id`,
-        [plan.revisionId, plan.itemId, userId]
       ));
       queries.push(tx.query(
         `INSERT INTO knowledge_item_activity
@@ -3978,6 +3995,7 @@ function refreshMemoryBatchResolutionState(batchId: string) {
 function recordMemoryConversationSource(
   userId: string,
   itemId: string,
+  itemVersion: number,
   batch: MemoryBatchRecord,
   draft: KnowledgeCardDraft,
   selectors: KnowledgeEvidenceSelector[],
@@ -3998,6 +4016,7 @@ function recordMemoryConversationSource(
       draft_id: draft.id,
       client_card_id: draft.client_card_id,
     },
+    supported_item_version: itemVersion,
     discussed_at: batch.discussed_at,
     relation_origin: 'extracted_from_source' as const,
     confirmed_at: new Date().toISOString(),
@@ -4334,7 +4353,7 @@ export async function resolveKnowledgeDraftForUser(
     }
     if (!item) return { resolved: false, action: input.action, knowledgeItemId: null, version: null };
     ensureMemoryPrivateNode(userId, item, 'conversation');
-    recordMemoryConversationSource(userId, item.id, batch, draft, selectors, evidenceIds);
+    recordMemoryConversationSource(userId, item.id, item.version, batch, draft, selectors, evidenceIds);
     let insertedEdges = 0;
     for (const candidate of relationCandidates) {
       const source = resolveLogicalMemoryEndpointForUser(userId, candidate.source);
@@ -4517,14 +4536,17 @@ export async function resolveKnowledgeDraftForUser(
         tx.query(
           `INSERT INTO knowledge_card_sources (
              id, user_id, knowledge_item_id, batch_id, draft_id, source_type,
-             provider, conversation_ref, source_url, source_locator, discussed_at,
+             provider, conversation_ref, source_url, source_locator, supported_item_version, discussed_at,
              relation_origin, confirmed_at
            )
            SELECT $1, $2, $3, b.id, d.id, 'conversation', b.provider,
-             b.conversation_ref, b.source_url, $6::jsonb, b.discussed_at,
+             b.conversation_ref, b.source_url, $6::jsonb, i.version, b.discussed_at,
              'extracted_from_source', NOW()
            FROM knowledge_card_drafts d
            JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id
+           JOIN user_knowledge_items i ON i.id = $3 AND i.user_id = $2
+           JOIN knowledge_item_revisions r
+             ON r.knowledge_item_id = i.id AND r.user_id = i.user_id AND r.version = i.version
            WHERE d.id = $4 AND d.batch_id = $5 AND d.user_id = $2
            ON CONFLICT (knowledge_item_id, draft_id) DO NOTHING
            RETURNING id`,

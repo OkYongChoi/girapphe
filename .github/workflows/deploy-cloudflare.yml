@@ -125,6 +125,13 @@ jobs:
           APP_ENV: preview
           DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
 
+      - name: Verify Recall persistence database semantics
+        working-directory: apps/web
+        run: NODE_OPTIONS=--conditions=react-server pnpm exec tsx --test scripts/recall-persistence-postgres.test.mjs
+        env:
+          NODE_ENV: production
+          LIVE_POSTGRES_TEST_DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
+
       - name: Verify supersession tombstone database semantics
         working-directory: apps/web
         run: pnpm exec tsx --test scripts/knowledge-supersession-tombstone-postgres.test.mjs

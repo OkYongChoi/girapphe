@@ -71,6 +71,24 @@ test('account deletion clears reversible MCP rate-limit identities before deleti
   assert.doesNotMatch(source, /scope_key\s+LIKE\s+'credential:%'/);
 });
 
+test('account deletion removes revision-bound sources before their referenced revisions', () => {
+  const source = readFileSync(new URL('../account-deletion.ts', import.meta.url), 'utf8');
+  const deletedEvidenceSpans = source.indexOf('deleted_evidence_spans AS');
+  const deletedSources = source.indexOf('deleted_sources AS');
+  const deletedRevisions = source.indexOf('deleted_revisions AS');
+
+  assert.ok(deletedEvidenceSpans >= 0 && deletedEvidenceSpans < deletedSources);
+  assert.ok(deletedSources < deletedRevisions);
+  assert.match(
+    source,
+    /deleted_sources AS \([\s\S]{0,240}DELETE FROM knowledge_card_sources[\s\S]{0,240}deleted_evidence_spans/,
+  );
+  assert.match(
+    source,
+    /deleted_revisions AS \([\s\S]{0,240}DELETE FROM knowledge_item_revisions[\s\S]{0,240}deleted_sources/,
+  );
+});
+
 test('account deletion commits its permanent fence before provider cleanup without exposing owner identifiers', () => {
   const source = readFileSync(new URL('../account-deletion.ts', import.meta.url), 'utf8');
   const fence = source.indexOf('async function beginAccountDeletionFence');

@@ -364,6 +364,22 @@ CREATE TABLE IF NOT EXISTS user_graph_edges (
   )
 );
 
+CREATE TABLE IF NOT EXISTS knowledge_item_revisions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  knowledge_item_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version >= 1),
+  snapshot JSONB NOT NULL CHECK (jsonb_typeof(snapshot) = 'object'),
+  change_reason TEXT,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT knowledge_item_revisions_item_owner_fk
+    FOREIGN KEY (knowledge_item_id, user_id)
+    REFERENCES user_knowledge_items(id, user_id)
+    ON DELETE CASCADE,
+  CONSTRAINT knowledge_item_revisions_item_version_key
+    UNIQUE (knowledge_item_id, version)
+);
+
 CREATE TABLE IF NOT EXISTS knowledge_card_sources (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -390,6 +406,9 @@ CREATE TABLE IF NOT EXISTS knowledge_card_sources (
   source_locator JSONB
     CONSTRAINT knowledge_card_sources_locator_check
       CHECK (source_locator IS NULL OR jsonb_typeof(source_locator) = 'object'),
+  supported_item_version INTEGER
+    CONSTRAINT knowledge_card_sources_supported_item_version_check
+      CHECK (supported_item_version IS NULL OR supported_item_version >= 1),
   discussed_at TIMESTAMP WITH TIME ZONE,
   relation_origin TEXT DEFAULT 'extracted_from_source'
     CONSTRAINT knowledge_card_sources_relation_origin_check
@@ -400,27 +419,14 @@ CREATE TABLE IF NOT EXISTS knowledge_card_sources (
   CONSTRAINT knowledge_card_sources_item_owner_fk
     FOREIGN KEY (knowledge_item_id, user_id)
     REFERENCES user_knowledge_items(id, user_id)
-    ON DELETE CASCADE
+    ON DELETE CASCADE,
+  CONSTRAINT knowledge_card_sources_supported_revision_fk
+    FOREIGN KEY (knowledge_item_id, supported_item_version)
+    REFERENCES knowledge_item_revisions(knowledge_item_id, version)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_card_sources_id_user_item
 ON knowledge_card_sources(id, user_id, knowledge_item_id);
-
-CREATE TABLE IF NOT EXISTS knowledge_item_revisions (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  knowledge_item_id TEXT NOT NULL,
-  version INTEGER NOT NULL CHECK (version >= 1),
-  snapshot JSONB NOT NULL CHECK (jsonb_typeof(snapshot) = 'object'),
-  change_reason TEXT,
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-  CONSTRAINT knowledge_item_revisions_item_owner_fk
-    FOREIGN KEY (knowledge_item_id, user_id)
-    REFERENCES user_knowledge_items(id, user_id)
-    ON DELETE CASCADE,
-  CONSTRAINT knowledge_item_revisions_item_version_key
-    UNIQUE (knowledge_item_id, version)
-);
 
 CREATE TABLE IF NOT EXISTS knowledge_item_activity (
   id TEXT PRIMARY KEY,
@@ -543,22 +549,98 @@ ON knowledge_relation_evidence(user_id, evidence_span_id);
 CREATE TABLE IF NOT EXISTS user_private_card_states (
   user_id TEXT NOT NULL,
   knowledge_item_id TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('known', 'saved')),
-  knowledge_state TEXT NOT NULL CHECK (knowledge_state IN ('unknown', 'known')),
-  progress_state TEXT NOT NULL CHECK (progress_state IN ('learning', 'review')),
+  status TEXT,
+  knowledge_state TEXT,
+  progress_state TEXT,
   due_at TIMESTAMP WITH TIME ZONE,
-  last_seen TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  last_seen TIMESTAMP WITH TIME ZONE,
+  recall_enrolled_at TIMESTAMP WITH TIME ZONE,
+  recall_item_version INTEGER,
+  recall_schedule_state TEXT,
+  recall_d1_finalized_incomplete BOOLEAN,
+  recall_d7_outcome TEXT,
+  recall_schedule_version INTEGER,
   PRIMARY KEY (user_id, knowledge_item_id),
   CONSTRAINT user_private_card_states_item_owner_fk
     FOREIGN KEY (knowledge_item_id, user_id)
     REFERENCES user_knowledge_items(id, user_id)
     ON DELETE CASCADE,
+  CONSTRAINT user_private_card_states_status_check
+    CHECK (status IS NULL OR status IN ('known', 'saved')),
+  CONSTRAINT user_private_card_states_knowledge_state_check
+    CHECK (knowledge_state IS NULL OR knowledge_state IN ('unknown', 'known')),
+  CONSTRAINT user_private_card_states_progress_state_check
+    CHECK (progress_state IS NULL OR progress_state IN ('learning', 'review')),
   CONSTRAINT user_private_card_states_consistency_check
-    CHECK (
-      (status = 'known' AND knowledge_state = 'known' AND progress_state = 'review')
-      OR
-      (status = 'saved' AND knowledge_state = 'unknown' AND progress_state = 'learning')
-    )
+    CHECK (COALESCE(
+      (
+        status IS NULL
+        AND knowledge_state IS NULL
+        AND progress_state IS NULL
+        AND last_seen IS NULL
+        AND recall_enrolled_at IS NOT NULL
+      )
+      OR (
+        status = 'known'
+        AND knowledge_state = 'known'
+        AND progress_state = 'review'
+        AND last_seen IS NOT NULL
+      )
+      OR (
+        status = 'saved'
+        AND knowledge_state = 'unknown'
+        AND progress_state = 'learning'
+        AND last_seen IS NOT NULL
+      ),
+      FALSE
+    )),
+  CONSTRAINT user_private_card_states_recall_schedule_check
+    CHECK (COALESCE(
+      (
+        recall_enrolled_at IS NULL
+        AND recall_item_version IS NULL
+        AND recall_schedule_state IS NULL
+        AND recall_d1_finalized_incomplete IS NULL
+        AND recall_d7_outcome IS NULL
+        AND recall_schedule_version IS NULL
+      )
+      OR (
+        recall_enrolled_at IS NOT NULL
+        AND recall_item_version >= 1
+        AND recall_schedule_version >= 1
+        AND recall_d1_finalized_incomplete IS NOT NULL
+        AND recall_schedule_state IN ('d1_pending', 'd1_retry', 'd7_pending', 'ordinary_practice')
+        AND due_at IS NOT NULL
+        AND (
+          (
+            recall_schedule_state = 'd1_pending'
+            AND recall_d1_finalized_incomplete = FALSE
+            AND recall_d7_outcome IS NULL
+            AND due_at >= recall_enrolled_at + INTERVAL '24 hours'
+            AND due_at < recall_enrolled_at + INTERVAL '48 hours'
+          )
+          OR (
+            recall_schedule_state = 'd1_retry'
+            AND recall_d1_finalized_incomplete = FALSE
+            AND recall_d7_outcome IS NULL
+            AND due_at >= recall_enrolled_at + INTERVAL '24 hours'
+            AND due_at < recall_enrolled_at + INTERVAL '168 hours'
+          )
+          OR (
+            recall_schedule_state = 'd7_pending'
+            AND recall_d7_outcome IS NULL
+            AND due_at >= recall_enrolled_at + INTERVAL '168 hours'
+            AND due_at < recall_enrolled_at + INTERVAL '192 hours'
+          )
+          OR (
+            recall_schedule_state = 'ordinary_practice'
+            AND recall_d7_outcome IN ('remembered', 'partial', 'missed', 'unassessed')
+            AND due_at >= recall_enrolled_at + INTERVAL '192 hours'
+          )
+        )
+      ),
+      FALSE
+    ))
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_private_card_states_user_status

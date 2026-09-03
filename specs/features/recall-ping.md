@@ -219,40 +219,43 @@ in a notification log, or to a different signed-in account.
 
 | Criterion | Evidence |
 | --- | --- |
-| `AC-01` | Planned owner/lifecycle eligibility tests extend `apps/web/src/lib/private-practice-cards.test.ts` with approved, pending, manual, legacy, archived, deleted, superseded, and foreign-owner records. |
+| `AC-01` | `apps/web/src/lib/recall-persistence.test.ts` exercises a separate owner-scoped predicate for current-version typed items, approved current-conversation drafts/batches, matching conversation provenance, lifecycle exclusions, and content-free results. Approval/enrollment runtime wiring remains planned. |
 | `AC-02` | Planned mobile settings tests cover consent-before-OS-permission, timezone selection, preview, snooze, disable, and device revocation; real-device permission denial and recovery remain rollout evidence. |
 | `AC-03` | Planned notification-contract tests recursively reject private fields in title, body, data payload, logs, and error metadata; a deep-link integration test proves auth occurs before the due-item fetch. |
 | `AC-04` | Planned web/mobile component tests and focused browser coverage prove answer/source/interval absence before confidence and reveal, including the `I don't know` path. |
 | `AC-05` | Planned shared activity-builder tests cover all three bundle types and missing-field fallback; mobile accessibility tests plus VoiceOver/TalkBack inspection cover non-drag ordering and non-color meaning. |
-| `AC-06` | Planned correction-view tests prove current-version rendering, self-assessment labels, provenance fields, sanitized source linking, verification labeling, and transcript absence. |
+| `AC-06` | Migration `0019_recall_ping_persistence.sql` and ingestion tests bind every newly created conversation source to its exact immutable item revision while leaving historical sources null. Correction-view rendering and edited-after-source labeling remain planned. |
 | `AC-07` | Planned persistence tests prove free responses and ordering never enter requests, storage, analytics, or logs; memory-cue tests prove explicit save, owner scope, edit/delete, and exclusion from projections. |
-| `AC-08` | `packages/shared/src/recall-schedule.test.mjs` proves the runtime-inert 24/48/168/192-hour boundaries, D+1 retry and D+7 precedence decisions, assessed and unassessed Practice projections, and the initial post-D+7 14-day interval. Timezone/DST adapter and persistence tests remain planned. |
-| `AC-09` | `packages/shared/src/recall-schedule.test.mjs` proves one resulting due instant and one-time snooze decisions in the pure contract. Planned Postgres transaction/concurrency tests must still prove the shared persisted `due_at`, automatic daily cap, and idempotent delivery/open/reveal/complete retries across Recall Ping and Practice. |
+| `AC-08` | `packages/shared/src/recall-schedule.test.mjs` proves the runtime-inert 24/48/168/192-hour boundaries and transition decisions. `apps/web/src/lib/recall-persistence.test.ts` plus `apps/web/scripts/recall-persistence-postgres.test.mjs` prove atomic snapshot persistence and honest assessed/unassessed projections. Attempts and approval/runtime wiring remain planned. |
+| `AC-09` | The shared schedule tests, migration `0019`, repository CAS tests, and live PostgreSQL concurrency test prove one persisted `due_at`, idempotent enrollment/replay, and stale-snapshot rejection. Practice due-query integration, active attempts, delivery operations, daily caps, and durable snooze consumption remain planned. |
 | `AC-10` | Planned schema, request-shape, telemetry allowlist, and log-redaction tests prove the attempt metadata ceiling and absence of private content. |
-| `AC-11` | Planned stale-session and lifecycle-race tests cover revision, archive, deletion, supersession, item removal, all-progress reset, disable, sign-out, token invalidation, and account deletion. |
+| `AC-11` | Recall repository tests re-check owner, current version, active lifecycle, supersession, and source eligibility on reads and writes; cancellation preserves an assessed Practice projection or removes an unassessed row, and its item-version/enrollment-anchor/schedule-version CAS rejects delayed cancellation from an earlier enrollment generation. Practice removal/reset wiring, disable/sign-out/token behavior, and prepared-session invalidation remain planned. |
 | `AC-12` | `pnpm --filter @stem-brain/mobile check`, `pnpm harness`, Preview checks, and separate physical iOS/Android notification/deep-link smoke provide repository and device evidence. |
-| `AC-13` | Planned account-deletion, retention-job, provider-cancellation, and foreign-owner tests prove fencing and deletion of every new table plus the 30-day/365-day retention boundaries. |
+| `AC-13` | This persistence slice adds no standalone preference, token, delivery, attempt, milestone, or cue records. Its schedule snapshot remains on the existing explicitly deleted private-state row; source/revision deletion ordering is covered by account-deletion tests. Retention and provider cancellation remain requirements for the later tables that need them. |
 | `AC-14` | Planned consent-version, decline, withdrawal, export-deletion, account-deletion propagation, and sink-allowlist tests plus a reviewed participant notice prove research and product consent remain separate. |
 
-The shared scheduling slice is executable but deliberately disconnected from
-production runtime. Unchecked criteria remain end-to-end implementation
-requirements, not claims that the feature, notification delivery, persistence,
-or visible behavior exists.
+The shared scheduling contract and persistence repository are executable but
+deliberately disconnected from production runtime. Unchecked criteria remain
+end-to-end requirements, not claims that Recall Ping, notification delivery,
+approval enrollment, Practice integration, or visible behavior is active.
 
 ## Rollout
 
-Implementation requires an additive checked-in Drizzle migration. It may extend
-`user_private_card_states` with scheduling metadata and add owner-scoped
-preference, delivery, attempt, device-token, and optional memory-cue records,
-but `user_private_card_states.due_at` remains the single scheduling authority.
+Implementation requires additive checked-in Drizzle migrations. The first
+persistence slice extends `user_private_card_states` with a content-free current
+schedule snapshot, while `user_private_card_states.due_at` remains the single
+scheduling authority. Preference, delivery, attempt, device-token, milestone,
+and optional memory-cue records are intentionally deferred until their
+enrollment-generation, claim/lease, idempotency, and retention contracts are
+specified with the lifecycle stage that uses them.
 The existing `known -> 14 days` and `saved -> now` behavior must be migrated or
 adapted explicitly rather than shadowed by a Recall Ping-only queue.
 
-The migration must also add revision-to-source binding or an equivalent immutable
-mapping so the correction view can distinguish sourced content from later owner
-edits. It must update the explicit account-deletion table list and install
-bounded retention cleanup for delivery and attempt rows in the same release;
-new records cannot rely on implicit cascade assumptions.
+The first persistence migration also adds nullable revision-to-source binding so
+the correction view can eventually distinguish sourced content from later owner
+edits. Historical sources remain null rather than being guessed. Each future
+standalone record must enter the explicit account-deletion path and receive its
+bounded retention cleanup in the same PR that introduces that record.
 
 Planned implementation PR boundaries:
 
@@ -265,7 +268,10 @@ Planned implementation PR boundaries:
    `saved/learning`; this slice must introduce an honest nullable unassessed
    projection and nullable `last_seen` rather than marking enrollment as
    `saved`. It must keep `user_private_card_states.due_at` as the single due
-   instant and include every new record in account deletion and retention jobs.
+   instant, bind new conversation sources to exact item revisions, serialize
+   per-item writes, and use full-snapshot compare-and-swap updates. It does not
+   add attempt, milestone, delivery, preference, device-token, snooze-consumption,
+   or memory-cue records, and it does not connect a production lifecycle hook.
 3. **Server lifecycle:** connect approval/enrollment, attempt creation, reveal,
    completion, retries, Practice ratings, and stale-version invalidation in one
    transactional state machine. Make item removal and all-progress reset cancel

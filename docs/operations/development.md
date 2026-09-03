@@ -198,9 +198,22 @@ and seed path, and it completes before the Worker deployment. This keeps a cold
 Worker request below Cloudflare's subrequest limit and makes database changes
 auditable.
 
-Preview and local environments may use the existing bootstrap behavior because
-preview Workers intentionally do not run migrations. Any production data or
-schema change must therefore be represented by a checked-in Drizzle migration.
+The Preview deploy job runs the bounded, idempotent migration subset in
+`apps/web/scripts/apply-preview-schema.mjs` before its database-semantic tests.
+Local bootstrap remains a development convenience. Any production data or
+schema change must still be represented by a checked-in Drizzle migration; a
+runtime bootstrap query is not deployment evidence.
+
+Recall schedule persistence is checked against a real Preview PostgreSQL
+database after migration preparation. To run the same test against an isolated
+non-production database without printing its URL:
+
+```bash
+cd apps/web
+LIVE_POSTGRES_TEST_DATABASE_URL="$DATABASE_URL" \
+  NODE_OPTIONS=--conditions=react-server \
+  pnpm exec tsx --test scripts/recall-persistence-postgres.test.mjs
+```
 
 After pushing, wait for CI to finish. GitHub Actions is the only shared deployment path.
 
