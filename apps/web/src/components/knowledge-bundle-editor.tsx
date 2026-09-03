@@ -36,7 +36,7 @@ type KnowledgeBundleEditorProps = {
   allowQuickNote?: boolean;
 };
 
-const fieldClass = 'min-h-11 rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400';
+const fieldClass = 'min-h-11 w-full min-w-0 max-w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400';
 const areaClass = `${fieldClass} min-h-24`;
 
 function textLines(value: string) {
@@ -69,7 +69,7 @@ function StructuredRowsArea<Row>({ label, initialValue, help, parse, isJsonRow, 
   // draft local preserves exact valid input and incomplete JSON between renders.
   const [draft, setDraft] = useState(initialValue);
   return (
-    <label className="grid gap-1 text-xs font-medium text-slate-700">
+    <label className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-1 text-xs font-medium text-slate-700">
       {label}
       <textarea
         className={areaClass}
@@ -222,10 +222,11 @@ export default function KnowledgeBundleEditor({
   function updateContent(next: KnowledgeBundleContent) { setContent(next); }
 
   return (
-    <fieldset aria-busy={!hydrated} className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3 md:col-span-2">
+    <fieldset aria-busy={!hydrated} className="min-w-0 max-w-full rounded-xl border border-blue-100 bg-blue-50/40 p-3 md:col-span-2">
       <legend className="px-1 text-xs font-bold uppercase tracking-wide text-blue-800">{t('bundle.editorTitle')}</legend>
+      <div className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-3">
       <input type="hidden" name="bundle_mode_present" value="1" />
-      <label className="grid gap-1 text-xs font-medium text-slate-700">
+      <label className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-1 text-xs font-medium text-slate-700">
         {t('bundle.format')}
         <select name="knowledge_type" value={type ?? ''} onChange={(event) => chooseType(event.target.value)} className={fieldClass}>
           {allowQuickNote ? <option value="">{t('bundle.quickNote')}</option> : null}
@@ -237,7 +238,7 @@ export default function KnowledgeBundleEditor({
         <>
           <input type="hidden" name="bundle_schema_version" value={KNOWLEDGE_BUNDLE_SCHEMA_VERSION} />
           <input type="hidden" name="structured_content" value={serialized} />
-          <label className="grid gap-1 text-xs font-medium text-slate-700">
+          <label className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-1 text-xs font-medium text-slate-700">
             {t('bundle.centralQuestion')}
             <input
               name="central_question"
@@ -250,21 +251,29 @@ export default function KnowledgeBundleEditor({
             />
           </label>
           <p className="text-xs text-slate-500">{t('bundle.linesHelp')}</p>
-          <aside className="grid gap-2 rounded-lg border border-cyan-100 bg-cyan-50/70 p-3 text-xs text-slate-700">
+          <aside className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border border-cyan-100 bg-cyan-50/70 p-3 text-xs text-slate-700">
             <p>{t('bundle.notationHelp')}</p>
-            <ul className="flex flex-wrap gap-2" aria-label={t('bundle.notationSyntax')}>
-              <li className="rounded-md bg-white px-2 py-1">
+            <ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-2" aria-label={t('bundle.notationSyntax')}>
+              <li className="min-w-0 rounded-md bg-white px-2 py-1">
                 {t('bundle.notationInline')}: <code dir="ltr">{'\\(E = mc^2\\)'}</code>
               </li>
-              <li className="rounded-md bg-white px-2 py-1">
+              <li className="min-w-0 rounded-md bg-white px-2 py-1">
                 {t('bundle.notationDisplay')}: <code dir="ltr">{'\\[E = mc^2\\]'}</code>
               </li>
-              <li className="rounded-md bg-white px-2 py-1">
+              <li className="min-w-0 rounded-md bg-white px-2 py-1">
                 {t('bundle.notationChemistry')}: <code dir="ltr">{'\\(\\ce{2H2 + O2 -> 2H2O}\\) / \\(\\pu{9.81 m/s^2}\\)'}</code>
               </li>
-              <li className="grid gap-1 rounded-md bg-white px-2 py-1">
+              <li className="grid min-w-0 gap-1 rounded-md bg-white px-2 py-1">
                 <span>{t('bundle.notationCode')}: <code dir="ltr">{'`code`'}</code></span>
-                <pre className="overflow-x-auto rounded bg-slate-950 px-2 py-1 text-slate-100" dir="ltr"><code>{'```ts\nconst value = 1;\n```'}</code></pre>
+                <pre className="max-w-full overflow-x-auto rounded bg-slate-950 px-2 py-1 text-slate-100" dir="ltr"><code>{'```ts\nconst value = 1;\n```'}</code></pre>
+              </li>
+              <li className="grid min-w-0 gap-1 rounded-md bg-white px-2 py-1">
+                <span>{t('bundle.notationFlow')}</span>
+                <pre className="max-w-full overflow-x-auto rounded bg-blue-950 px-2 py-1 text-blue-50" dir="ltr"><code>{':::flow\n["Mass \\\\(m\\\\)", "Force \\\\(F\\\\)", "relates to"]\n:::'}</code></pre>
+              </li>
+              <li className="grid min-w-0 gap-1 rounded-md bg-white px-2 py-1">
+                <span>{t('bundle.notationTimeline')}</span>
+                <pre className="max-w-full overflow-x-auto rounded bg-cyan-950 px-2 py-1 text-cyan-50" dir="ltr"><code>{':::timeline\n["T0", "Start"]\n["T1", "Verify", "Evidence passes"]\n:::'}</code></pre>
               </li>
             </ul>
           </aside>
@@ -291,6 +300,7 @@ export default function KnowledgeBundleEditor({
       ) : (
         <p className="text-xs text-slate-500">{t('bundle.quickNoteHelp')}</p>
       )}
+      </div>
     </fieldset>
   );
 }
@@ -301,7 +311,7 @@ function BundleFields({ content, update, t }: {
   t: Translate;
 }) {
   const area = (label: string, value: string, onChange: (value: string) => void, help?: string, required = false) => (
-    <label className="grid gap-1 text-xs font-medium text-slate-700">
+    <label className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-1 text-xs font-medium text-slate-700">
       {label}
       <textarea required={required} className={areaClass} value={value} onChange={(event) => onChange(event.target.value)} />
       {help ? <span className="font-normal text-slate-500">{help}</span> : null}

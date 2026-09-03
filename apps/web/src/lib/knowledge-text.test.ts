@@ -41,6 +41,167 @@ test('gives inline and fenced code precedence over math delimiters', () => {
   ] satisfies KnowledgeTextToken[]);
 });
 
+test('parses explicit flow and timeline blocks with exact source and source order', () => {
+  const flow = [
+    ':::flow',
+    '["Input :: raw", "Output | ready", "causes →"]',
+    '["Mass \\\\(m\\\\)", "`code`", "maps"]',
+    ':::',
+  ].join('\n');
+  const timeline = [
+    ':::timeline',
+    '["44 BCE", "Event :: one", "Detail | value"]',
+    '["2026", "Release", ""]',
+    ':::',
+  ].join('\n');
+  const source = `Before\n${flow}\nMiddle\n${timeline}\nAfter`;
+
+  assert.deepEqual(parseKnowledgeText(source), [
+    { type: 'text', value: 'Before\n' },
+    {
+      type: 'flow',
+      source: flow,
+      edges: [
+        { from: 'Input :: raw', to: 'Output | ready', relation: 'causes →' },
+        { from: String.raw`Mass \(m\)`, to: '`code`', relation: 'maps' },
+      ],
+    },
+    { type: 'text', value: '\nMiddle\n' },
+    {
+      type: 'timeline',
+      source: timeline,
+      entries: [
+        { when: '44 BCE', title: 'Event :: one', detail: 'Detail | value' },
+        { when: '2026', title: 'Release' },
+      ],
+    },
+    { type: 'text', value: '\nAfter' },
+  ] satisfies KnowledgeTextToken[]);
+});
+
+test('gives earlier inline and fenced code precedence over visual directives', () => {
+  const directive = [':::flow', '["A", "B", "causes"]', ':::'].join('\n');
+
+  assert.deepEqual(parseKnowledgeText(`\`${directive}\``), [
+    { type: 'code', value: directive, block: false },
+  ] satisfies KnowledgeTextToken[]);
+
+  const fenced = ['```txt', directive, '```'].join('\n');
+  assert.deepEqual(parseKnowledgeText(fenced), [
+    { type: 'code', value: `${directive}\n`, block: true, language: 'txt' },
+  ] satisfies KnowledgeTextToken[]);
+
+  const visualWithInlineCode = [':::flow', '["`A`", "`B`", "`maps`"]', ':::'].join('\n');
+  assert.deepEqual(parseKnowledgeText(visualWithInlineCode), [{
+    type: 'flow',
+    source: visualWithInlineCode,
+    edges: [{ from: '`A`', to: '`B`', relation: '`maps`' }],
+  }] satisfies KnowledgeTextToken[]);
+});
+
+test('requires exact standalone visual markers and falls back atomically', () => {
+  const invalidBlocks = [
+    [':::flow', '["A", "causes"]', ':::'].join('\n'),
+    [':::flow', '["A", "B", ""]', ':::'].join('\n'),
+    [':::flow', String.raw`["A\nB", "B", "causes"]`, ':::'].join('\n'),
+    [':::flow', JSON.stringify(['A\u2028B', 'B', 'causes']), ':::'].join('\n'),
+    [':::timeline', JSON.stringify(['2026', 'Release\u2029continued']), ':::'].join('\n'),
+    [':::timeline', '["2026"]', ':::'].join('\n'),
+    [':::timeline', '["2026", "Release", 3]', ':::'].join('\n'),
+    [':::timeline', '', ':::'].join('\n'),
+    [':::flow', '["\\(x\\)"]', ':::'].join('\n'),
+    [':::flow', '["A", "B", "causes"]'].join('\n'),
+  ];
+
+  for (const source of invalidBlocks) {
+    assert.deepEqual(parseKnowledgeText(source), [{ type: 'text', value: source }]);
+    assert.equal(hasKnowledgeNotation(source), false);
+  }
+
+  for (const source of [
+    [' :::flow', '["A", "B", "causes"]', ':::'].join('\n'),
+    [':::flow ', '["A", "B", "causes"]', ':::'].join('\n'),
+    [':::timeline extra', '["2026", "Release"]', ':::'].join('\n'),
+    [':::flow', '["A", "B", "causes"]', ' :::'].join('\n'),
+  ]) {
+    assert.deepEqual(parseKnowledgeText(source), [{ type: 'text', value: source }]);
+    assert.equal(hasKnowledgeNotation(source), false);
+  }
+});
+
+test('preserves CRLF and ignored blank lines in exact visual source', () => {
+  const source = ':::timeline\r\n\r\n["44 BCE", "First event"]\r\n  \r\n["2026", "Release", "Detail"]\r\n:::';
+  assert.deepEqual(parseKnowledgeText(source), [{
+    type: 'timeline',
+    source,
+    entries: [
+      { when: '44 BCE', title: 'First event' },
+      { when: '2026', title: 'Release', detail: 'Detail' },
+    ],
+  }] satisfies KnowledgeTextToken[]);
+});
+
+test('enforces visual row, persisted source, and Unicode cell-value limits', () => {
+  const emoji500 = '🧠'.repeat(500);
+  const accepted = [':::flow', JSON.stringify([emoji500, 'B', 'causes']), ':::'].join('\n');
+  assert.equal(parseKnowledgeText(accepted)[0]?.type, 'flow');
+
+  const emoji501 = '🧠'.repeat(501);
+  const oversizedValue = [':::flow', JSON.stringify([emoji501, 'B', 'causes']), ':::'].join('\n');
+  assert.deepEqual(parseKnowledgeText(oversizedValue), [{ type: 'text', value: oversizedValue }]);
+
+  const rows24 = Array.from({ length: 24 }, (_, index) => JSON.stringify([`A${index}`, `B${index}`, 'causes']));
+  const acceptedRows = [':::flow', ...rows24, ':::'].join('\n');
+  assert.equal(parseKnowledgeText(acceptedRows)[0]?.type, 'flow');
+  const rows25 = [':::flow', ...rows24, JSON.stringify(['A24', 'B24', 'causes']), ':::'].join('\n');
+  assert.deepEqual(parseKnowledgeText(rows25), [{ type: 'text', value: rows25 }]);
+
+  const longRow = JSON.stringify(['A'.repeat(450), 'B'.repeat(450), 'R'.repeat(450)]);
+  const acceptedSource = [':::flow', longRow, longRow, ':::'].join('\n');
+  assert.ok(acceptedSource.length <= 4_000);
+  assert.equal(parseKnowledgeText(acceptedSource)[0]?.type, 'flow');
+
+  const emojiRow = JSON.stringify(['🧠'.repeat(350), '🧠'.repeat(350), '🧠'.repeat(350)]);
+  const oversizedSource = [':::flow', emojiRow, emojiRow, ':::'].join('\n');
+  assert.ok(oversizedSource.length > 4_000);
+  assert.ok(Array.from(oversizedSource).length <= 4_000);
+  assert.deepEqual(parseKnowledgeText(oversizedSource), [{ type: 'text', value: oversizedSource }]);
+});
+
+test('keeps legacy dollar ownership from crossing valid or invalid visual blocks', () => {
+  const valid = [':::flow', '["A", "B", "causes"]', ':::'].join('\n');
+  const invalid = [':::flow', '["A", "causes"]', ':::'].join('\n');
+
+  for (const block of [valid, invalid]) {
+    const source = `before $$open\n${block}\n$$ after $$real$$`;
+    const expected = block === valid
+      ? [
+          { type: 'text' as const, value: 'before $$open\n' },
+          { type: 'flow' as const, source: valid, edges: [{ from: 'A', to: 'B', relation: 'causes' }] },
+          { type: 'text' as const, value: '\n$$ after ' },
+          { type: 'math' as const, value: 'real', display: true, source: '$$real$$' },
+        ]
+      : [
+          { type: 'text' as const, value: `before $$open\n${invalid}\n$$ after ` },
+          { type: 'math' as const, value: 'real', display: true, source: '$$real$$' },
+        ];
+    assert.deepEqual(
+      parseKnowledgeText(source, { legacyDollarMath: true }),
+      expected satisfies KnowledgeTextToken[],
+    );
+  }
+});
+
+test('handles repeated unmatched visual openers in linear time', () => {
+  const source = ':::flow\n'.repeat(30_000);
+  const startedAt = performance.now();
+  const tokens = parseKnowledgeText(source);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.deepEqual(tokens, [{ type: 'text', value: source }]);
+  assert.ok(elapsedMs < 1_000, `expected a linear scan, received ${elapsedMs.toFixed(1)}ms`);
+});
+
 test('does not close math across inline or fenced code boundaries', () => {
   assert.deepEqual(parseKnowledgeText('before \\(open `\\)` after'), [
     { type: 'text', value: 'before \\(open ' },
@@ -226,10 +387,12 @@ test('parses a language-free fence and preserves blank lines and indentation', (
   ] satisfies KnowledgeTextToken[]);
 });
 
-test('requires a block container for display math and fenced code only', () => {
+test('requires a block container for display math, fenced code, and visual blocks', () => {
   assert.equal(knowledgeTextRequiresBlockContainer(parseKnowledgeText('plain \\(x\\) and `code`')), false);
   assert.equal(knowledgeTextRequiresBlockContainer(parseKnowledgeText('\\[x\\]')), true);
   assert.equal(knowledgeTextRequiresBlockContainer(parseKnowledgeText('```ts\nconst x = 1;\n```')), true);
+  assert.equal(knowledgeTextRequiresBlockContainer(parseKnowledgeText(':::flow\n["A", "B", "causes"]\n:::')), true);
+  assert.equal(knowledgeTextRequiresBlockContainer(parseKnowledgeText(':::timeline\n["2026", "Release"]\n:::')), true);
 });
 
 test('preserves unmatched explicit delimiters and code fences as literal text', () => {

@@ -124,6 +124,61 @@ test('preserves explicit chemistry, unit, and fenced-code notation byte-for-byte
   assert.equal(restoreProtectedContent(masked.masked.replace('Balance', 'Equilibre'), masked), source.replace('Balance', 'Equilibre'));
 });
 
+test('preserves complete flow and timeline directives byte-for-byte', () => {
+  const flow = [
+    ':::flow',
+    '["Input :: raw", "Output | ready", "causes →"]',
+    '["Mass \\\\(m\\\\)", "`code`", "maps"]',
+    ':::',
+  ].join('\n');
+  const timeline = [
+    ':::timeline',
+    '["44 BCE", "First event", "Detail"]',
+    '["2026", "Release"]',
+    ':::',
+  ].join('\r\n');
+  const malformed = [':::flow', '["A", "missing relationship"]', ':::'].join('\n');
+  const source = `Explain this.\n${flow}\nThen continue.\r\n${timeline}\r\nKeep this literal.\n${malformed}`;
+  const masked = maskProtectedContent(source);
+  const protectedValues = masked.placeholders.map((placeholder) => placeholder.value);
+
+  assert.ok(protectedValues.includes(flow));
+  assert.ok(protectedValues.includes(timeline));
+  assert.ok(protectedValues.includes(malformed));
+
+  const translated = masked.masked
+    .replace('Explain this.', 'Explique esto.')
+    .replace('Then continue.', 'Luego continúe.')
+    .replace('Keep this literal.', 'Mantenga esto literal.');
+  assert.equal(
+    restoreProtectedContent(translated, masked),
+    source
+      .replace('Explain this.', 'Explique esto.')
+      .replace('Then continue.', 'Luego continúe.')
+      .replace('Keep this literal.', 'Mantenga esto literal.'),
+  );
+});
+
+test('protects a visual-looking directive inside fenced code as one code segment', () => {
+  const directive = [':::flow', '["A", "B", "causes"]', ':::'].join('\n');
+  const fenced = ['```txt', directive, '```'].join('\n');
+  const masked = maskProtectedContent(fenced);
+
+  assert.deepEqual(masked.placeholders.map((placeholder) => placeholder.value), [fenced]);
+  assert.equal(restoreProtectedContent(masked.masked, masked), fenced);
+});
+
+test('skips repeated unmatched visual openers without quadratic masking work', () => {
+  const source = ':::flow\n'.repeat(30_000);
+  const startedAt = performance.now();
+  const masked = maskProtectedContent(source);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.equal(masked.sourceNewlines.length, 30_000);
+  assert.equal(masked.placeholders.some(({ value }) => value.startsWith(':::flow')), false);
+  assert.ok(elapsedMs < 1_000, `expected a bounded scan, received ${elapsedMs.toFixed(1)}ms`);
+});
+
 test('preserves unquoted commands, flags, property paths and file paths', () => {
   const source = 'Run npm install, then keep process.env.API_KEY, --frozen-lockfile, src/lib/foo.ts, ./scripts/check.sh, and C:\\repo\\file.ts.';
   const masked = maskProtectedContent(source);

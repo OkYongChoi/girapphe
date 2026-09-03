@@ -33,7 +33,8 @@ Out of scope:
 - arbitrary HTML, remote scripts or fonts, executable code, or user-authored
   SVG; and
 - plots, molecular structure diagrams, circuit diagrams, syntax highlighting,
-  or generalized visual blocks.
+  or generalized visual blocks beyond the dedicated flow and timeline contract
+  in [`rich-flow-timeline-blocks.md`](./rich-flow-timeline-blocks.md).
 
 ## Acceptance criteria
 

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const toleratedConsoleErrors = [
   /favicon\.ico/i,
@@ -606,6 +606,168 @@ test.describe('browser smoke', () => {
     await expect(item.getByLabel('Structured knowledge').getByText('What makes a release verifiable?', { exact: true })).toBeVisible();
     await expect(item.getByLabel('Structured knowledge').getByText('Ship with verifiable evidence.', { exact: true })).toBeVisible();
     await assertNoBrowserFailures();
+  });
+
+  test('flow and timeline blocks preview and round-trip as safe accessible visuals', async ({ page }, testInfo) => {
+    test.slow();
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+    const unsafeRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().includes('example.invalid')) unsafeRequests.push(request.url());
+    });
+
+    const title = `Visual knowledge ${Date.now()}`;
+    const ensureExpanded = async (details: Locator) => {
+      if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
+        await details.locator('summary').click();
+      }
+      await expect(details).toHaveAttribute('open', '');
+    };
+    const longSource = `${'source-'.repeat(24)}Mass \\(m\\) / 질량 / الكتلة`;
+    const flowSource = [
+      ':::flow',
+      JSON.stringify([longSource, String.raw`Force \(F\)`, 'responds to :: input | output →']),
+      JSON.stringify([String.raw`Force \(F\)`, String.raw`Acceleration \(a\)`, 'produces `motion`']),
+      ':::',
+    ].join('\n');
+    const timelineSource = [
+      ':::timeline',
+      JSON.stringify(['T0', 'Hypothesis', 'Literal <strong>markup</strong> stays text.']),
+      JSON.stringify(['T1', 'Verification']),
+      ':::',
+    ].join('\n');
+    const invalidSource = [
+      ':::flow',
+      JSON.stringify(['Broken', '<img src="https://example.invalid/flow.png">']),
+      ':::',
+    ].join('\n');
+    const definition = [
+      'Ordinary lead text.',
+      flowSource,
+      timelineSource,
+      invalidSource,
+    ].join('\n\n');
+
+    const assertVisualFitsViewport = async (selector: string, label: string) => {
+      const geometry = await page.locator(selector).evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const root = document.documentElement;
+        return {
+          left: rect.left,
+          right: rect.right,
+          viewportWidth: root.clientWidth,
+          pageScrollWidth: root.scrollWidth,
+        };
+      });
+      expect(geometry.left, `${label} left edge`).toBeGreaterThanOrEqual(-1);
+      expect(geometry.right, `${label} right edge`).toBeLessThanOrEqual(geometry.viewportWidth + 1);
+      expect(
+        geometry.pageScrollWidth,
+        `${label} does not widen the document`,
+      ).toBeLessThanOrEqual(geometry.viewportWidth + 1);
+    };
+
+    await page.goto('/my-knowledge');
+    const createForm = page.getByRole('heading', { name: 'Add knowledge item' }).locator('..');
+    const format = createForm.getByRole('combobox', { name: 'Format' });
+    await format.selectOption('concept');
+    await page.locator('#new-title').fill(title);
+    await page.locator('#new-topic').fill('visual reasoning');
+    await createForm.getByLabel('Central question', { exact: true }).fill('How does the system change over time?');
+    await createForm.getByLabel('Definition', { exact: true }).fill(definition);
+    await page.locator('#new-summary').fill('A saved flow and timeline.');
+
+    const structuredContent = JSON.parse(
+      await createForm.locator('input[name="structured_content"]').inputValue(),
+    ) as { definition: string; type: string };
+    expect(structuredContent).toMatchObject({ type: 'concept', definition });
+    await expect(createForm.locator('pre').filter({ hasText: ':::flow' })).toContainText('relates to');
+    await expect(createForm.locator('pre').filter({ hasText: ':::timeline' })).toContainText('Evidence passes');
+
+    const previewButton = createForm.getByRole('button', { name: 'Preview formatted notation' });
+    await expect(previewButton).toHaveAttribute('aria-expanded', 'false');
+    await previewButton.click();
+    await expect(previewButton).toHaveAttribute('aria-expanded', 'true');
+
+    const preview = createForm.locator('section[aria-label="Preview formatted notation"]');
+    const flow = preview.locator('[data-knowledge-visual="flow"]');
+    const timeline = preview.locator('[data-knowledge-visual="timeline"]');
+    await expect(flow).toHaveCount(1);
+    await expect(timeline).toHaveCount(1);
+    await expect(flow).toHaveAttribute('role', 'group');
+    await expect(timeline).toHaveAttribute('role', 'group');
+    await expect(flow.getByRole('list')).toHaveCount(1);
+    await expect(timeline.getByRole('list')).toHaveCount(1);
+    await expect(flow.getByRole('listitem')).toHaveCount(2);
+    await expect(timeline.getByRole('listitem')).toHaveCount(2);
+    await expect(flow.locator('[data-flow-row]')).toHaveCount(2);
+    await expect(timeline.locator('[data-timeline-row]')).toHaveCount(2);
+
+    await expect(flow.locator('[data-flow-source]').first()).toContainText('Mass');
+    await expect(flow.locator('[data-flow-target]').first()).toContainText('Force');
+    await expect(flow.locator('[data-flow-relationship]').first()).toHaveText('responds to :: input | output →');
+    await expect(flow.locator('[data-flow-relationship]').nth(1).locator('code')).toHaveText('motion');
+    await expect(flow.locator('[data-flow-source] [data-knowledge-notation="math"], [data-flow-target] [data-knowledge-notation="math"]')).toHaveCount(4);
+    await expect(timeline.locator('[data-timeline-when]').first()).toContainText('T0');
+    await expect(timeline.locator('[data-timeline-title]').first()).toHaveText('Hypothesis');
+    await expect(timeline.locator('[data-timeline-detail]')).toHaveText('Literal <strong>markup</strong> stays text.');
+    await expect(preview.locator('img, iframe, script, object, embed')).toHaveCount(0);
+    expect(await preview.textContent(), 'invalid visual block stays literal').toContain(invalidSource);
+
+    const horizontalArrow = flow.locator('[data-knowledge-visual-arrow-horizontal]').first();
+    const verticalArrow = flow.locator('[data-knowledge-visual-arrow-vertical]').first();
+    await expect(horizontalArrow).toHaveText('→');
+    if (testInfo.project.name === 'chromium-desktop') {
+      await expect(horizontalArrow).toBeVisible();
+      await expect(verticalArrow).toBeHidden();
+    } else {
+      await expect(horizontalArrow).toBeHidden();
+      await expect(verticalArrow).toBeVisible();
+    }
+    await assertVisualFitsViewport('[data-knowledge-visual="flow"]', 'flow preview');
+    await assertVisualFitsViewport('[data-knowledge-visual="timeline"]', 'timeline preview');
+
+    await page.setViewportSize({ width: 360, height: 844 });
+    await expect(verticalArrow).toBeVisible();
+    await expect(horizontalArrow).toBeHidden();
+    await assertVisualFitsViewport('[data-knowledge-visual="flow"]', 'narrow flow preview');
+    await assertVisualFitsViewport('[data-knowledge-visual="timeline"]', 'narrow timeline preview');
+
+    await createForm.getByRole('button', { name: 'Save item' }).click();
+    await expect(format).toHaveValue('', { timeout: 15_000 });
+    let item = page.locator('details').filter({ hasText: title });
+    await expect(item).toHaveCount(1);
+    await ensureExpanded(item);
+    await expect(item.locator('[data-knowledge-visual="flow"] [data-flow-row]')).toHaveCount(2);
+    await expect(item.locator('[data-knowledge-visual="timeline"] [data-timeline-row]')).toHaveCount(2);
+    expect(await item.textContent(), 'saved invalid block stays literal').toContain(invalidSource);
+
+    await page.reload();
+    item = page.locator('details').filter({ hasText: title });
+    await expect(item).toHaveCount(1);
+    await ensureExpanded(item);
+    await expect(item.locator('[data-knowledge-visual="flow"] [data-flow-row]')).toHaveCount(2);
+    await expect(item.locator('[data-knowledge-visual="timeline"] [data-timeline-row]')).toHaveCount(2);
+    const reopenedEditor = item.getByRole('group', { name: 'Knowledge format' });
+    await expect(reopenedEditor.locator('textarea').first()).toHaveValue(definition);
+    const reopenedContent = JSON.parse(
+      await reopenedEditor.locator('input[name="structured_content"]').inputValue(),
+    ) as { definition: string; type: string };
+    expect(reopenedContent).toMatchObject({ type: 'concept', definition });
+    expect(await item.textContent(), 'reloaded invalid block stays literal').toContain(invalidSource);
+
+    await page.goto('/ar/my-knowledge');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+    item = page.locator('details').filter({ hasText: title });
+    await expect(item).toHaveCount(1);
+    await ensureExpanded(item);
+    const rtlFlow = item.locator('[data-knowledge-visual="flow"]');
+    await expect(rtlFlow.locator('[data-knowledge-visual-arrow-horizontal]').first()).toHaveText('←');
+    await assertVisualFitsViewport('[data-knowledge-visual="flow"]', 'RTL flow');
+    await assertVisualFitsViewport('[data-knowledge-visual="timeline"]', 'RTL timeline');
+
+    await assertNoBrowserFailures();
+    expect(unsafeRequests, 'notation never creates an example.invalid request').toEqual([]);
   });
 
   test('explicit legacy-note conversion preserves the original body', async ({ page }) => {

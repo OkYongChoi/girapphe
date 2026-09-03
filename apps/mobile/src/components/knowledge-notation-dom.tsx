@@ -80,6 +80,7 @@ const KATEX_FONT_CSS = KATEX_FONTS.map(
 function tokenSource(token: KnowledgeTextToken) {
   if (token.type === 'text') return token.value;
   if (token.type === 'math') return token.source;
+  if (token.type === 'flow' || token.type === 'timeline') return token.source;
   if (!token.block) return `\`${token.value}\``;
   return `\`\`\`${token.language ?? ''}\n${token.value}\n\`\`\``;
 }
@@ -109,9 +110,51 @@ function MathToken({ token }: { token: Extract<KnowledgeTextToken, { type: 'math
   }
 }
 
+function FlowToken({ token }: { token: Extract<KnowledgeTextToken, { type: 'flow' }> }) {
+  return (
+    <ol className="knowledge-visual-list knowledge-flow" data-knowledge-visual="flow">
+      {token.edges.map((edge, index) => (
+        <li className="knowledge-flow-row" key={`${index}-${edge.from}-${edge.to}`}>
+          <div className="knowledge-flow-node">
+            <KnowledgeSource source={edge.from} />
+          </div>
+          <div className="knowledge-flow-relation">
+            <span aria-hidden="true" className="knowledge-flow-arrow knowledge-flow-arrow-wide">→</span>
+            <KnowledgeSource source={edge.relation} className="knowledge-flow-relation-label" />
+            <span aria-hidden="true" className="knowledge-flow-arrow knowledge-flow-arrow-narrow">↓</span>
+          </div>
+          <div className="knowledge-flow-node">
+            <KnowledgeSource source={edge.to} />
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function TimelineToken({ token }: { token: Extract<KnowledgeTextToken, { type: 'timeline' }> }) {
+  return (
+    <ol className="knowledge-visual-list knowledge-timeline" data-knowledge-visual="timeline">
+      {token.entries.map((entry, index) => (
+        <li className="knowledge-timeline-row" key={`${index}-${entry.when}-${entry.title}`}>
+          <div className="knowledge-timeline-when">
+            <KnowledgeSource source={entry.when} />
+          </div>
+          <div className="knowledge-timeline-content">
+            <KnowledgeSource source={entry.title} className="knowledge-timeline-title" />
+            {entry.detail ? <KnowledgeSource source={entry.detail} className="knowledge-timeline-detail" /> : null}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function Token({ token }: { token: KnowledgeTextToken }) {
   if (token.type === 'text') return token.value;
   if (token.type === 'math') return <MathToken token={token} />;
+  if (token.type === 'flow') return <FlowToken token={token} />;
+  if (token.type === 'timeline') return <TimelineToken token={token} />;
   if (token.block) {
     return (
       <pre className="knowledge-code-block" dir="ltr">
@@ -122,12 +165,13 @@ function Token({ token }: { token: KnowledgeTextToken }) {
   return <code className="knowledge-code-inline" dir="ltr">{token.value}</code>;
 }
 
-function KnowledgeSource({ source, className = '', inline = false, legacyDollarMath = false }: { source: string; className?: string; inline?: boolean; legacyDollarMath?: boolean }) {
+function KnowledgeSource({ source, className = '', inline = false, legacyDollarMath = false, numberOfLines }: { source: string; className?: string; inline?: boolean; legacyDollarMath?: boolean; numberOfLines?: number }) {
   const tokens = parseKnowledgeText(source, { legacyDollarMath });
   const containsBlockToken = knowledgeTextRequiresBlockContainer(tokens);
+  const containsVisualToken = tokens.some((token) => token.type === 'flow' || token.type === 'timeline');
   const Tag = inline && !containsBlockToken ? 'span' : 'div';
   return (
-    <Tag className={`knowledge-source-value ${className}`}>
+    <Tag className={`knowledge-source-value ${className}`} style={containsVisualToken ? undefined : lineClampStyle(numberOfLines)}>
       {tokens.map((token, index) => <Token key={`${token.type}-${index}`} token={token} />)}
     </Tag>
   );
@@ -141,9 +185,7 @@ function BundleBlock({ block }: { block: KnowledgeBundleNotationBlock }) {
   switch (block.kind) {
     case 'text':
       return (
-        <div style={lineClampStyle(block.numberOfLines)}>
-          <KnowledgeSource source={block.source} className={textToneClass(block.tone)} inline={block.tone === 'language' || block.tone === 'status'} legacyDollarMath={block.legacyDollarMath} />
-        </div>
+        <KnowledgeSource source={block.source} className={textToneClass(block.tone)} inline={block.tone === 'language' || block.tone === 'status'} legacyDollarMath={block.legacyDollarMath} numberOfLines={block.numberOfLines} />
       );
     case 'lines':
       return (
@@ -277,7 +319,10 @@ function lineClampStyle(numberOfLines: number | undefined): CSSProperties {
 export default function KnowledgeNotationDom({ source = '', bundleBlocks, prefix = '', direction, inline = false, legacyDollarMath = false, numberOfLines, textStyle }: Props) {
   const tokens = parseKnowledgeText(source, { legacyDollarMath });
   const children: ReactNode[] = tokens.map((token, index) => <Token key={`${token.type}-${index}`} token={token} />);
-  const documentSizingCss = bundleBlocks || !inline
+  const containsBlockToken = knowledgeTextRequiresBlockContainer(tokens);
+  const containsVisualToken = tokens.some((token) => token.type === 'flow' || token.type === 'timeline');
+  const renderInline = inline && !containsBlockToken;
+  const documentSizingCss = bundleBlocks || !renderInline
     ? 'html, body, #root { width: 100%; }'
     : 'html, body, #root { width: max-content; max-width: 100vw; }';
 
@@ -300,6 +345,32 @@ export default function KnowledgeNotationDom({ source = '', bundleBlocks, prefix
         .knowledge-code-block { box-sizing: border-box; margin: 0.35em 0; max-width: 100%; overflow-x: auto; border: 1px solid #d1d5db; border-radius: 0.45em; background: #111827; color: #f9fafb; padding: 0.65em 0.75em; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; line-height: 1.45; white-space: pre; -webkit-overflow-scrolling: touch; }
         .knowledge-error { color: #b91c1c; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
         .knowledge-error.knowledge-block { display: block; overflow-x: auto; }
+        .knowledge-visual-list { box-sizing: border-box; display: flex; width: 100%; min-width: 0; margin: 0.55em 0; padding: 0; flex-direction: column; list-style: none; white-space: normal; }
+        .knowledge-flow { gap: 10px; }
+        .knowledge-flow-row { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) minmax(82px, 0.62fr) minmax(0, 1fr); gap: 8px; align-items: center; }
+        .knowledge-flow-node { box-sizing: border-box; min-width: 0; border: 1px solid #bfdbfe; border-radius: 9px; background: #eff6ff; color: #172554; padding: 9px 10px; font-weight: 750; overflow-wrap: anywhere; }
+        .knowledge-flow-relation { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 2px; color: #1d4ed8; text-align: center; }
+        .knowledge-flow-relation-label { min-width: 0; color: #1e40af; font-size: 11px; font-weight: 800; line-height: 16px; overflow-wrap: anywhere; }
+        .knowledge-flow-arrow { color: #2563eb; font-size: 18px; font-weight: 900; line-height: 18px; direction: ltr; }
+        .knowledge-flow-arrow-narrow { display: none; }
+        [dir="rtl"] .knowledge-flow-arrow-wide { transform: scaleX(-1); }
+        .knowledge-timeline { gap: 0; }
+        .knowledge-timeline-row { display: grid; min-width: 0; grid-template-columns: minmax(78px, 0.35fr) minmax(0, 1fr); gap: 11px; align-items: stretch; }
+        .knowledge-timeline-when { min-width: 0; align-self: start; border-radius: 999px; background: #ede9fe; color: #5b21b6; padding: 5px 8px; font-size: 11px; font-weight: 850; line-height: 16px; text-align: center; overflow-wrap: anywhere; }
+        .knowledge-timeline-content { position: relative; min-width: 0; border-inline-start: 2px solid #c4b5fd; padding: 1px 0 14px 14px; overflow-wrap: anywhere; }
+        .knowledge-timeline-content::before { position: absolute; inset-inline-start: -6px; top: 5px; box-sizing: border-box; width: 10px; height: 10px; border: 2px solid #7c3aed; border-radius: 999px; background: white; content: ""; }
+        .knowledge-timeline-row:last-child .knowledge-timeline-content { padding-bottom: 1px; }
+        .knowledge-timeline-title { color: #111827; font-weight: 850; }
+        .knowledge-timeline-detail { margin-top: 3px; color: #4b5563; font-size: 12px; line-height: 17px; }
+        @media (max-width: 460px) {
+          .knowledge-flow-row { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+          .knowledge-flow-relation { gap: 1px; }
+          .knowledge-flow-arrow-wide { display: none; }
+          .knowledge-flow-arrow-narrow { display: block; }
+          .knowledge-timeline-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+          .knowledge-timeline-when { justify-self: start; max-width: 100%; text-align: start; }
+          .knowledge-timeline-content { margin-inline-start: 8px; }
+        }
         .bundle-root { box-sizing: border-box; display: flex; width: 100%; flex-direction: column; gap: 9px; color: #374151; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; line-height: 19px; overflow-wrap: anywhere; }
         .knowledge-source-value { min-width: 0; white-space: pre-wrap; }
         .bundle-hero { border-radius: 8px; background: #eef2ff; color: #312e81; padding: 10px; font-size: 14px; font-weight: 700; line-height: 21px; }
@@ -349,9 +420,9 @@ export default function KnowledgeNotationDom({ source = '', bundleBlocks, prefix
         </div>
       ) : (
         <div
-          className={`knowledge-root ${inline ? 'inline' : 'block'}`}
+          className={`knowledge-root ${renderInline ? 'inline' : 'block'}`}
           dir={direction}
-          style={{ ...toCssStyle(textStyle), ...lineClampStyle(numberOfLines) }}
+          style={{ ...toCssStyle(textStyle), ...(containsVisualToken ? {} : lineClampStyle(numberOfLines)) }}
         >
           {prefix}
           {children}

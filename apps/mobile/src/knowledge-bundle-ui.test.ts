@@ -23,6 +23,21 @@ test('mobile full-field editors round-trip every version-one bundle type without
   }
 });
 
+test('mobile scalar prose editors preserve complete visual directive source', () => {
+  const flow = ':::flow\n["Input", "Output", "produces"]\n["\\\\(m\\\\)", "\\\\(E = mc^2\\\\)", "maps to"]\n:::';
+  const timeline = ':::timeline\n["1905", "Special relativity", "Mass and energy are related"]\n["1915", "General relativity"]\n:::';
+
+  const concept = buildMobileKnowledgeBundle('concept', [flow, '', '', '', '']);
+  assert.equal(concept.type, 'concept');
+  assert.equal(concept.definition, flow);
+  assert.equal(mobileKnowledgeBundleEditValues(concept)[0], flow);
+
+  const question = buildMobileKnowledgeBundle('question', ['What changed?', timeline, '', '', '', '', 'open']);
+  assert.equal(question.type, 'question');
+  assert.equal(question.context, timeline);
+  assert.equal(mobileKnowledgeBundleEditValues(question)[1], timeline);
+});
+
 test('mobile rejects invalid non-empty chronology instead of silently deleting it', () => {
   assert.equal(parseMobileChronology(''), undefined);
   assert.equal(parseMobileChronology('range :: ce :: 2026 :: 2 :: 29 :: ce :: 2025'), null);
