@@ -25,11 +25,13 @@ function surfaceCleanupFailures(bodyCompleted, failures) {
   }
 }
 
-test('Recall migration preserves Practice rows and enforces honest schedule snapshots', {
+test('Recall migration bootstraps an absent Practice table, preserves rows, and enforces honest snapshots', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
 }, async (context) => {
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });
   const client = await pool.connect();
+  const bootstrapSchemaName = `recall_bootstrap_${crypto.randomUUID().replaceAll('-', '_')}`;
+  const bootstrapSchema = quoteIdentifier(bootstrapSchemaName);
   const schemaName = `recall_test_${crypto.randomUUID().replaceAll('-', '_')}`;
   const schema = quoteIdentifier(schemaName);
   const enrolledAt = '2026-09-03T00:00:00.000Z';
@@ -41,6 +43,68 @@ test('Recall migration preserves Practice rows and enforces honest schedule snap
       'utf8',
     );
     const statements = parsePreviewMigration(migrationSql);
+    await client.query(`CREATE SCHEMA ${bootstrapSchema}`);
+    await client.query(`SET search_path TO ${bootstrapSchema}, public`);
+    await client.query(`
+      CREATE TABLE user_knowledge_items (
+        id text PRIMARY KEY,
+        user_id text NOT NULL,
+        UNIQUE (id, user_id)
+      )
+    `);
+    await client.query(`
+      CREATE TABLE knowledge_item_revisions (
+        knowledge_item_id text NOT NULL,
+        version integer NOT NULL,
+        UNIQUE (knowledge_item_id, version)
+      )
+    `);
+    await client.query(`
+      CREATE TABLE knowledge_card_sources (
+        id text PRIMARY KEY,
+        knowledge_item_id text NOT NULL
+      )
+    `);
+    for (let run = 0; run < 2; run += 1) {
+      for (const statement of statements) await client.query(statement);
+    }
+    assert.equal((await client.query(
+      `SELECT to_regclass('user_private_card_states')::text AS table_name`,
+    )).rows[0]?.table_name, 'user_private_card_states');
+    assert.deepEqual((await client.query(`
+      SELECT is_nullable, column_default
+      FROM information_schema.columns
+      WHERE table_schema = $1 AND table_name = 'user_private_card_states'
+        AND column_name = 'last_seen'
+    `, [bootstrapSchemaName])).rows[0], { is_nullable: 'YES', column_default: null });
+    assert.equal((await client.query(`
+      SELECT COUNT(*)::integer AS count
+      FROM information_schema.columns
+      WHERE table_schema = $1 AND table_name = 'user_private_card_states'
+        AND column_name IN (
+          'recall_enrolled_at', 'recall_item_version', 'recall_schedule_state',
+          'recall_d1_finalized_incomplete', 'recall_d7_outcome', 'recall_schedule_version'
+        )
+    `, [bootstrapSchemaName])).rows[0]?.count, 6);
+    assert.equal((await client.query(`
+      SELECT COUNT(*)::integer AS count
+      FROM pg_indexes
+      WHERE schemaname = $1 AND tablename = 'user_private_card_states'
+        AND indexname IN (
+          'idx_user_private_card_states_user_status',
+          'idx_user_private_card_states_user_due'
+        )
+    `, [bootstrapSchemaName])).rows[0]?.count, 2);
+    assert.equal((await client.query(`
+      SELECT COUNT(*)::integer AS count
+      FROM pg_constraint c
+      JOIN pg_class t ON t.oid = c.conrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      WHERE n.nspname = $1 AND t.relname = 'user_private_card_states'
+        AND c.conname = 'user_private_card_states_recall_schedule_check'
+    `, [bootstrapSchemaName])).rows[0]?.count, 1);
+    await client.query('RESET search_path');
+
     await client.query(`CREATE SCHEMA ${schema}`);
     await client.query(`SET search_path TO ${schema}, public`);
     await client.query(`
@@ -234,12 +298,17 @@ test('Recall migration preserves Practice rows and enforces honest schedule snap
     await collectCleanupFailure(cleanupFailures, 'drop isolated schema', () => (
       client.query(`DROP SCHEMA IF EXISTS ${schema} CAS`)
     ));
+    await collectCleanupFailure(cleanupFailures, 'drop bootstrap schema', () => (
+      client.query(`DROP SCHEMA IF EXISTS ${bootstrapSchema} CAS`)
+    ));
     await collectCleanupFailure(cleanupFailures, 'verify isolated schema removal', async () => {
-      const exists = (await client.query(
-        'SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = $1) AS exists',
-        [schemaName],
-      )).rows[0]?.exists;
-      assert.equal(exists, false);
+      const remaining = (await client.query(
+        `SELECT COUNT(*)::integer AS count
+         FROM information_schema.schemata
+         WHERE schema_name = ANY($1::text[])`,
+        [[schemaName, bootstrapSchemaName]],
+      )).rows[0]?.count;
+      assert.equal(remaining, 0);
     });
     await collectCleanupFailure(cleanupFailures, 'release isolated database client', async () => {
       client.release();

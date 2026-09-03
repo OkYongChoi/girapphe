@@ -14,7 +14,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0016_conversation_knowledge_hub.sql', 39],
     ['0017_supersession_replacement_tombstones.sql', 7],
     ['0018_expression_history_causality.sql', 11],
-    ['0019_recall_ping_persistence.sql', 12],
+    ['0019_recall_ping_persistence.sql', 15],
   ];
   for (const [name, expectedCount] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -77,6 +77,7 @@ test('preview schema update rejects destructive and unbounded SQL', () => {
 
 test('recall persistence migration preserves one scheduling authority and legacy source honesty', async () => {
   const sql = await readFile(new URL('../drizzle/migrations/0019_recall_ping_persistence.sql', import.meta.url), 'utf8');
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS "user_private_card_states"/);
   assert.equal((sql.match(/ADD COLUMN IF NOT EXISTS "recall_[a-z0-9_]+"/g) ?? []).length, 6);
   assert.doesNotMatch(sql, /ADD COLUMN IF NOT EXISTS "recall_due_at"/);
   assert.match(sql, /"due_at" >= "recall_enrolled_at" \+ INTERVAL '24 hours'/);
