@@ -296,10 +296,10 @@ test('Recall migration bootstraps an absent Practice table, preserves rows, and 
       client.query('RESET search_path')
     ));
     await collectCleanupFailure(cleanupFailures, 'drop isolated schema', () => (
-      client.query(`DROP SCHEMA IF EXISTS ${schema} CAS`)
+      client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
     ));
     await collectCleanupFailure(cleanupFailures, 'drop bootstrap schema', () => (
-      client.query(`DROP SCHEMA IF EXISTS ${bootstrapSchema} CAS`)
+      client.query(`DROP SCHEMA IF EXISTS ${bootstrapSchema} CASCADE`)
     ));
     await collectCleanupFailure(cleanupFailures, 'verify isolated schema removal', async () => {
       const remaining = (await client.query(
