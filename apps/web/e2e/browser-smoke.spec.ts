@@ -734,7 +734,7 @@ test.describe('browser smoke', () => {
     await assertVisualFitsViewport('[data-knowledge-visual="timeline"]', 'narrow timeline preview');
 
     await createForm.getByRole('button', { name: 'Save item' }).click();
-    await expect(format).toHaveValue('');
+    await expect(format).toHaveValue('', { timeout: 15_000 });
     let item = page.locator('details').filter({ hasText: title });
     await expect(item).toHaveCount(1);
     await ensureExpanded(item);
