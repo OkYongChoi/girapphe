@@ -9,9 +9,12 @@ import {
   knowledgeBundleNotationAccessibilityText,
   knowledgeBundleNotationBlocksHaveNotation,
   knowledgeBundleNotationSources,
+  knowledgeSourceAccessibilityText,
 } from './knowledge-bundle-notation';
 
 const notation = '\\(x^2\\)';
+const flowDirective = ':::flow\n["Input", "Output", "produces"]\n["\\\\(m\\\\)", "\\\\(E = mc^2\\\\)", "maps to"]\n:::';
+const timelineDirective = ':::timeline\n["1905", "Special relativity", "Mass and energy are related"]\n["1915", "General relativity"]\n:::';
 
 const bundles: KnowledgeBundleContent[] = [
   { type: 'concept', definition: 'Definition', key_points: ['Point'], examples: [], non_examples: [], misconceptions: [{ claim: 'Wrong', correction: notation }] },
@@ -77,6 +80,35 @@ test('aggregate text blocks opt into legacy dollar math only when requested', ()
   assert.equal(knowledgeBundleNotationBlocksHaveNotation(explicitOnlyBlocks), false);
 });
 
+test('visual directives opt into the aggregate DOM and expose decoded accessibility text', () => {
+  const blocks = buildKnowledgeNotationGroupBlocks([
+    { source: `Overview\n${flowDirective}`, tone: 'body' },
+    { source: timelineDirective, tone: 'detail' },
+  ]);
+
+  assert.equal(knowledgeBundleNotationBlocksHaveNotation(blocks), true);
+  assert.deepEqual(knowledgeBundleNotationSources(blocks), [`Overview\n${flowDirective}`, timelineDirective]);
+
+  const accessibilityText = knowledgeBundleNotationAccessibilityText(blocks);
+  assert.match(accessibilityText, /Input — produces — Output/);
+  assert.match(accessibilityText, /\\\(m\\\) — maps to — \\\(E = mc\^2\\\)/);
+  assert.match(accessibilityText, /1905 — Special relativity — Mass and energy are related/);
+  assert.match(accessibilityText, /1915 — General relativity/);
+  assert.doesNotMatch(accessibilityText, /\["Input", "Output", "produces"\]/);
+});
+
+test('standalone visual accessibility text is decoded without changing math or code sources', () => {
+  assert.equal(
+    knowledgeSourceAccessibilityText(`Overview\n${flowDirective}`),
+    'Overview\nInput — produces — Output\n\\(m\\) — maps to — \\(E = mc^2\\)',
+  );
+  assert.equal(knowledgeSourceAccessibilityText(notation), notation);
+  assert.equal(knowledgeSourceAccessibilityText('```ts\nconst value = 1;\n```'), '```ts\nconst value = 1;\n```');
+
+  const knowledgeTextSource = readFileSync(new URL('./components/knowledge-text.tsx', import.meta.url), 'utf8');
+  assert.match(knowledgeTextSource, /knowledgeSourceAccessibilityText\(value, legacyDollarMath\)/);
+});
+
 test('structured bundles have one aggregate DOM call site and inline DOM documents shrink-wrap', () => {
   const bundleView = readFileSync(new URL('./components/knowledge-bundle-view.tsx', import.meta.url), 'utf8');
   const notationGroup = readFileSync(new URL('./components/knowledge-notation-group.tsx', import.meta.url), 'utf8');
@@ -86,11 +118,32 @@ test('structured bundles have one aggregate DOM call site and inline DOM documen
   assert.match(bundleView, /bundleBlocks=\{notationBlocks\}/);
   assert.match(notationGroup, /knowledgeBundleNotationBlocksHaveNotation\(blocks\)/);
   assert.match(domSource, /width: max-content; max-width: 100vw/);
-  assert.match(domSource, /bundleBlocks \|\| !inline/);
+  assert.match(domSource, /bundleBlocks \|\| !renderInline/);
   assert.match(domSource, /token\.type === 'math'\) return token\.source/);
   assert.match(domSource, /knowledgeTextRequiresBlockContainer\(tokens\)/);
   assert.match(domSource, /inline && !containsBlockToken \? 'span' : 'div'/);
   assert.match(domSource, /parseKnowledgeText\(source, \{ legacyDollarMath \}\)/);
+  assert.match(domSource, /token\.type === 'flow'/);
+  assert.match(domSource, /token\.type === 'timeline'/);
+  assert.match(domSource, /data-knowledge-visual="flow"/);
+  assert.match(domSource, /data-knowledge-visual="timeline"/);
+  assert.match(domSource, /<ol className="knowledge-visual-list/);
+  assert.match(domSource, /aria-hidden="true"/);
+  assert.match(domSource, /@media \(max-width: 460px\)/);
+  assert.match(domSource, /\[dir="rtl"\] \.knowledge-flow-arrow-wide/);
+  assert.match(domSource, /renderInline = inline && !containsBlockToken/);
+  assert.match(domSource, /containsVisualToken \? \{\} : lineClampStyle\(numberOfLines\)/);
+});
+
+test('mobile editor documents scalar prose visual blocks in every locale and previews them in place', () => {
+  const notesSource = readFileSync(new URL('../app/(tabs)/notes.tsx', import.meta.url), 'utf8');
+  assert.equal(notesSource.match(/visual: '/g)?.length, 6);
+  assert.match(notesSource, /Flow and timeline blocks work in multiline prose fields/);
+  assert.match(notesSource, /:::flow\\n\["Input", "Output", "produces"\]/);
+  assert.match(notesSource, /:::timeline\\n\["1905", "Special relativity"/);
+  assert.ok(notesSource.includes('["\\\\\\\\(m\\\\\\\\)", "\\\\\\\\(E = mc^2\\\\\\\\)", "maps to"]'));
+  assert.match(notesSource, /BUNDLE_EDITOR_HELP\[locale\]\.notation\}\\n\$\{BUNDLE_EDITOR_HELP\[locale\]\.visual/);
+  assert.match(notesSource, /blocks=\{buildKnowledgeNotationGroupBlocks\([\s\S]*bundlePreview, locale\)/);
 });
 
 test('selected detail surfaces render notation while pressable list rows stay native', () => {

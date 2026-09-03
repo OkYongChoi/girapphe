@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { hasKnowledgeNotation } from '@stem-brain/shared';
 import KnowledgeNotationDom from '@/components/knowledge-notation-dom';
+import { knowledgeSourceAccessibilityText } from '@/knowledge-bundle-notation';
 
 type Direction = 'ltr' | 'rtl';
 
@@ -49,7 +50,7 @@ function textStyle(style: TextStyle) {
 }
 
 export function KnowledgeText({ value, direction, inline = false, legacyDollarMath = false, numberOfLines, prefix = '', style }: Props) {
-  const accessibilitySource = `${prefix}${value}`;
+  const accessibilitySource = `${prefix}${knowledgeSourceAccessibilityText(value, legacyDollarMath)}`;
   if (!hasKnowledgeNotation(value, { legacyDollarMath })) {
     return <Text numberOfLines={numberOfLines} style={[style, { writingDirection: direction }]}>{accessibilitySource}</Text>;
   }

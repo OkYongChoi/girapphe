@@ -7,6 +7,7 @@ import {
   type KnowledgeTextToken,
 } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
+import KnowledgeVisualBlock from './knowledge-visual-block';
 
 const KnowledgeMath = dynamic(() => import('./knowledge-math'));
 
@@ -15,6 +16,7 @@ type KnowledgeTextProps = {
   className?: string;
   legacyDollarMath?: boolean;
   allowCodeCopy?: boolean;
+  allowVisualBlocks?: boolean;
 };
 
 async function copyToClipboard(value: string): Promise<void> {
@@ -85,7 +87,13 @@ function CodeToken({ token, allowCopy }: { token: Extract<KnowledgeTextToken, { 
   );
 }
 
-function renderToken(token: KnowledgeTextToken, index: number, allowCodeCopy: boolean) {
+function renderToken(
+  token: KnowledgeTextToken,
+  index: number,
+  allowCodeCopy: boolean,
+  allowVisualBlocks: boolean,
+  legacyDollarMath: boolean,
+) {
   const key = `${index}-${token.type}`;
   switch (token.type) {
     case 'text':
@@ -94,17 +102,45 @@ function renderToken(token: KnowledgeTextToken, index: number, allowCodeCopy: bo
       return <KnowledgeMath key={key} value={token.value} display={token.display} source={token.source} />;
     case 'code':
       return <CodeToken key={key} token={token} allowCopy={allowCodeCopy} />;
+    case 'flow':
+    case 'timeline':
+      return allowVisualBlocks ? (
+        <KnowledgeVisualBlock
+          key={key}
+          token={token}
+          renderValue={(value) => (
+            <KnowledgeText
+              text={value}
+              legacyDollarMath={legacyDollarMath}
+              allowCodeCopy={false}
+              allowVisualBlocks={false}
+            />
+          )}
+        />
+      ) : <span key={key}>{token.source}</span>;
   }
 }
 
-export default function KnowledgeText({ text, className = '', legacyDollarMath = false, allowCodeCopy = true }: KnowledgeTextProps) {
+export default function KnowledgeText({
+  text,
+  className = '',
+  legacyDollarMath = false,
+  allowCodeCopy = true,
+  allowVisualBlocks = true,
+}: KnowledgeTextProps) {
   const tokens = useMemo<KnowledgeTextToken[]>(() => {
     return parseKnowledgeText(text, { legacyDollarMath });
   }, [legacyDollarMath, text]);
 
   return (
-    <span className={`whitespace-pre-wrap ${className}`.trim()}>
-      {tokens.map((token, index) => renderToken(token, index, allowCodeCopy))}
+    <span className={`min-w-0 max-w-full whitespace-pre-wrap [overflow-wrap:anywhere] ${className}`.trim()}>
+      {tokens.map((token, index) => renderToken(
+        token,
+        index,
+        allowCodeCopy,
+        allowVisualBlocks,
+        legacyDollarMath,
+      ))}
     </span>
   );
 }

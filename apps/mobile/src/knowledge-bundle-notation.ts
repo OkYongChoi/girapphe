@@ -1,5 +1,6 @@
 import {
   hasKnowledgeNotation as hasSourceNotation,
+  parseKnowledgeText,
   type KnowledgeBundleContent,
   type Locale,
 } from '@stem-brain/shared';
@@ -239,6 +240,30 @@ export function knowledgeBundleNotationBlocksHaveNotation(blocks: KnowledgeBundl
   });
 }
 
+export function knowledgeSourceAccessibilityText(source: string, legacyDollarMath = false) {
+  const tokens = parseKnowledgeText(source, { legacyDollarMath });
+  if (!tokens.some((token) => token.type === 'flow' || token.type === 'timeline')) return source;
+
+  return tokens.map((token) => {
+    if (token.type === 'text') return token.value;
+    if (token.type === 'math') return token.source;
+    if (token.type === 'flow') {
+      return token.edges.map((edge) => `${edge.from} — ${edge.relation} — ${edge.to}`).join('\n');
+    }
+    if (token.type === 'timeline') {
+      return token.entries.map((entry) => [entry.when, entry.title, entry.detail].filter(Boolean).join(' — ')).join('\n');
+    }
+    return token.block
+      ? `\`\`\`${token.language ?? ''}\n${token.value}\n\`\`\``
+      : `\`${token.value}\``;
+  }).join('');
+}
+
 export function knowledgeBundleNotationAccessibilityText(blocks: KnowledgeBundleNotationBlock[]) {
-  return knowledgeBundleNotationSources(blocks).filter(Boolean).join('\n');
+  return blocks.flatMap((block) => {
+    if (block.kind === 'text') {
+      return knowledgeSourceAccessibilityText(block.source, block.legacyDollarMath);
+    }
+    return knowledgeBundleNotationSources([block]).map((source) => knowledgeSourceAccessibilityText(source));
+  }).filter(Boolean).join('\n');
 }

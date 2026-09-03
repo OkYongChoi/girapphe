@@ -1,7 +1,9 @@
 export type KnowledgeTextToken =
   | { type: 'text'; value: string }
   | { type: 'math'; value: string; display: boolean; source: string }
-  | { type: 'code'; value: string; block: boolean; language?: string };
+  | { type: 'code'; value: string; block: boolean; language?: string }
+  | { type: 'flow'; edges: Array<{ from: string; to: string; relation: string }>; source: string }
+  | { type: 'timeline'; entries: Array<{ when: string; title: string; detail?: string }>; source: string };
 
 export type ParseKnowledgeTextOptions = {
   legacyDollarMath?: boolean;
@@ -14,9 +16,13 @@ type ParsedToken = {
 
 type FencedCodeResult = ParsedToken | { unclosed: true } | null;
 
-type CodePartition =
+type KnowledgeTextPartition =
   | { type: 'source'; value: string; parseMath: boolean }
+  | { type: 'literal-block'; value: string }
   | Exclude<KnowledgeTextToken, { type: 'text' }>;
+
+type VisualBlockResult = ParsedToken | { literal: string; end: number } | null;
+type KnowledgeVisualToken = Extract<KnowledgeTextToken, { type: 'flow' | 'timeline' }>;
 
 type LegacyMathDelimiter = '$' | '$$';
 
@@ -33,6 +39,9 @@ type ExplicitMathCloseIndexes = {
 
 const FENCE = '```';
 const FENCE_LANGUAGE = /^[A-Za-z0-9_+.-]+$/;
+const VISUAL_BLOCK_MAX_SOURCE_LENGTH = 6_000;
+const VISUAL_BLOCK_MAX_ROWS = 24;
+const VISUAL_BLOCK_MAX_VALUE_LENGTH = 500;
 
 function appendText(tokens: KnowledgeTextToken[], value: string) {
   if (!value) return;
@@ -45,7 +54,7 @@ function appendText(tokens: KnowledgeTextToken[], value: string) {
 }
 
 function appendCodeSource(
-  partitions: CodePartition[],
+  partitions: KnowledgeTextPartition[],
   value: string,
   parseMath: boolean,
 ) {
@@ -104,6 +113,113 @@ function parseFencedCode(source: string, start: number): FencedCodeResult {
   return { unclosed: true };
 }
 
+function withinCodePointLimit(value: string, limit: number) {
+  let length = 0;
+  for (const _character of value) {
+    length += 1;
+    if (length > limit) return false;
+  }
+  return true;
+}
+
+function validVisualValue(value: unknown, required: boolean): value is string {
+  return typeof value === 'string'
+    && withinCodePointLimit(value, VISUAL_BLOCK_MAX_VALUE_LENGTH)
+    && !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value)
+    && (!required || Boolean(value.trim()));
+}
+
+function parseVisualRows(
+  kind: 'flow' | 'timeline',
+  body: string,
+  source: string,
+): KnowledgeVisualToken | null {
+  if (!withinCodePointLimit(source, VISUAL_BLOCK_MAX_SOURCE_LENGTH)) return null;
+
+  const lines = body.split(/\r?\n/).filter((line) => Boolean(line.trim()));
+  if (lines.length < 1 || lines.length > VISUAL_BLOCK_MAX_ROWS) return null;
+
+  if (kind === 'flow') {
+    const edges: Array<{ from: string; to: string; relation: string }> = [];
+    for (const line of lines) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        return null;
+      }
+      if (!Array.isArray(parsed) || parsed.length !== 3) return null;
+      const [from, to, relation] = parsed;
+      if (
+        !validVisualValue(from, true)
+        || !validVisualValue(to, true)
+        || !validVisualValue(relation, true)
+      ) return null;
+      edges.push({ from, to, relation });
+    }
+    return { type: 'flow', edges, source };
+  }
+
+  const entries: Array<{ when: string; title: string; detail?: string }> = [];
+  for (const line of lines) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(parsed) || (parsed.length !== 2 && parsed.length !== 3)) return null;
+    const [when, title, rawDetail] = parsed;
+    if (
+      !validVisualValue(when, true)
+      || !validVisualValue(title, true)
+      || (parsed.length === 3 && !validVisualValue(rawDetail, false))
+    ) return null;
+    const detail = typeof rawDetail === 'string' && rawDetail.trim() ? rawDetail : undefined;
+    entries.push({
+      when,
+      title,
+      ...(detail === undefined ? {} : { detail }),
+    });
+  }
+  return { type: 'timeline', entries, source };
+}
+
+function parseVisualBlock(source: string, start: number): VisualBlockResult {
+  if (!isLineStart(source, start) || source[start] !== ':') return null;
+
+  const header = lineEnd(source, start);
+  const headerValue = source.slice(start, header.end);
+  const kind = headerValue === ':::flow'
+    ? 'flow'
+    : headerValue === ':::timeline'
+      ? 'timeline'
+      : null;
+  if (!kind) return null;
+  if (header.newline === -1) return { literal: source.slice(start), end: source.length };
+
+  const contentStart = header.newline + 1;
+  let closingStart = contentStart;
+  while (closingStart <= source.length) {
+    const closingLine = lineEnd(source, closingStart);
+    if (source.slice(closingStart, closingLine.end) === ':::') {
+      const blockSource = source.slice(start, closingLine.end);
+      const token = parseVisualRows(
+        kind,
+        source.slice(contentStart, closingStart),
+        blockSource,
+      );
+      return token
+        ? { token, end: closingLine.end }
+        : { literal: blockSource, end: closingLine.end };
+    }
+    if (closingLine.newline === -1) break;
+    closingStart = closingLine.newline + 1;
+  }
+
+  return { literal: source.slice(start), end: source.length };
+}
+
 function backtickRunLength(source: string, start: number) {
   let end = start;
   while (source[end] === '`') end += 1;
@@ -133,42 +249,53 @@ function parseInlineCode(source: string, start: number): ParsedToken | null {
   };
 }
 
-function partitionKnowledgeCode(source: string): CodePartition[] {
-  const partitions: CodePartition[] = [];
+function partitionKnowledgeCode(source: string): KnowledgeTextPartition[] {
+  const partitions: KnowledgeTextPartition[] = [];
   let index = 0;
 
   while (index < source.length) {
-    if (source[index] !== '`') {
-      appendCodeSource(partitions, source[index] ?? '', true);
-      index += 1;
-      continue;
-    }
+    if (source[index] === '`') {
+      const fenced = parseFencedCode(source, index);
+      if (fenced) {
+        if ('unclosed' in fenced) {
+          appendCodeSource(partitions, source.slice(index), false);
+          break;
+        }
+        partitions.push(fenced.token);
+        index = fenced.end;
+        continue;
+      }
 
-    const fenced = parseFencedCode(source, index);
-    if (fenced) {
-      if ('unclosed' in fenced) {
+      const inline = parseInlineCode(source, index);
+      if (inline) {
+        partitions.push(inline.token);
+        index = inline.end;
+        continue;
+      }
+
+      const runLength = backtickRunLength(source, index);
+      if (runLength <= 2) {
         appendCodeSource(partitions, source.slice(index), false);
         break;
       }
-      partitions.push(fenced.token);
-      index = fenced.end;
+      appendCodeSource(partitions, source.slice(index, index + runLength), true);
+      index += runLength;
       continue;
     }
 
-    const inline = parseInlineCode(source, index);
-    if (inline) {
-      partitions.push(inline.token);
-      index = inline.end;
+    const visual = source[index] === ':' ? parseVisualBlock(source, index) : null;
+    if (visual) {
+      if ('literal' in visual) {
+        partitions.push({ type: 'literal-block', value: visual.literal });
+      } else {
+        partitions.push(visual.token);
+      }
+      index = visual.end;
       continue;
     }
 
-    const runLength = backtickRunLength(source, index);
-    if (runLength <= 2) {
-      appendCodeSource(partitions, source.slice(index), false);
-      break;
-    }
-    appendCodeSource(partitions, source.slice(index, index + runLength), true);
-    index += runLength;
+    appendCodeSource(partitions, source[index] ?? '', true);
+    index += 1;
   }
 
   return partitions;
@@ -354,6 +481,16 @@ export function parseKnowledgeText(
   let unmatchedLegacyDelimiters = new Set<LegacyMathDelimiter>();
 
   for (const partition of partitionKnowledgeCode(source)) {
+    if (partition.type === 'literal-block') {
+      for (const delimiter of unmatchedLegacyDelimiters) {
+        blockedLegacyDelimiters.add(delimiter);
+      }
+      unmatchedLegacyDelimiters = new Set();
+      blockedLegacyDelimiters.delete('$');
+      advanceLegacyDelimiterState(partition.value, blockedLegacyDelimiters);
+      appendText(tokens, partition.value);
+      continue;
+    }
     if (partition.type !== 'source') {
       for (const delimiter of unmatchedLegacyDelimiters) {
         blockedLegacyDelimiters.add(delimiter);
@@ -362,6 +499,9 @@ export function parseKnowledgeText(
       if (partition.type === 'code') {
         if (partition.block) blockedLegacyDelimiters.delete('$');
         advanceLegacyDelimiterState(partition.value, blockedLegacyDelimiters);
+      } else {
+        blockedLegacyDelimiters.delete('$');
+        advanceLegacyDelimiterState(partition.source, blockedLegacyDelimiters);
       }
       tokens.push(partition);
       continue;
@@ -391,6 +531,8 @@ export function hasKnowledgeNotation(
 
 export function knowledgeTextRequiresBlockContainer(tokens: readonly KnowledgeTextToken[]) {
   return tokens.some((token) => (
-    token.type === 'math' ? token.display : token.type === 'code' && token.block
+    token.type === 'flow'
+    || token.type === 'timeline'
+    || (token.type === 'math' ? token.display : token.type === 'code' && token.block)
   ));
 }

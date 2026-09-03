@@ -45,6 +45,13 @@ if (result.status !== 0) process.exit(result.status ?? 1);
 const metadataPath = resolve(`dist/${platform}/metadata.json`);
 const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'));
 const bundledAssets = metadata.fileMetadata?.[platform]?.assets ?? [];
+const domJavaScriptAssets = bundledAssets.filter((asset) => /^www\.bundle\/.+\.js$/.test(asset.path));
+if (domJavaScriptAssets.length === 0) {
+  throw new Error(`Expo DOM JavaScript is missing from the ${platform} bundle.`);
+}
+if (!domJavaScriptAssets.some((asset) => readFileSync(resolve(`dist/${platform}`, asset.path), 'utf8').includes('data-knowledge-visual'))) {
+  throw new Error(`Rich flow and timeline rendering is missing from the ${platform} DOM bundle.`);
+}
 const bundledFontHashes = new Set(
   bundledAssets.filter((asset) => asset.ext === 'woff2').map((asset) => basename(asset.path)),
 );
