@@ -80,7 +80,7 @@ export async function recordKnowledgeProductEventsForUser(
       event.outcome ?? null,
       event.selectionCount ?? null,
     );
-    return `($${start}, $1, $${start + 1}, 1, $${start + 2}, $${start + 3}, $${start + 4}, $${start + 5})`;
+    return `($${start}::text, $1::text, $${start + 1}::text, 1::integer, $${start + 2}::text, $${start + 3}::text, $${start + 4}::text, $${start + 5}::integer)`;
   });
   const [result] = await db.accountTransaction<{ id: string }>(userId, [{
     text: `INSERT INTO knowledge_product_events
