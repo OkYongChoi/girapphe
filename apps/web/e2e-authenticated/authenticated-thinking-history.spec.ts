@@ -26,7 +26,11 @@ function copyMatching(pattern: RegExp, fallback: string): string {
   return localizedCopy.find((value) => pattern.test(value)) ?? fallback;
 }
 
-const headingCopy = copyMatching(/thinking history/i, "Thinking History");
+const englishMessages = messageAsset.en as Record<string, unknown> | undefined;
+const headingCopy =
+  typeof englishMessages?.["insights.title"] === "string"
+    ? englishMessages["insights.title"]
+    : "Your thinking, in motion.";
 const inspectCopy = copyMatching(
   /inspect.*evidence|evidence.*reuse/i,
   "Inspect evidence and reuse",
