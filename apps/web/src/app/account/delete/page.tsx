@@ -11,16 +11,12 @@ export const metadata: Metadata = {
   description: 'Permanently delete a Girapphe account and its associated private product data.',
 };
 
-type DeleteAccountPageProps = {
-  searchParams?: Promise<{ importPage?: string | string[] }>;
-};
+type DeleteAccountPageProps = { searchParams: Promise<{ importPage?: string | string[] }> };
 
 export default async function DeleteAccountPage({ searchParams }: DeleteAccountPageProps) {
   const user = await requireCurrentUserProfile();
-  const params = searchParams ? await searchParams : {};
-  const rawPage = Array.isArray(params.importPage) ? params.importPage[0] : params.importPage;
-  const parsedPage = Number.parseInt(rawPage ?? '1', 10);
-  const importPage = Number.isInteger(parsedPage) && parsedPage > 0 ? Math.min(parsedPage, 400) : 1;
+  const requestedPage = Number.parseInt(String((await searchParams).importPage ?? 1), 10);
+  const importPage = Math.min(400, Math.max(1, requestedPage || 1));
   const pageSize = 50;
   const pageBatches = await getKnowledgeDraftBatchesForUser(user.id, true, {
     limit: pageSize + 1,
@@ -75,12 +71,10 @@ export default async function DeleteAccountPage({ searchParams }: DeleteAccountP
             </ol>
           )}
           {batches.length > 0 || importPage > 1 ? (
-            <nav aria-label="Import job pages" className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
-              <p className="font-semibold text-slate-600">Import jobs page {importPage}</p>
-              <div className="flex gap-2">
-                {importPage > 1 ? <Link href={`/account/delete?importPage=${importPage - 1}#import-jobs-heading`} className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 font-bold">Previous</Link> : null}
-                {hasNextPage ? <Link href={`/account/delete?importPage=${importPage + 1}#import-jobs-heading`} className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 font-bold">Next</Link> : null}
-              </div>
+            <nav aria-label="Import job pages" className="mt-4 flex items-center gap-2 text-sm font-bold">
+              {importPage > 1 ? <Link href={`/account/delete?importPage=${importPage - 1}#import-jobs-heading`} className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4">Previous</Link> : null}
+              <span className="px-2 text-slate-600">Page {importPage}</span>
+              {hasNextPage ? <Link href={`/account/delete?importPage=${importPage + 1}#import-jobs-heading`} className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4">Next</Link> : null}
             </nav>
           ) : null}
         </section>

@@ -20,7 +20,7 @@ export default async function ChatGptExportImportPage() {
           <h1 className="mt-3 text-4xl font-black tracking-[-0.04em] text-slate-950 md:text-6xl">{t('import.title')}</h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-600 md:text-lg">{t('import.subtitle')}</p>
         </header>
-        {enabled ? <ChatGptExportImporter /> : (
+        {enabled ? <ChatGptExportImporter loadingLabel={t('common.loading')} unavailableLabel={t('translation.unavailable')} /> : (
           <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 md:p-8">
             <h2 className="text-xl font-black text-amber-950">Private beta is not enabled for this account.</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-amber-900">

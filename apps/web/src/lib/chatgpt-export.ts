@@ -90,29 +90,20 @@ function deriveTopic(title: string, question: string) {
 }
 
 function parseMessages(mapping: Record<string, unknown>, counter: { value: number }, currentNode: unknown) {
-  const entries = Object.entries(mapping);
-  counter.value += entries.length;
+  let nodeValues = Object.values(mapping);
+  counter.value += nodeValues.length;
   if (counter.value > MAX_CHATGPT_EXPORT_MESSAGES) throw new ChatGptExportError('too_large');
 
-  let nodeValues = entries.map(([, node]) => node);
-  let followsActiveBranch = false;
-  if (typeof currentNode === 'string' && Object.hasOwn(mapping, currentNode)) {
-    const branch: unknown[] = [];
-    const seen = new Set<string>();
-    let nodeId: string | null = currentNode;
-    while (nodeId && !seen.has(nodeId)) {
-      seen.add(nodeId);
-      const nodeValue = mapping[nodeId];
-      if (nodeValue === undefined) break;
-      branch.push(nodeValue);
-      const node = asRecord(nodeValue);
-      nodeId = typeof node?.parent === 'string' && node.parent ? node.parent : null;
-    }
-    if (branch.length > 0) {
-      nodeValues = branch.reverse();
-      followsActiveBranch = true;
-    }
+  const branch: unknown[] = [];
+  let nodeId = typeof currentNode === 'string' ? currentNode : null;
+  while (nodeId && branch.length < nodeValues.length) {
+    const nodeValue = mapping[nodeId];
+    if (nodeValue === undefined) break;
+    branch.push(nodeValue);
+    const parent = asRecord(nodeValue)?.parent;
+    nodeId = typeof parent === 'string' && parent ? parent : null;
   }
+  if (branch.length && !nodeId) nodeValues = branch.reverse();
 
   const messages: ParsedMessage[] = [];
   let order = 0;
@@ -136,7 +127,7 @@ function parseMessages(mapping: Record<string, unknown>, counter: { value: numbe
     });
     order += 1;
   }
-  if (followsActiveBranch) return messages;
+  if (nodeValues === branch) return messages;
   return messages.toSorted((left, right) => {
     const byTime = (left.createdAt ?? '').localeCompare(right.createdAt ?? '');
     return byTime || left.order - right.order;

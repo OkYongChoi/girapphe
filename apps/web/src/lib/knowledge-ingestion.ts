@@ -1608,10 +1608,8 @@ export async function getKnowledgeDraftBatchesForUser(
   includeCompleted = false,
   options: { limit?: number; offset?: number } = {},
 ): Promise<KnowledgeDraftBatch[]> {
-  const limit = Number.isInteger(options.limit) ? Math.max(1, Math.min(100, Number(options.limit))) : 100;
-  const offset = Number.isInteger(options.offset)
-    ? Math.max(0, Math.min(MAX_KNOWLEDGE_BATCHES_PER_USER, Number(options.offset)))
-    : 0;
+  const limit = Math.max(1, Math.min(100, options.limit ?? 100));
+  const offset = Math.max(0, Math.min(MAX_KNOWLEDGE_BATCHES_PER_USER, options.offset ?? 0));
   if (!process.env.DATABASE_URL) {
     return Array.from(memoryBatches.values())
       .filter((batch) => batch.user_id === userId && (includeCompleted || batch.status === 'pending' || batch.status === 'partial'))

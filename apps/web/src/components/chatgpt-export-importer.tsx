@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useMemo, useRef, useState, useTransition, type ChangeEvent, type FormEvent } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { localizePathname } from '@stem-brain/shared';
 import { createChatGptExportDrafts } from '@/actions/knowledge-ingestion-actions';
@@ -21,9 +21,12 @@ function errorCode(error: unknown) {
   return error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
 }
 
-export default function ChatGptExportImporter() {
+type ChatGptExportImporterProps = { loadingLabel: string; unavailableLabel: string };
+
+export default function ChatGptExportImporter({ loadingLabel, unavailableLabel }: ChatGptExportImporterProps) {
   const router = useRouter();
-  const { locale, t, formatDate } = useI18n();
+  const { locale, t: appT, formatDate } = useI18n();
+  const [messages, setMessages] = useState<Record<string, string> | null>(null);
   const [archive, setArchive] = useState<ParsedChatGptExport | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [query, setQuery] = useState('');
@@ -39,6 +42,20 @@ export default function ChatGptExportImporter() {
     pendingImportEvents.current = pendingImportEvents.current
       .then(() => recordKnowledgeProductEvents(values))
       .then(() => undefined, () => undefined);
+  }
+
+  useEffect(() => {
+    let active = true;
+    void fetch('/conversation-import-messages.json')
+      .then((response) => response.ok ? response.json() as Promise<Record<string, Record<string, string>>> : Promise.reject())
+      .then((catalogs) => { if (active) setMessages(catalogs[locale] ?? catalogs.en ?? {}); }, () => { if (active) setMessages({}); });
+    return () => { active = false; };
+  }, [locale]);
+
+  function t(key: string, values: Record<string, string | number> = {}) {
+    let result = messages?.[key] ?? key;
+    for (const [name, value] of Object.entries(values)) result = result.replaceAll(`{${name}}`, String(value));
+    return result;
   }
 
   const filteredExchanges = useMemo(() => {
@@ -173,6 +190,9 @@ export default function ChatGptExportImporter() {
     });
   }
 
+  if (messages === null) return <section aria-busy="true" className="thinking-loading">{loadingLabel}</section>;
+  if (Object.keys(messages).length === 0) return <section role="alert" className="thinking-load-error">{unavailableLabel}</section>;
+
   return (
     <div className="grid gap-6">
       <aside className="rounded-2xl border border-cyan-200 bg-cyan-50/80 p-4 text-sm leading-relaxed text-cyan-950">
@@ -214,7 +234,7 @@ export default function ChatGptExportImporter() {
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4"><p className="text-3xl font-black text-cyan-200">{archive.conversationCount}</p><p className="mt-1 text-xs uppercase tracking-wide text-slate-300">{t('import.conversations')}</p></div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4"><p className="text-3xl font-black text-amber-200">{archive.exchangeCount}</p><p className="mt-1 text-xs uppercase tracking-wide text-slate-300">{t('import.exchanges')}</p></div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4"><p className="text-sm font-black leading-relaxed text-white">{archive.dateFrom && archive.dateTo ? `${formatDate(archive.dateFrom, { dateStyle: 'medium' })} - ${formatDate(archive.dateTo, { dateStyle: 'medium' })}` : t('common.never')}</p></div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4"><p className="text-sm font-black leading-relaxed text-white">{archive.dateFrom && archive.dateTo ? `${formatDate(archive.dateFrom, { dateStyle: 'medium' })} - ${formatDate(archive.dateTo, { dateStyle: 'medium' })}` : appT('common.never')}</p></div>
               </div>
             </div>
           </section>
