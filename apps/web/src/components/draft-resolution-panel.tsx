@@ -152,7 +152,8 @@ export default function DraftResolutionPanel({
   const candidate = draftSeed(draft);
   const existing = target ? targetSeed(target) : null;
   const seed = seedChoice === 'existing' && existing ? existing : candidate;
-  const eventObservedAt = draft.structured_content?.type === 'event' ? draft.structured_content.occurred_at : null;
+  const eventObservedAt = draft.observed_at
+    ?? (draft.structured_content?.type === 'event' ? draft.structured_content.occurred_at : null);
   const createLifecycleDefaults: KnowledgeLifecycleLocalDefaults = {
     observed_at: asLocalDateTime(eventObservedAt),
     review_at: '',

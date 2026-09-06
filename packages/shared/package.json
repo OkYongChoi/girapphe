@@ -10,6 +10,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./ai-thinking-history": "./src/ai-thinking-history.ts"
   }
 }

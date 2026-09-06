@@ -28,6 +28,9 @@ import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
 import KnowledgeBundleView from '@/components/knowledge-bundle-view';
 import KnowledgeText from '@/components/knowledge-text';
 import { isKnowledgeBundleType, KNOWLEDGE_BUNDLE_TYPES } from '@stem-brain/shared';
+import KnowledgeIntelligencePanel from '@/components/knowledge-intelligence-loader';
+import { getKnowledgeIntelligenceForUser } from '@/lib/knowledge-intelligence';
+import { isAiThinkingHistoryEnabledForUser } from '@/lib/ai-thinking-history-rollout';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +43,7 @@ type MyKnowledgePageProps = {
     start?: string;
     end?: string;
     group?: 'none' | 'week' | 'month';
-    view?: 'active' | 'archive' | 'trash';
+    view?: 'active' | 'archive' | 'trash' | 'insights';
     linkStatus?: 'created' | 'invalid' | 'cycle_or_duplicate';
     editStatus?: 'stale' | 'missing';
     archiveStatus?: 'stale';
@@ -129,6 +132,27 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
   const isArchive = view === 'archive';
   const isActive = view === 'active';
   const actor = await getCurrentActor();
+
+  if (params.view === 'insights') {
+    if (actor.isGuest) redirect('/login');
+    const enabled = isAiThinkingHistoryEnabledForUser(actor.id);
+    const signals = enabled ? await getKnowledgeIntelligenceForUser(actor.id) : [];
+    return (
+      <main id="main-content" className="thinking-history-page">
+        <Navbar user={actor} />
+        <section className="mx-auto w-full max-w-6xl px-4 py-8 md:px-8 md:py-12">
+          <KnowledgeIntelligencePanel
+            signals={signals}
+            enabled={enabled}
+            locale={locale}
+            loadingLabel={t('common.loading')}
+            unavailableLabel={t('translation.unavailable')}
+          />
+        </section>
+      </main>
+    );
+  }
+
   const clearFiltersHref = view === 'active' ? '/my-knowledge' : `/my-knowledge?view=${view}`;
 
   const [items, linkTargets, privateGraph] = await Promise.all([

@@ -1053,6 +1053,103 @@ html {
   scrollbar-width: none;
 }
 
+@layer components {
+  .thinking-history-page { min-height: 100vh; background: radial-gradient(circle at 12% 8%, rgb(14 116 144 / 0.12), transparent 28%), linear-gradient(180deg, #f8fafc 0%, #fff7ed 52%, #f8fafc 100%); }
+  .thinking-loading { @apply py-20 text-center text-sm font-bold text-slate-600; }
+  .thinking-load-error { @apply py-20 text-center text-sm font-bold text-amber-900; }
+  .thinking-header { @apply relative overflow-hidden border-b border-slate-300 pb-8; }
+  .thinking-watermark { @apply absolute end-0 top-0 font-serif text-[8rem] font-black leading-none text-cyan-900/[0.05]; }
+  .thinking-header-body { @apply relative max-w-4xl; }
+  .thinking-eyebrow-row, .thinking-actions, .thinking-empty-actions, .thinking-chip-row, .thinking-details, .thinking-evidence-footer, .thinking-context-head, .thinking-context-actions, .thinking-dismiss-row { @apply flex flex-wrap; }
+  .thinking-eyebrow-row { @apply items-center gap-3; }
+  .thinking-eyebrow { @apply text-xs font-black uppercase tracking-[0.22em] text-cyan-800; }
+  .thinking-private-badge { @apply rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-800; }
+  .thinking-title { @apply mt-4 max-w-3xl font-serif text-5xl font-black tracking-[-0.055em] text-slate-950; }
+  .thinking-subtitle { @apply mt-5 max-w-3xl text-base leading-7 text-slate-600; }
+  .thinking-summary { @apply mt-6 inline-flex border-s-4 border-amber-400 bg-white/70 px-4 py-2 text-sm font-bold text-slate-800 shadow-sm; }
+  .thinking-paused { @apply mt-8 max-w-3xl border-s-4 border-amber-400 bg-white/80 p-6 shadow-sm; }
+  .thinking-paused-title { @apply text-xl font-black text-slate-950; }
+  .thinking-paused-body { @apply mt-2 text-sm leading-6 text-slate-600; }
+  .thinking-actions { @apply mt-5 gap-3; }
+  .thinking-primary-link, .thinking-secondary-link { @apply rounded-lg px-4 py-2 text-sm font-bold; }
+  .thinking-primary-link { @apply bg-slate-950 text-white; }
+  .thinking-secondary-link { @apply border border-slate-300 bg-white text-slate-800; }
+  .thinking-empty { @apply py-16 text-center; }
+  .thinking-empty-title { @apply font-serif text-3xl font-black tracking-tight text-slate-950; }
+  .thinking-empty-body { @apply mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600; }
+  .thinking-empty-actions { @apply mt-7 justify-center gap-3; }
+  .thinking-primary-pill, .thinking-secondary-pill { @apply inline-flex min-h-11 items-center rounded-full px-5 py-2 text-sm font-bold; }
+  .thinking-primary-pill { @apply bg-slate-950 text-white hover:bg-cyan-900; }
+  .thinking-secondary-pill { @apply border border-slate-300 bg-white text-slate-800 hover:border-cyan-500; }
+  .thinking-feed { @apply relative mt-10; }
+  .thinking-rail { @apply absolute bottom-0 start-[1.18rem] top-0 w-px bg-gradient-to-b from-cyan-600 via-amber-400 to-transparent; }
+  .thinking-list { @apply grid gap-10; }
+  .thinking-item { @apply relative ps-12; }
+  .thinking-marker { @apply absolute start-0 top-0 grid h-10 w-10 place-items-center rounded-full border-4 border-white bg-slate-950 font-mono text-xs font-black text-cyan-200 shadow-md; }
+  .thinking-card { @apply border-t-2 border-slate-950 bg-white/85 px-0 pb-2 pt-5 backdrop-blur; box-shadow: 0 18px 55px rgb(15 23 42 / 0.07); }
+  .thinking-card-copy { @apply px-4; }
+  .thinking-chip-row { @apply items-center gap-2; }
+  .thinking-signal-label { @apply border-s-4 px-3 py-1 text-xs font-black uppercase tracking-[0.14em]; }
+  .thinking-signal-label[data-type="thought_change"] { @apply border-blue-500 bg-blue-50 text-blue-800; }
+  .thinking-signal-label[data-type="contradiction"] { @apply border-rose-500 bg-rose-50 text-rose-800; }
+  .thinking-signal-label[data-type="connection"] { @apply border-cyan-500 bg-cyan-50 text-cyan-800; }
+  .thinking-signal-label[data-type="rediscovery"] { @apply border-amber-500 bg-amber-50 text-amber-900; }
+  .thinking-signal-label[data-type="topic_emergence"] { @apply border-emerald-500 bg-emerald-50 text-emerald-800; }
+  .thinking-confidence { @apply text-xs font-bold text-slate-500; }
+  .thinking-topic { @apply rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600; }
+  .thinking-signal-title { @apply mt-4 font-serif text-2xl font-black tracking-tight text-slate-950; }
+  .thinking-uncertainty { @apply mt-2 max-w-3xl text-sm leading-6 text-slate-600; }
+  .thinking-details { @apply mt-4 items-center gap-x-4 gap-y-2 text-xs font-semibold text-slate-500; }
+  .thinking-evidence-toggle { @apply mt-5 inline-flex min-h-11 items-center border-b-2 border-cyan-700 text-sm font-black text-cyan-900 hover:border-slate-950 hover:text-slate-950; }
+  .thinking-expanded { @apply mt-6 border-t border-slate-200 px-4 pt-6; }
+  .thinking-evidence-grid { @apply grid gap-3; }
+  .thinking-evidence-card { @apply border-s-2 border-slate-300 bg-slate-50 p-4; }
+  .thinking-evidence-version { @apply font-mono text-[10px] font-bold uppercase tracking-wider text-slate-500; }
+  .thinking-evidence-title { @apply mt-2 text-sm font-black text-slate-950; }
+  .thinking-evidence-summary { @apply mt-2 line-clamp-4 text-xs leading-5 text-slate-600; }
+  .thinking-evidence-footer { @apply mt-4 items-center justify-between gap-2; }
+  .thinking-selector-count { @apply text-[11px] font-semibold text-slate-500; }
+  .thinking-evidence-link { @apply inline-flex min-h-10 items-center text-xs font-black text-blue-700 hover:underline; }
+  .thinking-context { @apply mt-6 border-y border-cyan-200 bg-cyan-50/70 py-5; }
+  .thinking-context-head { @apply items-start justify-between gap-3 px-4; }
+  .thinking-context-title { @apply text-sm font-black text-cyan-950; }
+  .thinking-context-body { @apply mt-1 max-w-2xl text-xs leading-5 text-cyan-900/75; }
+  .thinking-selected-count { @apply rounded-full bg-white px-3 py-1 text-xs font-bold text-cyan-800; }
+  .thinking-context-options { @apply mt-4 grid gap-2 px-4; }
+  .thinking-context-option { @apply flex min-h-11 cursor-pointer items-start gap-3 border border-cyan-200 bg-white/60 p-3; }
+  .thinking-context-option[data-selected="true"] { @apply border-cyan-500 bg-white; }
+  .thinking-checkbox { @apply mt-0.5 h-5 w-5 rounded border-slate-300 text-cyan-700 focus:ring-cyan-500; }
+  .thinking-option-title { @apply text-xs font-bold leading-5 text-slate-800; }
+  .thinking-context-actions { @apply mt-4 items-end gap-2 px-4; }
+  .thinking-format-label { @apply grid gap-1 text-xs font-bold text-slate-700; }
+  .thinking-format-select { @apply min-h-11 border border-slate-300 bg-white px-3 text-sm; }
+  .thinking-copy-button, .thinking-download-button { @apply min-h-11 px-4 text-sm font-bold; }
+  .thinking-copy-button { @apply bg-slate-950 text-white hover:bg-cyan-900; }
+  .thinking-download-button { @apply border border-slate-400 bg-white text-slate-800 hover:border-cyan-600; }
+  .thinking-dismiss-row { @apply mt-5 items-center gap-2 px-1; }
+  .thinking-dismiss-prompt { @apply me-1 text-xs font-bold text-slate-500; }
+  .thinking-dismiss-button { @apply min-h-10 rounded-full border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:border-rose-400 hover:text-rose-800 disabled:opacity-50; }
+  .thinking-status { @apply mx-4 mt-4 border-s-4 border-slate-300 px-3 py-2 text-xs font-bold text-slate-700; }
+}
+
+@media (min-width: 48rem) {
+  .thinking-header { @apply pb-10; }
+  .thinking-watermark { @apply text-[13rem]; }
+  .thinking-title { @apply text-7xl; }
+  .thinking-subtitle { @apply text-lg; }
+  .thinking-empty { @apply py-24; }
+  .thinking-feed { @apply mt-14; }
+  .thinking-rail { @apply start-[2rem]; }
+  .thinking-item { @apply ps-20; }
+  .thinking-marker { @apply h-16 w-16 text-sm; }
+  .thinking-card { @apply px-7 pb-7; }
+  .thinking-card-copy, .thinking-expanded { @apply px-0; }
+  .thinking-signal-title { @apply text-3xl; }
+  .thinking-evidence-grid, .thinking-context-options { @apply grid-cols-2; }
+  .thinking-context-head, .thinking-context-options, .thinking-context-actions { @apply px-5; }
+  .thinking-status { @apply mx-0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

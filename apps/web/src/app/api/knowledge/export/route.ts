@@ -5,6 +5,7 @@ import {
   serializeTopicKnowledgeHub,
   type KnowledgeContextFormat,
 } from '@/lib/topic-knowledge-hub';
+import { buildKnowledgeDataExportForUser } from '@/lib/knowledge-data-export';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -44,6 +45,21 @@ function jsonError(status: number, error: string) {
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return jsonError(401, 'unauthorized');
+
+  if (request.nextUrl.searchParams.get('scope') === 'all') {
+    try {
+      const exportData = await buildKnowledgeDataExportForUser(user.id);
+      const date = new Date().toISOString().slice(0, 10);
+      return new Response(`${JSON.stringify(exportData, null, 2)}\n`, {
+        headers: {
+          ...privateHeaders('application/json; charset=utf-8'),
+          'Content-Disposition': `attachment; filename="girapphe-knowledge-${date}.json"`,
+        },
+      });
+    } catch {
+      return jsonError(503, 'The private knowledge export could not be created.');
+    }
+  }
 
   const topic = request.nextUrl.searchParams.get('topic')?.trim() ?? '';
   const format = parseFormat(request.nextUrl.searchParams.get('format'));

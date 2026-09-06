@@ -140,6 +140,7 @@ jobs:
           E2E_CLERK_USER_EMAIL: ${{ vars.AUTHENTICATED_OVERLAY_E2E_USER_EMAIL_PREVIEW }}
           E2E_CLERK_AUTH_MODE: testing-token
           PLAYWRIGHT_RUNS: '3'
+          E2E_THINKING_HISTORY_ENABLED: 'true'
         run: pnpm browser:authenticated-overlay
 
       - name: Add measurement summary

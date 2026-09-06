@@ -35,7 +35,8 @@ export default defineConfig({
     },
     {
       name: 'authenticated-desktop',
-      testMatch: /authenticated-overlay-performance\.spec\.ts/,
+      testMatch:
+        /authenticated-(?:overlay-performance|thinking-history)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 900 },
@@ -45,7 +46,8 @@ export default defineConfig({
     },
     {
       name: 'authenticated-mobile',
-      testMatch: /authenticated-overlay-performance\.spec\.ts/,
+      testMatch:
+        /authenticated-(?:overlay-performance|thinking-history)\.spec\.ts/,
       use: {
         ...devices['Pixel 7'],
         storageState: 'playwright/.clerk/authenticated-overlay-user.json',
