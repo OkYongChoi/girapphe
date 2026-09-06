@@ -129,7 +129,8 @@ test("renders private intelligence evidence and exports only selected context", 
 
   expect(contextResponse.status()).toBe(200);
   expect(contextResponses.map((response) => response.status())).toEqual([200]);
-  expect(signalEventResponses.every((response) => response.ok())).toBe(true);
+  const signalEventStatuses = signalEventResponses.map((response) => response.status());
+  expect(signalEventStatuses).toEqual([204]);
   expect(browserErrors).toEqual([]);
 
   const messageBytes = Buffer.byteLength(await messageResponses[0]!.body());
@@ -143,7 +144,7 @@ test("renders private intelligence evidence and exports only selected context", 
       status: messageResponses[0]!.status(),
       bytes: messageBytes,
     },
-    signalEventStatuses: signalEventResponses.map((response) => response.status()),
+    signalEventStatuses,
     contextApiStatuses: contextResponses.map((response) => response.status()),
     contextRequestsBeforeIntent,
     contextBytes: Buffer.byteLength(markdown),
