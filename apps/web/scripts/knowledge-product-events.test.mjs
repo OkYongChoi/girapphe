@@ -46,6 +46,24 @@ test('dismissed signal lookup is owner scoped', async () => {
   assert.deepEqual([...await events.getDismissedKnowledgeSignalIdsForUser(other, ['kis_abc123'])], []);
 });
 
+test('confirmed import lifecycle events share one deletable batch subject', async () => {
+  const userId = 'import-event-owner';
+  const batchId = 'batch-confirmed-1';
+  events.clearMemoryKnowledgeProductEventsForTesting(userId);
+  await events.recordKnowledgeProductEventsForUser(userId, [{
+    eventName: 'conversation_import_started', eventVersion: 1, subjectId: batchId,
+  }, {
+    eventName: 'conversation_import_parsed', eventVersion: 1, subjectId: batchId, selectionCount: 4,
+  }]);
+  await events.recordKnowledgeProductEventForUser(userId, {
+    eventName: 'conversation_import_confirmed', eventVersion: 1, subjectId: batchId, selectionCount: 2,
+  });
+  const stored = events.getMemoryKnowledgeProductEventsForTesting(userId);
+  assert.equal(new Set(stored.map((event) => event.subjectId)).size, 1);
+  assert.equal(await events.deleteKnowledgeProductEventsForSubjectForUser(userId, batchId), 3);
+  assert.deepEqual(events.getMemoryKnowledgeProductEventsForTesting(userId), []);
+});
+
 test('event persistence rejects content-bearing and unbounded payloads', async () => {
   await assert.rejects(() => events.recordKnowledgeProductEventForUser('event-owner', {
     eventName: 'knowledge_context_created', eventVersion: 1,

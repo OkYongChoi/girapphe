@@ -73,6 +73,9 @@ export async function createChatGptExportDrafts(
     throw new Error('AI thinking history import is not enabled for this account.');
   }
   const result = await createChatGptExportDraftBatchForUser(user.id, input);
+  if (result.batchId !== input.importSessionId) {
+    await deleteKnowledgeProductEventsForSubjectForUser(user.id, input.importSessionId);
+  }
   await recordKnowledgeProductEventsForUser(user.id, [
     {
       eventName: 'conversation_import_confirmed', eventVersion: 1,

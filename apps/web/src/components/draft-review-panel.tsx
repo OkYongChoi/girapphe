@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
@@ -8,6 +8,7 @@ import {
   discardKnowledgeDraftBatch,
   updateKnowledgeDraft,
 } from '@/actions/knowledge-ingestion-actions';
+import { recordKnowledgeProductEvents } from '@/actions/knowledge-product-event-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import SubmitButton from '@/components/submit-button';
 import { draftDependencies, includeDraftDependencies } from '@/components/draft-review-selection';
@@ -479,6 +480,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
   const { locale, t } = useI18n();
   const batchRecord = asRecord(batch);
   const batchId = readString(batchRecord, 'id', 'batch_id');
+  const batchScope = readString(batchRecord, 'scope');
   const provider = providerLabel(batchRecord);
   const sourceReference = readString(batchRecord, 'source_reference', 'source_ref', 'conversation_ref', 'external_source_id');
   const sourceUrl = readString(batchRecord, 'source_url');
@@ -496,6 +498,17 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
       relationCount: drafts.reduce<number>((sum, draft) => sum + readRelations(asRecord(draft)).length, 0),
     };
   }, [drafts]);
+  const firstValueRecorded = useRef(false);
+  useEffect(() => {
+    if (firstValueRecorded.current || batchScope !== 'selected_export' || !batchId || drafts.length === 0) return;
+    firstValueRecorded.current = true;
+    void recordKnowledgeProductEvents([{
+      eventName: 'conversation_import_first_value_viewed',
+      eventVersion: 1,
+      subjectId: batchId,
+      selectionCount: drafts.length,
+    }]).catch(() => undefined);
+  }, [batchId, batchScope, drafts.length]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
   const [approvalError, setApprovalError] = useState<string | null>(null);

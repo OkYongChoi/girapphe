@@ -1392,7 +1392,8 @@ function mapBatchRow(row: Record<string, unknown>): KnowledgeDraftBatch {
 export async function createKnowledgeDraftBatchForUser(
   userId: string,
   input: CreateKnowledgeDraftBatchInput,
-  sourceTokenId: string | null = null
+  sourceTokenId: string | null = null,
+  batchId: string = randomUUID(),
 ): Promise<CreateKnowledgeDraftBatchResult> {
   if (!userId || userId.startsWith('guest_')) throw new Error('A signed-in user is required.');
   const provider = String(input.provider ?? '').toLowerCase();
@@ -1453,7 +1454,7 @@ export async function createKnowledgeDraftBatchForUser(
       throw new Error('Knowledge ingestion quota exceeded.');
     }
     const now = new Date().toISOString();
-    const batchId = randomUUID();
+    if (memoryBatches.has(batchId)) throw new Error('Unable to create the draft batch.');
     const drafts = cards.map<KnowledgeCardDraft>((card) => ({
       id: card.id,
       batch_id: batchId,
@@ -1504,7 +1505,6 @@ export async function createKnowledgeDraftBatchForUser(
   }
 
   await ensureKnowledgeIngestionSchema();
-  const batchId = randomUUID();
   const deletedAccountScopeKey = deriveMcpDeletedAccountScopeKey(userId);
   const sql = getTransactionSql();
   const resultSets = await sql.transaction((tx) => [
@@ -1603,11 +1603,20 @@ export async function createKnowledgeDraftBatchForUser(
   };
 }
 
-export async function getKnowledgeDraftBatchesForUser(userId: string, includeCompleted = false): Promise<KnowledgeDraftBatch[]> {
+export async function getKnowledgeDraftBatchesForUser(
+  userId: string,
+  includeCompleted = false,
+  options: { limit?: number; offset?: number } = {},
+): Promise<KnowledgeDraftBatch[]> {
+  const limit = Number.isInteger(options.limit) ? Math.max(1, Math.min(100, Number(options.limit))) : 100;
+  const offset = Number.isInteger(options.offset)
+    ? Math.max(0, Math.min(MAX_KNOWLEDGE_BATCHES_PER_USER, Number(options.offset)))
+    : 0;
   if (!process.env.DATABASE_URL) {
     return Array.from(memoryBatches.values())
       .filter((batch) => batch.user_id === userId && (includeCompleted || batch.status === 'pending' || batch.status === 'partial'))
-      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(offset, offset + limit);
   }
   await ensureKnowledgeIngestionSchema();
   const result = await pool.query<Record<string, unknown>>(
@@ -1622,9 +1631,9 @@ export async function getKnowledgeDraftBatchesForUser(userId: string, includeCom
     WHERE b.user_id = $1 AND ($2::boolean OR b.status IN ('pending', 'partial'))
     GROUP BY b.id
     ORDER BY b.created_at DESC
-    LIMIT 100;
+    LIMIT $3 OFFSET $4;
     `,
-    [userId, includeCompleted]
+    [userId, includeCompleted, limit, offset]
   );
   return result.rows.map(mapBatchRow);
 }

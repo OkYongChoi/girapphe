@@ -28,6 +28,7 @@ type ChatGptExportSelection = {
 export type ChatGptExportImportInput = {
   source: 'chatgpt_export';
   consent: true;
+  importSessionId: string;
   selections: ChatGptExportSelection[];
 };
 
@@ -35,7 +36,7 @@ type ParseResult<T> =
   | { success: true; data: T }
   | { success: false; error: Error };
 
-const INPUT_KEYS = ['source', 'consent', 'selections'] as const;
+const INPUT_KEYS = ['source', 'consent', 'importSessionId', 'selections'] as const;
 const SELECTION_KEYS = ['conversationId', 'messageId', 'title', 'question', 'answer', 'createdAt'] as const;
 const OFFSET_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
@@ -80,6 +81,10 @@ function parseChatGptExportImportInput(value: unknown): ChatGptExportImportInput
   if (value.source !== 'chatgpt_export' || value.consent !== true || !Array.isArray(value.selections)) {
     throw new Error('Invalid selected ChatGPT export payload.');
   }
+  const importSessionId = boundedString(value.importSessionId, 80);
+  if (!importSessionId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(importSessionId)) {
+    throw new Error('Invalid selected ChatGPT export payload.');
+  }
   if (value.selections.length < 1 || value.selections.length > MAX_CHATGPT_EXPORT_SELECTIONS) {
     throw new Error('Invalid selected ChatGPT export payload.');
   }
@@ -95,7 +100,7 @@ function parseChatGptExportImportInput(value: unknown): ChatGptExportImportInput
     throw new Error('Invalid selected ChatGPT export payload.');
   }
 
-  return { source: 'chatgpt_export', consent: true, selections: parsedSelections };
+  return { source: 'chatgpt_export', consent: true, importSessionId, selections: parsedSelections };
 }
 
 export const chatGptExportImportInputSchema = {
@@ -228,5 +233,10 @@ export async function createChatGptExportDraftBatchForUser(
 ): Promise<CreateKnowledgeDraftBatchResult> {
   const parsed = chatGptExportImportInputSchema.safeParse(value);
   if (!parsed.success) throw new Error('Invalid selected ChatGPT export payload.');
-  return createKnowledgeDraftBatchForUser(userId, buildChatGptExportBatchInput(parsed.data));
+  return createKnowledgeDraftBatchForUser(
+    userId,
+    buildChatGptExportBatchInput(parsed.data),
+    null,
+    parsed.data.importSessionId,
+  );
 }

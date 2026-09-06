@@ -11,9 +11,23 @@ export const metadata: Metadata = {
   description: 'Permanently delete a Girapphe account and its associated private product data.',
 };
 
-export default async function DeleteAccountPage() {
+type DeleteAccountPageProps = {
+  searchParams?: Promise<{ importPage?: string | string[] }>;
+};
+
+export default async function DeleteAccountPage({ searchParams }: DeleteAccountPageProps) {
   const user = await requireCurrentUserProfile();
-  const batches = await getKnowledgeDraftBatchesForUser(user.id, true);
+  const params = searchParams ? await searchParams : {};
+  const rawPage = Array.isArray(params.importPage) ? params.importPage[0] : params.importPage;
+  const parsedPage = Number.parseInt(rawPage ?? '1', 10);
+  const importPage = Number.isInteger(parsedPage) && parsedPage > 0 ? Math.min(parsedPage, 400) : 1;
+  const pageSize = 50;
+  const pageBatches = await getKnowledgeDraftBatchesForUser(user.id, true, {
+    limit: pageSize + 1,
+    offset: (importPage - 1) * pageSize,
+  });
+  const hasNextPage = pageBatches.length > pageSize;
+  const batches = pageBatches.slice(0, pageSize);
   return (
     <main className="min-h-screen bg-[linear-gradient(160deg,#f8fafc_0%,#ecfeff_50%,#fff7ed_100%)] px-5 py-12 text-slate-900 sm:py-16">
       <div className="mx-auto max-w-4xl rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-9">
@@ -60,6 +74,15 @@ export default async function DeleteAccountPage() {
               ))}
             </ol>
           )}
+          {batches.length > 0 || importPage > 1 ? (
+            <nav aria-label="Import job pages" className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+              <p className="font-semibold text-slate-600">Import jobs page {importPage}</p>
+              <div className="flex gap-2">
+                {importPage > 1 ? <Link href={`/account/delete?importPage=${importPage - 1}#import-jobs-heading`} className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 font-bold">Previous</Link> : null}
+                {hasNextPage ? <Link href={`/account/delete?importPage=${importPage + 1}#import-jobs-heading`} className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 font-bold">Next</Link> : null}
+              </div>
+            </nav>
+          ) : null}
         </section>
 
         <div className="mt-10 border-t border-red-200 pt-2">

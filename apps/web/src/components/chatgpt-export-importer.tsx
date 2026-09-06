@@ -33,6 +33,13 @@ export default function ChatGptExportImporter() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, startSubmitting] = useTransition();
   const importSessionId = useRef<string | null>(null);
+  const pendingImportEvents = useRef<Promise<void>>(Promise.resolve());
+
+  function queueImportEvents(values: Parameters<typeof recordKnowledgeProductEvents>[0]) {
+    pendingImportEvents.current = pendingImportEvents.current
+      .then(() => recordKnowledgeProductEvents(values))
+      .then(() => undefined, () => undefined);
+  }
 
   const filteredExchanges = useMemo(() => {
     const exchanges = archive?.exchanges ?? [];
@@ -76,9 +83,9 @@ export default function ChatGptExportImporter() {
     if (!file) return;
     const sessionId = crypto.randomUUID();
     importSessionId.current = sessionId;
-    void recordKnowledgeProductEvents([{
+    queueImportEvents([{
       eventName: 'conversation_import_started', eventVersion: 1, subjectId: sessionId,
-    }]).catch(() => undefined);
+    }]);
     setError(null);
     setArchive(null);
     setSelectedIds(new Set());
@@ -97,16 +104,10 @@ export default function ChatGptExportImporter() {
       ]);
       const parsed = parseChatGptExportText(source);
       setArchive(parsed);
-      void recordKnowledgeProductEvents([
-        {
-          eventName: 'conversation_import_parsed', eventVersion: 1,
-          subjectId: sessionId, selectionCount: parsed.exchangeCount,
-        },
-        {
-          eventName: 'conversation_import_first_value_viewed', eventVersion: 1,
-          subjectId: sessionId, selectionCount: parsed.exchangeCount,
-        },
-      ]).catch(() => undefined);
+      queueImportEvents([{
+        eventName: 'conversation_import_parsed', eventVersion: 1,
+        subjectId: sessionId, selectionCount: parsed.exchangeCount,
+      }]);
     } catch (fileError) {
       const code = errorCode(fileError);
       setError(code === 'too_large'
@@ -146,9 +147,13 @@ export default function ChatGptExportImporter() {
     setError(null);
     startSubmitting(async () => {
       try {
+        const sessionId = importSessionId.current;
+        if (!sessionId) throw new Error('Import session is unavailable.');
+        await pendingImportEvents.current;
         const result = await createChatGptExportDrafts({
           source: 'chatgpt_export',
           consent: true,
+          importSessionId: sessionId,
           selections: selectedExchanges.map((exchange) => ({
             conversationId: exchange.conversationId,
             messageId: exchange.messageId,

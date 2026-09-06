@@ -89,12 +89,34 @@ function deriveTopic(title: string, question: string) {
   return (tokens.join(' ') || 'Imported chat').slice(0, 48);
 }
 
-function parseMessages(mapping: Record<string, unknown>, counter: { value: number }) {
+function parseMessages(mapping: Record<string, unknown>, counter: { value: number }, currentNode: unknown) {
+  const entries = Object.entries(mapping);
+  counter.value += entries.length;
+  if (counter.value > MAX_CHATGPT_EXPORT_MESSAGES) throw new ChatGptExportError('too_large');
+
+  let nodeValues = entries.map(([, node]) => node);
+  let followsActiveBranch = false;
+  if (typeof currentNode === 'string' && Object.hasOwn(mapping, currentNode)) {
+    const branch: unknown[] = [];
+    const seen = new Set<string>();
+    let nodeId: string | null = currentNode;
+    while (nodeId && !seen.has(nodeId)) {
+      seen.add(nodeId);
+      const nodeValue = mapping[nodeId];
+      if (nodeValue === undefined) break;
+      branch.push(nodeValue);
+      const node = asRecord(nodeValue);
+      nodeId = typeof node?.parent === 'string' && node.parent ? node.parent : null;
+    }
+    if (branch.length > 0) {
+      nodeValues = branch.reverse();
+      followsActiveBranch = true;
+    }
+  }
+
   const messages: ParsedMessage[] = [];
   let order = 0;
-  for (const nodeValue of Object.values(mapping)) {
-    counter.value += 1;
-    if (counter.value > MAX_CHATGPT_EXPORT_MESSAGES) throw new ChatGptExportError('too_large');
+  for (const nodeValue of nodeValues) {
     const node = asRecord(nodeValue);
     const message = asRecord(node?.message);
     const author = asRecord(message?.author);
@@ -114,6 +136,7 @@ function parseMessages(mapping: Record<string, unknown>, counter: { value: numbe
     });
     order += 1;
   }
+  if (followsActiveBranch) return messages;
   return messages.toSorted((left, right) => {
     const byTime = (left.createdAt ?? '').localeCompare(right.createdAt ?? '');
     return byTime || left.order - right.order;
@@ -135,7 +158,7 @@ export function parseChatGptExport(value: unknown): ParsedChatGptExport {
     const conversationId = sourceId(conversation.id, `conversation-${conversationIndex}`);
     const title = boundedText(conversation.title, 200) || 'Untitled conversation';
     const fallbackDate = timestamp(conversation.update_time ?? conversation.create_time);
-    const messages = parseMessages(mapping, messageCounter);
+    const messages = parseMessages(mapping, messageCounter, conversation.current_node);
     let pendingQuestion: ParsedMessage | null = null;
 
     for (const message of messages) {

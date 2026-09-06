@@ -1009,7 +1009,7 @@ export async function resolveKnowledgeDraft(formData: FormData): Promise<Resolve
   await recordKnowledgeProductEventForUser(user.id, {
     eventName: 'knowledge_candidate_resolved',
     eventVersion: 1,
-    subjectId: draftId,
+    subjectId: batchId,
     outcome: action === 'create' ? 'approved' : action === 'merge' ? 'merged' : 'updated',
     selectionCount: 1,
   }).catch(() => undefined);
@@ -1031,7 +1031,7 @@ export async function ignoreKnowledgeDraft(formData: FormData): Promise<ResolveK
   });
   await recordKnowledgeProductEventForUser(user.id, {
     eventName: 'knowledge_candidate_resolved', eventVersion: 1,
-    subjectId: draftId, outcome: 'ignored', selectionCount: 1,
+    subjectId: batchId, outcome: 'ignored', selectionCount: 1,
   }).catch(() => undefined);
   revalidateResolvedKnowledge(batchId);
   revalidatePath('/insights');

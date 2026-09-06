@@ -73,6 +73,10 @@ test("renders private intelligence evidence and exports only selected context", 
     if (isContextPackResponse(response)) contextResponses.push(response);
   });
 
+  const viewedResponsePromise = page.waitForResponse(
+    (response) => isContextPackResponse(response) && response.status() === 204,
+  );
+
   await page.goto("/my-knowledge?view=insights", {
     waitUntil: "domcontentloaded",
   });
@@ -82,18 +86,15 @@ test("renders private intelligence evidence and exports only selected context", 
   await expect(heading).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => messageResponses.length).toBe(1);
   expect(messageResponses[0]?.status()).toBe(200);
-  expect(contextResponses).toEqual([]);
+  const viewedResponse = await viewedResponsePromise;
+  expect(contextResponses.map((response) => response.status())).toEqual([204]);
 
   const inspectButton = page
     .getByRole("button", { name: inspectCopy })
     .first();
   await expect(inspectButton).toBeVisible();
 
-  const viewedResponsePromise = page.waitForResponse(
-    (response) => isContextPackResponse(response) && response.status() === 204,
-  );
   await inspectButton.click();
-  const viewedResponse = await viewedResponsePromise;
   expect(contextResponses.map((response) => response.status())).toEqual([204]);
 
   const signalRoot = inspectButton.locator(

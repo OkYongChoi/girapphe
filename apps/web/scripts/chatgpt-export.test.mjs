@@ -18,8 +18,11 @@ const {
   approveKnowledgeDraftsForUser,
   deleteKnowledgeImportBatchForUser,
   getKnowledgeDraftBatchForUser,
+  getKnowledgeDraftBatchesForUser,
   getMemoryKnowledgeItemsForUser,
 } = knowledgeModule;
+
+const importSessionId = '9208d321-4cc8-4a57-8f69-69b311c3ce42';
 
 function message(id, role, text, createTime, metadata = {}) {
   return {
@@ -58,6 +61,29 @@ test('parses only visible user and assistant exchanges from a ChatGPT export', (
   assert.equal(parsed.exchanges[0].topic, 'Triton compiler architecture');
 });
 
+test('follows the active ChatGPT branch and ignores abandoned regenerated responses', () => {
+  const user = { ...message('branch-user', 'user', 'Which backend is active?', 1_788_000_010), parent: null };
+  const abandoned = { ...message('branch-abandoned', 'assistant', 'The abandoned answer.', 1_788_000_011), parent: 'branch-user' };
+  const active = { ...message('branch-active', 'assistant', 'The selected answer.', 1_788_000_012), parent: 'branch-user' };
+  const followup = { ...message('branch-followup', 'user', 'What comes next?', 1_788_000_013), parent: 'branch-active' };
+  const final = { ...message('branch-final', 'assistant', 'Continue with runtime integration.', 1_788_000_014), parent: 'branch-followup' };
+  const parsed = parseChatGptExportText(JSON.stringify([{
+    id: 'branched-conversation',
+    title: 'Backend branch',
+    current_node: 'branch-final',
+    mapping: {
+      'branch-user': user,
+      'branch-abandoned': abandoned,
+      'branch-active': active,
+      'branch-followup': followup,
+      'branch-final': final,
+    },
+  }]));
+  assert.equal(parsed.exchangeCount, 2);
+  assert.equal(parsed.exchanges.find((exchange) => exchange.messageId === 'branch-active')?.answer, 'The selected answer.');
+  assert.doesNotMatch(JSON.stringify(parsed), /abandoned answer/i);
+});
+
 test('rejects malformed and content-free export files with stable error codes', () => {
   assert.throws(() => parseChatGptExportText('{'), (error) => error?.code === 'invalid');
   assert.throws(
@@ -68,7 +94,7 @@ test('rejects malformed and content-free export files with stable error codes', 
 
 test('builds a bounded question bundle with hashed selectors and selected-export scope', () => {
   const exchange = parseChatGptExportText(JSON.stringify(fixture)).exchanges[0];
-  const input = { source: 'chatgpt_export', consent: true, selections: [{
+  const input = { source: 'chatgpt_export', consent: true, importSessionId, selections: [{
     conversationId: exchange.conversationId,
     messageId: exchange.messageId,
     title: exchange.title,
@@ -95,6 +121,7 @@ test('proposes reviewable evidence-backed links within an imported topic', () =>
   const batch = buildChatGptExportBatchInput(chatGptExportImportInputSchema.parse({
     source: 'chatgpt_export',
     consent: true,
+    importSessionId,
     selections: exchanges.map((exchange) => ({
       conversationId: exchange.conversationId,
       messageId: exchange.messageId,
@@ -121,9 +148,10 @@ test('requires explicit consent, strict fields, and unique selections', () => {
     conversationId: 'conversation-1', messageId: 'assistant-1', title: 'Title',
     question: 'Question?', answer: 'Answer.', createdAt: null,
   };
-  assert.equal(chatGptExportImportInputSchema.safeParse({ source: 'chatgpt_export', consent: false, selections: [selection] }).success, false);
-  assert.equal(chatGptExportImportInputSchema.safeParse({ source: 'chatgpt_export', consent: true, selections: [selection], archive: fixture }).success, false);
-  assert.equal(chatGptExportImportInputSchema.safeParse({ source: 'chatgpt_export', consent: true, selections: [selection, selection] }).success, false);
+  assert.equal(chatGptExportImportInputSchema.safeParse({ source: 'chatgpt_export', consent: false, importSessionId, selections: [selection] }).success, false);
+  assert.equal(chatGptExportImportInputSchema.safeParse({ source: 'chatgpt_export', consent: true, importSessionId, selections: [selection], archive: fixture }).success, false);
+  assert.equal(chatGptExportImportInputSchema.safeParse({ source: 'chatgpt_export', consent: true, importSessionId, selections: [selection, selection] }).success, false);
+  assert.equal(chatGptExportImportInputSchema.safeParse({ source: 'chatgpt_export', consent: true, selections: [selection] }).success, false);
 });
 
 test('persists only a pending selected-export batch through the existing owner-scoped lifecycle', async () => {
@@ -132,8 +160,9 @@ test('persists only a pending selected-export batch through the existing owner-s
   try {
     const exchange = parseChatGptExportText(JSON.stringify(fixture)).exchanges[0];
     const userId = `user_chatgpt_export_${crypto.randomUUID()}`;
+    const sessionId = crypto.randomUUID();
     const created = await createChatGptExportDraftBatchForUser(userId, {
-      source: 'chatgpt_export', consent: true, selections: [{
+      source: 'chatgpt_export', consent: true, importSessionId: sessionId, selections: [{
         conversationId: exchange.conversationId,
         messageId: exchange.messageId,
         title: exchange.title,
@@ -142,6 +171,7 @@ test('persists only a pending selected-export batch through the existing owner-s
         createdAt: exchange.createdAt,
       }],
     });
+    assert.equal(created.batchId, sessionId);
     const loaded = await getKnowledgeDraftBatchForUser(userId, created.batchId);
     assert.equal(loaded?.batch.scope, 'selected_export');
     assert.equal(loaded?.batch.status, 'pending');
@@ -175,7 +205,7 @@ test('permanently deletes an import job while preserving its approved private kn
     const exchange = parseChatGptExportText(JSON.stringify(fixture)).exchanges[0];
     const userId = `user_import_delete_${crypto.randomUUID()}`;
     const created = await createChatGptExportDraftBatchForUser(userId, {
-      source: 'chatgpt_export', consent: true, selections: [{
+      source: 'chatgpt_export', consent: true, importSessionId: crypto.randomUUID(), selections: [{
         conversationId: exchange.conversationId,
         messageId: exchange.messageId,
         title: exchange.title,
@@ -210,5 +240,35 @@ test('schema sources preserve a per-draft observed timestamp', async () => {
   ]) {
     const text = await readFile(new URL(source, import.meta.url), 'utf8');
     assert.match(text, /observed_at/, source);
+  }
+});
+
+test('data controls paginate beyond the newest 100 import jobs', async () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  try {
+    const userId = `user_import_pages_${crypto.randomUUID()}`;
+    for (let index = 0; index < 101; index += 1) {
+      await createChatGptExportDraftBatchForUser(userId, {
+        source: 'chatgpt_export',
+        consent: true,
+        importSessionId: crypto.randomUUID(),
+        selections: [{
+          conversationId: `conversation-${index}`,
+          messageId: `message-${index}`,
+          title: `Import ${index}`,
+          question: `Question ${index}?`,
+          answer: `Answer ${index}.`,
+          createdAt: null,
+        }],
+      });
+    }
+    const first = await getKnowledgeDraftBatchesForUser(userId, true, { limit: 50 });
+    const third = await getKnowledgeDraftBatchesForUser(userId, true, { limit: 50, offset: 100 });
+    assert.equal(first.length, 50);
+    assert.equal(third.length, 1);
+  } finally {
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
   }
 });
