@@ -220,6 +220,40 @@ test('legacy lifecycle bridges must be complete and may coexist without reopenin
   );
 });
 
+test('legacy Stripe lifecycle rejects identical price IDs while new acquisition stays disabled', () => {
+  const legacyStripeEnv = {
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkKey('pk_live_'),
+    CLERK_SECRET_KEY: clerkKey('sk_live_'),
+    APP_BASE_URL: 'https://www.girapphe.com',
+    DATABASE_URL: 'postgres://user:password@host/prod_db?sslmode=require',
+    ADMIN_CLERK_USER_ID: 'user_123',
+    PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
+    WEB_BILLING_ACQUISITION_ENABLED: 'false',
+    STRIPE_SECRET_KEY: `sk_live_${'s'.repeat(24)}`,
+    STRIPE_WEBHOOK_SECRET: `whsec_${'s'.repeat(32)}`,
+    STRIPE_PRICE_AD_FREE_MONTHLY: 'price_legacy_shared',
+    STRIPE_PRICE_AD_FREE_ANNUAL: 'price_legacy_shared',
+  };
+  const duplicateResult = validate({
+    envName: 'prod',
+    map: baseEnv(legacyStripeEnv),
+    allowPlaceholders: false,
+  });
+
+  assert.deepEqual(duplicateResult.errors, ['Stripe monthly and annual price IDs must be distinct.']);
+
+  const distinctResult = validate({
+    envName: 'prod',
+    map: baseEnv({
+      ...legacyStripeEnv,
+      STRIPE_PRICE_AD_FREE_ANNUAL: 'price_legacy_annual',
+    }),
+    allowPlaceholders: false,
+  });
+
+  assert.deepEqual(distinctResult.errors, []);
+});
+
 test('capacity dashboard provider groups activate only with their control-plane tokens', () => {
   const dormant = validate({
     envName: 'prod',

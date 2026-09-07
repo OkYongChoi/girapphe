@@ -8,6 +8,7 @@ import {
   planFromRevenueCatProductId,
   processRevenueCatEvent,
   processRevenueCatTransfer,
+  shouldAttemptRevenueCatCustomerDeletion,
   REVENUECAT_REQUEST_TIMEOUT_MS,
   verifyRevenueCatTransferDestination,
   type RevenueCatEvent,
@@ -48,6 +49,22 @@ test('fails closed when RevenueCat customer deletion is not configured', async (
     deleteRevenueCatCustomer('user_delete'),
     /REVENUECAT_SECRET_API_KEY is not configured/,
   );
+});
+
+test('attempts RevenueCat customer deletion for a configured bridge without a local subscription', (context) => {
+  const previousKey = process.env.REVENUECAT_SECRET_API_KEY;
+  context.after(() => {
+    if (previousKey === undefined) delete process.env.REVENUECAT_SECRET_API_KEY;
+    else process.env.REVENUECAT_SECRET_API_KEY = previousKey;
+  });
+
+  delete process.env.REVENUECAT_SECRET_API_KEY;
+  assert.equal(shouldAttemptRevenueCatCustomerDeletion(false), false);
+  assert.equal(shouldAttemptRevenueCatCustomerDeletion(true), true);
+  process.env.REVENUECAT_SECRET_API_KEY = '   ';
+  assert.equal(shouldAttemptRevenueCatCustomerDeletion(false), false);
+  process.env.REVENUECAT_SECRET_API_KEY = 'sk_retained_bridge';
+  assert.equal(shouldAttemptRevenueCatCustomerDeletion(false), true);
 });
 
 function revenueCatEvent(

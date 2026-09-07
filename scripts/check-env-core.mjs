@@ -405,6 +405,10 @@ export function validate({ envName, map, allowPlaceholders }) {
     for (const key of ['STRIPE_PRICE_AD_FREE_MONTHLY', 'STRIPE_PRICE_AD_FREE_ANNUAL']) {
       if (!valueFor(map, key).startsWith('price_')) errors.push(`${key} must start with price_.`);
     }
+    if (valueFor(map, 'STRIPE_PRICE_AD_FREE_MONTHLY')
+      === valueFor(map, 'STRIPE_PRICE_AD_FREE_ANNUAL')) {
+      errors.push('Stripe monthly and annual price IDs must be distinct.');
+    }
   }
 
   if (!allowPlaceholders && legacyRevenueCatConfigured) {

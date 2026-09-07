@@ -10,7 +10,10 @@ import {
   getUnresolvedCheckoutAttempt,
 } from '@/lib/billing/database';
 import { cancelCreemRenewalForAccountDeletion } from '@/lib/billing/creem';
-import { deleteRevenueCatCustomer } from '@/lib/billing/revenuecat';
+import {
+  deleteRevenueCatCustomer,
+  shouldAttemptRevenueCatCustomerDeletion,
+} from '@/lib/billing/revenuecat';
 import { cancelStripeSubscriptionsForAccountDeletion } from '@/lib/billing/stripe';
 import { cancelTossBilling } from '@/lib/billing/toss-subscriptions';
 import { isTossBillingConfigured } from '@/lib/billing/toss';
@@ -80,7 +83,7 @@ async function cancelRenewingWebBilling(userId: string) {
 
 async function deleteLegacyRevenueCatProfile(userId: string): Promise<boolean | null> {
   const subscriptionIds = await getProviderSubscriptionIdsForUser(userId, 'revenuecat');
-  if (subscriptionIds.length === 0) return null;
+  if (!shouldAttemptRevenueCatCustomerDeletion(subscriptionIds.length > 0)) return null;
   try {
     return await deleteRevenueCatCustomer(userId);
   } catch (cause) {

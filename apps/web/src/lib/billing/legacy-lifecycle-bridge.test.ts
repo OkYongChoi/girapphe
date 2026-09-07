@@ -7,6 +7,27 @@ import {
   parseStripeEvent,
 } from './stripe';
 import { isRevenueCatEventInScope, parseRevenueCatEvent } from './revenuecat';
+import { findActionableTossSubscription } from './legacy-management';
+import type { CanonicalSubscription } from '@stem-brain/shared';
+
+function subscription(
+  input: Partial<CanonicalSubscription> = {},
+): CanonicalSubscription {
+  return {
+    provider: 'creem',
+    store: 'web',
+    plan: 'annual',
+    status: 'active',
+    entitlement: 'ad_free',
+    productId: 'product',
+    currentPeriodEnd: '2030-01-01T00:00:00.000Z',
+    cancelAtPeriodEnd: false,
+    autoRenew: true,
+    graceExpiresAt: null,
+    graceReason: null,
+    ...input,
+  };
+}
 
 test('legacy Stripe lifecycle cannot create a new checkout', async () => {
   assert.equal(isStripeCheckoutConfigured(), false);
@@ -91,11 +112,36 @@ test('legacy webhook ledgers complete only after local reconciliation', () => {
 
 test('TOSS_BILLING_ENABLED is lifecycle-only and cannot restore Toss acquisition', () => {
   const source = readFileSync(new URL('./toss.ts', import.meta.url), 'utf8');
+  const subscriptionPage = readFileSync(
+    new URL('../../app/subscription/page.tsx', import.meta.url),
+    'utf8',
+  );
   assert.match(source, /This exact gate enables only retained lifecycle\/recovery operations/);
   assert.doesNotMatch(source, /TOSS_BILLING_RUNTIME_APPROVED|TOSS_BILLING_TEST_OVERRIDE/);
   assert.doesNotMatch(source, /EXCLUSIVE_PROVIDER_SERVER_KEYS|TOSS_PROVIDER_CONFLICT/);
-  assert.doesNotMatch(
-    readFileSync(new URL('../../app/subscription/page.tsx', import.meta.url), 'utf8'),
-    /prepareTossBilling|TossBillingButton/,
-  );
+  assert.doesNotMatch(subscriptionPage, /prepareTossBilling|TossBillingButton/);
+  assert.match(subscriptionPage, /findActionableTossSubscription\(entitlement\.subscriptions\)/);
+  assert.match(subscriptionPage, /action="\/api\/billing\/toss\/cancel"/);
+  assert.match(subscriptionPage, /tossLifecycleConfigured/);
+  assert.match(subscriptionPage, /toss_cancelled/);
+  assert.match(subscriptionPage, /toss_cancel_pending/);
+  assert.match(subscriptionPage, /toss_cancellation_failed/);
+});
+
+test('Toss renewal management remains available when another provider is the displayed subscription', () => {
+  const creem = subscription();
+  const renewingToss = subscription({
+    provider: 'toss',
+    status: 'past_due',
+    autoRenew: null,
+    currentPeriodEnd: '2029-12-01T00:00:00.000Z',
+  });
+
+  assert.equal(findActionableTossSubscription([creem, renewingToss]), renewingToss);
+  assert.equal(findActionableTossSubscription([
+    creem,
+    { ...renewingToss, cancelAtPeriodEnd: true },
+    { ...renewingToss, status: 'expired' },
+    { ...renewingToss, autoRenew: false },
+  ]), null);
 });

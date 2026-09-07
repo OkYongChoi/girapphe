@@ -143,9 +143,11 @@ application-owned user data according to the deletion policy.
 
 During the legacy observation window, deletion also expires owned open Stripe
 checkout sessions, cancels renewing Stripe subscriptions, safely cancels any
-persisted Toss agreement, and deletes an existing RevenueCat customer profile.
-Missing lifecycle configuration fails deletion closed when a corresponding
-legacy record requires cleanup. This bridge does not create a legacy purchase.
+persisted Toss agreement, and attempts RevenueCat customer deletion whenever
+the retained deletion credential is configured, even when Girapphe has no local
+RevenueCat subscription row. Missing lifecycle configuration fails deletion
+closed when a corresponding legacy record requires cleanup. This bridge does
+not create a legacy purchase.
 
 Deleting or resetting a Superwall identity does not cancel an App Store or
 Google Play subscription. Store subscribers receive the relevant store

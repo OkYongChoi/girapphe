@@ -9,6 +9,8 @@ import {
   isCreemLifecycleConfigured,
 } from '@/lib/billing/creem';
 import { isStripeLifecycleConfigured } from '@/lib/billing/stripe';
+import { isTossBillingConfigured } from '@/lib/billing/toss';
+import { findActionableTossSubscription } from '@/lib/billing/legacy-management';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +22,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   payment_processing: 'A payment attempt is already being confirmed. Do not purchase again.',
   portal_failed: 'Subscription management could not be opened. Please try again.',
   subscription_exists: 'You are already subscribed or another subscription needs attention.',
+  toss_cancellation_failed: 'The Toss renewal schedule could not be cancelled. Please try again or contact support.',
 };
 
 function formatDate(value: string | null) {
@@ -45,12 +48,14 @@ export default async function SubscriptionPage(props: {
   const subscription = entitlement.subscriptions.find((candidate) => (
     subscriptionGrantsAdFree(candidate)
   )) ?? entitlement.subscriptions[0] ?? null;
+  const tossSubscription = findActionableTossSubscription(entitlement.subscriptions);
   const checkoutState = typeof searchParams.checkout === 'string' ? searchParams.checkout : null;
   const returned = checkoutState === 'returned' || searchParams.success === 'true';
   const errorCode = typeof searchParams.error === 'string' ? searchParams.error : null;
   const acquisitionEnabled = isCreemAcquisitionEnabled();
   const lifecycleConfigured = isCreemLifecycleConfigured();
   const stripeLifecycleConfigured = isStripeLifecycleConfigured();
+  const tossLifecycleConfigured = isTossBillingConfigured();
   const periodEnd = formatDate(subscription?.currentPeriodEnd ?? null);
   const management = subscription
     ? managementDestinationFor(subscription)
@@ -76,6 +81,16 @@ export default async function SubscriptionPage(props: {
         {checkoutState === 'cancelled' ? (
           <div role="status" className="mt-6 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
             Checkout was cancelled. Your account was not upgraded.
+          </div>
+        ) : null}
+        {checkoutState === 'toss_cancelled' ? (
+          <div role="status" className="mt-6 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+            Toss renewal is cancelled. Already-paid access remains until its displayed period end.
+          </div>
+        ) : null}
+        {checkoutState === 'toss_cancel_pending' ? (
+          <div role="status" className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Toss renewal cancellation is recorded. An in-flight payment attempt is being reconciled before the billing key is deleted.
           </div>
         ) : null}
         {errorCode && ERROR_MESSAGES[errorCode] ? (
@@ -123,6 +138,19 @@ export default async function SubscriptionPage(props: {
                 Manage legacy subscription in Stripe
               </button>
             </form>
+          ) : null}
+          {tossSubscription ? (
+            tossLifecycleConfigured ? (
+              <form action="/api/billing/toss/cancel" method="post" className="mt-4">
+                <button type="submit" className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  Cancel Toss renewal
+                </button>
+              </form>
+            ) : (
+              <p className="mt-4 text-sm text-amber-800">
+                Toss renewal management is temporarily unavailable. <Link href="/support" className="font-semibold underline">Contact support</Link> before the next renewal date.
+              </p>
+            )
           ) : null}
           {management?.url && management.kind !== 'creem_portal' ? (
             <a href={management.url} className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500">

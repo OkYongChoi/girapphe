@@ -15,6 +15,10 @@ type LegacyRevenueCatPlan = BillingPlan | 'unknown';
 
 export const REVENUECAT_REQUEST_TIMEOUT_MS = 10_000;
 
+export function shouldAttemptRevenueCatCustomerDeletion(hasLocalSubscription: boolean) {
+  return hasLocalSubscription || Boolean(process.env.REVENUECAT_SECRET_API_KEY?.trim());
+}
+
 export async function deleteRevenueCatCustomer(
   userId: string,
   requestTimeoutMs = REVENUECAT_REQUEST_TIMEOUT_MS,

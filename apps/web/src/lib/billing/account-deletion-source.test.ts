@@ -44,6 +44,11 @@ test('account deletion covers every owner-scoped private product table', () => {
   assert.match(source, /cancelStripeSubscriptionsForAccountDeletion/);
   assert.match(source, /cancelTossBilling/);
   assert.match(source, /deleteLegacyRevenueCatProfile/);
+  assert.match(
+    source,
+    /!shouldAttemptRevenueCatCustomerDeletion\(subscriptionIds\.length > 0\)/,
+  );
+  assert.match(source, /return await deleteRevenueCatCustomer\(userId\)/);
   assert.match(source, /abandonAcquisitionAttemptsForDeletion/);
   assert.match(source, /superwallDeviceResetRequired: true/);
   assert.match(source, /client\.users\.deleteUser\(userId\)/);
