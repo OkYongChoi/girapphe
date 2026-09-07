@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   check,
   foreignKey,
@@ -656,6 +657,8 @@ export const mcpDeletedAccountMarkers = pgTable("mcp_deleted_account_markers", {
   check("mcp_deleted_account_markers_scope_key_check", sql`${t.scopeKey} ~ '^[0-9a-f]{64}$'`),
 ]);
 
+// Transitional legacy tables remain declared until provider-dashboard absence
+// and post-deploy rollback evidence permit a separate physical-cleanup migration.
 export const billingCustomers = pgTable("billing_customers", {
   userId: text("user_id").primaryKey(),
   stripeCustomerId: text("stripe_customer_id").unique(),
@@ -677,45 +680,6 @@ export const tossPrepareRateLimits = pgTable("toss_prepare_rate_limits", {
 }, (t) => [
   index("idx_toss_prepare_rate_limits_updated_at").on(t.updatedAt),
   check("toss_prepare_rate_limits_count_check", sql`${t.requestCount} >= 0`),
-]);
-
-export const billingSubscriptions = pgTable("billing_subscriptions", {
-  id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
-  provider: text("provider").notNull(),
-  providerSubscriptionId: text("provider_subscription_id").notNull(),
-  store: text("store"),
-  plan: text("plan").notNull(),
-  status: text("status").notNull(),
-  entitlement: text("entitlement").notNull().default("ad_free"),
-  currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
-  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
-  trialEnd: timestamp("trial_end", { withTimezone: true }),
-  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
-  providerEventAt: timestamp("provider_event_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [
-  unique("billing_subscriptions_provider_reference_key").on(t.provider, t.providerSubscriptionId),
-  index("idx_billing_subscriptions_user_entitlement").on(t.userId, t.entitlement, t.status),
-  index("idx_billing_subscriptions_period_end").on(t.currentPeriodEnd),
-  check("billing_subscriptions_provider_check", sql`${t.provider} IN ('stripe', 'toss', 'revenuecat')`),
-  check("billing_subscriptions_store_check", sql`${t.store} IS NULL OR ${t.store} IN ('web', 'app_store', 'play_store', 'stripe', 'promotional')`),
-  check("billing_subscriptions_plan_check", sql`${t.plan} IN ('monthly', 'annual')`),
-  check("billing_subscriptions_status_check", sql`${t.status} IN ('incomplete', 'trialing', 'active', 'past_due', 'paused', 'canceled', 'expired')`),
-  check("billing_subscriptions_entitlement_check", sql`${t.entitlement} IN ('ad_free')`),
-]);
-
-export const billingWebhookEvents = pgTable("billing_webhook_events", {
-  provider: text("provider").notNull(),
-  eventId: text("event_id").notNull(),
-  eventType: text("event_type").notNull(),
-  processedAt: timestamp("processed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [
-  primaryKey({ columns: [t.provider, t.eventId] }),
-  index("idx_billing_webhook_events_pending").on(t.createdAt).where(sql`${t.processedAt} IS NULL`),
-  check("billing_webhook_events_provider_check", sql`${t.provider} IN ('stripe', 'revenuecat', 'toss')`),
 ]);
 
 export const tossBillingKeyIntents = pgTable("toss_billing_key_intents", {
@@ -852,4 +816,176 @@ export const tossBillingCharges = pgTable("toss_billing_charges", {
   check("toss_billing_charges_status_check", sql`${t.status} IN ('pending', 'paid', 'applied', 'canceled', 'abandoned')`),
   check("toss_billing_charges_attempt_count_check", sql`${t.attemptCount} >= 0`),
   check("toss_billing_charges_period_check", sql`${t.periodEnd} > ${t.periodStart}`),
+]);
+
+export const billingProviderAccounts = pgTable("billing_provider_accounts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(),
+  environment: text("environment").notNull(),
+  providerCustomerId: text("provider_customer_id").notNull(),
+  lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("idx_billing_provider_accounts_user_provider_environment")
+    .on(t.userId, t.provider, t.environment),
+  unique("billing_provider_accounts_provider_customer_key")
+    .on(t.provider, t.environment, t.providerCustomerId),
+  check("billing_provider_accounts_provider_check", sql`${t.provider} IN ('creem', 'superwall', 'stripe', 'revenuecat', 'toss')`),
+  check("billing_provider_accounts_environment_check", sql`${t.environment} IN ('test', 'production')`),
+]);
+
+export const billingSubscriptions = pgTable("billing_subscriptions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(),
+  environment: text("environment").notNull().default("production"),
+  providerCustomerId: text("provider_customer_id"),
+  providerSubscriptionId: text("provider_subscription_id").notNull(),
+  providerRootTransactionId: text("provider_root_transaction_id"),
+  providerStoreSubscriptionId: text("provider_store_subscription_id"),
+  providerEventId: text("provider_event_id"),
+  store: text("store").notNull(),
+  productId: text("product_id"),
+  plan: text("plan").notNull(),
+  status: text("status").notNull(),
+  entitlement: text("entitlement").notNull().default("ad_free"),
+  currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+  paidPeriodVerified: boolean("paid_period_verified").notNull().default(false),
+  trialEnd: timestamp("trial_end", { withTimezone: true }),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  autoRenew: boolean("auto_renew"),
+  providerEventAt: timestamp("provider_event_at", { withTimezone: true }),
+  providerResourceUpdatedAt: timestamp("provider_resource_updated_at", { withTimezone: true }),
+  reconciliationGeneration: bigint("reconciliation_generation", { mode: "bigint" }),
+  lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+  graceReason: text("grace_reason"),
+  graceExpiresAt: timestamp("grace_expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // Keep the legacy key while old Workers may still be running or restored.
+  unique("billing_subscriptions_provider_reference_key")
+    .on(t.provider, t.providerSubscriptionId),
+  unique("billing_subscriptions_provider_environment_reference_key")
+    .on(t.provider, t.environment, t.providerSubscriptionId),
+  index("idx_billing_subscriptions_user_entitlement").on(t.userId, t.entitlement, t.status),
+  index("idx_billing_subscriptions_period_end").on(t.currentPeriodEnd),
+  index("idx_billing_subscriptions_provider_customer")
+    .on(t.provider, t.environment, t.providerCustomerId),
+  uniqueIndex("idx_billing_subscriptions_provider_root_transaction")
+    .on(t.provider, t.environment, t.providerRootTransactionId)
+    .where(sql`${t.providerRootTransactionId} IS NOT NULL`),
+  index("idx_billing_subscriptions_provider_store_subscription")
+    .on(t.provider, t.environment, t.providerStoreSubscriptionId),
+  check("billing_subscriptions_provider_check", sql`${t.provider} IN ('creem', 'superwall', 'stripe', 'revenuecat', 'toss')`),
+  check("billing_subscriptions_environment_check", sql`${t.environment} IN ('test', 'production')`),
+  check("billing_subscriptions_store_check", sql`${t.store} IN ('web', 'app_store', 'play_store', 'promotional')`),
+  check("billing_subscriptions_plan_check", sql`${t.plan} IN ('monthly', 'annual')`),
+  check("billing_subscriptions_status_check", sql`${t.status} IN ('incomplete', 'trialing', 'active', 'past_due', 'paused', 'canceled', 'expired', 'refunded', 'revoked')`),
+  check("billing_subscriptions_entitlement_check", sql`${t.entitlement} IN ('ad_free')`),
+  check("billing_subscriptions_grace_check", sql`(
+    (${t.graceReason} IS NULL AND ${t.graceExpiresAt} IS NULL)
+    OR (${t.graceReason} IN ('billing', 'verification') AND ${t.graceExpiresAt} IS NOT NULL)
+  )`),
+]);
+
+export const billingCheckoutAttempts = pgTable("billing_checkout_attempts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(),
+  environment: text("environment").notNull(),
+  plan: text("plan").notNull(),
+  productId: text("product_id").notNull(),
+  status: text("status").notNull(),
+  providerCustomerId: text("provider_customer_id"),
+  providerCheckoutId: text("provider_checkout_id"),
+  checkoutUrl: text("checkout_url"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  providerEventAt: timestamp("provider_event_at", { withTimezone: true }),
+  lastErrorCode: text("last_error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("idx_billing_checkout_attempts_provider_checkout")
+    .on(t.provider, t.environment, t.providerCheckoutId)
+    .where(sql`${t.providerCheckoutId} IS NOT NULL`),
+  uniqueIndex("idx_billing_checkout_attempts_one_unresolved")
+    .on(t.userId)
+    .where(sql`${t.status} IN ('creating', 'open', 'indeterminate')`),
+  index("idx_billing_checkout_attempts_expiry").on(t.status, t.expiresAt),
+  check("billing_checkout_attempts_provider_check", sql`${t.provider} IN ('creem', 'superwall')`),
+  check("billing_checkout_attempts_environment_check", sql`${t.environment} IN ('test', 'production')`),
+  check("billing_checkout_attempts_plan_check", sql`${t.plan} IN ('monthly', 'annual')`),
+  check("billing_checkout_attempts_status_check", sql`${t.status} IN ('creating', 'open', 'indeterminate', 'completed', 'expired', 'abandoned', 'failed')`),
+]);
+
+export const billingAcquisitionBlocks = pgTable("billing_acquisition_blocks", {
+  userId: text("user_id").notNull(),
+  reason: text("reason").notNull(),
+  operationOwnerToken: text("operation_owner_token"),
+  firstDetectedAt: timestamp("first_detected_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.reason] }),
+  index("idx_billing_acquisition_blocks_open").on(t.updatedAt).where(sql`${t.resolvedAt} IS NULL`),
+  check("billing_acquisition_blocks_reason_check", sql`${t.reason} IN ('duplicate_subscription', 'manual_review', 'mobile_purchase_pending')`),
+  check("billing_acquisition_blocks_owner_check", sql`(
+    (${t.reason} = 'mobile_purchase_pending' AND ${t.operationOwnerToken} IS NOT NULL)
+    OR (${t.reason} <> 'mobile_purchase_pending' AND ${t.operationOwnerToken} IS NULL)
+  )`),
+]);
+
+export const billingRequestRateLimits = pgTable("billing_request_rate_limits", {
+  userId: text("user_id").notNull(),
+  action: text("action").notNull(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull().defaultNow(),
+  requestCount: integer("request_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.action] }),
+  index("idx_billing_request_rate_limits_stale").on(t.updatedAt),
+  check("billing_request_rate_limits_action_check", sql`${t.action} IN ('customer_portal', 'superwall_reconcile')`),
+  check("billing_request_rate_limits_count_check", sql`${t.requestCount} >= 0`),
+]);
+
+export const billingWebhookEvents = pgTable("billing_webhook_events", {
+  provider: text("provider").notNull(),
+  environment: text("environment").notNull().default("production"),
+  eventId: text("event_id").notNull(),
+  eventType: text("event_type").notNull(),
+  providerEventAt: timestamp("provider_event_at", { withTimezone: true }),
+  processingOwnerToken: text("processing_owner_token"),
+  processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  lastErrorCode: text("last_error_code"),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.provider, t.eventId] }),
+  unique("billing_webhook_events_provider_environment_event_key")
+    .on(t.provider, t.environment, t.eventId),
+  index("idx_billing_webhook_events_pending").on(t.updatedAt).where(sql`${t.processedAt} IS NULL`),
+  check("billing_webhook_events_provider_check", sql`${t.provider} IN ('creem', 'superwall', 'stripe', 'revenuecat', 'toss')`),
+  check("billing_webhook_events_environment_check", sql`${t.environment} IN ('test', 'production')`),
+  check("billing_webhook_events_attempt_count_check", sql`${t.attemptCount} >= 0`),
+]);
+
+export const billingAccountOperations = pgTable("billing_account_operations", {
+  scopeKey: text("scope_key").primaryKey(),
+  provider: text("provider").notNull(),
+  operation: text("operation").notNull(),
+  ownerToken: text("owner_token").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("idx_billing_account_operations_expiry").on(t.expiresAt),
+  check("billing_account_operations_scope_check", sql`${t.scopeKey} ~ '^[0-9a-f]{64}$'`),
+  check("billing_account_operations_provider_check", sql`${t.provider} IN ('creem', 'superwall', 'stripe', 'toss')`),
+  check("billing_account_operations_operation_check", sql`${t.operation} IN ('checkout', 'mobile_purchase', 'prepare', 'activation', 'renewal', 'reconciliation')`),
 ]);

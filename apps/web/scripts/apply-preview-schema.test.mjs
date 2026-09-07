@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
+  PREVIEW_BILLING_ENVIRONMENT_STATEMENTS,
   applyPreviewSchema,
   assertSafePreviewStatement,
   parsePreviewMigration,
@@ -14,6 +15,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0016_conversation_knowledge_hub.sql', 39],
     ['0017_supersession_replacement_tombstones.sql', 7],
     ['0018_expression_history_causality.sql', 11],
+    ['0019_billing_v1_domain.sql', 61],
   ];
   for (const [name, expectedCount] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -21,6 +23,59 @@ test('preview schema update contains only bounded idempotent statements', async 
     assert.equal(statements.length, expectedCount, name);
     for (const statement of statements) assert.doesNotThrow(() => assertSafePreviewStatement(statement));
   }
+});
+
+test('preview upgrade reclassifies existing legacy billing rows and compatibility defaults', () => {
+  assert.equal(PREVIEW_BILLING_ENVIRONMENT_STATEMENTS.length, 4);
+  for (const statement of PREVIEW_BILLING_ENVIRONMENT_STATEMENTS) {
+    assert.doesNotThrow(() => assertSafePreviewStatement(statement));
+  }
+  assert.match(PREVIEW_BILLING_ENVIRONMENT_STATEMENTS[0], /billing_subscriptions/);
+  assert.match(PREVIEW_BILLING_ENVIRONMENT_STATEMENTS[0], /SET "environment" = 'test'/);
+  assert.match(PREVIEW_BILLING_ENVIRONMENT_STATEMENTS[0], /WHERE "environment" = 'production'/);
+  assert.match(PREVIEW_BILLING_ENVIRONMENT_STATEMENTS[1], /SET DEFAULT 'test'/);
+  assert.match(PREVIEW_BILLING_ENVIRONMENT_STATEMENTS[2], /billing_webhook_events/);
+  assert.match(PREVIEW_BILLING_ENVIRONMENT_STATEMENTS[2], /WHERE "environment" = 'production'/);
+  assert.match(PREVIEW_BILLING_ENVIRONMENT_STATEMENTS[3], /SET DEFAULT 'test'/);
+});
+
+test('billing V1 migration preserves mixed-version legacy contracts', async () => {
+  const sql = await readFile(new URL('../drizzle/migrations/0019_billing_v1_domain.sql', import.meta.url), 'utf8');
+  assert.doesNotMatch(sql, /DROP TABLE/i);
+  assert.doesNotMatch(
+    sql,
+    /DROP CONSTRAINT IF EXISTS "billing_subscriptions_provider_reference_key"/,
+  );
+  assert.doesNotMatch(
+    sql,
+    /DROP CONSTRAINT IF EXISTS "billing_webhook_events_pkey"/,
+  );
+  assert.match(
+    sql,
+    /ADD CONSTRAINT "billing_subscriptions_provider_environment_reference_key"\s+UNIQUE \("provider", "environment", "provider_subscription_id"\)/,
+  );
+  assert.match(
+    sql,
+    /ADD CONSTRAINT "billing_webhook_events_provider_environment_event_key"\s+UNIQUE \("provider", "environment", "event_id"\)/,
+  );
+  assert.doesNotMatch(sql, /ALTER COLUMN "environment" DROP DEFAULT/);
+});
+
+test('billing V1 provider accounts retain multiple immutable aliases per user', async () => {
+  const sql = await readFile(new URL('../drizzle/migrations/0019_billing_v1_domain.sql', import.meta.url), 'utf8');
+  assert.doesNotMatch(sql, /CONSTRAINT "billing_provider_accounts_user_provider_environment_key"\s+UNIQUE/);
+  assert.match(sql, /DROP CONSTRAINT IF EXISTS "billing_provider_accounts_user_provider_environment_key"/);
+  assert.match(sql, /idx_billing_provider_accounts_user_provider_environment/);
+  assert.match(sql, /CONSTRAINT "billing_provider_accounts_provider_customer_key"\s+UNIQUE \("provider", "environment", "provider_customer_id"\)/);
+});
+
+test('billing V1 rebuilds the pending-event index on retry timestamps', async () => {
+  const sql = await readFile(new URL('../drizzle/migrations/0019_billing_v1_domain.sql', import.meta.url), 'utf8');
+  assert.match(sql, /DROP INDEX IF EXISTS "idx_billing_webhook_events_pending"/);
+  assert.match(
+    sql,
+    /ON "billing_webhook_events" \("updated_at"\)[\s\S]+WHERE "processed_at" IS NULL/,
+  );
 });
 
 test('conversation hub migration restores owner-key uniqueness before composite foreign keys', async () => {

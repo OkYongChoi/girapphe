@@ -1,14 +1,17 @@
 import {
   AD_FREE_ENTITLEMENT,
   consumeTrialFromWebhook,
-  expireRevenueCatSubscriptions,
+  expireLegacyRevenueCatDuringAccountDeletion,
+  isAccountDeletionMarked,
   moveVerifiedRevenueCatSubscription,
-  reconcileRevenueCatSubscription,
+  reconcileAuthoritativeSubscriptions,
+  currentBillingEnvironment,
   type BillingPlan,
   type SubscriptionWrite,
 } from '@/lib/billing/database';
 
 type JsonObject = Record<string, unknown>;
+type LegacyRevenueCatPlan = BillingPlan | 'unknown';
 
 export const REVENUECAT_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -101,7 +104,7 @@ function normalizeStore(value: unknown) {
   return store?.toLowerCase() ?? null;
 }
 
-export function planFromRevenueCatProductId(productId: string | null): BillingPlan {
+export function planFromRevenueCatProductId(productId: string | null): LegacyRevenueCatPlan {
   if (!productId) return 'unknown';
   const monthlyIds = new Set(
     (process.env.REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS ?? '')
@@ -160,7 +163,7 @@ type RevenueCatSnapshot = {
   reconciledAt: Date;
   active: boolean;
   store: 'app_store' | 'play_store' | null;
-  plan: BillingPlan;
+  plan: LegacyRevenueCatPlan;
   currentPeriodStart: Date | null;
   currentPeriodEnd: Date | null;
   trialEnd: Date | null;
@@ -277,8 +280,20 @@ async function reconcileRevenueCatUser(
     ? snapshot.reconciledAt
     : eventAt;
 
+  if (await isAccountDeletionMarked(userId)) {
+    await expireLegacyRevenueCatDuringAccountDeletion(userId, providerEventAt);
+    return { active: false };
+  }
+
   if (!snapshot.active || !snapshot.store || snapshot.plan === 'unknown') {
-    await expireRevenueCatSubscriptions(userId, providerEventAt);
+    await reconcileAuthoritativeSubscriptions({
+      userId,
+      provider: 'revenuecat',
+      environment: currentBillingEnvironment(),
+      subscriptions: [],
+      snapshotEventAt: providerEventAt,
+      reconciledAt: snapshot.reconciledAt,
+    });
     return { active: false };
   }
 
@@ -290,10 +305,21 @@ async function reconcileRevenueCatUser(
   // The exact production store transaction is upserted together with expiry of
   // older rows for this destination. A matching source row can move tenants,
   // but only after this authoritative production snapshot has identified it.
-  await reconcileRevenueCatSubscription({
+  await reconcileAuthoritativeSubscriptions({
+    userId,
+    provider: 'revenuecat',
+    environment: currentBillingEnvironment(),
+    snapshotEventAt: providerEventAt,
+    reconciledAt: snapshot.reconciledAt,
+    subscriptions: [{
+    provider: 'revenuecat',
+    environment: currentBillingEnvironment(),
+    providerCustomerId: userId,
     providerSubscriptionId: reconciledSubscriptionId,
+    providerEventId: null,
     userId,
     store: snapshot.store,
+    productId: snapshot.productId,
     plan: snapshot.plan,
     status: snapshot.trialEnd ? 'trialing' : 'active',
     entitlement: AD_FREE_ENTITLEMENT,
@@ -301,13 +327,18 @@ async function reconcileRevenueCatUser(
     currentPeriodEnd: snapshot.currentPeriodEnd,
     trialEnd: snapshot.trialEnd,
     cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+    autoRenew: !snapshot.cancelAtPeriodEnd,
     providerEventAt,
+    lastReconciledAt: snapshot.reconciledAt,
+    graceReason: null,
+    graceExpiresAt: null,
+    }],
   });
   if (snapshot.trialEnd) await consumeTrialFromWebhook(userId);
   return { active: true };
 }
 
-type VerifiedRevenueCatTransfer = Omit<SubscriptionWrite, 'provider'>;
+type VerifiedRevenueCatTransfer = SubscriptionWrite;
 
 export async function verifyRevenueCatTransferDestination(
   userId: string,
@@ -329,9 +360,14 @@ export async function verifyRevenueCatTransferDestination(
     ? snapshot.reconciledAt
     : eventAt;
   return {
+    provider: 'revenuecat',
+    environment: currentBillingEnvironment(),
+    providerCustomerId: userId,
     providerSubscriptionId: snapshot.providerSubscriptionId,
+    providerEventId: null,
     userId,
     store: snapshot.store,
+    productId: snapshot.productId,
     plan: snapshot.plan,
     status: snapshot.trialEnd ? 'trialing' : 'active',
     entitlement: AD_FREE_ENTITLEMENT,
@@ -339,7 +375,11 @@ export async function verifyRevenueCatTransferDestination(
     currentPeriodEnd: snapshot.currentPeriodEnd,
     trialEnd: snapshot.trialEnd,
     cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+    autoRenew: !snapshot.cancelAtPeriodEnd,
     providerEventAt,
+    lastReconciledAt: snapshot.reconciledAt,
+    graceReason: null,
+    graceExpiresAt: null,
   };
 }
 
@@ -353,11 +393,14 @@ type RevenueCatTransferMover = (
   allowedPreviousUserIds: string[],
 ) => Promise<boolean>;
 
+type RevenueCatDeletionChecker = (userId: string) => Promise<boolean>;
+
 export async function processRevenueCatTransfer(
   event: RevenueCatEvent,
   providerEventAt: Date,
   verifyDestination: RevenueCatTransferVerifier = verifyRevenueCatTransferDestination,
   moveSubscription: RevenueCatTransferMover = moveVerifiedRevenueCatSubscription,
+  isDeleted: RevenueCatDeletionChecker = isAccountDeletionMarked,
 ) {
   const destinations = [...new Set(
     stringArray(event.payload.transferred_to)
@@ -370,6 +413,11 @@ export async function processRevenueCatTransfer(
 
   if (destinations.length !== 1) return;
   const destination = destinations[0];
+
+  if (await isDeleted(destination)) {
+    await expireLegacyRevenueCatDuringAccountDeletion(destination, providerEventAt);
+    return;
+  }
 
   // Customer Info must first prove that the destination owns an active,
   // non-sandbox, allowlisted store transaction. The webhook's source aliases

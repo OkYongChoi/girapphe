@@ -4,28 +4,51 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
-import { Platform } from 'react-native';
-import Purchases, {
-  LOG_LEVEL,
-  type CustomerInfo,
-  type PurchasesPackage,
-} from 'react-native-purchases';
+import {
+  managementDestinationFor,
+  subscriptionGrantsAdFree,
+  type CanonicalSubscription,
+} from '@stem-brain/shared';
 import { useMobileAuth } from '@/auth';
 import { getActiveLocale, translate, useI18n } from '@/i18n';
-import { purchaseAfterServerEntitlementCheck } from '@/subscription-purchase-guard';
+import {
+  MOBILE_ENTITLEMENT_CONFIRMATION_POLL_MS,
+  captureMobileBillingSession,
+  claimSuperwallPurchaseOperation,
+  isCurrentSubscriptionSession,
+  readMobileBillingState,
+  registerSuperwallIdentity,
+  releaseSuperwallPurchaseOperation,
+  requestSuperwallReconciliation,
+  shouldReleaseSuperwallPurchaseOperation,
+  waitForCanonicalEntitlement,
+  type MobileBillingState,
+  type MobileBillingSession,
+  type SuperwallPurchaseOperationOutcome,
+} from '@/subscription-server';
+import {
+  establishSuperwallIdentity,
+  superwallClient,
+  superwallStatusAllowsPurchase,
+  superwallStatusHasAdFree,
+  type LoadedSuperwallProduct,
+  type MobilePlanId,
+  type SuperwallSubscriptionStatus,
+} from '@/superwall-client';
 
 export const AD_FREE_ENTITLEMENT_ID = 'ad_free';
-
-export type SubscriptionPlanId = 'monthly' | 'annual';
+export type SubscriptionPlanId = MobilePlanId;
 
 export type SubscriptionPlan = {
   id: SubscriptionPlanId;
   title: string;
   price: string;
   productIdentifier: string;
+  hasFreeTrial: boolean;
 };
 
 type SubscriptionState = {
@@ -33,12 +56,17 @@ type SubscriptionState = {
   isReady: boolean;
   isBusy: boolean;
   isAdFree: boolean;
+  isConfirming: boolean;
+  acquisitionEnabled: boolean;
   managementUrl: string | null;
+  activeSubscription: CanonicalSubscription | null;
   plans: SubscriptionPlan[];
+  trialProductIds: string[];
   error: string | null;
   purchase: (planId: SubscriptionPlanId) => Promise<boolean>;
   restore: () => Promise<boolean>;
   refresh: () => Promise<void>;
+  resetIdentity: () => Promise<void>;
 };
 
 const emptyState: SubscriptionState = {
@@ -46,351 +74,611 @@ const emptyState: SubscriptionState = {
   isReady: true,
   isBusy: false,
   isAdFree: false,
+  isConfirming: false,
+  acquisitionEnabled: false,
   managementUrl: null,
+  activeSubscription: null,
   plans: [],
+  trialProductIds: [],
   error: null,
   purchase: async () => false,
   restore: async () => false,
   refresh: async () => undefined,
+  resetIdentity: async () => undefined,
 };
 
 const SubscriptionContext = createContext<SubscriptionState>(emptyState);
 
-const revenueCatIosApiKey = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim() ?? '';
-const revenueCatAndroidApiKey = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY?.trim() ?? '';
-const monthlyPackageId = process.env.EXPO_PUBLIC_REVENUECAT_MONTHLY_PACKAGE_ID?.trim() || '$rc_monthly';
-const annualPackageId = process.env.EXPO_PUBLIC_REVENUECAT_ANNUAL_PACKAGE_ID?.trim() || '$rc_annual';
 const configuredBaseUrl = process.env.EXPO_PUBLIC_APP_BASE_URL?.trim();
 export const appBaseUrl = configuredBaseUrl && /^https?:\/\//.test(configuredBaseUrl)
   ? configuredBaseUrl.replace(/\/$/, '')
   : 'https://www.girapphe.com';
+const clientAcquisitionEnabled = process.env.EXPO_PUBLIC_MOBILE_BILLING_ACQUISITION_ENABLED === 'true';
 
-let purchasesConfigured = false;
-let identifiedRevenueCatUserId: string | null = null;
-let purchasesIdentityTransition: Promise<unknown> = Promise.resolve();
-
-type StoreStateSnapshot = {
-  customerInfo: CustomerInfo;
-  monthly?: PurchasesPackage;
-  annual?: PurchasesPackage;
-};
-
-function enqueuePurchasesIdentityTransition<T>(operation: () => Promise<T>): Promise<T> {
-  const pending = purchasesIdentityTransition.then(
-    () => operation(),
-    () => operation(),
-  );
-  purchasesIdentityTransition = pending.then(
-    () => undefined,
-    () => undefined,
-  );
-  return pending;
-}
-
-function getPlatformApiKey(): string {
-  if (Platform.OS === 'ios') return revenueCatIosApiKey;
-  if (Platform.OS === 'android') return revenueCatAndroidApiKey;
-  return '';
-}
-
-function isEntitled(customerInfo: CustomerInfo): boolean {
-  return Boolean(customerInfo.entitlements.active[AD_FREE_ENTITLEMENT_ID]);
-}
-
-async function readServerEntitlement(getToken: () => Promise<string | null>): Promise<boolean> {
-  const token = await getToken();
-  if (!token) throw new Error(translate(getActiveLocale(), 'subscription.verifyError'));
-
-  const response = await fetch(`${appBaseUrl}/api/billing/entitlement`, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!response.ok) throw new Error(translate(getActiveLocale(), 'subscription.verifyError'));
-
-  const body = await response.json() as { isAdFree?: unknown } | null;
-  if (!body || typeof body.isAdFree !== 'boolean') {
-    throw new Error(translate(getActiveLocale(), 'subscription.verifyError'));
-  }
-  return body.isAdFree;
-}
-
-function getPurchasesErrorMessage(_cause?: unknown): string {
-  void _cause;
+function purchaseErrorMessage(): string {
   return translate(getActiveLocale(), 'subscription.storeError');
 }
 
-function wasCancelled(cause: unknown): boolean {
-  return Boolean(
-    cause &&
-      typeof cause === 'object' &&
-      'userCancelled' in cause &&
-      (cause as { userCancelled?: unknown }).userCancelled,
-  );
+function confirmationMessage(): string {
+  return translate(getActiveLocale(), 'subscription.confirming');
 }
 
-async function readStoreState(): Promise<StoreStateSnapshot> {
-  const [customerInfo, offerings] = await Promise.all([
-    Purchases.getCustomerInfo(),
-    Purchases.getOfferings(),
-  ]);
-  const offering = offerings.current;
+function activeSubscriptionOf(state: MobileBillingState | null): CanonicalSubscription | null {
+  if (!state) return null;
+  return state.subscriptions.find((subscription) => subscriptionGrantsAdFree(subscription))
+    ?? state.subscriptions[0]
+    ?? null;
+}
 
-  return {
-    customerInfo,
-    monthly:
-      offering?.availablePackages.find((candidate) => candidate.identifier === monthlyPackageId) ??
-      offering?.monthly ??
-      undefined,
-    annual:
-      offering?.availablePackages.find((candidate) => candidate.identifier === annualPackageId) ??
-      offering?.annual ??
-      undefined,
-  };
+function managementUrlOf(subscription: CanonicalSubscription | null): string | null {
+  if (!subscription) return null;
+  const destination = managementDestinationFor(
+    subscription,
+    `${appBaseUrl}/subscription`,
+  );
+  return destination.url;
 }
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const auth = useMobileAuth();
   const { t } = useI18n();
-  const apiKey = getPlatformApiKey();
-  const isConfigured = auth.configured && Boolean(apiKey);
-  const [sdkReady, setSdkReady] = useState(false);
-  const [storeReady, setStoreReady] = useState(false);
-  const [serverReady, setServerReady] = useState(false);
+  const sdkConfigured = Boolean(superwallClient?.configuration.apiKey);
+  const acquisitionProductsConfigured = Boolean(
+    superwallClient?.configuration.monthlyProductId
+      && superwallClient.configuration.annualProductId,
+  );
+  const [isReady, setIsReady] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
-  const [storeAdFree, setStoreAdFree] = useState(false);
-  const [serverAdFree, setServerAdFree] = useState(false);
-  const [managementUrl, setManagementUrl] = useState<string | null>(null);
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
-  const [packages, setPackages] = useState<Partial<Record<SubscriptionPlanId, PurchasesPackage>>>({});
+  const [serverState, setServerState] = useState<MobileBillingState | null>(null);
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  const [localAdFree, setLocalAdFree] = useState(false);
+  const [localSubscriptionStatus, setLocalSubscriptionStatus] = useState<SuperwallSubscriptionStatus['status']>('UNKNOWN');
+  const [identityRegistered, setIdentityRegistered] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [loadedProducts, setLoadedProducts] = useState<LoadedSuperwallProduct[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
+  const serverAdFreeRef = useRef(false);
+  const reconcileFlightRef = useRef<{ userId: string; promise: Promise<boolean> } | null>(null);
+  currentUserIdRef.current = auth.isSignedIn ? auth.userId : null;
 
-  const applyCustomerInfo = useCallback((customerInfo: CustomerInfo) => {
-    setStoreAdFree(isEntitled(customerInfo));
-    setManagementUrl(customerInfo.managementURL ?? null);
+  const readServer = useCallback((session: MobileBillingSession) => readMobileBillingState({
+    baseUrl: appBaseUrl,
+    expectedUserId: session.userId,
+    getToken: session.getToken,
+  }), []);
+
+  const captureCurrentBillingSession = useCallback(async (userId: string) => {
+    const session = await captureMobileBillingSession({
+      userId,
+      getToken: auth.getToken,
+    });
+    if (currentUserIdRef.current !== userId) throw new Error('identity_changed');
+    return session;
+  }, [auth.getToken]);
+
+  const applyServerState = useCallback((state: MobileBillingState) => {
+    serverAdFreeRef.current = state.isAdFree;
+    setServerState(state);
+    if (state.isAdFree) setIsConfirming(false);
   }, []);
 
-  const applyStoreState = useCallback((snapshot: StoreStateSnapshot) => {
-    const { customerInfo, monthly, annual } = snapshot;
-    applyCustomerInfo(customerInfo);
+  const reconcileAndConfirm = useCallback((providedSession?: MobileBillingSession): Promise<boolean> => {
+    const userId = providedSession?.userId ?? auth.userId;
+    if (!auth.isSignedIn || !userId || currentUserIdRef.current !== userId) {
+      return Promise.resolve(false);
+    }
+    const existing = reconcileFlightRef.current;
+    if (existing?.userId === userId) return existing.promise;
 
-    setPackages({ monthly, annual });
-    setPlans(
-      [
-        monthly
-          ? {
-              id: 'monthly' as const,
-              title: t('subscription.monthly'),
-              price: monthly.product.priceString,
-              productIdentifier: monthly.product.identifier,
-            }
-          : null,
-        annual
-          ? {
-              id: 'annual' as const,
-              title: t('subscription.annual'),
-              price: annual.product.priceString,
-              productIdentifier: annual.product.identifier,
-            }
-          : null,
-      ].filter((plan): plan is SubscriptionPlan => Boolean(plan)),
-    );
-  }, [applyCustomerInfo, t]);
+    const isCurrentIdentity = () => currentUserIdRef.current === userId;
+    const promise = (async (): Promise<boolean> => {
+      if (isCurrentIdentity()) setIsConfirming(true);
+      let session: MobileBillingSession;
+      try {
+        session = providedSession ?? await captureCurrentBillingSession(userId);
+      } catch {
+        if (isCurrentIdentity()) setError(confirmationMessage());
+        return false;
+      }
+      try {
+        await requestSuperwallReconciliation({
+          baseUrl: appBaseUrl,
+          expectedUserId: userId,
+          getToken: session.getToken,
+        });
+      } catch {
+        // A signed provider webhook may still complete while the explicit refresh
+        // is temporarily unavailable, so bounded canonical polling continues.
+      }
 
-  const loadStoreState = useCallback(async () => {
-    const expectedUserId = auth.userId;
-    const snapshot = await enqueuePurchasesIdentityTransition(readStoreState);
-    if (identifiedRevenueCatUserId !== expectedUserId) return;
-    applyStoreState(snapshot);
-  }, [applyStoreState, auth.userId]);
+      try {
+        const confirmed = await waitForCanonicalEntitlement({
+          read: async () => {
+            if (!isCurrentIdentity()) throw new Error('identity_changed');
+            const state = await readServer(session);
+            if (!isCurrentIdentity()) throw new Error('identity_changed');
+            return state;
+          },
+          maxDurationMs: MOBILE_ENTITLEMENT_CONFIRMATION_POLL_MS,
+        });
+        if (!isCurrentIdentity()) return false;
+        applyServerState(confirmed);
+        if (!confirmed.isAdFree) {
+          setIsConfirming(true);
+          setError(confirmationMessage());
+        }
+        return confirmed.isAdFree;
+      } catch {
+        if (isCurrentIdentity()) {
+          setIsConfirming(true);
+          setError(confirmationMessage());
+        }
+        return false;
+      }
+    })().finally(() => {
+      if (reconcileFlightRef.current?.promise === promise) {
+        reconcileFlightRef.current = null;
+      }
+    });
+    reconcileFlightRef.current = { userId, promise };
+    return promise;
+  }, [applyServerState, auth.isSignedIn, auth.userId, captureCurrentBillingSession, readServer]);
+
+  const clearUserState = useCallback(() => {
+    serverAdFreeRef.current = false;
+    setIsBusy(false);
+    setServerState(null);
+    setSessionUserId(null);
+    setLocalAdFree(false);
+    setLocalSubscriptionStatus('UNKNOWN');
+    setIdentityRegistered(false);
+    setIsConfirming(false);
+    setLoadedProducts([]);
+    setError(null);
+  }, []);
+
+  const establishCurrentSuperwallIdentity = useCallback(async (session: MobileBillingSession) => {
+    if (!superwallClient || !sdkConfigured) throw new Error('superwall_unavailable');
+    await establishSuperwallIdentity({
+      userId: session.userId,
+      transitionIdentity: superwallClient.transitionIdentity,
+      registerIdentity: () => registerSuperwallIdentity({
+        baseUrl: appBaseUrl,
+        expectedUserId: session.userId,
+        getToken: session.getToken,
+      }),
+      isCurrentUser: (candidateUserId) => currentUserIdRef.current === candidateUserId,
+    });
+  }, [sdkConfigured]);
 
   useEffect(() => {
     let cancelled = false;
+    clearUserState();
+    setIsReady(false);
 
     async function initialize() {
       if (!auth.isLoaded) return;
-
-      setSdkReady(false);
-      setStoreAdFree(false);
-      setManagementUrl(null);
-      setPlans([]);
-      setPackages({});
-      setStoreReady(false);
-      setError(null);
-
-      if (!isConfigured || !auth.isSignedIn || !auth.userId) {
-        try {
-          await enqueuePurchasesIdentityTransition(async () => {
-            if (!purchasesConfigured || identifiedRevenueCatUserId === null) return;
-
-            await Purchases.logOut();
-            identifiedRevenueCatUserId = null;
-          });
-        } catch (cause) {
-          if (!cancelled) setError(getPurchasesErrorMessage(cause));
-        } finally {
-          if (!cancelled) setStoreReady(true);
-        }
+      if (!auth.isSignedIn || !auth.userId) {
+        await superwallClient?.resetIdentity().catch(() => undefined);
+        if (!cancelled) setIsReady(true);
         return;
       }
 
       const userId = auth.userId;
+      // Superwall persists its actor outside React and outside this process.
+      // Start the A -> B reset/identify transition before any canonical network
+      // read, so a Girapphe outage cannot leave the native SDK on account A.
+      if (superwallClient && sdkConfigured) {
+        await superwallClient.transitionIdentity(userId).catch(() => undefined);
+        if (cancelled || currentUserIdRef.current !== userId) return;
+      }
 
+      let billingSession: MobileBillingSession;
+      let canonical: MobileBillingState;
       try {
-        if (__DEV__) {
-          await Purchases.setLogLevel(LOG_LEVEL.DEBUG);
+        billingSession = await captureCurrentBillingSession(userId);
+        canonical = await readServer(billingSession);
+      } catch {
+        if (!cancelled && currentUserIdRef.current === userId) {
+          setSessionUserId(userId);
+          setError(purchaseErrorMessage());
+          setIsReady(true);
         }
+        return;
+      }
+      if (cancelled || currentUserIdRef.current !== userId) return;
 
-        const snapshot = await enqueuePurchasesIdentityTransition(async () => {
-          if (!purchasesConfigured) {
-            Purchases.configure({ apiKey, appUserID: userId });
-            purchasesConfigured = true;
-            identifiedRevenueCatUserId = userId;
-          } else if (identifiedRevenueCatUserId !== userId) {
-            if (identifiedRevenueCatUserId !== null) {
-              await Purchases.logOut();
-              identifiedRevenueCatUserId = null;
-            }
+      // Canonical Girapphe access is independent from Superwall availability.
+      // Apply it even if the native adapter is unavailable so an SDK outage can
+      // never hide a valid Creem or already-reconciled mobile entitlement.
+      applyServerState(canonical);
+      setSessionUserId(userId);
+      setIsReady(true);
 
-            await Purchases.logIn(userId);
-            identifiedRevenueCatUserId = userId;
-          }
-
-          return readStoreState();
-        });
-
-        if (cancelled) return;
-        setSdkReady(true);
-        applyStoreState(snapshot);
-      } catch (cause) {
-        if (!cancelled) {
-          setSdkReady(false);
-          setStoreAdFree(false);
-          setError(getPurchasesErrorMessage(cause));
+      let localStatus: SuperwallSubscriptionStatus = { status: 'UNKNOWN' };
+      let registered = false;
+      if (superwallClient && sdkConfigured) {
+        try {
+          await establishCurrentSuperwallIdentity(billingSession);
+          if (cancelled || currentUserIdRef.current !== userId) return;
+          localStatus = await superwallClient.readSubscriptionStatus(userId);
+          if (cancelled || currentUserIdRef.current !== userId) return;
+          registered = true;
+        } catch {
+          // Existing canonical access remains visible. Only mobile acquisition
+          // and restore are unavailable until identity setup succeeds.
+          if (!cancelled && !canonical.isAdFree) setError(purchaseErrorMessage());
         }
-      } finally {
-        if (!cancelled) setStoreReady(true);
+      }
+      if (cancelled || currentUserIdRef.current !== userId) return;
+      setIdentityRegistered(registered);
+      setLocalSubscriptionStatus(localStatus.status);
+      const locallySubscribed = superwallStatusHasAdFree(localStatus);
+      setLocalAdFree(locallySubscribed);
+
+      if (locallySubscribed && !canonical.isAdFree) {
+        setIsConfirming(true);
+        void reconcileAndConfirm(billingSession);
       }
     }
 
     void initialize();
-    return () => {
-      cancelled = true;
-    };
-  }, [apiKey, applyStoreState, auth.isLoaded, auth.isSignedIn, auth.userId, isConfigured]);
+    return () => { cancelled = true; };
+  }, [
+    acquisitionProductsConfigured,
+    applyServerState,
+    auth.isLoaded,
+    auth.isSignedIn,
+    auth.userId,
+    clearUserState,
+    captureCurrentBillingSession,
+    establishCurrentSuperwallIdentity,
+    readServer,
+    reconcileAndConfirm,
+    sdkConfigured,
+  ]);
 
   useEffect(() => {
+    if (
+      !superwallClient
+      || !sdkConfigured
+      || !auth.isSignedIn
+      || !auth.userId
+      || sessionUserId !== auth.userId
+      || !identityRegistered
+    ) return;
+    const subscription = superwallClient.subscribe(auth.userId, (status) => {
+      if (currentUserIdRef.current !== auth.userId) return;
+      const entitled = superwallStatusHasAdFree(status);
+      setLocalSubscriptionStatus(status.status);
+      setLocalAdFree(entitled);
+      if (entitled && !serverAdFreeRef.current) {
+        setIsConfirming(true);
+        void reconcileAndConfirm();
+      }
+    });
+    return () => subscription.remove();
+  }, [auth.isSignedIn, auth.userId, identityRegistered, reconcileAndConfirm, sdkConfigured, sessionUserId]);
+
+  useEffect(() => {
+    if (
+      !superwallClient
+      || !sdkConfigured
+      || !acquisitionProductsConfigured
+      || !clientAcquisitionEnabled
+      || !auth.isSignedIn
+      || !auth.userId
+      || sessionUserId !== auth.userId
+      || currentUserIdRef.current !== auth.userId
+      || !identityRegistered
+      || localSubscriptionStatus !== 'INACTIVE'
+      || !serverState?.acquisitionEnabled.mobile
+      || serverState.acquisitionBlocked
+      || serverState.isAdFree
+      || loadedProducts.length > 0
+    ) return;
+    const userId = auth.userId;
     let cancelled = false;
-
-    async function refreshServerEntitlement() {
-      if (!auth.isLoaded) return;
-      setServerReady(false);
-      setServerAdFree(false);
-
-      if (!auth.isSignedIn || !auth.userId) {
-        setServerReady(true);
-        return;
+    void superwallClient.loadProducts().then((products) => {
+      if (!cancelled && currentUserIdRef.current === userId) {
+        setLoadedProducts(products);
       }
-
-      try {
-        const entitled = await readServerEntitlement(auth.getToken);
-        if (!cancelled) setServerAdFree(entitled);
-      } catch (cause) {
-        if (!cancelled) setError(getPurchasesErrorMessage(cause));
-      } finally {
-        if (!cancelled) setServerReady(true);
+    }).catch(() => {
+      if (!cancelled && currentUserIdRef.current === userId) {
+        setError(purchaseErrorMessage());
       }
-    }
-
-    void refreshServerEntitlement();
-    return () => {
-      cancelled = true;
-    };
-  }, [auth.getToken, auth.isLoaded, auth.isSignedIn, auth.userId]);
-
-  useEffect(() => {
-    if (!sdkReady) return;
-
-    const listener = (customerInfo: CustomerInfo) => applyCustomerInfo(customerInfo);
-    Purchases.addCustomerInfoUpdateListener(listener);
-    return () => {
-      Purchases.removeCustomerInfoUpdateListener(listener);
-    };
-  }, [applyCustomerInfo, sdkReady]);
+    });
+    return () => { cancelled = true; };
+  }, [
+    acquisitionProductsConfigured,
+    auth.isSignedIn,
+    auth.userId,
+    identityRegistered,
+    loadedProducts.length,
+    localSubscriptionStatus,
+    sdkConfigured,
+    serverState?.acquisitionBlocked,
+    serverState?.acquisitionEnabled.mobile,
+    serverState?.isAdFree,
+    sessionUserId,
+  ]);
 
   const refresh = useCallback(async () => {
+    const userId = auth.userId;
+    if (!auth.isSignedIn || !userId || sessionUserId !== userId) return;
+    const isCurrentIdentity = () => currentUserIdRef.current === userId;
     setError(null);
+    let billingSession: MobileBillingSession;
+    let canonical: MobileBillingState;
     try {
-      const [serverEntitled] = await Promise.all([
-        auth.isSignedIn ? readServerEntitlement(auth.getToken) : Promise.resolve(false),
-        sdkReady ? loadStoreState() : Promise.resolve(),
-      ]);
-      setServerAdFree(serverEntitled);
-    } catch (cause) {
-      setError(getPurchasesErrorMessage(cause));
+      billingSession = await captureCurrentBillingSession(userId);
+      canonical = await readServer(billingSession);
+      if (!isCurrentIdentity()) return;
+      applyServerState(canonical);
+    } catch {
+      if (isCurrentIdentity()) setError(purchaseErrorMessage());
+      return;
     }
-  }, [auth.getToken, auth.isSignedIn, loadStoreState, sdkReady]);
-
-  const purchase = useCallback(
-    async (planId: SubscriptionPlanId) => {
-      const selectedPackage = packages[planId];
-      if (!sdkReady || !selectedPackage || isBusy) return false;
-
-      setIsBusy(true);
-      setError(null);
-      try {
-        const result = await purchaseAfterServerEntitlementCheck(
-          () => readServerEntitlement(auth.getToken),
-          () => Purchases.purchasePackage(selectedPackage),
-        );
-        setServerAdFree(result.alreadyEntitled);
-        if (result.alreadyEntitled) return true;
-
-        applyCustomerInfo(result.purchaseResult.customerInfo);
-        return isEntitled(result.purchaseResult.customerInfo);
-      } catch (cause) {
-        if (!wasCancelled(cause)) setError(getPurchasesErrorMessage(cause));
-        return false;
-      } finally {
-        setIsBusy(false);
+    if (!superwallClient || !sdkConfigured) return;
+    setIdentityRegistered(false);
+    try {
+      await establishCurrentSuperwallIdentity(billingSession);
+      if (!isCurrentIdentity()) return;
+      const localStatus = await superwallClient.readSubscriptionStatus(userId);
+      if (!isCurrentIdentity()) return;
+      setIdentityRegistered(true);
+      const locallySubscribed = superwallStatusHasAdFree(localStatus);
+      setLocalSubscriptionStatus(localStatus.status);
+      setLocalAdFree(locallySubscribed);
+      if (locallySubscribed && !canonical.isAdFree) {
+        await reconcileAndConfirm(billingSession);
       }
-    },
-    [applyCustomerInfo, auth.getToken, isBusy, packages, sdkReady],
-  );
+    } catch {
+      // Do not discard the canonical state already applied above.
+      if (isCurrentIdentity() && !canonical.isAdFree) setError(purchaseErrorMessage());
+    }
+  }, [applyServerState, auth.isSignedIn, auth.userId, captureCurrentBillingSession, establishCurrentSuperwallIdentity, readServer, reconcileAndConfirm, sdkConfigured, sessionUserId]);
 
-  const restore = useCallback(async () => {
-    if (!sdkReady || isBusy) return false;
-
+  const purchase = useCallback(async (planId: SubscriptionPlanId) => {
+    const userId = auth.userId;
+    const selected = loadedProducts.find((product) => product.plan === planId);
+    if (!superwallClient || !selected || isBusy || !auth.isSignedIn || !userId || sessionUserId !== userId) return false;
+    const isCurrentIdentity = () => currentUserIdRef.current === userId;
+    let purchaseSession: MobileBillingSession | null = null;
+    let purchaseOperationToken: string | null = null;
+    let purchaseOperationOutcome: SuperwallPurchaseOperationOutcome | null = null;
+    let nativePurchaseStarted = false;
     setIsBusy(true);
     setError(null);
     try {
-      const customerInfo = await Purchases.restorePurchases();
-      applyCustomerInfo(customerInfo);
-      return isEntitled(customerInfo);
-    } catch (cause) {
-      setError(getPurchasesErrorMessage(cause));
+      purchaseSession = await captureCurrentBillingSession(userId);
+      const canonical = await readServer(purchaseSession);
+      if (!isCurrentIdentity()) return false;
+      applyServerState(canonical);
+      if (canonical.isAdFree) return true;
+      if (
+        !clientAcquisitionEnabled
+        || !canonical.acquisitionEnabled.mobile
+        || canonical.acquisitionBlocked
+      ) {
+        setError(t('subscription.acquisitionDisabled'));
+        return false;
+      }
+
+      setIdentityRegistered(false);
+      try {
+        await establishCurrentSuperwallIdentity(purchaseSession);
+        if (!isCurrentIdentity()) return false;
+        setIdentityRegistered(true);
+      } catch {
+        if (isCurrentIdentity()) setError(t('subscription.acquisitionDisabled'));
+        return false;
+      }
+
+      const localStatus = await superwallClient.readSubscriptionStatus(userId);
+      if (!isCurrentIdentity()) return false;
+      if (superwallStatusHasAdFree(localStatus)) {
+        setLocalSubscriptionStatus(localStatus.status);
+        setLocalAdFree(true);
+        return reconcileAndConfirm();
+      }
+      setLocalSubscriptionStatus(localStatus.status);
+      if (!superwallStatusAllowsPurchase(localStatus)) {
+        setError(t('subscription.acquisitionDisabled'));
+        return false;
+      }
+
+      purchaseOperationToken = await claimSuperwallPurchaseOperation({
+        baseUrl: appBaseUrl,
+        expectedUserId: userId,
+        getToken: purchaseSession.getToken,
+      });
+      if (!isCurrentIdentity()) {
+        purchaseOperationOutcome = 'aborted_before_purchase';
+        return false;
+      }
+
+      // Reconfirm both the native actor and the server-side Clerk association
+      // immediately before crossing into the store purchase operation.
+      await establishCurrentSuperwallIdentity(purchaseSession);
+      if (!isCurrentIdentity()) {
+        purchaseOperationOutcome = 'aborted_before_purchase';
+        return false;
+      }
+      nativePurchaseStarted = true;
+      const result = await superwallClient.purchase(userId, selected.purchaseIdentifier);
+      if (result.type === 'unavailable') {
+        // The iOS bridge reports this only when its final StoreKit product
+        // refetch failed before calling Superwall.purchase(). No charge was
+        // attempted, so the durable server block can be released safely.
+        purchaseOperationOutcome = 'aborted_before_purchase';
+        if (isCurrentIdentity()) setError(purchaseErrorMessage());
+        return false;
+      }
+      if (result.type === 'cancelled') {
+        purchaseOperationOutcome = 'cancelled';
+        return false;
+      }
+      if (result.type === 'failed') {
+        // A generic Superwall failure may wrap a StoreKit unverified
+        // transaction that was already finished. Keep the durable purchase
+        // block and try canonical recovery instead of allowing a second charge.
+        purchaseOperationOutcome = 'indeterminate';
+        if (isCurrentIdentity()) setIsConfirming(true);
+        const confirmed = await reconcileAndConfirm(purchaseSession);
+        purchaseOperationOutcome = confirmed ? 'canonically_confirmed' : 'indeterminate';
+        return confirmed;
+      }
+      if (!isCurrentIdentity()) return false;
+
+      setIsConfirming(true);
+      if (result.type === 'purchased') setLocalAdFree(true);
+      const confirmed = await reconcileAndConfirm(purchaseSession);
+      purchaseOperationOutcome = confirmed ? 'canonically_confirmed' : 'unconfirmed';
+      return confirmed;
+    } catch {
+      if (purchaseOperationToken && !nativePurchaseStarted) {
+        purchaseOperationOutcome = 'aborted_before_purchase';
+      } else if (purchaseOperationToken) {
+        purchaseOperationOutcome = 'indeterminate';
+      }
+      if (isCurrentIdentity()) {
+        setIdentityRegistered(false);
+        setError(purchaseErrorMessage());
+      }
       return false;
     } finally {
-      setIsBusy(false);
+      if (
+        purchaseOperationToken
+        && purchaseSession
+        && purchaseOperationOutcome
+        && shouldReleaseSuperwallPurchaseOperation(purchaseOperationOutcome)
+      ) {
+        try {
+          await releaseSuperwallPurchaseOperation({
+            baseUrl: appBaseUrl,
+            expectedUserId: userId,
+            getToken: purchaseSession.getToken,
+            ownerToken: purchaseOperationToken,
+          });
+        } catch {
+          // The durable server block remains until an exact retry, signed
+          // provider reconciliation, or the documented operator recovery.
+        }
+      }
+      if (isCurrentIdentity()) setIsBusy(false);
     }
-  }, [applyCustomerInfo, isBusy, sdkReady]);
+  }, [applyServerState, auth.getToken, auth.isSignedIn, auth.userId, captureCurrentBillingSession, establishCurrentSuperwallIdentity, isBusy, loadedProducts, readServer, reconcileAndConfirm, sessionUserId, t]);
 
-  const value = useMemo<SubscriptionState>(
-    () => ({
-      isConfigured,
-      isReady: storeReady && serverReady,
-      isBusy,
-      isAdFree: storeAdFree || serverAdFree,
-      managementUrl,
-      plans,
-      error,
-      purchase,
-      restore,
-      refresh,
-    }),
-    [error, isBusy, isConfigured, managementUrl, plans, purchase, refresh, restore, serverAdFree, serverReady, storeAdFree, storeReady],
+  const restore = useCallback(async () => {
+    const userId = auth.userId;
+    if (!superwallClient || !sdkConfigured || isBusy || !auth.isSignedIn || !userId || sessionUserId !== userId) return false;
+    const isCurrentIdentity = () => currentUserIdRef.current === userId;
+    setIsBusy(true);
+    setError(null);
+    try {
+      const billingSession = await captureCurrentBillingSession(userId);
+      setIdentityRegistered(false);
+      await establishCurrentSuperwallIdentity(billingSession);
+      if (!isCurrentIdentity()) return false;
+      setIdentityRegistered(true);
+      const result = await superwallClient.restore(userId);
+      if (!isCurrentIdentity()) return false;
+      if (result.result !== 'restored') {
+        setError(purchaseErrorMessage());
+        return false;
+      }
+      const status = await superwallClient.readSubscriptionStatus(userId);
+      if (!isCurrentIdentity()) return false;
+      setLocalSubscriptionStatus(status.status);
+      const locallySubscribed = superwallStatusHasAdFree(status);
+      setLocalAdFree(locallySubscribed);
+      if (locallySubscribed) return reconcileAndConfirm(billingSession);
+      if (status.status === 'UNKNOWN') {
+        setIsConfirming(true);
+        setError(confirmationMessage());
+      } else {
+        setError(t('subscription.noActivePurchase'));
+      }
+      return false;
+    } catch {
+      if (isCurrentIdentity()) {
+        setIdentityRegistered(false);
+        setError(purchaseErrorMessage());
+      }
+      return false;
+    } finally {
+      if (isCurrentIdentity()) setIsBusy(false);
+    }
+  }, [auth.isSignedIn, auth.userId, captureCurrentBillingSession, establishCurrentSuperwallIdentity, isBusy, reconcileAndConfirm, sdkConfigured, sessionUserId, t]);
+
+  const resetIdentity = useCallback(async () => {
+    clearUserState();
+    await superwallClient?.resetIdentity();
+  }, [clearUserState]);
+
+  const sessionIsCurrent = isCurrentSubscriptionSession({
+    isSignedIn: auth.isSignedIn,
+    currentUserId: auth.userId,
+    sessionUserId,
+  });
+  const currentServerState = sessionIsCurrent ? serverState : null;
+  const activeSubscription = activeSubscriptionOf(currentServerState);
+  const acquisitionEnabled = Boolean(
+    sessionIsCurrent
+      && clientAcquisitionEnabled
+      && currentServerState?.acquisitionEnabled.mobile
+      && !currentServerState.acquisitionBlocked
+      && !currentServerState.isAdFree
+      && !localAdFree
+      && localSubscriptionStatus === 'INACTIVE'
+      && identityRegistered
+      && acquisitionProductsConfigured,
   );
+  const plans = loadedProducts.map((product) => ({
+    id: product.plan,
+    title: t(product.plan === 'monthly' ? 'subscription.monthly' : 'subscription.annual'),
+    price: product.localizedPrice,
+    productIdentifier: product.configuredIdentifier,
+    hasFreeTrial: product.hasFreeTrial,
+  }));
+
+  const value = useMemo<SubscriptionState>(() => ({
+    isConfigured: sdkConfigured,
+    isReady: !auth.isSignedIn || sessionIsCurrent ? isReady : false,
+    isBusy: sessionIsCurrent ? isBusy : false,
+    isAdFree: currentServerState?.isAdFree === true,
+    isConfirming: sessionIsCurrent ? isConfirming : false,
+    acquisitionEnabled,
+    managementUrl: managementUrlOf(activeSubscription),
+    activeSubscription,
+    plans: acquisitionEnabled ? plans : [],
+    trialProductIds: acquisitionEnabled
+      ? plans.filter((plan) => plan.hasFreeTrial).map((plan) => plan.productIdentifier)
+      : [],
+    error: sessionIsCurrent ? error : null,
+    purchase,
+    restore,
+    refresh,
+    resetIdentity,
+  }), [
+    acquisitionEnabled,
+    activeSubscription,
+    auth.isSignedIn,
+    currentServerState?.isAdFree,
+    error,
+    isBusy,
+    isConfirming,
+    isReady,
+    plans,
+    purchase,
+    refresh,
+    resetIdentity,
+    restore,
+    sdkConfigured,
+    sessionIsCurrent,
+  ]);
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;
 }

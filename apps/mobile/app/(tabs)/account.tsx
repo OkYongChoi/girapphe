@@ -26,7 +26,13 @@ export default function AccountScreen() {
     if (isSigningOut) return;
     setIsSigningOut(true);
     try {
-      await auth.signOut();
+      try {
+        await subscription.resetIdentity();
+      } catch (error) {
+        console.warn('Superwall identity reset will be retried before the next sign-in.', error);
+      } finally {
+        await auth.signOut();
+      }
     } finally {
       setIsSigningOut(false);
     }
@@ -49,6 +55,7 @@ export default function AccountScreen() {
     try {
       const result = await deleteAccountWithReverification() as unknown as { deleted?: boolean };
       if (!result?.deleted) throw new Error('deletion_failed');
+      await subscription.resetIdentity().catch(() => undefined);
       await auth.signOut().catch(() => undefined);
       router.replace('/');
     } catch {

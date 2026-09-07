@@ -92,15 +92,17 @@ export function filterNodes({
   domain,
   difficulty,
   limit = 60,
+  fullPublicMap = false,
 }: {
   query?: string;
   domain?: DomainOption;
   difficulty?: DifficultyOption;
-  limit?: number;
+  limit?: number | null;
+  fullPublicMap?: boolean;
 }): GraphNode[] {
   const normalizedQuery = query?.trim().toLowerCase() ?? '';
 
-  return GRAPH_NODES.filter((node) => node.level <= 3)
+  const nodes = GRAPH_NODES.filter((node) => fullPublicMap || node.level <= 3)
     .filter((node) => {
       if (!normalizedQuery) return true;
       return (
@@ -117,6 +119,6 @@ export function filterNodes({
       if (!difficulty || difficulty === 'All') return true;
       return node.difficulty === difficulty;
     })
-    .sort((a, b) => a.level - b.level || a.difficulty - b.difficulty || a.label.localeCompare(b.label))
-    .slice(0, limit);
+    .sort((a, b) => a.level - b.level || a.difficulty - b.difficulty || a.label.localeCompare(b.label));
+  return limit === null ? nodes : nodes.slice(0, limit);
 }

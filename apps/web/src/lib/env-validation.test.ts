@@ -79,15 +79,14 @@ test('production requires live Clerk keys, canonical URL, and admin cleanup sett
   });
 
   assert.deepEqual(result.errors, []);
-  assert.match(result.warnings.join('\n'), /Stripe billing is not configured; its production feature stays disabled/);
-  assert.match(result.warnings.join('\n'), /RevenueCat entitlement sync is not configured; its production feature stays disabled/);
+  assert.match(result.warnings.join('\n'), /Creem lifecycle processing is not configured; its production feature stays disabled/);
+  assert.match(result.warnings.join('\n'), /Superwall lifecycle processing is not configured; its production feature stays disabled/);
   assert.match(result.warnings.join('\n'), /AdSense practice ads is not configured; its production feature stays disabled/);
-  assert.match(result.warnings.join('\n'), /Toss recurring billing is not configured; its production feature stays disabled/);
   assert.match(result.warnings.join('\n'), /Cloudflare operations dashboard is not configured; its production feature stays disabled/);
   assert.match(result.warnings.join('\n'), /Neon control-plane dashboard is not configured; its production feature stays disabled/);
 });
 
-test('billing groups must be complete and Toss remains fuse-closed', () => {
+test('acquisition gates require complete lifecycle groups', () => {
   const result = validate({
     envName: 'prod',
     map: baseEnv({
@@ -97,16 +96,128 @@ test('billing groups must be complete and Toss remains fuse-closed', () => {
       DATABASE_URL: 'postgres://user:password@host/prod_db?sslmode=require',
       ADMIN_CLERK_USER_ID: 'user_123',
       PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
-      STRIPE_SECRET_KEY: 'sk_live_partial_only',
-      TOSS_BILLING_ENABLED: 'true',
+      CREEM_API_KEY: 'creem_partial_only',
+      WEB_BILLING_ACQUISITION_ENABLED: 'true',
+      MOBILE_BILLING_ACQUISITION_ENABLED: 'true',
     }),
     allowPlaceholders: false,
   });
 
-  assert.match(result.errors.join('\n'), /Stripe billing must be configured as a complete group/);
-  assert.match(result.errors.join('\n'), /Missing required key: STRIPE_WEBHOOK_SECRET/);
-  assert.match(result.errors.join('\n'), /TOSS_BILLING_ENABLED=true requires the complete Toss recurring billing group/);
-  assert.match(result.errors.join('\n'), /TOSS_BILLING_ENABLED=true is not release-approved; the runtime safety fuse is closed/);
+  assert.match(result.errors.join('\n'), /Creem lifecycle processing must be configured as a complete group/);
+  assert.match(result.errors.join('\n'), /Missing required key: CREEM_WEBHOOK_SECRET/);
+  assert.match(result.errors.join('\n'), /WEB_BILLING_ACQUISITION_ENABLED=true requires its complete provider lifecycle group/);
+  assert.match(result.errors.join('\n'), /MOBILE_BILLING_ACQUISITION_ENABLED=true requires its complete provider lifecycle group/);
+});
+
+test('lifecycle processing remains configurable while acquisition is disabled', () => {
+  const result = validate({
+    envName: 'preview',
+    map: baseEnv({
+      APP_BASE_URL: 'https://preview.girapphe.test',
+      DATABASE_URL: 'postgres://user:password@host/preview_db?sslmode=require',
+      CREEM_API_KEY: 'creem_test_key',
+      CREEM_WEBHOOK_SECRET: 'creem_webhook_secret',
+      CREEM_ANNUAL_PRODUCT_ID: 'creem_annual_product',
+      CREEM_ENVIRONMENT: 'test',
+      WEB_BILLING_ACQUISITION_ENABLED: 'false',
+      SUPERWALL_ORGANIZATION_API_KEY: 'superwall_test_key',
+      SUPERWALL_WEBHOOK_SECRET: `whsec_${'a'.repeat(32)}`,
+      SUPERWALL_PROJECT_ID: '101',
+      SUPERWALL_ENVIRONMENT: 'test',
+      SUPERWALL_IOS_APPLICATION_ID: '201',
+      SUPERWALL_ANDROID_APPLICATION_ID: '202',
+      SUPERWALL_IOS_BUNDLE_ID: 'com.girapphe.app',
+      SUPERWALL_ANDROID_PACKAGE_ID: 'com.girapphe.app',
+      SUPERWALL_IOS_MONTHLY_PRODUCT_ID: 'ios_monthly',
+      SUPERWALL_IOS_ANNUAL_PRODUCT_ID: 'ios_annual',
+      SUPERWALL_ANDROID_MONTHLY_PRODUCT_ID: 'android_monthly',
+      SUPERWALL_ANDROID_ANNUAL_PRODUCT_ID: 'android_annual',
+      MOBILE_BILLING_ACQUISITION_ENABLED: 'false',
+    }),
+    allowPlaceholders: false,
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.match(result.warnings.join('\n'), /new web acquisition stays disabled/);
+  assert.match(result.warnings.join('\n'), /new mobile acquisition stays disabled/);
+});
+
+test('legacy lifecycle bridges must be complete and may coexist without reopening acquisition', () => {
+  const partialStripe = validate({
+    envName: 'prod',
+    map: baseEnv({
+      APP_BASE_URL: 'https://www.girapphe.com',
+      DATABASE_URL: 'postgres://user:password@host/prod_db?sslmode=require',
+      ADMIN_CLERK_USER_ID: 'user_123',
+      PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
+      STRIPE_SECRET_KEY: 'sk_live_legacy',
+    }),
+    allowPlaceholders: false,
+  });
+  assert.match(partialStripe.errors.join('\n'), /Legacy Stripe lifecycle bridge must be configured as a complete group/);
+
+  const nonExactTossGate = validate({
+    envName: 'prod',
+    map: baseEnv({
+      APP_BASE_URL: 'https://www.girapphe.com',
+      DATABASE_URL: 'postgres://user:password@host/prod_db?sslmode=require',
+      ADMIN_CLERK_USER_ID: 'user_123',
+      PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
+      TOSS_BILLING_ENABLED: ' true ',
+    }),
+    allowPlaceholders: false,
+  });
+  assert.match(nonExactTossGate.errors.join('\n'), /TOSS_BILLING_ENABLED must be exactly true or false/);
+
+  const tossEnabled = validate({
+    envName: 'prod',
+    map: baseEnv({
+      APP_BASE_URL: 'https://www.girapphe.com',
+      DATABASE_URL: 'postgres://user:password@host/prod_db?sslmode=require',
+      ADMIN_CLERK_USER_ID: 'user_123',
+      PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
+      TOSS_BILLING_ENABLED: 'true',
+      NEXT_PUBLIC_TOSS_CLIENT_KEY: 'live_ck_partial',
+    }),
+    allowPlaceholders: false,
+  });
+  assert.match(tossEnabled.errors.join('\n'), /Legacy Toss recovery bridge must be configured as a complete group/);
+  assert.match(tossEnabled.errors.join('\n'), /TOSS_BILLING_ENABLED=true requires the complete legacy Toss recovery group/);
+
+  const coexistingLifecycle = validate({
+    envName: 'prod',
+    map: baseEnv({
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkKey('pk_live_'),
+      CLERK_SECRET_KEY: clerkKey('sk_live_'),
+      APP_BASE_URL: 'https://www.girapphe.com',
+      DATABASE_URL: 'postgres://user:password@host/prod_db?sslmode=require',
+      ADMIN_CLERK_USER_ID: 'user_123',
+      PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
+      STRIPE_SECRET_KEY: `sk_live_${'s'.repeat(24)}`,
+      STRIPE_WEBHOOK_SECRET: `whsec_${'s'.repeat(32)}`,
+      STRIPE_PRICE_AD_FREE_MONTHLY: 'price_monthly',
+      STRIPE_PRICE_AD_FREE_ANNUAL: 'price_annual',
+      REVENUECAT_WEBHOOK_AUTHORIZATION: `Bearer ${'r'.repeat(32)}`,
+      REVENUECAT_WEBHOOK_SIGNING_SECRET: 'r'.repeat(32),
+      REVENUECAT_APP_IDS: 'app_ios,app_android',
+      REVENUECAT_SECRET_API_KEY: `sk_${'r'.repeat(24)}`,
+      REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS: 'ios.monthly,android.monthly',
+      REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS: 'ios.annual,android.annual',
+      TOSS_BILLING_ENABLED: 'true',
+      NEXT_PUBLIC_TOSS_CLIENT_KEY: `live_ck_${'t'.repeat(24)}`,
+      TOSS_SECRET_KEY: `live_sk_${'t'.repeat(24)}`,
+      TOSS_BILLING_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
+      TOSS_MONTHLY_AMOUNT_KRW: '1400',
+      TOSS_ANNUAL_AMOUNT_KRW: '14000',
+      TOSS_BILLING_CRON_TOKEN: 't'.repeat(32),
+    }),
+    allowPlaceholders: false,
+  });
+  assert.deepEqual(coexistingLifecycle.errors, []);
+  assert.match(
+    coexistingLifecycle.warnings.join('\n'),
+    /Legacy Toss lifecycle\/recovery processing is enabled; new Toss acquisition remains unavailable/,
+  );
 });
 
 test('capacity dashboard provider groups activate only with their control-plane tokens', () => {

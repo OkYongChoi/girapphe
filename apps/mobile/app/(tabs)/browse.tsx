@@ -28,6 +28,7 @@ import {
   resolveBrowseDomain,
 } from '@/browse-concepts';
 import { useMobileAuth } from '@/auth';
+import { useSubscription } from '@/subscriptions';
 import { useI18n } from '@/i18n';
 import { knowledgeBundleTypeLabel, quickNoteLabel } from '@/knowledge-bundle-ui';
 import { normalizeCardNodeId, useLocalizedContent } from '@/localized-content';
@@ -44,6 +45,7 @@ const EMPTY_STATUS_BY_NODE_ID = new Map<string, CardStatus | null>();
 export default function BrowseScreen() {
   const router = useRouter();
   const { isSignedIn, userId } = useMobileAuth();
+  const subscription = useSubscription();
   const { direction, formatNumber, locale, plural, t } = useI18n();
   const [query, setQuery] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<DomainOption>('All');
@@ -67,9 +69,10 @@ export default function BrowseScreen() {
       filterNodes({
         domain: selectedDomain,
         difficulty: selectedDifficulty,
-        limit: 80,
+        fullPublicMap: subscription.isAdFree,
+        limit: subscription.isAdFree ? null : 80,
       }),
-    [selectedDifficulty, selectedDomain],
+    [selectedDifficulty, selectedDomain, subscription.isAdFree],
   );
   const selectedPublicNodeId = selectedPublicNode?.id ?? (candidateNodes.some((node) => node.id === selectedConceptId)
     ? selectedConceptId ?? undefined

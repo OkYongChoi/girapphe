@@ -46,19 +46,27 @@ Production-only authenticated evidence variable:
 - `AUTHENTICATED_OVERLAY_E2E_USER_EMAIL` (independent dedicated
   `+clerk_test_girapphe_overlay_e2e` address)
 
-Optional monetization groups must be configured as a complete group or left entirely absent.
-Preview uses the same names with `_PREVIEW` appended except for production-only AdSense; PR
-aliases always exercise the labeled house-card fallback. Production uses the names below.
+Billing lifecycle groups must be configured completely or left entirely absent. Preview GitHub
+names use `_PREVIEW` and only provider test/sandbox resources. AdSense remains production-only;
+PR aliases always exercise the labeled house-card fallback.
 
-| Group | Production secret names |
+| Group | Production Worker names |
 |---|---|
-| Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_AD_FREE_MONTHLY`, `STRIPE_PRICE_AD_FREE_ANNUAL` |
-| RevenueCat | `REVENUECAT_WEBHOOK_AUTHORIZATION`, `REVENUECAT_WEBHOOK_SIGNING_SECRET`, `REVENUECAT_APP_IDS`, `REVENUECAT_SECRET_API_KEY`, `REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS`, `REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS` |
+| Creem lifecycle | `CREEM_API_KEY`, `CREEM_WEBHOOK_SECRET`, `CREEM_ANNUAL_PRODUCT_ID`, `CREEM_ENVIRONMENT` |
+| Superwall lifecycle | `SUPERWALL_ORGANIZATION_API_KEY`, `SUPERWALL_WEBHOOK_SECRET`, `SUPERWALL_PROJECT_ID`, `SUPERWALL_ENVIRONMENT`, `SUPERWALL_IOS_APPLICATION_ID`, `SUPERWALL_ANDROID_APPLICATION_ID`, `SUPERWALL_IOS_BUNDLE_ID`, `SUPERWALL_ANDROID_PACKAGE_ID`, `SUPERWALL_IOS_MONTHLY_PRODUCT_ID`, `SUPERWALL_IOS_ANNUAL_PRODUCT_ID`, `SUPERWALL_ANDROID_MONTHLY_PRODUCT_ID`, `SUPERWALL_ANDROID_ANNUAL_PRODUCT_ID` |
+| Acquisition | `WEB_BILLING_ACQUISITION_ENABLED`, `MOBILE_BILLING_ACQUISITION_ENABLED` |
 | AdSense | `NEXT_PUBLIC_ADSENSE_CLIENT_ID`, `NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID`, `NEXT_PUBLIC_ADSENSE_CONSENT_READY` |
-| Toss Payments | Default-off gate `TOSS_BILLING_ENABLED`; credentials `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`, `TOSS_BILLING_ENCRYPTION_KEY`, `TOSS_MONTHLY_AMOUNT_KRW`, `TOSS_ANNUAL_AMOUNT_KRW`, `TOSS_BILLING_CRON_TOKEN` |
 
-Mobile Clerk, RevenueCat, AdMob identifiers/public SDK keys, and public legal URLs are owned by EAS
-Environments rather than the Worker. See `apps/mobile/SETUP.md` for the exact names.
+GitHub Actions variables own the two acquisition gates plus `CREEM_ENVIRONMENT` and
+`SUPERWALL_ENVIRONMENT`; provider credentials and configured IDs are stored as Actions secrets
+and synchronized to the Worker. `test` is required outside production and `production` in
+production. A gate set to `true` requires the matching complete lifecycle group. A gate set to
+`false` disables only new acquisition, not configured webhook, reconciliation, management, or
+cancellation paths for existing subscribers.
+
+Mobile Clerk, Superwall, AdMob identifiers/public SDK keys, and public legal URLs are owned by EAS
+Environments rather than the Worker. Never put `SUPERWALL_ORGANIZATION_API_KEY` or
+`SUPERWALL_WEBHOOK_SECRET` in a mobile build. See `apps/mobile/SETUP.md` for the exact public names.
 
 Repository variable:
 
@@ -94,13 +102,12 @@ ingestion and billing migrations, before enabling preview deploys.
   `PERSONAL_KNOWLEDGE_PURGE_TOKEN` to authenticate its request to production. GitHub Actions is
   the current scheduler; consider Cloudflare Cron only when several scheduled tasks warrant a
   custom Worker and unified Cloudflare operations.
-- The hourly Toss renewal workflow is also separate from deployment. It skips safely unless
-  `TOSS_BILLING_ENABLED` is exactly `true` and the complete production credential group is
-  present, then authenticates the internal endpoint with `TOSS_BILLING_CRON_TOKEN`. The current
-  release rejects `true` and also keeps a compile-time runtime fuse closed. Keep the gate false
-  or absent until a later reviewed PR opens it after the automatic-billing contract and sandbox failure/recovery,
-  renewal, cancellation, and cross-provider attempt tests are complete. Toss is exclusive:
-  Stripe and RevenueCat server groups must be absent before adding the gate as the final secret.
-  The Worker validator cannot see EAS or provider dashboards, so separately disable old Stripe
-  Checkout surfaces and RevenueCat/store offerings before activation.
+- Production deployment leaves legacy Stripe, RevenueCat, and Toss Worker keys untouched during
+  the Billing V1 mixed-version and rollback window. Remove them manually only in a separately
+  reviewed cleanup after independent provider-dashboard and database absence checks for legacy
+  subscribers, agreements, billing keys, pending charges, and unprojected state.
+- Keep both billing acquisition gates false until the external evidence checklist in
+  `docs/reference/monetization.md` is complete. Environment validation cannot prove merchant
+  approval, provider products/webhooks, store agreements, physical-device purchases, refunds,
+  payouts, or production delivery.
 - Preview cleanup runs every six hours. It deletes versions only after their PR is closed: 24 hours after a merge, or 7 days after an unmerged close. A reopened/open PR is retained. Run the workflow manually with its dry-run input before an ad-hoc cleanup.

@@ -29,6 +29,7 @@ import {
 import { mobileApi, type GraphCardSummary, type PersonalNoteSummary } from '@/api';
 import { isCurrentPrivateGraphOwner } from '@/browse-concepts';
 import { useMobileAuth } from '@/auth';
+import { useSubscription } from '@/subscriptions';
 import { LanguageSelector } from '@/components/language-selector';
 import { KnowledgeText } from '@/components/knowledge-text';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
@@ -42,6 +43,7 @@ const EMPTY_CARDS_BY_NODE_ID = new Map<string, GraphCardSummary>();
 export default function HomeScreen() {
   const router = useRouter();
   const auth = useMobileAuth();
+  const subscription = useSubscription();
   const { isSignedIn, userId } = auth;
   const { direction, formatNumber, locale, t } = useI18n();
   const [selectedDomain, setSelectedDomain] = useState<DomainOption>('All');
@@ -52,7 +54,11 @@ export default function HomeScreen() {
   const domains = useMemo(() => getDomainOptions(), []);
   const featuredNodes = useMemo(() => getFeaturedNodes(), []);
   const levelCount = useMemo(() => getLevelCount(), []);
-  const visibleNodes = useMemo(() => filterNodes({ domain: selectedDomain, limit: 36 }), [selectedDomain]);
+  const visibleNodes = useMemo(() => filterNodes({
+    domain: selectedDomain,
+    fullPublicMap: subscription.isAdFree,
+    limit: subscription.isAdFree ? null : 36,
+  }), [selectedDomain, subscription.isAdFree]);
   const prerequisiteCount = useMemo(() => getPrerequisiteCount(selectedNode.id), [selectedNode.id]);
   const [personalNotes, setPersonalNotes] = useState<PersonalNoteSummary[]>([]);
   const [cardsByNodeId, setCardsByNodeId] = useState<Map<string, GraphCardSummary>>(new Map());
@@ -98,6 +104,16 @@ export default function HomeScreen() {
     router.push({ pathname: '/topic/[id]', params: { id: selectedNode.id } });
   }
 
+  async function signOut() {
+    try {
+      await subscription.resetIdentity();
+    } catch (error) {
+      console.warn('Superwall identity reset will be retried before the next sign-in.', error);
+    } finally {
+      await auth.signOut();
+    }
+  }
+
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
       <FlatList
@@ -112,7 +128,7 @@ export default function HomeScreen() {
                 <Text style={styles.title}>{t('home.title')}</Text>
               </View>
               <View style={styles.headerActions}>
-                <Pressable accessibilityRole="button" onPress={() => isSignedIn ? void auth.signOut() : router.push('/sign-in' as Href)} style={styles.accountButton}>
+                <Pressable accessibilityRole="button" onPress={() => isSignedIn ? void signOut() : router.push('/sign-in' as Href)} style={styles.accountButton}>
                   <Text style={styles.accountButtonText}>{isSignedIn ? t('auth.signOut') : t('auth.signIn')}</Text>
                 </Pressable>
                 <LanguageSelector />

@@ -7,9 +7,12 @@ import { createHash } from 'node:crypto';
 // exact hash domain and lock prefix.
 export const ACCOUNT_LIFECYCLE_DOMAIN = 'girapphe:mcp-account-lifecycle:v1';
 export const ACCOUNT_LIFECYCLE_LOCK_PREFIX = 'mcp-account-lifecycle';
-const ACCOUNT_BILLING_OPERATION_DOMAIN = 'girapphe:account-billing-operation:v1';
+const ACCOUNT_BILLING_OPERATION_DOMAIN = 'girapphe:account-billing-operation:v2';
 
-export type AccountBillingOperationProvider = 'stripe' | 'toss';
+// Stripe and Toss are transitional lifecycle-only providers. Keeping them in
+// the account-wide lease domain lets cancellation/renewal finish safely while
+// their acquisition routes remain absent.
+export type AccountBillingOperationProvider = 'creem' | 'superwall' | 'stripe' | 'toss';
 
 export function deriveDeletedAccountScopeKey(userId: string): string {
   return createHash('sha256')
@@ -21,14 +24,11 @@ export function deriveAccountAdvisoryLockKey(userId: string): string {
   return `${ACCOUNT_LIFECYCLE_LOCK_PREFIX}:${deriveDeletedAccountScopeKey(userId)}`;
 }
 
-export function deriveAccountBillingOperationEventId(
-  userId: string,
-  provider: AccountBillingOperationProvider,
-): string {
+export function deriveAccountBillingOperationScopeKey(userId: string): string {
   const fingerprint = createHash('sha256')
-    .update(`${ACCOUNT_BILLING_OPERATION_DOMAIN}\0${provider}\0${userId}`, 'utf8')
+    .update(`${ACCOUNT_BILLING_OPERATION_DOMAIN}\0${userId}`, 'utf8')
     .digest('hex');
-  return `account-billing:${fingerprint}`;
+  return fingerprint;
 }
 
 export type AccountLifecycleQuery = { text: string; params: unknown[] };
@@ -44,21 +44,24 @@ export function buildAccountDeletionFenceQueries(userId: string): AccountLifecyc
              SELECT $1, NOW()
              WHERE NOT EXISTS (
                SELECT 1
-               FROM billing_webhook_events
-               WHERE processed_at IS NULL
-                 AND created_at >= NOW() - INTERVAL '10 minutes'
-                 AND (
-                   (provider = 'stripe' AND event_id = $2)
-                   OR (provider = 'toss' AND event_id = $3)
-                 )
+               FROM billing_account_operations
+               WHERE scope_key = $2
+                 AND expires_at > NOW()
+             )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM billing_acquisition_blocks
+               WHERE user_id = $3
+                 AND reason = 'mobile_purchase_pending'
+                 AND resolved_at IS NULL
              )
              ON CONFLICT (scope_key) DO UPDATE SET
                deleted_at = mcp_deleted_account_markers.deleted_at
              RETURNING scope_key`,
       params: [
         deriveDeletedAccountScopeKey(userId),
-        deriveAccountBillingOperationEventId(userId, 'stripe'),
-        deriveAccountBillingOperationEventId(userId, 'toss'),
+        deriveAccountBillingOperationScopeKey(userId),
+        userId,
       ],
     },
   ];

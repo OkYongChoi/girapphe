@@ -304,6 +304,7 @@ test('an environment-less sandbox transfer cannot mutate any subscription row', 
       moved.push(subscription);
       return true;
     },
+    async () => false,
   );
 
   assert.deepEqual(requestedUsers, ['user_destination']);
@@ -323,6 +324,7 @@ test('an environment-less sandbox transfer cannot mutate any subscription row', 
       moved.push(subscription);
       return true;
     },
+    async () => false,
   );
   assert.equal(moved.length, 1);
   assert.equal(
@@ -347,6 +349,7 @@ test('an environment-less sandbox transfer cannot mutate any subscription row', 
       moved.push(subscription);
       return true;
     },
+    async () => false,
   );
   assert.equal(moved.length, 1);
 });
@@ -355,17 +358,26 @@ test('a transfer moves only the exact production transaction verified for its de
   const verifiedAt = new Date('2030-01-01T00:00:00.000Z');
   const moved: unknown[] = [];
   const verifiedSubscription = {
+    provider: 'revenuecat' as const,
+    environment: 'production' as const,
+    providerCustomerId: 'user_destination',
     providerSubscriptionId: 'production_transaction_456',
+    providerEventId: null,
     userId: 'user_destination',
     store: 'play_store' as const,
+    productId: 'android.annual',
     plan: 'annual' as const,
-    status: 'active',
-    entitlement: 'ad_free',
+    status: 'active' as const,
+    entitlement: 'ad_free' as const,
     currentPeriodStart: verifiedAt,
     currentPeriodEnd: new Date('2031-01-01T00:00:00.000Z'),
     trialEnd: null,
     cancelAtPeriodEnd: false,
+    autoRenew: true,
     providerEventAt: verifiedAt,
+    lastReconciledAt: verifiedAt,
+    graceReason: null,
+    graceExpiresAt: null,
   };
 
   await processRevenueCatTransfer(
@@ -383,6 +395,7 @@ test('a transfer moves only the exact production transaction verified for its de
       moved.push(subscription);
       return true;
     },
+    async () => false,
   );
 
   assert.deepEqual(moved, [verifiedSubscription]);

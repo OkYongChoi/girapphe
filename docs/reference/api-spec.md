@@ -144,27 +144,37 @@ event whose hidden structured fields it cannot preserve.
 ## Billing and entitlement endpoints
 
 - `GET /api/billing/entitlement`: authenticated, no-store provider-neutral `ad_free` lookup
-  used by mobile to honor Stripe, Toss, or reconciled RevenueCat state for the same Clerk user.
-- `POST /api/billing/checkout`: same-origin, signed-in Stripe Checkout creation for a
-  `monthly` or `annual` plan. Existing nonterminal subscriptions block a second checkout.
-- `POST /api/billing/portal`: same-origin, signed-in Stripe Customer Portal session, limited
-  to ten provider attempts per user in each ten-minute window. Excess attempts return `429`
-  with `Retry-After: 600` before Stripe is called.
-- `POST /api/billing/toss/prepare`: creates a signed-in, one-time Toss billing-authorization
-  state bound to the user, customer key, and selected plan. It returns unavailable unless
-  `TOSS_BILLING_ENABLED` is exactly `true` and the complete Toss configuration is present.
-- `GET /api/billing/toss/callback`: verifies and consumes that server state before exchanging
-  Toss's one-time authorization value; the callback redirects to a clean subscription URL.
-- `POST /api/billing/toss/cancel`: same-origin cancellation of future Girapphe-scheduled Toss
-  renewals. Already-paid access remains through its recorded period end.
-- `POST /api/webhooks/stripe`: raw-body Stripe signature verification followed by an
-  authoritative subscription fetch and idempotent entitlement reconciliation.
-- `POST /api/webhooks/revenuecat`: configured authorization plus raw-body signature,
-  app/environment checks, and authoritative RevenueCat subscriber reconciliation.
-- `POST /api/internal/toss-subscription-charge`: bearer-protected production scheduler target.
-  It is fail-closed behind the same explicit Toss gate and reconciles durable paid rows before
-  attempting bounded due renewals.
+  used by web and mobile to honor any valid qualifying provider subscription for the same Clerk
+  user. The response also reports provider/plan/management metadata and the independently
+  configured web/mobile acquisition gates.
+- `POST /api/billing/checkout`: same-origin, signed-in Creem hosted-checkout creation. The only
+  accepted plan is `annual`; the server selects the configured USD 10.00 tax-inclusive product.
+  Existing entitlement, an account-deletion marker, an acquisition block, or an unresolved
+  checkout prevents a second provider request.
+- `POST /api/billing/portal`: same-origin, signed-in Creem customer-portal creation for a mapped
+  provider customer. This remains a lifecycle operation when new web acquisition is disabled.
+- `POST /api/billing/superwall/identity`: authenticated registration of the current Clerk user as
+  a provider account identity. Email and app-authored ownership claims are not accepted.
+- `POST /api/billing/superwall/reconcile`: authenticated, bounded authoritative reconciliation
+  after mobile initialization, purchase, or restore. The server fetches Superwall state for the
+  current Clerk user rather than trusting a purchase payload supplied by the app.
+- `POST|DELETE /api/billing/superwall/purchase-operation`: claims or releases an opaque,
+  account-scoped mobile purchase fence. It never accepts a purchase or entitlement claim and
+  never invokes the store itself.
+- `POST /api/webhooks/creem`: raw-body `creem-signature` verification, idempotent event leasing,
+  authoritative subscription retrieval, and order-safe reconciliation.
+- `POST /api/webhooks/superwall`: raw-body Svix signature verification, configured project/app,
+  store, environment, and product scoping, followed by authoritative subscription retrieval and
+  order-safe reconciliation.
 
 Redirects, callback query strings, and mobile client state are not accepted as server-side proof
-of a web entitlement. See [Ads and subscriptions](./monetization.md) for provider contracts and
-operational activation requirements.
+of an entitlement. Lifecycle processing is separate from the two acquisition gates, so disabling
+new purchases does not disable webhooks, reconciliation, management, or cancellation. See
+[Ads and subscriptions](./monetization.md) for provider contracts and activation evidence.
+
+The mobile adapter freezes one Clerk token for each billing operation and sends the captured
+Clerk ID in `X-Girapphe-Expected-Billing-Subject`. Mobile mutation routes reject a missing or
+mismatched expected subject before changing state. Successful entitlement, identity,
+reconciliation, claim, and release responses echo `X-Girapphe-Billing-Subject`; the app rejects a
+response that is not bound to the captured account. Browser callers of the shared entitlement
+read may omit the expected-subject header.

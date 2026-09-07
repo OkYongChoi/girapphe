@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" eyebrow="Your data, under your control" updated="August 25, 2026">
+    <LegalPage title="Privacy Policy" eyebrow="Your data, under your control" updated="September 8, 2026">
       <section>
         <h2>1. Scope</h2>
         <p>
@@ -26,7 +26,7 @@ export default function PrivacyPage() {
           <li>Account data, such as your email address, authentication status, and a service-specific user identifier.</li>
           <li>Learning data, including notes, reviewed drafts, saved concepts, ratings, progress, and private graph relationships.</li>
           <li>Technical data needed to operate and secure the service, such as request metadata, locale, guest/session identifiers, rate-limit records, and error logs.</li>
-          <li>Subscription and transaction references, entitlement status, plan, store, renewal status, and provider event identifiers. Girapphe does not receive full App Store or Google Play payment card numbers.</li>
+          <li>Subscription and transaction references, entitlement status, plan, store, renewal status, and provider event identifiers. Girapphe does not collect or store raw payment-card details.</li>
           <li>Advertising and consent signals needed to show, measure, limit, or remove sponsored cards. The current mobile implementation requests non-personalized ads only after the applicable consent flow permits an ad request.</li>
         </ul>
       </section>
@@ -44,9 +44,10 @@ export default function PrivacyPage() {
         <h2>4. Service providers</h2>
         <p>
           Girapphe uses vendors that process information for specific operational purposes: Clerk for authentication; Neon/Postgres
-          for application data; Cloudflare for hosting and security; RevenueCat, Apple, and Google for mobile purchases; Stripe and
-          Toss Payments for supported web payments; Google Mobile Ads and its consent tooling for mobile advertising; and Expo/EAS
-          for mobile builds and delivery. Each provider handles information under its own terms and privacy commitments.
+          for application data; Cloudflare for hosting and security; Creem for hosted web checkout, subscription management, and
+          tax/payment processing; Superwall, Apple, and Google for mobile purchase and subscription infrastructure; Google Mobile
+          Ads and its consent tooling for mobile advertising; and Expo/EAS for mobile builds and delivery. Each provider handles
+          information under its own terms and privacy commitments.
         </p>
       </section>
 
@@ -73,7 +74,7 @@ export default function PrivacyPage() {
         <ul>
           <li>Review, edit, restore, or delete private notes from My Notes.</li>
           <li>Change supported ad privacy choices from Account in a configured mobile build.</li>
-          <li>Restore purchases or manage a subscription through the store used to subscribe.</li>
+          <li>Restore purchases or manage a subscription through Creem, the App Store, or Google Play according to where you subscribed.</li>
           <li><Link href="/account/delete">Delete your account and associated product data</Link> from the web or the in-app Account screen.</li>
           <li>Contact <a href="mailto:privacy@girapphe.com">privacy@girapphe.com</a> for access, correction, deletion, or privacy questions.</li>
         </ul>

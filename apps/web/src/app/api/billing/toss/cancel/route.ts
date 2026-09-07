@@ -1,6 +1,6 @@
 import { getCurrentUser } from '@/lib/auth';
 import { cancelTossBilling } from '@/lib/billing/toss-subscriptions';
-import { requestHasTrustedOrigin } from '@/lib/billing/stripe';
+import { requestHasTrustedOrigin } from '@/lib/billing/request-security';
 import { isTossBillingConfigured } from '@/lib/billing/toss';
 import { NextResponse } from 'next/server';
 

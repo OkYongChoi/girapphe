@@ -14,7 +14,10 @@ The platform maintains six main data groups:
    (`knowledge_ingestion_batches`, `knowledge_card_drafts`,
    `knowledge_card_sources`, `mcp_access_tokens`,
    `mcp_request_rate_limits`, `mcp_deleted_account_markers`)
-6. Billing and entitlements (`billing_customers`, `billing_subscriptions`, `billing_webhook_events`, `toss_billing_agreements`, `toss_billing_sessions`, `toss_billing_charges`)
+6. Billing and entitlements (`billing_provider_accounts`,
+   `billing_subscriptions`, `billing_checkout_attempts`,
+   `billing_acquisition_blocks`, `billing_webhook_events`, and
+   `billing_account_operations`)
 
 Card model now separates:
 
@@ -143,20 +146,42 @@ knowledge, practice, PAT, OAuth, MCP, and new billing-initiation writes after ac
 
 ## Billing and Entitlements
 
-`billing_customers` maps a Clerk user to provider customer identifiers and owns the shared,
-one-time trial marker. `billing_subscriptions` is the provider-neutral source for the
-`ad_free` entitlement, current period, cancellation state, and provider event ordering.
-`billing_webhook_events` makes signed provider processing idempotent and also holds bounded,
-owner-tokened Stripe/Toss account-operation leases. Lease IDs are domain-separated hashes and
-never contain raw Clerk user IDs; exact owner tokens prevent an old worker from releasing a
-new stale-takeover lease.
+`billing_provider_accounts` maps a Clerk user ID to a stable provider customer or
+app-user identity, scoped by provider and test/production environment. Email is
+not an ownership key. A provider identity already owned by another Clerk user
+cannot be reassigned by an event payload.
 
-Toss uses three additional server-owned records. `toss_billing_sessions` stores a
-short-lived, one-time checkout nonce bound to user, customer, and plan;
-`toss_billing_agreements` stores only an AES-GCM encrypted billing key plus renewal state; and
-`toss_billing_charges` persists the exact plan, cycle, amount, and stable order ID before any
-provider charge. A paid charge remains reconcilable without contacting Toss again if a later
-database write fails.
+`billing_subscriptions` is the provider-neutral projection for Creem,
+Superwall/App Store, Superwall/Play Store, and any preserved historical provider
+record. For Superwall, `provider_subscription_id` is the stable subscription
+resource `item.id`; `provider_root_transaction_id` separately correlates the
+store root/original transaction and `provider_store_subscription_id` retains the
+current store transaction/order, which may rotate on renewal. It also retains
+store, product, environment, plan, normalized status, period, renewal state,
+provider event ordering, last successful reconciliation, and fixed billing or
+verification grace. The canonical `ad_free` decision is the union of every
+currently valid qualifying row, not the last row written.
+
+`billing_checkout_attempts` records the server-selected Creem annual product and
+idempotent request before a provider call. Exactly one creating, open, or
+indeterminate attempt may exist per user. An uncertain response remains blocked
+until provider or operator reconciliation; local expiry does not prove no charge.
+
+`billing_acquisition_blocks` preserves duplicate-subscription and manual-review
+holds independently of subscription rows. Detecting a later valid provider row
+does not delete financial history. V1 resolution is an explicit operator action
+after cancellation/refund and reconciliation.
+
+`billing_webhook_events` is an environment-aware idempotency ledger with bounded
+processing leases, attempts, failure identifiers, provider-event time, and final
+completion time. A handler marks an event complete only after its local state
+update succeeds, so a duplicate can finish a partial failure. Order-safe
+subscription writes prevent old events from replacing newer provider state.
+
+`billing_account_operations` stores short-lived, owner-tokened acquisition
+locks under domain-separated hashed account scopes. Account deletion uses the
+same per-account advisory fence and a permanent hashed deletion marker before
+new billing initiation writes. No operation row contains a raw Clerk user ID.
 
 ## Tri-State Semantics
 
@@ -195,12 +220,12 @@ Private knowledge and ingestion tables:
 
 Billing tables:
 
-- `billing_customers`
+- `billing_provider_accounts`
 - `billing_subscriptions`
+- `billing_checkout_attempts`
+- `billing_acquisition_blocks`
 - `billing_webhook_events`
-- `toss_billing_sessions`
-- `toss_billing_agreements`
-- `toss_billing_charges`
+- `billing_account_operations`
 
 Card tables:
 

@@ -1,7 +1,7 @@
 # Girapphe mobile store release
 
 This checklist separates source readiness from external activation. A passing local export does
-not prove that Apple, Google, Clerk, RevenueCat, AdMob, or EAS is configured.
+not prove that Apple, Google, Clerk, Superwall, AdMob, or EAS is configured.
 
 ## Source gates
 
@@ -39,12 +39,13 @@ identifier has already been reserved under a different value, update source befo
 1. Create or verify the Expo, Apple Developer/App Store Connect, and Google Play Console accounts.
 2. Run `eas:init`, then configure all public production values named in `apps/mobile/.env.example`
    in the EAS `production` Environment. Do not place server secrets in `EXPO_PUBLIC_*` variables.
-3. Create the exact iOS and Android apps in Clerk, RevenueCat, AdMob, and both stores. Test the same
-   Clerk account on web and mobile.
+3. Create the exact iOS and Android apps in Clerk, Superwall, AdMob, and both stores. Configure the
+   same monthly/annual Apple and Google products in Superwall, do not register a Superwall-rendered
+   paywall, and test the same Clerk account on web and mobile.
 4. Publish final Terms, Privacy, Support, and account-deletion pages. Have qualified counsel review
    the repository's initial legal copy and activate `support@girapphe.com` and `privacy@girapphe.com`.
 5. Complete App Store privacy answers and Google Play Data safety from observed SDK/runtime behavior.
-   The app uses Clerk auth, private synced content, RevenueCat/store purchases, and consent-gated,
+   The app uses Clerk auth, private synced content, Superwall/store purchases, and consent-gated,
    non-personalized Google Native Ads. Do not mark data as uncollected solely because Girapphe does
    not read full card numbers.
 6. In Play Console, set the account-deletion URL to
@@ -58,7 +59,10 @@ identifier has already been reserved under a different value, update source befo
    developer domain before enabling production ad units.
 10. Use physical iOS and Android devices with sandbox/license-test accounts to verify sign-up,
     session persistence, note CRUD/trash/restore, practice sync, purchase, restore, cancellation,
-    ad consent, ad-free removal, account switching, and account deletion.
+    expiration, refund/revocation, Superwall server events, canonical `ad_free`, ad consent,
+    account switching without entitlement leakage, and account deletion. Store-localized prices
+    must render; do not configure a new introductory/free trial. Report any already-live store
+    trial separately rather than changing it during source delivery.
 
 ## Build and submission
 

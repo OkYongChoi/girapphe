@@ -682,6 +682,8 @@ CREATE INDEX IF NOT EXISTS idx_mcp_request_rate_limits_stale_credentials
 ON mcp_request_rate_limits(updated_at, scope_key)
 WHERE scope_key LIKE 'credential:%';
 
+-- Transitional legacy billing state remains available until provider-dashboard
+-- evidence proves that every Stripe/Toss lifecycle can be retired safely.
 CREATE TABLE IF NOT EXISTS billing_customers (
   user_id TEXT PRIMARY KEY,
   stripe_customer_id TEXT UNIQUE,
@@ -698,46 +700,12 @@ CREATE TABLE IF NOT EXISTS billing_customers (
 CREATE TABLE IF NOT EXISTS toss_prepare_rate_limits (
   user_id TEXT PRIMARY KEY,
   window_started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-  request_count INTEGER NOT NULL DEFAULT 0 CHECK (request_count >= 0),
-  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+  request_count INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT toss_prepare_rate_limits_count_check CHECK (request_count >= 0)
 );
-
 CREATE INDEX IF NOT EXISTS idx_toss_prepare_rate_limits_updated_at
 ON toss_prepare_rate_limits(updated_at);
-
-CREATE TABLE IF NOT EXISTS billing_subscriptions (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  provider TEXT NOT NULL CHECK (provider IN ('stripe', 'toss', 'revenuecat')),
-  provider_subscription_id TEXT NOT NULL,
-  store TEXT CHECK (store IS NULL OR store IN ('web', 'app_store', 'play_store', 'stripe', 'promotional')),
-  plan TEXT NOT NULL CHECK (plan IN ('monthly', 'annual')),
-  status TEXT NOT NULL CHECK (status IN ('incomplete', 'trialing', 'active', 'past_due', 'paused', 'canceled', 'expired')),
-  entitlement TEXT NOT NULL DEFAULT 'ad_free' CHECK (entitlement = 'ad_free'),
-  current_period_start TIMESTAMP WITH TIME ZONE,
-  current_period_end TIMESTAMP WITH TIME ZONE,
-  trial_end TIMESTAMP WITH TIME ZONE,
-  cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
-  provider_event_at TIMESTAMP WITH TIME ZONE,
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-  CONSTRAINT billing_subscriptions_provider_reference_key UNIQUE(provider, provider_subscription_id)
-);
-CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_user_entitlement
-ON billing_subscriptions(user_id, entitlement, status);
-CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_period_end
-ON billing_subscriptions(current_period_end);
-
-CREATE TABLE IF NOT EXISTS billing_webhook_events (
-  provider TEXT NOT NULL CHECK (provider IN ('stripe', 'revenuecat', 'toss')),
-  event_id TEXT NOT NULL,
-  event_type TEXT NOT NULL,
-  processed_at TIMESTAMP WITH TIME ZONE,
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-  PRIMARY KEY(provider, event_id)
-);
-CREATE INDEX IF NOT EXISTS idx_billing_webhook_events_pending
-ON billing_webhook_events(created_at) WHERE processed_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS toss_billing_key_intents (
   id TEXT PRIMARY KEY,
@@ -749,8 +717,9 @@ CREATE TABLE IF NOT EXISTS toss_billing_key_intents (
   auth_key_ciphertext TEXT,
   billing_key_ciphertext TEXT,
   billing_key_fingerprint TEXT,
-  status TEXT NOT NULL DEFAULT 'issuing'
-    CHECK (status IN ('issuing', 'cleanup_pending', 'live', 'cleaned', 'manual_review')),
+  status TEXT NOT NULL DEFAULT 'issuing' CHECK (
+    status IN ('issuing', 'cleanup_pending', 'live', 'cleaned', 'manual_review')
+  ),
   issue_attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (issue_attempt_count >= 0),
   cleanup_attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (cleanup_attempt_count >= 0),
   processing_started_at TIMESTAMP WITH TIME ZONE,
@@ -760,7 +729,7 @@ CREATE TABLE IF NOT EXISTS toss_billing_key_intents (
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
   CONSTRAINT toss_billing_key_intents_id_agreement_user_key
-    UNIQUE (id, agreement_id, user_id),
+    UNIQUE(id, agreement_id, user_id),
   CONSTRAINT toss_billing_key_intents_material_check CHECK (
     (status = 'issuing'
       AND provider_idempotency_key IS NOT NULL
@@ -782,11 +751,9 @@ CREATE TABLE IF NOT EXISTS toss_billing_key_intents (
       AND billing_key_fingerprint IS NULL)
   )
 );
-
 CREATE INDEX IF NOT EXISTS idx_toss_billing_key_intents_recovery
 ON toss_billing_key_intents(status, updated_at)
 WHERE status IN ('issuing', 'cleanup_pending');
-
 CREATE INDEX IF NOT EXISTS idx_toss_billing_key_intents_agreement
 ON toss_billing_key_intents(agreement_id, status);
 
@@ -796,7 +763,9 @@ CREATE TABLE IF NOT EXISTS toss_billing_agreements (
   billing_key_ciphertext TEXT NOT NULL,
   billing_key_intent_id TEXT,
   plan TEXT NOT NULL CHECK (plan IN ('monthly', 'annual')),
-  status TEXT NOT NULL CHECK (status IN ('incomplete', 'trialing', 'active', 'past_due', 'paused', 'canceled')),
+  status TEXT NOT NULL CHECK (
+    status IN ('incomplete', 'trialing', 'active', 'past_due', 'paused', 'canceled')
+  ),
   current_period_start TIMESTAMP WITH TIME ZONE NOT NULL,
   current_period_end TIMESTAMP WITH TIME ZONE NOT NULL,
   next_charge_at TIMESTAMP WITH TIME ZONE,
@@ -805,7 +774,8 @@ CREATE TABLE IF NOT EXISTS toss_billing_agreements (
   processing_token TEXT,
   cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
   billing_key_cleanup_required BOOLEAN NOT NULL DEFAULT FALSE,
-  billing_key_cleanup_attempts INTEGER NOT NULL DEFAULT 0 CHECK (billing_key_cleanup_attempts >= 0),
+  billing_key_cleanup_attempts INTEGER NOT NULL DEFAULT 0
+    CHECK (billing_key_cleanup_attempts >= 0),
   billing_key_cleanup_last_error TEXT,
   billing_key_deleted_at TIMESTAMP WITH TIME ZONE,
   last_payment_key TEXT,
@@ -821,7 +791,6 @@ CREATE TABLE IF NOT EXISTS toss_billing_agreements (
 CREATE INDEX IF NOT EXISTS idx_toss_billing_agreements_due
 ON toss_billing_agreements(next_charge_at)
 WHERE next_charge_at IS NOT NULL AND cancel_at_period_end = FALSE;
-
 CREATE INDEX IF NOT EXISTS idx_toss_billing_agreements_key_cleanup
 ON toss_billing_agreements(updated_at)
 WHERE billing_key_cleanup_required = TRUE;
@@ -831,23 +800,20 @@ CREATE TABLE IF NOT EXISTS toss_billing_sessions (
   user_id TEXT NOT NULL,
   customer_key TEXT NOT NULL,
   plan TEXT NOT NULL CHECK (plan IN ('monthly', 'annual')),
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'consumed', 'failed', 'abandoned')),
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'processing', 'consumed', 'failed', 'abandoned')),
   expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
   processing_started_at TIMESTAMP WITH TIME ZONE,
   consumed_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
-
 CREATE INDEX IF NOT EXISTS idx_toss_billing_sessions_user_status
 ON toss_billing_sessions(user_id, status, expires_at);
-
 CREATE INDEX IF NOT EXISTS idx_toss_billing_sessions_cleanup
 ON toss_billing_sessions(status, updated_at);
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_toss_billing_sessions_one_pending
-ON toss_billing_sessions(user_id)
-WHERE status = 'pending';
+ON toss_billing_sessions(user_id) WHERE status = 'pending';
 
 CREATE TABLE IF NOT EXISTS toss_billing_charges (
   order_id TEXT PRIMARY KEY,
@@ -858,7 +824,8 @@ CREATE TABLE IF NOT EXISTS toss_billing_charges (
   amount_krw INTEGER NOT NULL CHECK (amount_krw > 0),
   period_start TIMESTAMP WITH TIME ZONE NOT NULL,
   period_end TIMESTAMP WITH TIME ZONE NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'applied', 'canceled', 'abandoned')),
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'paid', 'applied', 'canceled', 'abandoned')),
   payment_key TEXT UNIQUE,
   attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
   last_error_code TEXT,
@@ -867,13 +834,167 @@ CREATE TABLE IF NOT EXISTS toss_billing_charges (
   CONSTRAINT toss_billing_charges_agreement_cycle_key UNIQUE(agreement_id, cycle_key),
   CONSTRAINT toss_billing_charges_period_check CHECK (period_end > period_start)
 );
-
 CREATE INDEX IF NOT EXISTS idx_toss_billing_charges_reconciliation
 ON toss_billing_charges(status, updated_at);
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_toss_billing_charges_one_unresolved
-ON toss_billing_charges(agreement_id)
-WHERE status IN ('pending', 'paid');
+ON toss_billing_charges(agreement_id) WHERE status IN ('pending', 'paid');
+
+CREATE TABLE IF NOT EXISTS billing_provider_accounts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL CHECK (provider IN ('creem', 'superwall', 'stripe', 'revenuecat', 'toss')),
+  environment TEXT NOT NULL CHECK (environment IN ('test', 'production')),
+  provider_customer_id TEXT NOT NULL,
+  last_reconciled_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT billing_provider_accounts_provider_customer_key
+    UNIQUE(provider, environment, provider_customer_id)
+);
+CREATE INDEX IF NOT EXISTS idx_billing_provider_accounts_user_provider_environment
+ON billing_provider_accounts(user_id, provider, environment);
+
+CREATE SEQUENCE IF NOT EXISTS billing_reconciliation_generation_seq;
+
+CREATE TABLE IF NOT EXISTS billing_subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL CHECK (provider IN ('creem', 'superwall', 'stripe', 'revenuecat', 'toss')),
+  environment TEXT NOT NULL DEFAULT 'production' CHECK (environment IN ('test', 'production')),
+  provider_customer_id TEXT,
+  provider_subscription_id TEXT NOT NULL,
+  provider_root_transaction_id TEXT,
+  provider_store_subscription_id TEXT,
+  provider_event_id TEXT,
+  store TEXT NOT NULL CHECK (store IN ('web', 'app_store', 'play_store', 'promotional')),
+  product_id TEXT,
+  plan TEXT NOT NULL CHECK (plan IN ('monthly', 'annual')),
+  status TEXT NOT NULL CHECK (status IN (
+    'incomplete', 'trialing', 'active', 'past_due', 'paused',
+    'canceled', 'expired', 'refunded', 'revoked'
+  )),
+  entitlement TEXT NOT NULL DEFAULT 'ad_free' CHECK (entitlement = 'ad_free'),
+  current_period_start TIMESTAMP WITH TIME ZONE,
+  current_period_end TIMESTAMP WITH TIME ZONE,
+  paid_period_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  trial_end TIMESTAMP WITH TIME ZONE,
+  cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_renew BOOLEAN,
+  provider_event_at TIMESTAMP WITH TIME ZONE,
+  provider_resource_updated_at TIMESTAMP WITH TIME ZONE,
+  reconciliation_generation BIGINT,
+  last_reconciled_at TIMESTAMP WITH TIME ZONE,
+  grace_reason TEXT,
+  grace_expires_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT billing_subscriptions_provider_reference_key
+    UNIQUE(provider, provider_subscription_id),
+  CONSTRAINT billing_subscriptions_provider_environment_reference_key
+    UNIQUE(provider, environment, provider_subscription_id),
+  CONSTRAINT billing_subscriptions_grace_check CHECK (
+    (grace_reason IS NULL AND grace_expires_at IS NULL)
+    OR (grace_reason IN ('billing', 'verification') AND grace_expires_at IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_user_entitlement
+ON billing_subscriptions(user_id, entitlement, status);
+CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_period_end
+ON billing_subscriptions(current_period_end);
+CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_provider_customer
+ON billing_subscriptions(provider, environment, provider_customer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_subscriptions_provider_root_transaction
+ON billing_subscriptions(provider, environment, provider_root_transaction_id)
+WHERE provider_root_transaction_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_provider_store_subscription
+ON billing_subscriptions(provider, environment, provider_store_subscription_id);
+
+CREATE TABLE IF NOT EXISTS billing_checkout_attempts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL CHECK (provider IN ('creem', 'superwall')),
+  environment TEXT NOT NULL CHECK (environment IN ('test', 'production')),
+  plan TEXT NOT NULL CHECK (plan IN ('monthly', 'annual')),
+  product_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN (
+    'creating', 'open', 'indeterminate', 'completed', 'expired', 'abandoned', 'failed'
+  )),
+  provider_customer_id TEXT,
+  provider_checkout_id TEXT,
+  checkout_url TEXT,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  provider_event_at TIMESTAMP WITH TIME ZONE,
+  last_error_code TEXT,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_checkout_attempts_provider_checkout
+ON billing_checkout_attempts(provider, environment, provider_checkout_id)
+WHERE provider_checkout_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_checkout_attempts_one_unresolved
+ON billing_checkout_attempts(user_id)
+WHERE status IN ('creating', 'open', 'indeterminate');
+CREATE INDEX IF NOT EXISTS idx_billing_checkout_attempts_expiry
+ON billing_checkout_attempts(status, expires_at);
+
+CREATE TABLE IF NOT EXISTS billing_acquisition_blocks (
+  user_id TEXT NOT NULL,
+  reason TEXT NOT NULL CHECK (reason IN ('duplicate_subscription', 'manual_review', 'mobile_purchase_pending')),
+  operation_owner_token TEXT,
+  first_detected_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  resolved_at TIMESTAMP WITH TIME ZONE,
+  CHECK (
+    (reason = 'mobile_purchase_pending' AND operation_owner_token IS NOT NULL)
+    OR (reason <> 'mobile_purchase_pending' AND operation_owner_token IS NULL)
+  ),
+  PRIMARY KEY(user_id, reason)
+);
+CREATE INDEX IF NOT EXISTS idx_billing_acquisition_blocks_open
+ON billing_acquisition_blocks(updated_at) WHERE resolved_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS billing_request_rate_limits (
+  user_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('customer_portal', 'superwall_reconcile')),
+  window_started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  request_count INTEGER NOT NULL DEFAULT 0 CHECK (request_count >= 0),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  PRIMARY KEY(user_id, action)
+);
+CREATE INDEX IF NOT EXISTS idx_billing_request_rate_limits_stale
+ON billing_request_rate_limits(updated_at);
+
+CREATE TABLE IF NOT EXISTS billing_webhook_events (
+  provider TEXT NOT NULL CHECK (provider IN ('creem', 'superwall', 'stripe', 'revenuecat', 'toss')),
+  environment TEXT NOT NULL DEFAULT 'production' CHECK (environment IN ('test', 'production')),
+  event_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  provider_event_at TIMESTAMP WITH TIME ZONE,
+  processing_owner_token TEXT,
+  processing_started_at TIMESTAMP WITH TIME ZONE,
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  last_error_code TEXT,
+  processed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  PRIMARY KEY(provider, event_id),
+  CONSTRAINT billing_webhook_events_provider_environment_event_key
+    UNIQUE(provider, environment, event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_billing_webhook_events_pending
+ON billing_webhook_events(updated_at) WHERE processed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS billing_account_operations (
+  scope_key TEXT PRIMARY KEY CHECK (scope_key ~ '^[0-9a-f]{64}$'),
+  provider TEXT NOT NULL CHECK (provider IN ('creem', 'superwall', 'stripe', 'toss')),
+  operation TEXT NOT NULL CHECK (operation IN ('checkout', 'mobile_purchase', 'prepare', 'activation', 'renewal', 'reconciliation')),
+  owner_token TEXT NOT NULL,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_billing_account_operations_expiry
+ON billing_account_operations(expires_at);
 
 -- Initial Seed Data (Example)
 INSERT INTO knowledge_cards (id, title, summary, explanation, wiki_url, domain, level) VALUES
