@@ -1,3 +1,40 @@
+CREATE TABLE IF NOT EXISTS "billing_subscriptions" (
+  "id" text PRIMARY KEY,
+  "user_id" text NOT NULL,
+  "provider" text NOT NULL
+    CONSTRAINT "billing_subscriptions_provider_check"
+    CHECK ("provider" IN ('stripe', 'toss', 'revenuecat')),
+  "provider_subscription_id" text NOT NULL,
+  "store" text
+    CONSTRAINT "billing_subscriptions_store_check"
+    CHECK ("store" IS NULL OR "store" IN ('web', 'app_store', 'play_store', 'stripe', 'promotional')),
+  "plan" text NOT NULL CHECK ("plan" IN ('monthly', 'annual')),
+  "status" text NOT NULL
+    CONSTRAINT "billing_subscriptions_status_check"
+    CHECK ("status" IN ('incomplete', 'trialing', 'active', 'past_due', 'paused', 'canceled', 'expired')),
+  "entitlement" text NOT NULL DEFAULT 'ad_free' CHECK ("entitlement" = 'ad_free'),
+  "current_period_start" timestamp with time zone,
+  "current_period_end" timestamp with time zone,
+  "trial_end" timestamp with time zone,
+  "cancel_at_period_end" boolean NOT NULL DEFAULT false,
+  "provider_event_at" timestamp with time zone,
+  "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+  "updated_at" timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT "billing_subscriptions_provider_reference_key"
+    UNIQUE ("provider", "provider_subscription_id")
+);--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "billing_webhook_events" (
+  "provider" text NOT NULL
+    CONSTRAINT "billing_webhook_events_provider_check"
+    CHECK ("provider" IN ('stripe', 'revenuecat', 'toss')),
+  "event_id" text NOT NULL,
+  "event_type" text NOT NULL,
+  "processed_at" timestamp with time zone,
+  "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT "billing_webhook_events_pkey" PRIMARY KEY ("provider", "event_id")
+);--> statement-breakpoint
+
 ALTER TABLE "billing_subscriptions"
   ADD COLUMN IF NOT EXISTS "environment" text NOT NULL DEFAULT 'production';--> statement-breakpoint
 ALTER TABLE "billing_subscriptions"

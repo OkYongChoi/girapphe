@@ -15,7 +15,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0016_conversation_knowledge_hub.sql', 39],
     ['0017_supersession_replacement_tombstones.sql', 7],
     ['0018_expression_history_causality.sql', 11],
-    ['0019_billing_v1_domain.sql', 61],
+    ['0019_billing_v1_domain.sql', 63],
   ];
   for (const [name, expectedCount] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -41,6 +41,24 @@ test('preview upgrade reclassifies existing legacy billing rows and compatibilit
 
 test('billing V1 migration preserves mixed-version legacy contracts', async () => {
   const sql = await readFile(new URL('../drizzle/migrations/0019_billing_v1_domain.sql', import.meta.url), 'utf8');
+  const statements = parsePreviewMigration(sql);
+  const subscriptionBootstrap = statements.findIndex((statement) => (
+    /^CREATE TABLE IF NOT EXISTS "billing_subscriptions"/i.test(statement)
+  ));
+  const subscriptionUpgrade = statements.findIndex((statement) => (
+    /^ALTER TABLE "billing_subscriptions"/i.test(statement)
+  ));
+  const eventBootstrap = statements.findIndex((statement) => (
+    /^CREATE TABLE IF NOT EXISTS "billing_webhook_events"/i.test(statement)
+  ));
+  const eventUpgrade = statements.findIndex((statement) => (
+    /^ALTER TABLE "billing_webhook_events"/i.test(statement)
+  ));
+
+  assert.notEqual(subscriptionBootstrap, -1);
+  assert.notEqual(eventBootstrap, -1);
+  assert.ok(subscriptionBootstrap < subscriptionUpgrade);
+  assert.ok(eventBootstrap < eventUpgrade);
   assert.doesNotMatch(sql, /DROP TABLE/i);
   assert.doesNotMatch(
     sql,
