@@ -1431,7 +1431,8 @@ export async function createKnowledgeDraftBatchForUser(
 
   if (!process.env.DATABASE_URL) {
     const existing = Array.from(memoryBatches.values()).find(
-      (batch) => batch.user_id === userId && batch.provider === provider && batch.request_id === requestId
+      (batch) => batch.user_id === userId && batch.provider === provider
+        && batch.scope === scope && batch.request_id === requestId
     );
     if (existing) {
       return {
@@ -1552,14 +1553,14 @@ export async function createKnowledgeDraftBatchForUser(
           WHERE d.user_id = $2 AND b.mcp_token_id = $6
             AND d.created_at > NOW() - INTERVAL '1 hour'
         ) + jsonb_array_length($7::jsonb) <= $13)
-      ON CONFLICT (user_id, provider, request_id) DO NOTHING
+      ON CONFLICT DO NOTHING
       RETURNING id
     ), resolved_batch AS (
       SELECT id, TRUE AS created FROM inserted_batch
       UNION ALL
       SELECT b.id, FALSE AS created
       FROM knowledge_ingestion_batches b
-      WHERE b.user_id = $2 AND b.provider = $3 AND b.request_id = $4
+      WHERE b.user_id = $2 AND b.provider = $3 AND b.scope = $16 AND b.request_id = $4
         AND NOT EXISTS (SELECT 1 FROM inserted_batch)
       LIMIT 1
     ), inserted_drafts AS (

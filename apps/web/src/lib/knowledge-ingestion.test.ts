@@ -167,19 +167,27 @@ test('reuse activity rejects an expired selection without recording its active p
   assert.equal(getMemoryKnowledgeItemsForUser(userId).some((item) => item.id === expired.id), false);
 });
 
-test('creates an idempotent memory draft batch and preserves normalized tags', async () => {
+test('creates scope-aware idempotent memory draft batches and preserves normalized tags', async () => {
   const userId = `user_ingestion_idempotency_${crypto.randomUUID()}`;
-  const input = {
+  const currentInput = {
     provider: 'chatgpt' as const,
     requestId: 'same-current-conversation-request',
     cards: [{ title: '베이즈 정리', topic: '확률 이론', tags: ['확률 이론', 'Bayes'] }],
   };
-  const first = await createKnowledgeDraftBatchForUser(userId, input);
-  const retry = await createKnowledgeDraftBatchForUser(userId, input);
-  assert.equal(first.created, true);
-  assert.equal(retry.created, false);
-  assert.equal(retry.batchId, first.batchId);
-  const loaded = await getKnowledgeDraftBatchForUser(userId, first.batchId);
+  const selectedInput = {
+    ...currentInput,
+    scope: 'selected_export' as const,
+  };
+  const current = await createKnowledgeDraftBatchForUser(userId, currentInput);
+  const selected = await createKnowledgeDraftBatchForUser(userId, selectedInput);
+  const currentRetry = await createKnowledgeDraftBatchForUser(userId, currentInput);
+  const selectedRetry = await createKnowledgeDraftBatchForUser(userId, selectedInput);
+  assert.equal(current.created, true);
+  assert.equal(selected.created, true);
+  assert.notEqual(selected.batchId, current.batchId);
+  assert.deepEqual(currentRetry, { ...current, created: false });
+  assert.deepEqual(selectedRetry, { ...selected, created: false });
+  const loaded = await getKnowledgeDraftBatchForUser(userId, current.batchId);
   assert.deepEqual(loaded?.drafts[0].tags, ['확률-이론', 'bayes']);
 });
 

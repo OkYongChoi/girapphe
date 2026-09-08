@@ -204,6 +204,16 @@ Local bootstrap remains a development convenience. Any production data or
 schema change must still be represented by a checked-in Drizzle migration; a
 runtime bootstrap query is not deployment evidence.
 
+Because production migrations run before the replacement Worker is deployed,
+changing or removing a unique constraint used as an explicit `ON CONFLICT`
+arbiter requires an expand/contract release. First deploy conflict handling
+that works with both the old and new constraints and verify that production
+SHA. Its retry lookup must already use the expanded key so the compatibility
+Worker cannot resolve a retry to another scope after the later migration.
+Change the constraint only in a later protected release; otherwise the
+still-running Worker can fail every affected write if deployment is slow or
+stops after migration.
+
 Recall schedule persistence is checked against a real Preview PostgreSQL
 database after migration preparation. To run the same test against an isolated
 non-production database without printing its URL:

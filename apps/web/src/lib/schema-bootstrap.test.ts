@@ -13,6 +13,18 @@ test('local development retains schema bootstrap support', () => {
   assert.equal(canRunRuntimeSchemaBootstrap({ NODE_ENV: 'development' }), true);
 });
 
+test('ingestion inserts remain compatible while their uniqueness key expands', () => {
+  const source = readFileSync(new URL('./knowledge-ingestion.ts', import.meta.url), 'utf8');
+  const createStart = source.indexOf('export async function createKnowledgeDraftBatchForUser(');
+  const createEnd = source.indexOf('export async function getKnowledgeDraftBatchesForUser(', createStart);
+  assert.notEqual(createStart, -1);
+  assert.notEqual(createEnd, -1);
+  const createSource = source.slice(createStart, createEnd);
+  assert.match(createSource, /ON CONFLICT DO NOTHING/);
+  assert.doesNotMatch(createSource, /ON CONFLICT \(user_id, provider, request_id\)/);
+  assert.match(createSource, /b\.user_id = \$2 AND b\.provider = \$3 AND b\.scope = \$16 AND b\.request_id = \$4/);
+});
+
 test('fresh schema retains every legacy billing lifecycle table during migration', () => {
   const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
   for (const table of [
