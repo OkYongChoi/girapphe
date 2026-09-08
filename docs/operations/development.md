@@ -137,6 +137,11 @@ least two final fixture-filtered private canvas nodes, at least one final privat
 canvas edge, and zero console/page errors.
 Before Graph is clicked, the suite waits for the page load event plus a
 three-second idle observation and fails on any Server Action request.
+After the desktop and mobile read-only checks finish, a dependency-final
+desktop regression signs out the synthetic browser session exactly once. It
+requires the localized home page to show signed-out navigation immediately and
+the private mobile API to return `401`; keep it last because it revokes the
+shared synthetic session used by the earlier checks.
 Authenticated traces and videos stay disabled because they can retain session
 headers; the ignored storage state is never uploaded with evidence artifacts.
 

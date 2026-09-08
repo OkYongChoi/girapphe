@@ -1,4 +1,5 @@
-import { logoutAction } from '@/actions/auth-actions';
+import { ClerkProvider } from '@clerk/nextjs';
+import { localizePathname } from '@stem-brain/shared';
 import { getCurrentUser, isAdminUser, type AuthUser } from '@/lib/auth';
 import NavLinks from '@/components/nav-links';
 import BrandLogo from '@/components/brand-logo';
@@ -10,7 +11,7 @@ import { getServerI18n } from '@/i18n/server';
 export default async function Navbar({ user: initialUser, variant = 'default' }: { user?: AuthUser | null; variant?: 'default' | 'home' } = {}) {
   const user = initialUser === undefined ? await getCurrentUser() : initialUser;
   const isHome = variant === 'home';
-  const { t } = await getServerI18n();
+  const { locale, t } = await getServerI18n();
 
   return (
     <>
@@ -44,13 +45,14 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
                     {user.email}
                   </span>
                 ) : null}
-                <form action={logoutAction}>
+                <ClerkProvider>
                   <LogoutButton
                     label={t('nav.logout')}
                     ariaLabel={t('nav.logoutAria')}
+                    redirectUrl={localizePathname('/', locale)}
                     className={`inline-flex min-h-11 items-center justify-center rounded-md border px-2 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 min-[400px]:px-3 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'hover:bg-gray-50'}`}
                   />
-                </form>
+                </ClerkProvider>
               </div>
             ) : (
               <div className="flex shrink-0 items-center gap-1 text-sm font-medium min-[400px]:gap-2">
