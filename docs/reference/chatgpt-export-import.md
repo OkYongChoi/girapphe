@@ -157,9 +157,11 @@ the existing ingestion lifecycle.
 Apply migrations `0019` and `0023` before enabling the route in Preview or
 production. Preview schema preparation includes both migrations, and production
 deployment runs migrations before publishing the Worker. Migration `0023`
-installs an expand/contract bridge: a statement-level batch-delete trigger
-purges every batch-subject event, while insert and reassignment triggers reject
-or remove late import events unless their owner-scoped batch is still live.
+installs an expand/contract bridge: a selected-export batch-insert trigger
+rejects old-Worker retries covered by an owner-scoped request or session
+tombstone, a statement-level batch-delete trigger purges every batch-subject
+event, and event insert/reassignment triggers reject or remove late telemetry
+unless its owner-scoped batch is still live.
 Keep those triggers installed throughout any Worker rollback or old-request
 drain window; removing the database half first reopens the mixed-version race.
 Drizzle declares the supporting indexes, while the trigger definitions are

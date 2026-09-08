@@ -106,10 +106,12 @@ completion and import deletion share the account, ingestion, and import locks;
 completion reassigns/inserts only for an exact live owner/provider/scope batch,
 while deletion purges that batch subject in the same transaction. Migration
 `0023` also keeps this invariant across a mixed-version deployment: its
-statement-level delete trigger removes batch telemetry, and its event triggers
-drop late completion, first-value, candidate-resolution, or legacy reassignment
-rows whose owner-scoped batch no longer exists. The trigger definitions live in
-the migration and `schema.sql`; Drizzle declares their supporting indexes.
+batch-insert trigger rejects delayed old-Worker retries covered by an
+owner-scoped request or session tombstone, its statement-level delete trigger
+removes batch telemetry, and its event triggers drop late completion,
+first-value, candidate-resolution, or legacy reassignment rows whose
+owner-scoped batch no longer exists. The trigger definitions live in the
+migration and `schema.sql`; Drizzle declares their supporting indexes.
 Accepted HTTPS source URLs reject embedded credentials and drop query strings
 and fragments before persistence; opaque conversation references reject
 `scheme://` values.

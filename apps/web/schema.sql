@@ -1178,9 +1178,60 @@ WHERE event_name = 'knowledge_signal_dismissed';
 CREATE INDEX IF NOT EXISTS idx_knowledge_product_events_user_subject
 ON knowledge_product_events(user_id, subject_id);
 
--- Keep import telemetry attached to a live, deletable batch even while an old
--- Worker version overlaps a deployment. These triggers are the database-level
--- expand/contract bridge for the application transaction changes.
+-- Keep deleted selected exports deleted and their telemetry attached to a
+-- live, deletable batch even while an old Worker version overlaps a deployment.
+-- These triggers are the database-level expand/contract bridge for the
+-- application transaction changes.
+CREATE OR REPLACE FUNCTION public.guard_deleted_selected_export_batch_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  session_tombstone_id text := NULL;
+BEGIN
+  IF NEW.scope <> 'selected_export' THEN
+    RETURN NEW;
+  END IF;
+
+  IF pg_catalog.lower(NEW.request_id) ~ ':session:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN
+    session_tombstone_id := 'selected-export-session:v1:'
+      || pg_catalog.substring(
+        pg_catalog.lower(NEW.request_id),
+        ':session:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$'
+      );
+  ELSIF NEW.provider = 'chatgpt'
+    AND pg_catalog.lower(NEW.request_id) ~ '^chatgpt-export:[0-9a-f]{48}$'
+    AND pg_catalog.lower(NEW.id) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN
+    session_tombstone_id := 'selected-export-session:v1:' || pg_catalog.lower(NEW.id);
+  END IF;
+
+  PERFORM 1
+  FROM public.knowledge_ingestion_request_tombstones AS tombstone
+  WHERE tombstone.user_id = NEW.user_id
+    AND tombstone.provider = NEW.provider
+    AND (
+      tombstone.request_id = NEW.request_id
+      OR (
+        session_tombstone_id IS NOT NULL
+        AND tombstone.request_id = session_tombstone_id
+      )
+    )
+  FOR KEY SHARE;
+  IF FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER knowledge_ingestion_batches_guard_selected_export_insert
+  BEFORE INSERT ON public.knowledge_ingestion_batches
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_deleted_selected_export_batch_insert();
+
 CREATE OR REPLACE FUNCTION public.delete_knowledge_import_batch_product_events()
 RETURNS trigger
 LANGUAGE plpgsql

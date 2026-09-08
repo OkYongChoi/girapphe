@@ -133,12 +133,12 @@ async function waitForBackendLockWait(pool, backendPid, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const activity = (await pool.query(
-      `SELECT wait_event_type
-       FROM pg_stat_activity
-       WHERE pid = $1`,
+      `SELECT
+         pg_catalog.cardinality(pg_catalog.pg_blocking_pids($1::integer)) > 0 AS blocked,
+         (SELECT wait_event_type FROM pg_catalog.pg_stat_activity WHERE pid = $1) AS wait_event_type`,
       [backendPid],
     )).rows[0];
-    if (activity?.wait_event_type === 'Lock') return;
+    if (activity?.blocked === true || activity?.wait_event_type === 'Lock') return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`Timed out waiting for PostgreSQL backend ${backendPid} to block on a lock.`);
@@ -333,6 +333,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
   const mixedOldDeleteUserId = `live-selected-export-old-delete-${fixtureId}`;
   const mixedOldCompletionUserId = `live-selected-export-old-completion-${fixtureId}`;
   const eventGuardUserId = `live-selected-export-event-guard-${fixtureId}`;
+  const mixedOldBatchGuardUserId = `live-selected-export-old-batch-guard-${fixtureId}`;
   const accountPurgeUserId = `live-selected-export-account-purge-${fixtureId}`;
   const triggerInsertFirstUserId = `live-selected-export-trigger-insert-first-${fixtureId}`;
   const triggerDeleteFirstUserId = `live-selected-export-trigger-delete-first-${fixtureId}`;
@@ -341,7 +342,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     legacyCollisionUserId, capacityUserId, crossScopeUserId, telemetryUserId,
     telemetryCompletionFirstUserId, telemetryDeletionFirstUserId,
     mixedOldDeleteUserId, mixedOldCompletionUserId,
-    eventGuardUserId, accountPurgeUserId,
+    eventGuardUserId, mixedOldBatchGuardUserId, accountPurgeUserId,
     triggerInsertFirstUserId, triggerDeleteFirstUserId,
   ];
   const selection = (suffix, question) => ({
@@ -374,6 +375,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
        ORDER BY trigger.tgname`,
       [[
         'knowledge_ingestion_batches_delete_product_events',
+        'knowledge_ingestion_batches_guard_selected_export_insert',
         'knowledge_product_events_cleanup_import_batch_update',
         'knowledge_product_events_guard_import_batch_insert',
       ]],
@@ -387,6 +389,9 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       tgname: 'knowledge_ingestion_batches_delete_product_events',
       relname: 'knowledge_ingestion_batches', nspname: 'public', tgenabled: 'O',
     }, {
+      tgname: 'knowledge_ingestion_batches_guard_selected_export_insert',
+      relname: 'knowledge_ingestion_batches', nspname: 'public', tgenabled: 'O',
+    }, {
       tgname: 'knowledge_product_events_cleanup_import_batch_update',
       relname: 'knowledge_product_events', nspname: 'public', tgenabled: 'O',
     }, {
@@ -394,8 +399,9 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       relname: 'knowledge_product_events', nspname: 'public', tgenabled: 'O',
     }]);
     assert.match(installedTriggers[0].definition, /AFTER DELETE[\s\S]+REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches[\s\S]+FOR EACH STATEMENT/);
-    assert.match(installedTriggers[1].definition, /AFTER UPDATE OF subject_id[\s\S]+FOR EACH ROW/);
-    assert.match(installedTriggers[2].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[1].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[2].definition, /AFTER UPDATE OF subject_id[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[3].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
 
     const unicodeHashFixture = {
       userId: `소유자-${fixtureId}`,
@@ -415,6 +421,62 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       unicodeHashFixture.userId,
       unicodeHashFixture.batchId,
     ));
+
+    const mixedOldBatchGuardInput = {
+      source: 'chatgpt_export',
+      consent: true,
+      importSessionId: crypto.randomUUID(),
+      selections: [selection(
+        'mixed-old-batch-guard',
+        'Can a delayed old Worker recreate a deleted selected export?',
+      )],
+    };
+    const mixedOldBatchInput = buildParentV1ChatGptBatchInput(
+      mixedOldBatchGuardInput,
+      (value) => chatGptExportImportInputSchema.parse(value),
+      buildChatGptExportBatchInput,
+    );
+    const mixedOldBatch = await createKnowledgeDraftBatchForUser(
+      mixedOldBatchGuardUserId,
+      mixedOldBatchInput,
+      null,
+      mixedOldBatchGuardInput.importSessionId,
+    );
+    assert.equal(mixedOldBatch.created, true);
+    assert.deepEqual(await deleteKnowledgeImportBatchForUser(
+      mixedOldBatchGuardUserId,
+      mixedOldBatch.batchId,
+    ), { deleted: true, approvedKnowledgePreserved: 0 });
+
+    const directOldBatchInsert = (id, requestId) => pool.query(
+      `INSERT INTO knowledge_ingestion_batches
+        (id, user_id, source_type, provider, scope, request_id)
+       VALUES ($1, $2, 'conversation', 'chatgpt', 'selected_export', $3)
+       RETURNING id`,
+      [id, mixedOldBatchGuardUserId, requestId],
+    );
+    assert.equal((await directOldBatchInsert(
+      mixedOldBatchGuardInput.importSessionId,
+      mixedOldBatchInput.requestId,
+    )).rowCount, 0, 'the exact pre-rollout retry must remain deleted');
+
+    const changedLegacyRequestId = `chatgpt-export:${parentV1Digest(
+      `${mixedOldBatchInput.requestId}:selection-growth`,
+    ).slice(0, 48)}`;
+    assert.notEqual(changedLegacyRequestId, mixedOldBatchInput.requestId);
+    assert.equal((await directOldBatchInsert(
+      mixedOldBatchGuardInput.importSessionId,
+      changedLegacyRequestId,
+    )).rowCount, 0, 'the pre-rollout session identity must block selection-growth replay');
+    assert.equal((await directOldBatchInsert(
+      crypto.randomUUID(),
+      `${changedLegacyRequestId}:session:${mixedOldBatchGuardInput.importSessionId}`,
+    )).rowCount, 0, 'the current request format must honor the same session tombstone');
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM knowledge_ingestion_batches WHERE user_id = $1`,
+      [mixedOldBatchGuardUserId],
+    )).rows[0].count, 0);
 
     const crossScopeInput = {
       source: 'chatgpt_export', consent: true, importSessionId: crypto.randomUUID(),

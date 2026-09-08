@@ -19,7 +19,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0020_knowledge_intelligence_events.sql', 3],
     ['0021_billing_v1_domain.sql', 63],
     ['0022_recall_ping_persistence.sql', 15],
-    ['0023_knowledge_ingestion_request_tombstones.sql', 9],
+    ['0023_knowledge_ingestion_request_tombstones.sql', 11],
   ];
   for (const [name, expectedCount] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -249,6 +249,11 @@ test('selected export deletion tombstones are content-free and owner scoped', as
   assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS "idx_knowledge_ingestion_batches_user_provider_scope_request"/);
   assert.match(sql, /\("user_id", "provider", "scope", "request_id"\)/);
   assert.match(sql, /CREATE INDEX IF NOT EXISTS "idx_knowledge_product_events_user_subject"/);
+  assert.match(sql, /BEFORE INSERT ON public\.knowledge_ingestion_batches/);
+  assert.match(sql, /NEW\.scope <> 'selected_export'/);
+  assert.match(sql, /tombstone\.request_id = NEW\.request_id/);
+  assert.match(sql, /selected-export-session:v1:/);
+  assert.match(sql, /pg_catalog\.lower\(NEW\.id\)/);
   assert.match(sql, /AFTER DELETE ON public\.knowledge_ingestion_batches/);
   assert.match(sql, /REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches/);
   assert.match(sql, /FOR EACH STATEMENT/);
@@ -260,7 +265,7 @@ test('selected export deletion tombstones are content-free and owner scoped', as
   assert.match(sql, /NEW\.event_name IN \('conversation_import_started', 'conversation_import_parsed'\)/);
   assert.match(sql, /batch\.provider = 'chatgpt' AND batch\.scope = 'selected_export'/);
   assert.equal((sql.match(/pg_catalog\.decode\('00', 'hex'\)/g) ?? []).length, 2);
-  for (const statement of statements.slice(4)) {
+  for (const statement of statements.slice(3)) {
     assert.doesNotThrow(() => assertSafePreviewStatement(statement));
   }
   assert.doesNotMatch(sql, /"(?:title|topic|message|content|filename|source_url|conversation_ref|selection)"\s+(?:text|jsonb)/i);
