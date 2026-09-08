@@ -549,10 +549,8 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     )]);
     const insertFirstClient = await pool.connect();
     const insertFirstDeleteClient = await pool.connect();
-    const insertFirstDeletePid = (await insertFirstDeleteClient.query(
-      'SELECT pg_backend_pid() AS pid',
-    )).rows[0].pid;
     let insertFirstTransactionOpen = false;
+    let insertFirstDeleteTransactionOpen = false;
     let insertFirstDeletePromise;
     try {
       await insertFirstClient.query('BEGIN');
@@ -568,6 +566,11 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
           knowledgeProductEventSubjectHash(triggerInsertFirstUserId, triggerInsertFirstBatch.batchId),
         ],
       )).rowCount, 1);
+      await insertFirstDeleteClient.query('BEGIN');
+      insertFirstDeleteTransactionOpen = true;
+      const insertFirstDeletePid = (await insertFirstDeleteClient.query(
+        'SELECT pg_backend_pid() AS pid',
+      )).rows[0].pid;
       let deleteSettled = false;
       insertFirstDeletePromise = insertFirstDeleteClient.query(
         `DELETE FROM knowledge_ingestion_batches
@@ -584,9 +587,14 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       const deletion = await insertFirstDeletePromise;
       if (deletion.error) throw deletion.error;
       assert.equal(deletion.result.rowCount, 1);
+      await insertFirstDeleteClient.query('COMMIT');
+      insertFirstDeleteTransactionOpen = false;
     } finally {
       if (insertFirstTransactionOpen) await insertFirstClient.query('ROLLBACK').catch(() => undefined);
       if (insertFirstDeletePromise) await insertFirstDeletePromise;
+      if (insertFirstDeleteTransactionOpen) {
+        await insertFirstDeleteClient.query('ROLLBACK').catch(() => undefined);
+      }
       insertFirstClient.release();
       insertFirstDeleteClient.release();
     }
@@ -601,10 +609,8 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     )]);
     const deleteFirstClient = await pool.connect();
     const deleteFirstInsertClient = await pool.connect();
-    const deleteFirstInsertPid = (await deleteFirstInsertClient.query(
-      'SELECT pg_backend_pid() AS pid',
-    )).rows[0].pid;
     let deleteFirstTransactionOpen = false;
+    let deleteFirstInsertTransactionOpen = false;
     let deleteFirstInsertPromise;
     try {
       await deleteFirstClient.query('BEGIN');
@@ -614,6 +620,11 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
          WHERE id = $1 AND user_id = $2 RETURNING id`,
         [triggerDeleteFirstBatch.batchId, triggerDeleteFirstUserId],
       )).rowCount, 1);
+      await deleteFirstInsertClient.query('BEGIN');
+      deleteFirstInsertTransactionOpen = true;
+      const deleteFirstInsertPid = (await deleteFirstInsertClient.query(
+        'SELECT pg_backend_pid() AS pid',
+      )).rows[0].pid;
       let insertSettled = false;
       deleteFirstInsertPromise = deleteFirstInsertClient.query(
         `INSERT INTO knowledge_product_events
@@ -636,9 +647,14 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       const insertion = await deleteFirstInsertPromise;
       if (insertion.error) throw insertion.error;
       assert.equal(insertion.result.rowCount, 0);
+      await deleteFirstInsertClient.query('COMMIT');
+      deleteFirstInsertTransactionOpen = false;
     } finally {
       if (deleteFirstTransactionOpen) await deleteFirstClient.query('ROLLBACK').catch(() => undefined);
       if (deleteFirstInsertPromise) await deleteFirstInsertPromise;
+      if (deleteFirstInsertTransactionOpen) {
+        await deleteFirstInsertClient.query('ROLLBACK').catch(() => undefined);
+      }
       deleteFirstClient.release();
       deleteFirstInsertClient.release();
     }
