@@ -74,6 +74,7 @@ export default function PrivacyPage() {
           <li>Review, edit, restore, or delete private notes from My Notes.</li>
           <li>Change supported ad privacy choices from Account in a configured mobile build.</li>
           <li>Restore purchases or manage a subscription through the store used to subscribe.</li>
+          <li><Link href="/account/delete#knowledge-data">Export private knowledge or permanently delete individual import jobs</Link> without deleting already approved knowledge.</li>
           <li><Link href="/account/delete">Delete your account and associated product data</Link> from the web or the in-app Account screen.</li>
           <li>Contact <a href="mailto:privacy@girapphe.com">privacy@girapphe.com</a> for access, correction, deletion, or privacy questions.</li>
         </ul>

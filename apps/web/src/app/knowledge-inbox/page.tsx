@@ -70,9 +70,14 @@ export default async function KnowledgeInboxPage({ searchParams }: KnowledgeInbo
               {t('inbox.subtitle')}
             </p>
           </div>
-          <div className="rounded-xl border bg-white px-4 py-3 text-right shadow-sm">
-            <p className="text-2xl font-bold text-slate-950">{batches.length}</p>
-            <p className="text-xs text-slate-500">{t('inbox.pendingBatches')}</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <LocalizedLink href="/knowledge-inbox/import" className="inline-flex min-h-11 items-center rounded-xl bg-slate-950 px-4 text-sm font-bold text-white hover:bg-cyan-800">
+              {t('import.open')}
+            </LocalizedLink>
+            <div className="rounded-xl border bg-white px-4 py-3 text-right shadow-sm">
+              <p className="text-2xl font-bold text-slate-950">{batches.length}</p>
+              <p className="text-xs text-slate-500">{t('inbox.pendingBatches')}</p>
+            </div>
           </div>
         </div>
 
@@ -94,9 +99,10 @@ export default async function KnowledgeInboxPage({ searchParams }: KnowledgeInbo
             <p className="text-3xl" aria-hidden="true">📬</p>
             <h2 className="mt-3 text-lg font-semibold text-slate-900">{t('inbox.emptyTitle')}</h2>
             <p className="mt-1 text-sm text-slate-500">{t('inbox.emptyBody')}</p>
-            <LocalizedLink href="/my-knowledge" className="mt-5 inline-flex rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-              {t('inbox.manualNote')}
-            </LocalizedLink>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <LocalizedLink href="/knowledge-inbox/import" className="inline-flex min-h-11 items-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-cyan-800">{t('import.open')}</LocalizedLink>
+              <LocalizedLink href="/my-knowledge" className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">{t('inbox.manualNote')}</LocalizedLink>
+            </div>
           </section>
         ) : (
           <ol className="mt-6 grid gap-4">
@@ -119,7 +125,7 @@ export default async function KnowledgeInboxPage({ searchParams }: KnowledgeInbo
                           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{t('inbox.drafts', { count: count || 0 })}</span>
                           <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">{t('inbox.requested', { mode: requestedMode.replace('_', ' ') })}</span>
                         </div>
-                        <h2 className="mt-3 text-lg font-bold text-slate-950">{t('inbox.currentImport')}</h2>
+                        <h2 className="mt-3 text-lg font-bold text-slate-950">{readString(record, 'scope') === 'selected_export' ? t('inbox.exportImport') : t('inbox.currentImport')}</h2>
                         <p className="mt-1 max-w-2xl text-sm text-slate-600">
                           {t('inbox.isolated')} <span className="font-mono text-xs">{id}</span>.
                         </p>

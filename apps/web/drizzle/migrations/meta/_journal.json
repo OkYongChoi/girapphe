@@ -113,6 +113,20 @@
       "when": 1788019200000,
       "tag": "0018_expression_history_causality",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788652800000,
+      "tag": "0019_selected_export_ingestion",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788739200000,
+      "tag": "0020_knowledge_intelligence_events",
+      "breakpoints": true
     }
   ]
 }
