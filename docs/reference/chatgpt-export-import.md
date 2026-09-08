@@ -49,7 +49,10 @@ Migration `0019_selected_export_ingestion.sql` widens
 `current_conversation | selected_export`. The default remains
 `current_conversation`, and MCP-token-backed writes reject any other scope.
 Migration `0023_knowledge_ingestion_request_tombstones.sql` adds a content-free,
-owner/provider-scoped retry guard. Deleting an import job retains only its
+owner/provider-scoped retry guard and scopes the ingestion request uniqueness
+key by ingestion scope. A client-supplied current-conversation request ID can
+therefore never capture or block a generated selected-export request with the
+same opaque value. Deleting an import job retains only its
 opaque request and import-session identities so an arbitrarily delayed
 transport retry cannot restore the deleted selection. A session compatibility
 identity is also retained when deleting a pre-rollout ChatGPT batch whose batch

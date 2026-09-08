@@ -242,8 +242,7 @@ CREATE TABLE IF NOT EXISTS knowledge_ingestion_batches (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   committed_at TIMESTAMP WITH TIME ZONE,
-  discarded_at TIMESTAMP WITH TIME ZONE,
-  UNIQUE (user_id, provider, request_id)
+  discarded_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE TABLE IF NOT EXISTS knowledge_ingestion_request_tombstones (
@@ -687,6 +686,8 @@ CREATE TABLE IF NOT EXISTS mcp_deleted_account_markers (
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_ingestion_batches_user_created
 ON knowledge_ingestion_batches(user_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_ingestion_batches_user_provider_scope_request
+ON knowledge_ingestion_batches(user_id, provider, scope, request_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_ingestion_batches_token_created
 ON knowledge_ingestion_batches(mcp_token_id, created_at DESC) WHERE mcp_token_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_knowledge_card_drafts_user_status

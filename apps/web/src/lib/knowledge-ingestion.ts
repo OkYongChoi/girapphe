@@ -851,11 +851,15 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           conversation_ref TEXT, source_url TEXT, discussed_at TIMESTAMPTZ, mcp_token_id TEXT,
           status TEXT NOT NULL DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW(),
           updated_at TIMESTAMPTZ DEFAULT NOW(), committed_at TIMESTAMPTZ, discarded_at TIMESTAMPTZ,
-          UNIQUE(user_id, provider, request_id),
           CHECK (source_type = 'conversation'), CHECK (provider IN ('chatgpt', 'claude', 'gemini', 'other')),
           CHECK (scope IN ('current_conversation', 'selected_export')), CHECK (status IN ('pending', 'partial', 'approved', 'discarded'))
         );
       `);
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_ingestion_batches_user_provider_scope_request
+        ON knowledge_ingestion_batches(user_id, provider, scope, request_id)`);
+      await pool.query(`ALTER TABLE knowledge_ingestion_batches
+        DROP CONSTRAINT IF EXISTS knowledge_ingestion_batches_user_provider_request_key,
+        DROP CONSTRAINT IF EXISTS knowledge_ingestion_batches_user_id_provider_request_id_key`);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS knowledge_ingestion_request_tombstones (
           user_id TEXT NOT NULL, provider TEXT NOT NULL, request_id TEXT NOT NULL,

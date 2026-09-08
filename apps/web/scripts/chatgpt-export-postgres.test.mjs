@@ -200,9 +200,11 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
   const legacyUserId = `live-selected-export-legacy-${fixtureId}`;
   const legacyIgnoredUserId = `live-selected-export-legacy-ignored-${fixtureId}`;
   const legacyExpandedUserId = `live-selected-export-legacy-expanded-${fixtureId}`;
+  const crossScopeUserId = `live-selected-export-cross-scope-${fixtureId}`;
   const telemetryUserId = `live-selected-export-telemetry-${fixtureId}`;
   const fixtureUserIds = [
-    userId, otherUserId, legacyUserId, legacyIgnoredUserId, legacyExpandedUserId, telemetryUserId,
+    userId, otherUserId, legacyUserId, legacyIgnoredUserId, legacyExpandedUserId,
+    crossScopeUserId, telemetryUserId,
   ];
   const selection = (suffix, question) => ({
     conversationId: `live-selected-export-conversation-${fixtureId}`,
@@ -223,6 +225,31 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
   let bodyCompleted = false;
 
   try {
+    const crossScopeInput = {
+      source: 'chatgpt_export', consent: true, importSessionId: crypto.randomUUID(),
+      selections: [selection('cross-scope', 'Can PostgreSQL isolate identical request IDs by scope?')],
+    };
+    const crossScopeBatchInput = buildChatGptExportBatchInput(
+      chatGptExportImportInputSchema.parse(crossScopeInput),
+    );
+    const currentScopeBatch = await createKnowledgeDraftBatchForUser(crossScopeUserId, {
+      provider: 'chatgpt', scope: 'current_conversation',
+      requestId: crossScopeBatchInput.requestId,
+      cards: [{ title: 'Current-conversation request identity fixture' }],
+    });
+    const selectedScopeBatch = await createChatGptExportDraftBatchForUser(
+      crossScopeUserId,
+      crossScopeInput,
+    );
+    assert.equal(currentScopeBatch.created, true);
+    assert.equal(selectedScopeBatch.created, true);
+    assert.notEqual(selectedScopeBatch.batchId, currentScopeBatch.batchId);
+    assert.deepEqual((await pool.query(
+      `SELECT scope FROM knowledge_ingestion_batches
+       WHERE user_id = $1 ORDER BY scope`,
+      [crossScopeUserId],
+    )).rows, [{ scope: 'current_conversation' }, { scope: 'selected_export' }]);
+
     const concurrent = await Promise.all([
       create(userId, [selectedA]),
       create(userId, [selectedA]),

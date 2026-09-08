@@ -345,7 +345,8 @@ export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", 
   committedAt: timestamp("committed_at", { withTimezone: true }),
   discardedAt: timestamp("discarded_at", { withTimezone: true }),
 }, (t) => [
-  unique("knowledge_ingestion_batches_user_provider_request_key").on(t.userId, t.provider, t.requestId),
+  uniqueIndex("idx_knowledge_ingestion_batches_user_provider_scope_request")
+    .on(t.userId, t.provider, t.scope, t.requestId),
   index("idx_knowledge_ingestion_batches_user_created").on(t.userId, t.createdAt),
   index("idx_knowledge_ingestion_batches_token_created").on(t.mcpTokenId, t.createdAt).where(sql`${t.mcpTokenId} IS NOT NULL`),
   check("knowledge_ingestion_batches_source_type_check", sql`${t.sourceType} IN ('conversation')`),

@@ -703,6 +703,38 @@ test('uses independent batch identities when one local session expands its selec
   }
 });
 
+test('keeps identical provider request ids independent across ingestion scopes', async () => {
+  const userId = 'selected-export-cross-scope-owner';
+  const input = {
+    source: 'chatgpt_export',
+    consent: true,
+    importSessionId: crypto.randomUUID(),
+    selections: [{
+      conversationId: 'selected-export-cross-scope-conversation',
+      messageId: 'selected-export-cross-scope-message',
+      title: 'Selected export cross-scope identity',
+      question: 'Can ingestion scopes share an opaque request ID safely?',
+      answer: 'They can when scope participates in the idempotency key.',
+      createdAt: '2026-09-09T00:00:00.000Z',
+    }],
+  };
+  const selectedInput = buildChatGptExportBatchInput(chatGptExportImportInputSchema.parse(input));
+  const current = await createKnowledgeDraftBatchForUser(userId, {
+    provider: 'chatgpt',
+    scope: 'current_conversation',
+    requestId: selectedInput.requestId,
+    cards: [{ title: 'Current-conversation candidate with a colliding opaque request ID.' }],
+  });
+  const selected = await createChatGptExportDraftBatchForUser(userId, input);
+  assert.equal(current.created, true);
+  assert.equal(selected.created, true);
+  assert.notEqual(selected.batchId, current.batchId);
+  assert.deepEqual(
+    (await getKnowledgeDraftBatchesForUser(userId)).map((batch) => batch.scope).toSorted(),
+    ['current_conversation', 'selected_export'],
+  );
+});
+
 test('keeps an exact delayed retry content-free after its pending import job is deleted', async () => {
   const originalDatabaseUrl = process.env.DATABASE_URL;
   delete process.env.DATABASE_URL;
@@ -912,6 +944,24 @@ test('schema sources agree on the selected-export scope', async () => {
   ]) {
     const text = await readFile(new URL(source, import.meta.url), 'utf8');
     assert.match(text, /current_conversation[\s\S]{0,80}selected_export/, source);
+  }
+
+  const drizzleSchema = await readFile(new URL('../drizzle/schema.ts', import.meta.url), 'utf8');
+  assert.match(
+    drizzleSchema,
+    /idx_knowledge_ingestion_batches_user_provider_scope_request[\s\S]{0,100}t\.userId, t\.provider, t\.scope, t\.requestId/,
+  );
+  for (const source of [
+    '../schema.sql',
+    '../src/lib/knowledge-ingestion.ts',
+    '../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql',
+  ]) {
+    const text = await readFile(new URL(source, import.meta.url), 'utf8');
+    assert.match(
+      text,
+      /idx_knowledge_ingestion_batches_user_provider_scope_request[\s\S]{0,120}(?:user_id|"user_id")[,\s]+(?:provider|"provider")[,\s]+(?:scope|"scope")[,\s]+(?:request_id|"request_id")/,
+      source,
+    );
   }
 });
 
