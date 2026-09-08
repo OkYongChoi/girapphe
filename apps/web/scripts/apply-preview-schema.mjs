@@ -11,6 +11,7 @@ const PREVIEW_MIGRATIONS = [
   new URL('../drizzle/migrations/0019_selected_export_ingestion.sql', import.meta.url),
   new URL('../drizzle/migrations/0020_knowledge_intelligence_events.sql', import.meta.url),
   new URL('../drizzle/migrations/0021_billing_v1_domain.sql', import.meta.url),
+  new URL('../drizzle/migrations/0022_recall_ping_persistence.sql', import.meta.url),
 ];
 
 const SAFE_STATEMENT_PREFIXES = [
@@ -43,6 +44,75 @@ export const PREVIEW_BILLING_ENVIRONMENT_STATEMENTS = [
    ALTER COLUMN "environment" SET DEFAULT 'test'`,
 ];
 
+const RECALL_COLUMN_TYPES = new Map([
+  ['recall_enrolled_at', 'timestamp with time zone'],
+  ['recall_item_version', 'integer'],
+  ['recall_schedule_state', 'text'],
+  ['recall_d1_finalized_incomplete', 'boolean'],
+  ['recall_d7_outcome', 'text'],
+  ['recall_schedule_version', 'integer'],
+]);
+
+const RECALL_STATE_CONSTRAINTS = new Set([
+  'user_private_card_states_status_check',
+  'user_private_card_states_knowledge_state_check',
+  'user_private_card_states_progress_state_check',
+  'user_private_card_states_consistency_check',
+  'user_private_card_states_recall_schedule_check',
+]);
+
+function normalizedSql(statement) {
+  return statement.replace(/\s+/g, ' ').trim().replace(/;$/, '');
+}
+
+function keywordCount(statement, keyword) {
+  return statement.match(new RegExp(`\\b${keyword}\\b`, 'gi'))?.length ?? 0;
+}
+
+function isKnownRecallStateStatement(statement) {
+  const normalized = normalizedSql(statement);
+  const columnMatch = normalized.match(
+    /^ALTER TABLE "user_private_card_states" ADD COLUMN IF NOT EXISTS "([a-z0-9_]+)" (.+)$/i,
+  );
+  if (columnMatch) {
+    return RECALL_COLUMN_TYPES.get(columnMatch[1]) === columnMatch[2].toLowerCase();
+  }
+
+  if (normalized === 'ALTER TABLE "user_private_card_states" ALTER COLUMN "status" DROP NOT NULL, ALTER COLUMN "knowledge_state" DROP NOT NULL, ALTER COLUMN "progress_state" DROP NOT NULL, ALTER COLUMN "last_seen" DROP NOT NULL, ALTER COLUMN "last_seen" DROP DEFAULT') {
+    return true;
+  }
+
+  if (/^ALTER TABLE "user_private_card_states" DROP CONSTRAINT IF EXISTS /i.test(normalized)) {
+    const names = [...normalized.matchAll(/DROP CONSTRAINT IF EXISTS "([a-z0-9_]+)"/gi)]
+      .map((match) => match[1]);
+    return names.length === RECALL_STATE_CONSTRAINTS.size
+      && new Set(names).size === names.length
+      && names.every((name) => RECALL_STATE_CONSTRAINTS.has(name))
+      && keywordCount(normalized, 'ALTER') === 1
+      && keywordCount(normalized, 'DROP') === 5
+      && keywordCount(normalized, 'CONSTRAINT') === 5
+      && !normalized.includes(';');
+  }
+
+  if (/^ALTER TABLE "user_private_card_states" ADD CONSTRAINT /i.test(normalized)) {
+    const names = [...normalized.matchAll(/ADD CONSTRAINT "([a-z0-9_]+)"/gi)]
+      .map((match) => match[1]);
+    return names.length === 5
+      && new Set(names).size === names.length
+      && names.every((name) => RECALL_STATE_CONSTRAINTS.has(name))
+      && keywordCount(normalized, 'ALTER') === 1
+      && keywordCount(normalized, 'ADD') === 5
+      && keywordCount(normalized, 'CONSTRAINT') === 5
+      && keywordCount(normalized, 'CHECK') === 5
+      && normalized.includes('COALESCE(')
+      && normalized.includes('"recall_schedule_state" = \'ordinary_practice\'')
+      && normalized.includes('"due_at" >= "recall_enrolled_at" + INTERVAL \'192 hours\'')
+      && !normalized.includes(';');
+  }
+
+  return false;
+}
+
 export function parsePreviewMigration(sql) {
   return sql
     .split('--> statement-breakpoint')
@@ -61,6 +131,7 @@ export function assertSafePreviewStatement(statement) {
     .includes(statement.replace(/;$/, ''));
   if (!isBoundedRetentionBackfill
     && !isKnownRelationOriginDefault
+    && !isKnownRecallStateStatement(statement)
     && !isKnownBillingNormalization
     && !isPreviewBillingEnvironmentStatement
     && !SAFE_STATEMENT_PREFIXES.some((pattern) => pattern.test(statement))) {

@@ -134,6 +134,13 @@
       "when": 1788825600000,
       "tag": "0021_billing_v1_domain",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788876000000,
+      "tag": "0022_recall_ping_persistence",
+      "breakpoints": true
     }
   ]
 }

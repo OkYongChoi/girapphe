@@ -328,6 +328,7 @@ test('reviewed create stores edited canonical content, a null target, and an exp
   assert.equal(resolved?.drafts[0]?.resolution_action, 'create');
   assert.equal(resolved?.drafts[0]?.target_knowledge_item_id, null);
   assert.deepEqual(getMemoryKnowledgeEvidenceForUser(userId), []);
+  assert.equal(getMemoryKnowledgeSourcesForUser(userId)[0]?.supported_item_version, item?.version);
 });
 
 for (const action of ['merge', 'update'] as const) {
@@ -382,6 +383,8 @@ for (const action of ['merge', 'update'] as const) {
     });
     assert.equal(result.resolved, true);
     const item = getMemoryKnowledgeItemsForUser(userId).find((candidate) => candidate.id === target.id);
+    const source = getMemoryKnowledgeSourcesForUser(userId, new Set([target.id]))[0];
+    assert.equal(source?.supported_item_version, item?.version);
     assert.deepEqual(item && {
       observedAt: item.observed_at,
       validFrom: item.valid_from,
@@ -1170,6 +1173,12 @@ test('database draft approval partitions dynamically queued edge and update resu
   const updateIndex = transactionCalls.findIndex((call) => call.text.includes("UPDATE knowledge_card_drafts SET status = 'approved'"));
   const evidenceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_evidence_spans'));
   const relationEvidenceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_relation_evidence'));
+  const revisionIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_item_revisions'));
+  const sourceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_card_sources'));
+  assert.ok(revisionIndex >= 0 && sourceIndex > revisionIndex);
+  assert.match(transactionCalls[sourceIndex]!.text, /supported_item_version/);
+  assert.match(transactionCalls[sourceIndex]!.text, /i\.id = \$3 AND i\.user_id = \$2/);
+  assert.match(transactionCalls[sourceIndex]!.text, /r\.version = i\.version/);
   assert.ok(evidenceIndex >= 0 && edgeIndex > evidenceIndex);
   assert.equal(relationEvidenceIndex, edgeIndex + 1);
   assert.equal(updateIndex, relationEvidenceIndex + 1);
@@ -1324,13 +1333,19 @@ test('database per-draft resolution locks, resolves the actual node, inserts edg
   const graphLockIndex = transactionCalls.findIndex((call) => call.params[0] === `knowledge-graph:${userId}`);
   const draftGuardIndex = transactionCalls.findIndex((call) => call.text.includes('AS draft_version_guard'));
   const nodeIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO user_graph_nodes'));
+  const revisionIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_item_revisions'));
+  const sourceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_card_sources'));
   const evidenceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_evidence_spans'));
   const edgeIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO user_graph_edges'));
   const relationEvidenceIndex = transactionCalls.findIndex((call) => call.text.includes('INSERT INTO knowledge_relation_evidence'));
   const approvalIndex = transactionCalls.findIndex((call) => call.text.includes('AS approval_guard'));
   assert.ok(accountLockIndex >= 0 && draftLockIndex > accountLockIndex);
   assert.ok(graphLockIndex > draftLockIndex && draftGuardIndex > graphLockIndex);
+  assert.ok(revisionIndex > draftGuardIndex && sourceIndex > revisionIndex);
   assert.ok(nodeIndex > draftGuardIndex && evidenceIndex > nodeIndex && edgeIndex > evidenceIndex);
+  assert.match(transactionCalls[sourceIndex]!.text, /supported_item_version/);
+  assert.match(transactionCalls[sourceIndex]!.text, /i\.id = \$3 AND i\.user_id = \$2/);
+  assert.match(transactionCalls[sourceIndex]!.text, /r\.version = i\.version/);
   assert.equal(relationEvidenceIndex, edgeIndex);
   assert.ok(approvalIndex > edgeIndex);
   assert.match(transactionCalls[draftGuardIndex]!.text, /FOR UPDATE OF d/);
@@ -1895,6 +1910,10 @@ test('supports selected approval and add-all while rejecting stale versions', as
   const graph = await getPrivateKnowledgeGraphForUser(userId);
   assert.equal(graph.nodes.length, 2);
   assert.deepEqual(graph.nodes.map((node) => node.tags).sort(), [['first'], ['second']]);
+  assert.deepEqual(
+    getMemoryKnowledgeSourcesForUser(userId).map((source) => source.supported_item_version),
+    [1, 1],
+  );
 });
 
 test('bulk approval requires detailed evidence review for causal relationships', async () => {

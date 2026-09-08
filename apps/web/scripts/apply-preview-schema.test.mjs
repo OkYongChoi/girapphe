@@ -18,6 +18,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0019_selected_export_ingestion.sql', 3],
     ['0020_knowledge_intelligence_events.sql', 3],
     ['0021_billing_v1_domain.sql', 63],
+    ['0022_recall_ping_persistence.sql', 15],
   ];
   for (const [name, expectedCount] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -129,6 +130,35 @@ test('preview schema update rejects destructive and unbounded SQL', () => {
   assert.throws(() => assertSafePreviewStatement(
     `ALTER TABLE "user_graph_edges" ALTER COLUMN "relation_origin" DROP DEFAULT`,
   ));
+  assert.throws(() => assertSafePreviewStatement(
+    `ALTER TABLE "user_private_card_states" ADD COLUMN IF NOT EXISTS "recall_payload" jsonb`,
+  ));
+  assert.throws(() => assertSafePreviewStatement(
+    `ALTER TABLE "user_private_card_states" ALTER COLUMN "status" SET NOT NULL`,
+  ));
+  assert.throws(() => assertSafePreviewStatement(
+    `ALTER TABLE "user_private_card_states" DROP COLUMN "due_at"`,
+  ));
+  assert.throws(() => assertSafePreviewStatement(
+    `ALTER TABLE "user_private_card_states"
+       DROP CONSTRAINT IF EXISTS "user_private_card_states_status_check",
+       DROP CONSTRAINT IF EXISTS "user_private_card_states_knowledge_state_check",
+       DROP CONSTRAINT IF EXISTS "user_private_card_states_progress_state_check",
+       DROP CONSTRAINT IF EXISTS "user_private_card_states_consistency_check",
+       DROP CONSTRAINT IF EXISTS "user_private_card_states_recall_schedule_check",
+       DROP COLUMN "due_at"`,
+  ));
+});
+
+test('recall persistence migration preserves one scheduling authority and legacy source honesty', async () => {
+  const sql = await readFile(new URL('../drizzle/migrations/0022_recall_ping_persistence.sql', import.meta.url), 'utf8');
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS "user_private_card_states"/);
+  assert.equal((sql.match(/ADD COLUMN IF NOT EXISTS "recall_[a-z0-9_]+"/g) ?? []).length, 6);
+  assert.doesNotMatch(sql, /ADD COLUMN IF NOT EXISTS "recall_due_at"/);
+  assert.match(sql, /"due_at" >= "recall_enrolled_at" \+ INTERVAL '24 hours'/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS "supported_item_version" integer/);
+  assert.match(sql, /FOREIGN KEY \("knowledge_item_id", "supported_item_version"\)/);
+  assert.doesNotMatch(sql, /^\s*UPDATE\b/im);
 });
 
 test('typed bundle migration keeps all new fields nullable and does not rewrite legacy rows', async () => {
