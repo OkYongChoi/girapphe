@@ -19,6 +19,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0020_knowledge_intelligence_events.sql', 3],
     ['0021_billing_v1_domain.sql', 63],
     ['0022_recall_ping_persistence.sql', 15],
+    ['0023_knowledge_ingestion_request_tombstones.sql', 1],
   ];
   for (const [name, expectedCount] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -235,6 +236,14 @@ test('selected export migration widens only the explicit ingestion scope', async
   assert.doesNotMatch(sql, /^\s*(?:UPDATE|DELETE|INSERT)\b/im);
   assert.match(sql, /DROP CONSTRAINT IF EXISTS "knowledge_ingestion_batches_scope_check"/);
   assert.match(sql, /CHECK \("scope" IN \('current_conversation', 'selected_export'\)\) NOT VALID/);
+});
+
+test('selected export deletion tombstones are content-free and owner scoped', async () => {
+  const sql = await readFile(new URL('../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql', import.meta.url), 'utf8');
+  assert.doesNotMatch(sql, /^\s*(?:UPDATE|DELETE|INSERT)\b/im);
+  assert.match(sql, /PRIMARY KEY\("user_id", "provider", "request_id"\)/);
+  assert.match(sql, /"created_at" timestamp with time zone DEFAULT now\(\) NOT NULL/);
+  assert.doesNotMatch(sql, /"(?:title|topic|message|content|filename|source_url|conversation_ref|selection)"\s+(?:text|jsonb)/i);
 });
 
 test('thinking-history events persist only opaque identifiers and aggregate dimensions', async () => {

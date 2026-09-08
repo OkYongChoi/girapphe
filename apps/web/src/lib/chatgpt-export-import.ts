@@ -9,7 +9,6 @@ import {
 import {
   createKnowledgeDraftBatchForUser,
   type CreateKnowledgeDraftBatchInput,
-  type CreateKnowledgeDraftBatchResult,
 } from '@/lib/knowledge-ingestion';
 import {
   MAX_CHATGPT_EXPORT_SELECTIONS,
@@ -30,6 +29,13 @@ export type ChatGptExportImportInput = {
   consent: true;
   importSessionId: string;
   selections: ChatGptExportSelection[];
+};
+
+export type ChatGptExportDraftBatchResult = {
+  batchId: string | null;
+  created: boolean;
+  draftCount: number;
+  reviewPath: string;
 };
 
 type ParseResult<T> =
@@ -118,6 +124,26 @@ function digest(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function canonicalDigest(domain: string, parts: readonly string[]) {
+  return digest(JSON.stringify([domain, ...parts]));
+}
+
+function canonicalSelectionRequestKey(input: SelectedConversationImportResult) {
+  const references = input.selections
+    .map((selection) => [selection.conversationRef, selection.messageRef] as const)
+    .toSorted(([leftConversation, leftMessage], [rightConversation, rightMessage]) => (
+      leftConversation < rightConversation ? -1
+        : leftConversation > rightConversation ? 1
+          : leftMessage < rightMessage ? -1
+            : leftMessage > rightMessage ? 1 : 0
+    ));
+  return JSON.stringify([
+    'girapphe:selected-export-request:v2',
+    input.provider,
+    references,
+  ]);
+}
+
 function compact(value: string, limit: number) {
   return value.replace(/\s+/g, ' ').trim().slice(0, limit);
 }
@@ -148,24 +174,31 @@ export function buildSelectedConversationImportBatchInput(
   value: SelectedConversationImportResult,
 ): CreateKnowledgeDraftBatchInput {
   const input = parseSelectedConversationImportResult(value);
-  const selectionKey = input.selections
-    .map((selection) => `${selection.conversationRef}:${selection.messageRef}`)
-    .toSorted()
-    .join('|');
   const latestDate = input.selections.flatMap((selection) => selection.occurredAt ? [selection.occurredAt] : []).toSorted().at(-1);
-  const importKey = digest(`${input.provider}:${selectionKey}`).slice(0, 48);
+  const importKey = digest(canonicalSelectionRequestKey(input)).slice(0, 48);
   const canonicalProvider = input.provider === 'chatgpt' || input.provider === 'claude' || input.provider === 'gemini'
     ? input.provider
     : 'other';
   const cards: CreateKnowledgeDraftBatchInput['cards'] = input.selections.map((selection) => {
     const question = selection.prompt.slice(0, MAX_CHATGPT_SELECTED_TEXT_LENGTH);
     const answer = selection.response.slice(0, MAX_CHATGPT_SELECTED_TEXT_LENGTH);
-    const conversationKey = digest(`${input.provider}:${selection.conversationRef}`).slice(0, 48);
-    const messageKey = digest(`${input.provider}:${selection.conversationRef}:${selection.messageRef}`).slice(0, 48);
+    const conversationKey = canonicalDigest(
+      'girapphe:selected-export-conversation:v2',
+      [input.provider, selection.conversationRef],
+    ).slice(0, 48);
+    const messageKey = canonicalDigest(
+      'girapphe:selected-export-message:v2',
+      [input.provider, selection.conversationRef, selection.messageRef],
+    ).slice(0, 48);
+    const legacyMessageKey = [selection.conversationRef, selection.messageRef]
+      .every((reference) => !reference.includes(':'))
+      ? digest(`${input.provider}:${selection.conversationRef}:${selection.messageRef}`).slice(0, 48)
+      : null;
     const shortQuestion = compact(question, 76);
     const title = compact(`${selection.title}: ${shortQuestion}`, 120);
     return {
       clientCardId: `export-exchange:${messageKey}`,
+      duplicateClientCardIds: legacyMessageKey ? [`export-exchange:${legacyMessageKey}`] : [],
       title,
       summary: compact(answer, 500),
       topic: topicFrom(selection.title, question),
@@ -224,19 +257,41 @@ export function buildSelectedConversationImportBatchInput(
 }
 
 export function buildChatGptExportBatchInput(input: ChatGptExportImportInput): CreateKnowledgeDraftBatchInput {
-  return buildSelectedConversationImportBatchInput(toSelectedChatGptImportResult(input));
+  const selectedImport = toSelectedChatGptImportResult(input);
+  const batch = buildSelectedConversationImportBatchInput(selectedImport);
+  const legacySelectionKey = selectedImport.selections
+    .map((selection) => `${selection.conversationRef}:${selection.messageRef}`)
+    .toSorted()
+    .join('|');
+  const legacyImportKey = digest(`${selectedImport.provider}:${legacySelectionKey}`).slice(0, 48);
+  const hasUnambiguousLegacyReferences = selectedImport.selections.every((selection) => (
+    !/[:|]/.test(selection.conversationRef)
+    && !/[:|]/.test(selection.messageRef)
+  ));
+  return {
+    ...batch,
+    requestId: `${batch.requestId}:session:${input.importSessionId}`,
+    ...(hasUnambiguousLegacyReferences
+      ? { legacyRequestId: `${selectedImport.provider}-export:${legacyImportKey}` }
+      : {}),
+  };
 }
 
 export async function createChatGptExportDraftBatchForUser(
   userId: string,
   value: unknown,
-): Promise<CreateKnowledgeDraftBatchResult> {
+): Promise<ChatGptExportDraftBatchResult> {
   const parsed = chatGptExportImportInputSchema.safeParse(value);
   if (!parsed.success) throw new Error('Invalid selected ChatGPT export payload.');
-  return createKnowledgeDraftBatchForUser(
+  const result = await createKnowledgeDraftBatchForUser(
     userId,
     buildChatGptExportBatchInput(parsed.data),
     null,
-    parsed.data.importSessionId,
   );
+  return {
+    batchId: result.persistedBatch === false ? null : result.batchId,
+    created: result.created,
+    draftCount: result.draftCount,
+    reviewPath: result.reviewPath,
+  };
 }

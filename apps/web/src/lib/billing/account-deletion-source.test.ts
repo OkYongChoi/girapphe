@@ -26,6 +26,7 @@ test('account deletion covers every owner-scoped private product table', () => {
     'user_graph_nodes',
     'user_knowledge_items',
     'user_knowledge_create_requests',
+    'knowledge_ingestion_request_tombstones',
     'knowledge_card_drafts',
     'knowledge_ingestion_batches',
     'mcp_access_tokens',

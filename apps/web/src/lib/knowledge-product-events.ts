@@ -10,6 +10,10 @@ import db from '@/lib/db';
 const MAX_EVENTS_PER_BATCH = 10;
 const MAX_EVENTS_PER_HOUR = 120;
 const MAX_EVENTS_PER_OWNER = 50_000;
+const PRE_CONFIRMATION_IMPORT_EVENTS = [
+  'conversation_import_started',
+  'conversation_import_parsed',
+] as const;
 
 type StoredKnowledgeProductEvent = KnowledgeProductEventInput & {
   id: string;
@@ -119,6 +123,71 @@ export async function deleteKnowledgeProductEventsForSubjectForUser(
            WHERE user_id = $1 AND subject_id = $2
            RETURNING id`,
     params: [userId, subjectHash],
+  }]);
+  return result.rows.length;
+}
+
+export async function deletePreConfirmationImportEventsForSubjectForUser(
+  userId: string,
+  subjectId: string,
+): Promise<number> {
+  if (!userId || !subjectId || subjectId.length > 240) {
+    throw new Error('A bounded owner event subject is required.');
+  }
+  const subjectHash = opaqueSubject(userId, subjectId);
+  if (!process.env.DATABASE_URL) {
+    const existing = memoryEvents.get(userId) ?? [];
+    const retained = existing.filter((event) => (
+      event.subjectId !== subjectHash
+      || !PRE_CONFIRMATION_IMPORT_EVENTS.includes(
+        event.eventName as (typeof PRE_CONFIRMATION_IMPORT_EVENTS)[number],
+      )
+    ));
+    if (retained.length > 0) memoryEvents.set(userId, retained);
+    else memoryEvents.delete(userId);
+    return existing.length - retained.length;
+  }
+  const [result] = await db.accountTransaction<{ id: string }>(userId, [{
+    text: `DELETE FROM knowledge_product_events
+           WHERE user_id = $1 AND subject_id = $2
+             AND event_name IN ('conversation_import_started', 'conversation_import_parsed')
+           RETURNING id`,
+    params: [userId, subjectHash],
+  }]);
+  return result.rows.length;
+}
+
+export async function reassignKnowledgeProductEventsSubjectForUser(
+  userId: string,
+  fromSubjectId: string,
+  toSubjectId: string,
+): Promise<number> {
+  if (!userId || !fromSubjectId || !toSubjectId
+    || fromSubjectId.length > 240 || toSubjectId.length > 240) {
+    throw new Error('Bounded owner event subjects are required.');
+  }
+  if (fromSubjectId === toSubjectId) return 0;
+  const fromSubjectHash = opaqueSubject(userId, fromSubjectId);
+  const toSubjectHash = opaqueSubject(userId, toSubjectId);
+  if (!process.env.DATABASE_URL) {
+    let reassigned = 0;
+    for (const event of memoryEvents.get(userId) ?? []) {
+      if (event.subjectId !== fromSubjectHash
+        || !PRE_CONFIRMATION_IMPORT_EVENTS.includes(
+          event.eventName as (typeof PRE_CONFIRMATION_IMPORT_EVENTS)[number],
+        )) continue;
+      event.subjectId = toSubjectHash;
+      reassigned += 1;
+    }
+    return reassigned;
+  }
+  const [result] = await db.accountTransaction<{ id: string }>(userId, [{
+    text: `UPDATE knowledge_product_events
+           SET subject_id = $3
+           WHERE user_id = $1 AND subject_id = $2
+             AND event_name IN ('conversation_import_started', 'conversation_import_parsed')
+           RETURNING id`,
+    params: [userId, fromSubjectHash, toSubjectHash],
   }]);
   return result.rows.length;
 }

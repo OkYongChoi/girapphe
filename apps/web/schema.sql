@@ -246,6 +246,15 @@ CREATE TABLE IF NOT EXISTS knowledge_ingestion_batches (
   UNIQUE (user_id, provider, request_id)
 );
 
+CREATE TABLE IF NOT EXISTS knowledge_ingestion_request_tombstones (
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL CHECK (provider IN ('chatgpt', 'claude', 'gemini', 'other')),
+  request_id TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT knowledge_ingestion_request_tombstones_user_provider_request_pk
+    PRIMARY KEY (user_id, provider, request_id)
+);
+
 CREATE TABLE IF NOT EXISTS knowledge_card_drafts (
   id TEXT PRIMARY KEY,
   batch_id TEXT NOT NULL REFERENCES knowledge_ingestion_batches(id) ON DELETE CASCADE,

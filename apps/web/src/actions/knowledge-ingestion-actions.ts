@@ -33,6 +33,7 @@ import {
   recordKnowledgeProductEventsForUser,
 } from '@/lib/knowledge-product-events';
 import { isAiThinkingHistoryEnabledForUser } from '@/lib/ai-thinking-history-rollout';
+import { recordChatGptExportCompletionTelemetry } from '@/lib/chatgpt-export-telemetry';
 
 export type {
   KnowledgeCardDraft,
@@ -67,26 +68,18 @@ export async function getKnowledgeDraftBatch(batchId: string): Promise<{ batch: 
 
 export async function createChatGptExportDrafts(
   input: ChatGptExportImportInput,
-): Promise<{ batchId: string; draftCount: number; reviewPath: string }> {
+): Promise<{ batchId: string | null; draftCount: number; reviewPath: string }> {
   const user = await requireCurrentUser();
   if (!isAiThinkingHistoryEnabledForUser(user.id)) {
     throw new Error('AI thinking history import is not enabled for this account.');
   }
   const result = await createChatGptExportDraftBatchForUser(user.id, input);
-  if (result.batchId !== input.importSessionId) {
-    await deleteKnowledgeProductEventsForSubjectForUser(user.id, input.importSessionId);
-  }
-  await recordKnowledgeProductEventsForUser(user.id, [
-    {
-      eventName: 'conversation_import_confirmed', eventVersion: 1,
-      subjectId: result.batchId, selectionCount: result.draftCount,
-    },
-    {
-      eventName: 'conversation_import_candidates_ready', eventVersion: 1,
-      subjectId: result.batchId, selectionCount: result.draftCount,
-    },
-  ]).catch(() => undefined);
-  revalidateKnowledgeSurfaces(result.batchId);
+  await recordChatGptExportCompletionTelemetry(user.id, {
+    importSessionId: input.importSessionId,
+    selectionCount: input.selections.length,
+    result,
+  });
+  revalidateKnowledgeSurfaces(result.batchId ?? undefined);
   return { batchId: result.batchId, draftCount: result.draftCount, reviewPath: result.reviewPath };
 }
 

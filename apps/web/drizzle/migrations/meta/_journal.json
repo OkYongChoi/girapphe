@@ -141,6 +141,13 @@
       "when": 1788876000000,
       "tag": "0022_recall_ping_persistence",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788912000000,
+      "tag": "0023_knowledge_ingestion_request_tombstones",
+      "breakpoints": true
     }
   ]
 }

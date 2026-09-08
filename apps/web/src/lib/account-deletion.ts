@@ -150,6 +150,10 @@ async function purgePrivateProductData(userId: string) {
        deleted_create_requests AS (
          DELETE FROM user_knowledge_create_requests WHERE user_id = $1 RETURNING request_id
        ),
+       deleted_ingestion_request_tombstones AS (
+         DELETE FROM knowledge_ingestion_request_tombstones
+         WHERE user_id = $1 RETURNING request_id
+       ),
        deleted_drafts AS (
          DELETE FROM knowledge_card_drafts
          WHERE user_id = $1
@@ -204,6 +208,7 @@ async function purgePrivateProductData(userId: string) {
        (SELECT COUNT(*) FROM deleted_supersessions) AS deleted_supersessions,
        (SELECT COUNT(*) FROM deleted_items) AS deleted_items,
        (SELECT COUNT(*) FROM deleted_create_requests) AS deleted_create_requests,
+       (SELECT COUNT(*) FROM deleted_ingestion_request_tombstones) AS deleted_ingestion_request_tombstones,
        (SELECT COUNT(*) FROM deleted_batches) AS deleted_batches,
        (SELECT COUNT(*) FROM deleted_mcp_rate_limits) AS deleted_mcp_rate_limits,
        (SELECT COUNT(*) FROM deleted_tokens) AS deleted_tokens,

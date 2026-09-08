@@ -1862,17 +1862,25 @@ test('database MCP draft, token, and reuse writers lock then reject post-delete 
   assert.equal(await recordKnowledgeReuseForUser(userId, ['deleted-item']), 0);
 
   assert.equal(neonTransactions.length, 2);
-  for (const [index, transaction] of neonTransactions.entries()) {
-    assert.deepEqual(transaction.options, { isolationLevel: 'ReadCommitted' });
-    assert.equal(transaction.calls.length, 3);
-    assert.deepEqual(transaction.calls[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
-    assert.deepEqual(
-      transaction.calls[1]!.params,
-      [index === 0 ? `knowledge-ingestion:${userId}` : `mcp-token:${userId}`],
-    );
-    assert.match(transaction.calls[2]!.text, /mcp_deleted_account_markers/);
-    assert.equal(transaction.calls[2]!.params.at(-1), scopeKey);
-  }
+  const [draftTransaction, tokenTransaction] = neonTransactions;
+  assert.deepEqual(draftTransaction!.options, { isolationLevel: 'ReadCommitted' });
+  assert.equal(draftTransaction!.calls.length, 4);
+  assert.deepEqual(draftTransaction!.calls[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
+  assert.match(draftTransaction!.calls[1]!.text, /mcp_deleted_account_markers/);
+  assert.deepEqual(draftTransaction!.calls[1]!.params, [scopeKey]);
+  assert.deepEqual(draftTransaction!.calls[2]!.params, [`knowledge-ingestion:${userId}`]);
+  assert.match(draftTransaction!.calls[3]!.text, /mcp_deleted_account_markers/);
+  assert.equal(draftTransaction!.calls[3]!.params.at(-4), scopeKey);
+  assert.equal(draftTransaction!.calls[3]!.params.at(-3), null);
+  assert.equal(draftTransaction!.calls[3]!.params.at(-2), null);
+  assert.equal(draftTransaction!.calls[3]!.params.at(-1), null);
+
+  assert.deepEqual(tokenTransaction!.options, { isolationLevel: 'ReadCommitted' });
+  assert.equal(tokenTransaction!.calls.length, 3);
+  assert.deepEqual(tokenTransaction!.calls[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
+  assert.deepEqual(tokenTransaction!.calls[1]!.params, [`mcp-token:${userId}`]);
+  assert.match(tokenTransaction!.calls[2]!.text, /mcp_deleted_account_markers/);
+  assert.equal(tokenTransaction!.calls[2]!.params.at(-1), scopeKey);
   assert.equal(poolTransactions.length, 1);
   assert.deepEqual(poolTransactions[0]!.options, { isolationLevel: 'ReadCommitted' });
   assert.deepEqual(poolTransactions[0]!.queries[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);

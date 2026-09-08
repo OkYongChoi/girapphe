@@ -365,6 +365,19 @@ export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", 
   )`),
 ]);
 
+export const knowledgeIngestionRequestTombstones = pgTable("knowledge_ingestion_request_tombstones", {
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(),
+  requestId: text("request_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({
+    columns: [t.userId, t.provider, t.requestId],
+    name: "knowledge_ingestion_request_tombstones_user_provider_request_pk",
+  }),
+  check("knowledge_ingestion_request_tombstones_provider_check", sql`${t.provider} IN ('chatgpt', 'claude', 'gemini', 'other')`),
+]);
+
 export const knowledgeCardDrafts = pgTable("knowledge_card_drafts", {
   id: text("id").primaryKey(),
   batchId: text("batch_id").notNull().references(() => knowledgeIngestionBatches.id, { onDelete: "cascade" }),

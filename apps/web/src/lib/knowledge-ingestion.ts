@@ -97,6 +97,7 @@ export type ProposedKnowledgeRelation = {
 
 export type CreateKnowledgeDraftCardInput = {
   clientCardId?: string;
+  duplicateClientCardIds?: string[];
   title: string;
   summary?: string;
   explanation?: string;
@@ -115,6 +116,8 @@ export type CreateKnowledgeDraftBatchInput = {
   provider: KnowledgeProvider;
   scope?: KnowledgeIngestionScope;
   requestId: string;
+  /** Server-derived, exact pre-v2 request identity used only for ChatGPT session compatibility. */
+  legacyRequestId?: string;
   conversationRef?: string;
   sourceUrl?: string;
   discussedAt?: string;
@@ -126,6 +129,8 @@ export type CreateKnowledgeDraftBatchResult = {
   created: boolean;
   draftCount: number;
   reviewPath: string;
+  /** Present only when selected-export deduplication resolved without a durable batch row. */
+  persistedBatch?: false;
 };
 
 export type KnowledgeDraftBatch = {
@@ -347,6 +352,7 @@ export type MemoryKnowledgeItem = {
 type DraftPayload = {
   id: string;
   client_card_id: string;
+  duplicate_client_card_ids: string[];
   title: string;
   summary: string;
   explanation: string;
@@ -374,6 +380,7 @@ const memoryKnowledgeItems = new Map<string, MemoryKnowledgeItem[]>();
 const memoryCreateRequests = new Map<string, Set<string>>();
 const memoryBatches = new Map<string, MemoryBatchRecord>();
 const memoryDrafts = new Map<string, KnowledgeCardDraft[]>();
+const memoryDeletedIngestionRequests = new Map<string, Set<string>>();
 const memoryNodes = new Map<string, PrivateKnowledgeNode[]>();
 const memoryEdges = new Map<string, PrivateKnowledgeEdge[]>();
 const memoryTrashedNodes = new Map<string, PrivateKnowledgeNode[]>();
@@ -604,6 +611,36 @@ function sanitizeIdentifier(input: string, maxLength: number): string {
   return Array.from(input.normalize('NFKC').trim()).slice(0, maxLength).join('');
 }
 
+const UUID_REFERENCE_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const SELECTED_EXPORT_SESSION_SUFFIX = new RegExp(`:session:(${UUID_REFERENCE_PATTERN})$`, 'i');
+const LEGACY_CHATGPT_EXPORT_REQUEST = /^chatgpt-export:[0-9a-f]{48}$/i;
+const CHATGPT_EXPORT_SESSION_REQUEST = new RegExp(
+  `^(chatgpt-export:[0-9a-f]{48}):session:(${UUID_REFERENCE_PATTERN})$`,
+  'i',
+);
+const UUID_REFERENCE = new RegExp(`^${UUID_REFERENCE_PATTERN}$`, 'i');
+
+function selectedExportRequestSessionId(requestId: string): string | null {
+  return requestId.match(SELECTED_EXPORT_SESSION_SUFFIX)?.[1]?.toLowerCase() ?? null;
+}
+
+function selectedExportSessionTombstoneId(
+  provider: KnowledgeProvider,
+  requestId: string,
+  legacyBatchId?: string,
+): string | null {
+  const requestSessionId = selectedExportRequestSessionId(requestId);
+  const legacySessionId = !requestSessionId
+    && provider === 'chatgpt'
+    && LEGACY_CHATGPT_EXPORT_REQUEST.test(requestId)
+    && legacyBatchId
+    && UUID_REFERENCE.test(legacyBatchId)
+    ? legacyBatchId
+    : null;
+  const sessionId = requestSessionId ?? legacySessionId;
+  return sessionId ? `selected-export-session:v1:${sessionId.toLowerCase()}` : null;
+}
+
 function isProvider(input: string): input is KnowledgeProvider {
   return (KNOWLEDGE_PROVIDERS as readonly string[]).includes(input);
 }
@@ -695,6 +732,11 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
     const clientCardId = sanitizeIdentifier(String(card.clientCardId ?? `card-${index + 1}`), 160);
     if (!clientCardId || seenClientIds.has(clientCardId)) throw new Error('clientCardId values must be non-empty and unique within a batch.');
     seenClientIds.add(clientCardId);
+    const duplicateClientCardIds = Array.from(new Set([
+      clientCardId,
+      ...(Array.isArray(card.duplicateClientCardIds) ? card.duplicateClientCardIds : [])
+        .map((value) => sanitizeIdentifier(String(value), 160)),
+    ].filter(Boolean))).slice(0, 4);
     const bundle = card.knowledgeType || card.centralQuestion || card.structuredContent || card.bundleSchemaVersion
       ? parseKnowledgeBundleFields({
           knowledge_type: card.knowledgeType,
@@ -724,6 +766,7 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
     return {
       id: randomUUID(),
       client_card_id: clientCardId,
+      duplicate_client_card_ids: duplicateClientCardIds,
       title,
       summary: sanitizeKnowledgeContent(projected.summary, 500),
       explanation: sanitizeKnowledgeContent(projected.content || String(card.explanation ?? ''), 6000),
@@ -744,6 +787,36 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
       observed_at: observedAt,
     };
   });
+}
+
+function removeExistingSelectedExportDrafts(
+  cards: DraftPayload[],
+  existingClientCardIds: ReadonlySet<string>,
+): DraftPayload[] {
+  const retained = cards.filter((card) => (
+    !card.duplicate_client_card_ids.some((clientCardId) => existingClientCardIds.has(clientCardId))
+  ));
+  if (retained.length === cards.length) return retained;
+  const retainedReferences = new Set(retained.flatMap((card) => [card.id, card.client_card_id]));
+  return retained.map((card) => ({
+    ...card,
+    relations: card.relations.filter((relation) => (
+      relation.targetKind !== 'draft'
+      || retainedReferences.has(relation.targetId.replace(/^draft:/, ''))
+    )),
+  }));
+}
+
+function selectedExportClientCardIdFromMessageRef(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = value.match(/:([0-9a-f]{48})$/);
+  return match ? `export-exchange:${match[1]}` : null;
+}
+
+function selectedExportClientCardIdFromSourceLocator(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const fingerprint = (value as Record<string, unknown>).selected_export_fingerprint;
+  return typeof fingerprint === 'string' && fingerprint.length > 0 ? fingerprint : null;
 }
 
 export async function ensureKnowledgeIngestionSchema(): Promise<void> {
@@ -781,6 +854,15 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           UNIQUE(user_id, provider, request_id),
           CHECK (source_type = 'conversation'), CHECK (provider IN ('chatgpt', 'claude', 'gemini', 'other')),
           CHECK (scope IN ('current_conversation', 'selected_export')), CHECK (status IN ('pending', 'partial', 'approved', 'discarded'))
+        );
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS knowledge_ingestion_request_tombstones (
+          user_id TEXT NOT NULL, provider TEXT NOT NULL, request_id TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT knowledge_ingestion_request_tombstones_user_provider_request_pk
+            PRIMARY KEY(user_id, provider, request_id),
+          CHECK (provider IN ('chatgpt', 'claude', 'gemini', 'other'))
         );
       `);
       await pool.query(`
@@ -1421,18 +1503,43 @@ export async function createKnowledgeDraftBatchForUser(
   }
   const requestId = sanitizeIdentifier(String(input.requestId ?? ''), 160);
   if (!requestId) throw new Error('requestId is required for idempotency.');
+  const requestTombstoneKey = JSON.stringify([provider, requestId]);
+  const sessionTombstoneId = scope === 'selected_export'
+    ? selectedExportSessionTombstoneId(provider, requestId)
+    : null;
+  const sessionTombstoneKey = sessionTombstoneId
+    ? JSON.stringify([provider, sessionTombstoneId])
+    : null;
+  const chatGptSessionRequestMatch = scope === 'selected_export' && provider === 'chatgpt'
+    ? requestId.match(CHATGPT_EXPORT_SESSION_REQUEST)
+    : null;
+  const legacySessionBatchId = chatGptSessionRequestMatch?.[2]?.toLowerCase() ?? null;
+  const legacyRequestIdInput = input.legacyRequestId === undefined
+    ? null
+    : sanitizeIdentifier(String(input.legacyRequestId), 160).toLowerCase();
+  if (legacyRequestIdInput !== null && (
+    scope !== 'selected_export'
+    || provider !== 'chatgpt'
+    || !LEGACY_CHATGPT_EXPORT_REQUEST.test(legacyRequestIdInput)
+  )) {
+    throw new Error('legacyRequestId is reserved for bounded ChatGPT selected-export compatibility.');
+  }
+  const legacySessionRequestId = legacySessionBatchId ? legacyRequestIdInput : null;
   const conversationRef = sanitizeOpaqueReference(input.conversationRef);
   const sourceUrl = sanitizeSourceUrl(input.sourceUrl);
   const discussedAt = sanitizeTimestamp(input.discussedAt);
   if (input.conversationRef && !conversationRef) throw new Error('conversationRef must be a bounded opaque reference.');
   if (input.sourceUrl && !sourceUrl) throw new Error('sourceUrl must be a bounded HTTPS URL.');
   if (input.discussedAt && !discussedAt) throw new Error('discussedAt must be an ISO timestamp.');
-  const cards = sanitizeDraftCards(input.cards);
+  let cards = sanitizeDraftCards(input.cards);
 
   if (!process.env.DATABASE_URL) {
+    const userBatches = Array.from(memoryBatches.values()).filter((batch) => batch.user_id === userId);
     const existing = Array.from(memoryBatches.values()).find(
-      (batch) => batch.user_id === userId && batch.provider === provider
-        && batch.scope === scope && batch.request_id === requestId
+      (batch) => batch.user_id === userId
+        && batch.provider === provider
+        && batch.scope === scope
+        && batch.request_id === requestId
     );
     if (existing) {
       return {
@@ -1442,8 +1549,84 @@ export async function createKnowledgeDraftBatchForUser(
         reviewPath: `/knowledge-inbox/${encodeURIComponent(existing.id)}`,
       };
     }
+    const legacySessionBatch = legacySessionBatchId
+      ? Array.from(memoryBatches.values()).find((batch) => (
+          batch.user_id === userId
+          && batch.id.toLowerCase() === legacySessionBatchId
+          && batch.provider === 'chatgpt'
+          && batch.scope === 'selected_export'
+          && batch.request_id.toLowerCase() === legacySessionRequestId
+        ))
+      : undefined;
+    if (legacySessionBatch) {
+      return {
+        batchId: legacySessionBatch.id,
+        created: false,
+        draftCount: memoryDrafts.get(legacySessionBatch.id)?.length ?? 0,
+        reviewPath: `/knowledge-inbox/${encodeURIComponent(legacySessionBatch.id)}`,
+      };
+    }
+    const deletedRequests = memoryDeletedIngestionRequests.get(userId);
+    if (scope === 'selected_export' && (deletedRequests?.has(requestTombstoneKey)
+      || (sessionTombstoneKey && deletedRequests?.has(sessionTombstoneKey)))) {
+      return {
+        batchId,
+        created: false,
+        draftCount: 0,
+        reviewPath: '/knowledge-inbox',
+        persistedBatch: false,
+      };
+    }
+    if (scope === 'selected_export') {
+      const requestedClientCardIds = new Set(cards.flatMap((card) => card.duplicate_client_card_ids));
+      const durableSourceIds = new Set((memoryKnowledgeSources.get(userId) ?? [])
+        .filter((source) => source.source_type === 'conversation' && source.provider === provider)
+        .map((source) => source.id));
+      const durableSourceClientCardIds = (memoryKnowledgeSources.get(userId) ?? [])
+        .filter((source) => durableSourceIds.has(source.id))
+        .flatMap((source) => {
+          const clientCardId = selectedExportClientCardIdFromSourceLocator(source.source_locator);
+          return clientCardId ? [clientCardId] : [];
+        });
+      const durableClientCardIds = (memoryEvidenceSelectors.get(userId) ?? [])
+        .filter((evidence) => durableSourceIds.has(evidence.source_id)
+          && evidence.selector.selectorType === 'message')
+        .flatMap((evidence) => {
+          const clientCardId = selectedExportClientCardIdFromMessageRef(evidence.selector.messageRef);
+          return clientCardId ? [clientCardId] : [];
+        })
+        .concat(durableSourceClientCardIds);
+      const existingClientCardIds = new Set(userBatches
+        .filter((batch) => batch.scope === 'selected_export' && batch.provider === provider)
+        .flatMap((batch) => memoryDrafts.get(batch.id) ?? [])
+        .filter((draft) => draft.status !== 'rejected')
+        .map((draft) => draft.client_card_id)
+        .concat(durableClientCardIds));
+      cards = removeExistingSelectedExportDrafts(cards, existingClientCardIds);
+      if (cards.length === 0) {
+        const priorBatch = userBatches
+          .filter((batch) => batch.scope === 'selected_export' && batch.provider === provider)
+          .toSorted((left, right) => right.created_at.localeCompare(left.created_at) || left.id.localeCompare(right.id))
+          .find((batch) => (memoryDrafts.get(batch.id) ?? [])
+            .some((draft) => draft.status !== 'rejected' && requestedClientCardIds.has(draft.client_card_id)));
+        if (!priorBatch) {
+          return {
+            batchId,
+            created: false,
+            draftCount: 0,
+            reviewPath: '/knowledge-inbox',
+            persistedBatch: false,
+          };
+        }
+        return {
+          batchId: priorBatch.id,
+          created: false,
+          draftCount: 0,
+          reviewPath: '/knowledge-inbox',
+        };
+      }
+    }
     const nowMs = Date.now();
-    const userBatches = Array.from(memoryBatches.values()).filter((batch) => batch.user_id === userId);
     const userDrafts = userBatches.flatMap((batch) => memoryDrafts.get(batch.id) ?? []);
     const recentUserDrafts = userDrafts.filter((draft) => nowMs - new Date(draft.created_at).getTime() < 3_600_000).length;
     const recentTokenDrafts = sourceTokenId
@@ -1523,45 +1706,216 @@ export async function createKnowledgeDraftBatchForUser(
   const sql = getTransactionSql();
   const resultSets = await sql.transaction((tx) => [
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
+    tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deletedAccountScopeKey]),
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-ingestion:${userId}`]),
     tx.query(
     `
-    WITH inserted_batch AS (
+    WITH deleted_request_tombstone AS MATERIALIZED (
+      SELECT NULL::text AS id
+      FROM knowledge_ingestion_request_tombstones tombstone
+      WHERE $16::text = 'selected_export'
+        AND tombstone.user_id = $2
+        AND tombstone.provider = $3
+        AND (
+          tombstone.request_id = $4
+          OR ($18::text IS NOT NULL AND tombstone.request_id = $18)
+        )
+      LIMIT 1
+    ), legacy_session_batch AS MATERIALIZED (
+      SELECT b.id
+      FROM knowledge_ingestion_batches b
+      WHERE $16::text = 'selected_export'
+        AND $3::text = 'chatgpt'
+        AND $19::text IS NOT NULL
+        AND $20::text IS NOT NULL
+        AND LOWER(b.id) = $19
+        AND b.user_id = $2
+        AND b.provider = $3
+        AND b.scope = 'selected_export'
+        AND LOWER(b.request_id) = $20
+      LIMIT 1
+    ), requested_drafts AS MATERIALIZED (
+      SELECT d.*
+      FROM jsonb_to_recordset($7::jsonb) AS d(
+        id text, client_card_id text, duplicate_client_card_ids jsonb,
+        title text, summary text, explanation text, topic text, tags jsonb, relations jsonb,
+        knowledge_type text, central_question text, structured_content jsonb, bundle_schema_version int,
+        dedupe_key text, proposed_evidence jsonb, observed_at timestamptz
+      )
+    ), novel_drafts AS MATERIALIZED (
+      SELECT requested.*
+      FROM requested_drafts requested
+      WHERE $16::text <> 'selected_export'
+        OR (
+          NOT EXISTS (
+            SELECT 1
+            FROM knowledge_card_drafts existing
+            JOIN knowledge_ingestion_batches existing_batch
+              ON existing_batch.id = existing.batch_id AND existing_batch.user_id = existing.user_id
+            WHERE existing.user_id = $2
+              AND existing_batch.scope = 'selected_export'
+              AND existing_batch.provider = $3
+              AND existing.status IN ('pending', 'approved')
+              AND existing.client_card_id IN (
+                SELECT jsonb_array_elements_text(requested.duplicate_client_card_ids)
+              )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM knowledge_card_sources source
+            WHERE source.user_id = $2
+              AND source.source_type = 'conversation'
+              AND source.provider = $3
+              AND (
+                source.source_locator ->> 'selected_export_fingerprint' IN (
+                  SELECT alias.value
+                  FROM jsonb_array_elements_text(requested.duplicate_client_card_ids) AS alias(value)
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM knowledge_evidence_spans evidence
+                  WHERE evidence.source_id = source.id
+                    AND evidence.user_id = source.user_id
+                    AND evidence.knowledge_item_id = source.knowledge_item_id
+                    AND evidence.selector_type = 'message'
+                    AND substring(evidence.selector ->> 'message_ref' FROM ':([0-9a-f]{48})$') IN (
+                      SELECT substring(alias.value FROM '^export-exchange:([0-9a-f]{48})$')
+                      FROM jsonb_array_elements_text(requested.duplicate_client_card_ids) AS alias(value)
+                    )
+                )
+              )
+          )
+        )
+    ), prepared_drafts AS MATERIALIZED (
+      SELECT novel.id, novel.client_card_id, novel.title, novel.summary, novel.explanation, novel.topic, novel.tags,
+        CASE WHEN $16::text = 'selected_export' THEN COALESCE((
+          SELECT jsonb_agg(relation.value ORDER BY relation.ordinality)
+          FROM jsonb_array_elements(novel.relations) WITH ORDINALITY AS relation(value, ordinality)
+          WHERE relation.value ->> 'targetKind' <> 'draft'
+            OR EXISTS (
+              SELECT 1
+              FROM novel_drafts target
+              WHERE target.id = regexp_replace(relation.value ->> 'targetId', '^draft:', '')
+                 OR target.client_card_id = regexp_replace(relation.value ->> 'targetId', '^draft:', '')
+            )
+        ), '[]'::jsonb) ELSE novel.relations END AS relations,
+        novel.knowledge_type, novel.central_question, novel.structured_content, novel.bundle_schema_version,
+        novel.dedupe_key, novel.proposed_evidence, novel.observed_at
+      FROM novel_drafts novel
+    ), inserted_batch AS (
       INSERT INTO knowledge_ingestion_batches
         (id, user_id, source_type, provider, scope, request_id, conversation_ref, source_url, discussed_at, mcp_token_id)
       SELECT $1, $2, 'conversation', $3, $16, $4, $5, $14, $15, $6
       WHERE NOT EXISTS (
           SELECT 1 FROM mcp_deleted_account_markers marker WHERE marker.scope_key = $17
         )
+        AND NOT EXISTS (SELECT 1 FROM deleted_request_tombstone)
+        AND NOT EXISTS (SELECT 1 FROM legacy_session_batch)
+        AND EXISTS (SELECT 1 FROM prepared_drafts)
         AND ($6::text IS NULL OR EXISTS (
           SELECT 1 FROM mcp_access_tokens t
           WHERE t.id = $6 AND t.user_id = $2 AND t.revoked_at IS NULL AND t.expires_at > NOW()
         ))
         AND (SELECT COUNT(*) FROM knowledge_ingestion_batches b WHERE b.user_id = $2) < $8
         AND (SELECT COUNT(*) FROM knowledge_card_drafts d WHERE d.user_id = $2)
-          + jsonb_array_length($7::jsonb) <= $9
+          + (SELECT COUNT(*) FROM prepared_drafts) <= $9
         AND (SELECT COUNT(*) FROM knowledge_card_drafts d WHERE d.user_id = $2 AND d.status = 'pending')
-          + jsonb_array_length($7::jsonb) <= $10
+          + (SELECT COUNT(*) FROM prepared_drafts) <= $10
         AND (SELECT COUNT(*) FROM user_knowledge_items i WHERE i.user_id = $2)
-          + jsonb_array_length($7::jsonb) <= $11
+          + (SELECT COUNT(*) FROM prepared_drafts) <= $11
         AND (SELECT COUNT(*) FROM knowledge_card_drafts d
              WHERE d.user_id = $2 AND d.created_at > NOW() - INTERVAL '1 hour')
-          + jsonb_array_length($7::jsonb) <= $12
+          + (SELECT COUNT(*) FROM prepared_drafts) <= $12
         AND ($6::text IS NULL OR (
           SELECT COUNT(*) FROM knowledge_card_drafts d
           JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id
           WHERE d.user_id = $2 AND b.mcp_token_id = $6
             AND d.created_at > NOW() - INTERVAL '1 hour'
-        ) + jsonb_array_length($7::jsonb) <= $13)
+        ) + (SELECT COUNT(*) FROM prepared_drafts) <= $13)
       ON CONFLICT DO NOTHING
       RETURNING id
-    ), resolved_batch AS (
-      SELECT id, TRUE AS created FROM inserted_batch
-      UNION ALL
-      SELECT b.id, FALSE AS created
+    ), existing_request_batch AS MATERIALIZED (
+      SELECT b.id
       FROM knowledge_ingestion_batches b
       WHERE b.user_id = $2 AND b.provider = $3 AND b.scope = $16 AND b.request_id = $4
-        AND NOT EXISTS (SELECT 1 FROM inserted_batch)
+      LIMIT 1
+    ), duplicate_source_batch AS MATERIALIZED (
+      SELECT existing_batch.id
+      FROM requested_drafts requested
+      JOIN knowledge_card_drafts existing
+        ON existing.user_id = $2 AND existing.client_card_id IN (
+          SELECT jsonb_array_elements_text(requested.duplicate_client_card_ids)
+        )
+      JOIN knowledge_ingestion_batches existing_batch
+        ON existing_batch.id = existing.batch_id AND existing_batch.user_id = existing.user_id
+      WHERE $16::text = 'selected_export'
+        AND existing_batch.scope = 'selected_export'
+        AND existing_batch.provider = $3
+        AND existing.status IN ('pending', 'approved')
+        AND NOT EXISTS (SELECT 1 FROM prepared_drafts)
+      ORDER BY existing_batch.created_at DESC, existing_batch.id
+      LIMIT 1
+    ), durable_source_match AS MATERIALIZED (
+      SELECT source.batch_id AS id
+      FROM requested_drafts requested
+      JOIN knowledge_card_sources source
+        ON source.user_id = $2
+       AND (
+         source.source_locator ->> 'selected_export_fingerprint' IN (
+           SELECT alias.value
+           FROM jsonb_array_elements_text(requested.duplicate_client_card_ids) AS alias(value)
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM knowledge_evidence_spans evidence
+           WHERE evidence.source_id = source.id
+             AND evidence.user_id = source.user_id
+             AND evidence.knowledge_item_id = source.knowledge_item_id
+             AND evidence.selector_type = 'message'
+             AND substring(evidence.selector ->> 'message_ref' FROM ':([0-9a-f]{48})$') IN (
+               SELECT substring(alias.value FROM '^export-exchange:([0-9a-f]{48})$')
+               FROM jsonb_array_elements_text(requested.duplicate_client_card_ids) AS alias(value)
+             )
+         )
+       )
+      WHERE $16::text = 'selected_export'
+        AND source.source_type = 'conversation'
+        AND source.provider = $3
+        AND NOT EXISTS (SELECT 1 FROM prepared_drafts)
+      ORDER BY source.created_at DESC, source.id
+      LIMIT 1
+    ), resolved_batch AS (
+      SELECT id, TRUE AS created, FALSE AS duplicate_only FROM inserted_batch
+      UNION ALL
+      SELECT existing.id, FALSE AS created, FALSE AS duplicate_only
+      FROM existing_request_batch existing
+      WHERE NOT EXISTS (SELECT 1 FROM inserted_batch)
+      UNION ALL
+      SELECT legacy.id, FALSE AS created, FALSE AS duplicate_only
+      FROM legacy_session_batch legacy
+      WHERE NOT EXISTS (SELECT 1 FROM inserted_batch)
+        AND NOT EXISTS (SELECT 1 FROM existing_request_batch)
+      UNION ALL
+      SELECT duplicate.id, FALSE AS created, TRUE AS duplicate_only
+      FROM duplicate_source_batch duplicate
+      WHERE NOT EXISTS (SELECT 1 FROM inserted_batch)
+        AND NOT EXISTS (SELECT 1 FROM existing_request_batch)
+        AND NOT EXISTS (SELECT 1 FROM legacy_session_batch)
+      UNION ALL
+      SELECT durable.id, FALSE AS created, TRUE AS duplicate_only
+      FROM durable_source_match durable
+      WHERE NOT EXISTS (SELECT 1 FROM inserted_batch)
+        AND NOT EXISTS (SELECT 1 FROM existing_request_batch)
+        AND NOT EXISTS (SELECT 1 FROM legacy_session_batch)
+        AND NOT EXISTS (SELECT 1 FROM duplicate_source_batch)
+      UNION ALL
+      SELECT tombstone.id, FALSE AS created, TRUE AS duplicate_only
+      FROM deleted_request_tombstone tombstone
+      WHERE NOT EXISTS (SELECT 1 FROM inserted_batch)
+        AND NOT EXISTS (SELECT 1 FROM existing_request_batch)
+        AND NOT EXISTS (SELECT 1 FROM legacy_session_batch)
+        AND NOT EXISTS (SELECT 1 FROM duplicate_source_batch)
+        AND NOT EXISTS (SELECT 1 FROM durable_source_match)
       LIMIT 1
     ), inserted_drafts AS (
       INSERT INTO knowledge_card_drafts
@@ -1571,16 +1925,13 @@ export async function createKnowledgeDraftBatchForUser(
         d.knowledge_type, d.central_question, d.structured_content, d.bundle_schema_version, d.dedupe_key, d.proposed_evidence,
         d.observed_at
       FROM resolved_batch rb
-      CROSS JOIN jsonb_to_recordset($7::jsonb) AS d(
-        id text, client_card_id text, title text, summary text, explanation text, topic text, tags jsonb, relations jsonb,
-        knowledge_type text, central_question text, structured_content jsonb, bundle_schema_version int,
-        dedupe_key text, proposed_evidence jsonb, observed_at timestamptz
-      )
+      CROSS JOIN prepared_drafts d
       WHERE rb.created
       RETURNING id
     )
-    SELECT rb.id, rb.created,
+    SELECT rb.id, rb.created, rb.duplicate_only,
       CASE WHEN rb.created THEN (SELECT COUNT(*)::int FROM inserted_drafts)
+           WHEN rb.duplicate_only THEN 0
            ELSE (SELECT COUNT(*)::int FROM knowledge_card_drafts d WHERE d.batch_id = rb.id)
       END AS draft_count
     FROM resolved_batch rb;
@@ -1603,17 +1954,39 @@ export async function createKnowledgeDraftBatchForUser(
         discussedAt,
         scope,
         deletedAccountScopeKey,
+        sessionTombstoneId,
+        legacySessionBatchId,
+        legacySessionRequestId,
       ]
     ),
   ], { isolationLevel: 'ReadCommitted' });
-  const rows = resultSets[2] as Array<{ id: string; created: boolean; draft_count: number }>;
+  const rows = resultSets[3] as Array<{
+    id: string | null;
+    created: boolean;
+    duplicate_only: boolean;
+    draft_count: number;
+  }>;
   const row = rows[0];
   if (!row) throw new Error('Unable to create the draft batch because its token or ingestion quota is unavailable.');
+  if (row.id === null) {
+    if (row.created || !row.duplicate_only) {
+      throw new Error('A no-batch ingestion outcome must be duplicate-only.');
+    }
+    return {
+      batchId,
+      created: false,
+      draftCount: 0,
+      reviewPath: '/knowledge-inbox',
+      persistedBatch: false,
+    };
+  }
   return {
     batchId: row.id,
     created: Boolean(row.created),
     draftCount: Number(row.draft_count),
-    reviewPath: `/knowledge-inbox/${encodeURIComponent(row.id)}`,
+    reviewPath: row.duplicate_only
+      ? '/knowledge-inbox'
+      : `/knowledge-inbox/${encodeURIComponent(row.id)}`,
   };
 }
 
@@ -3710,7 +4083,11 @@ export async function approveKnowledgeDraftsForUser(
             conversation_ref, source_url, source_locator, supported_item_version,
             discussed_at, relation_origin, confirmed_at)
           SELECT $1, $2, $3, b.id, d.id, 'conversation', b.provider, b.conversation_ref,
-           b.source_url, $6::jsonb, i.version, COALESCE(d.observed_at, b.discussed_at),
+           b.source_url,
+           $6::jsonb || CASE WHEN b.scope = 'selected_export'
+             THEN jsonb_build_object('selected_export_fingerprint', d.client_card_id)
+             ELSE '{}'::jsonb END,
+           i.version, COALESCE(d.observed_at, b.discussed_at),
            'extracted_from_source', NOW()
          FROM knowledge_card_drafts d
          JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id
@@ -3830,15 +4207,21 @@ export async function discardKnowledgeDraftBatchForUser(userId: string, batchId:
     return;
   }
   await ensureKnowledgeIngestionSchema();
-  await pool.query(
-    `WITH discarded AS (
-       UPDATE knowledge_ingestion_batches SET status = 'discarded', discarded_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND user_id = $2 AND status IN ('pending', 'partial') RETURNING id
-     )
-     UPDATE knowledge_card_drafts SET status = 'rejected', updated_at = NOW()
-     WHERE batch_id IN (SELECT id FROM discarded) AND user_id = $2 AND status = 'pending'`,
-    [batchId, userId]
-  );
+  const sql = getTransactionSql();
+  await sql.transaction((tx) => [
+    tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
+    tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
+    tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-ingestion:${userId}`]),
+    tx.query(
+      `WITH discarded AS (
+         UPDATE knowledge_ingestion_batches SET status = 'discarded', discarded_at = NOW(), updated_at = NOW()
+         WHERE id = $1 AND user_id = $2 AND status IN ('pending', 'partial') RETURNING id
+       )
+       UPDATE knowledge_card_drafts SET status = 'rejected', updated_at = NOW()
+       WHERE batch_id IN (SELECT id FROM discarded) AND user_id = $2 AND status = 'pending'`,
+      [batchId, userId],
+    ),
+  ], { isolationLevel: 'Serializable' });
 }
 
 export async function deleteKnowledgeImportBatchForUser(
@@ -3850,13 +4233,33 @@ export async function deleteKnowledgeImportBatchForUser(
   if (!process.env.DATABASE_URL) {
     const batch = memoryBatches.get(batchId);
     if (!batch || batch.user_id !== userId) return { deleted: false, approvedKnowledgePreserved: 0 };
+    if (batch.scope === 'selected_export') {
+      const deletedRequests = memoryDeletedIngestionRequests.get(userId) ?? new Set<string>();
+      deletedRequests.add(JSON.stringify([batch.provider, batch.request_id]));
+      const sessionTombstoneId = selectedExportSessionTombstoneId(
+        batch.provider,
+        batch.request_id,
+        batch.id,
+      );
+      if (sessionTombstoneId) {
+        deletedRequests.add(JSON.stringify([batch.provider, sessionTombstoneId]));
+      }
+      memoryDeletedIngestionRequests.set(userId, deletedRequests);
+    }
     const drafts = memoryDrafts.get(batchId) ?? [];
     const approvedKnowledgePreserved = new Set(drafts
       .flatMap((draft) => draft.status === 'approved' && draft.knowledge_item_id ? [draft.knowledge_item_id] : [])).size;
     const sources = memoryKnowledgeSources.get(userId) ?? [];
     for (const source of sources) {
       if (source.source_locator?.batch_id !== batchId) continue;
-      const retainedLocator = Object.fromEntries(Object.entries(source.source_locator)
+      const retainedLocator = Object.fromEntries(Object.entries({
+        ...source.source_locator,
+        ...(batch.scope === 'selected_export'
+          && typeof source.source_locator.client_card_id === 'string'
+          && !source.source_locator.selected_export_fingerprint
+          ? { selected_export_fingerprint: source.source_locator.client_card_id }
+          : {}),
+      })
         .filter(([key]) => key !== 'batch_id' && key !== 'draft_id' && key !== 'client_card_id'));
       source.source_locator = Object.keys(retainedLocator).length > 0 ? retainedLocator : null;
     }
@@ -3870,12 +4273,35 @@ export async function deleteKnowledgeImportBatchForUser(
   const resultSets = await sql.transaction((tx) => [
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
     tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
+    tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-ingestion:${userId}`]),
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-import:${userId}:${batchId}`]),
     tx.query(
       `WITH owned_batch AS MATERIALIZED (
-         SELECT id FROM knowledge_ingestion_batches
+         SELECT id, scope, provider, request_id FROM knowledge_ingestion_batches
          WHERE id = $1 AND user_id = $2
          FOR UPDATE
+       ), tombstoned_request AS MATERIALIZED (
+         INSERT INTO knowledge_ingestion_request_tombstones
+           (user_id, provider, request_id)
+         SELECT $2, owned.provider, candidate.request_id
+         FROM owned_batch owned
+         CROSS JOIN LATERAL (
+           VALUES
+             (owned.request_id),
+             (CASE
+               WHEN substring(LOWER(owned.request_id) FROM ':session:(${UUID_REFERENCE_PATTERN})$') IS NOT NULL
+                 THEN 'selected-export-session:v1:'
+                   || substring(LOWER(owned.request_id) FROM ':session:(${UUID_REFERENCE_PATTERN})$')
+               WHEN owned.provider = 'chatgpt'
+                 AND LOWER(owned.request_id) ~ '^chatgpt-export:[0-9a-f]{48}$'
+                 AND LOWER(owned.id) ~ '^${UUID_REFERENCE_PATTERN}$'
+                 THEN 'selected-export-session:v1:' || LOWER(owned.id)
+               ELSE NULL
+             END)
+         ) AS candidate(request_id)
+         WHERE owned.scope = 'selected_export' AND candidate.request_id IS NOT NULL
+         ON CONFLICT (user_id, provider, request_id) DO NOTHING
+         RETURNING request_id
        ), approved_items AS MATERIALIZED (
          SELECT DISTINCT d.knowledge_item_id AS id
          FROM knowledge_card_drafts d
@@ -3886,14 +4312,24 @@ export async function deleteKnowledgeImportBatchForUser(
            batch_id = NULL,
            draft_id = NULL,
            source_locator = CASE WHEN s.source_locator IS NULL THEN NULL
-             ELSE s.source_locator - 'batch_id' - 'draft_id' - 'client_card_id' END
-         WHERE s.user_id = $2 AND s.batch_id IN (SELECT id FROM owned_batch)
+             ELSE (s.source_locator - 'batch_id' - 'draft_id' - 'client_card_id')
+               || CASE WHEN owned.scope = 'selected_export'
+                    AND jsonb_typeof(s.source_locator -> 'client_card_id') = 'string'
+                    AND NOT (s.source_locator ? 'selected_export_fingerprint')
+                  THEN jsonb_build_object(
+                    'selected_export_fingerprint', s.source_locator ->> 'client_card_id'
+                  )
+                  ELSE '{}'::jsonb END
+             END
+         FROM owned_batch owned
+         WHERE s.user_id = $2 AND s.batch_id = owned.id
          RETURNING s.id
        ), deleted_batch AS (
          DELETE FROM knowledge_ingestion_batches b
          USING owned_batch owned
          WHERE b.id = owned.id AND b.user_id = $2
            AND (SELECT COUNT(*) FROM detached_sources) >= 0
+           AND (SELECT COUNT(*) FROM tombstoned_request) >= 0
          RETURNING b.id
        )
        SELECT EXISTS (SELECT 1 FROM deleted_batch) AS deleted,
@@ -3901,7 +4337,7 @@ export async function deleteKnowledgeImportBatchForUser(
       [batchId, userId],
     ),
   ], { isolationLevel: 'ReadCommitted' });
-  const row = (resultSets[3] as Array<{ deleted: boolean; approved_knowledge_preserved: number }>)[0];
+  const row = (resultSets[4] as Array<{ deleted: boolean; approved_knowledge_preserved: number }>)[0];
   return {
     deleted: row?.deleted === true,
     approvedKnowledgePreserved: Number(row?.approved_knowledge_preserved ?? 0),
@@ -4122,6 +4558,9 @@ function recordMemoryConversationSource(
       batch_id: batch.id,
       draft_id: draft.id,
       client_card_id: draft.client_card_id,
+      ...(batch.scope === 'selected_export'
+        ? { selected_export_fingerprint: draft.client_card_id }
+        : {}),
     },
     supported_item_version: itemVersion,
     discussed_at: draft.observed_at ?? batch.discussed_at,
@@ -4241,6 +4680,9 @@ export async function resolveKnowledgeDraftForUser(
     try {
       const sql = getTransactionSql();
       await sql.transaction((tx) => [
+        tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
+        tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
+        tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-ingestion:${userId}`]),
         tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-draft:${userId}:${input.batchId}`]),
         tx.query(
           `SELECT 1 / CASE WHEN EXISTS (
@@ -4647,7 +5089,11 @@ export async function resolveKnowledgeDraftForUser(
              relation_origin, confirmed_at
            )
            SELECT $1, $2, $3, b.id, d.id, 'conversation', b.provider,
-             b.conversation_ref, b.source_url, $6::jsonb, i.version,
+             b.conversation_ref, b.source_url,
+             $6::jsonb || CASE WHEN b.scope = 'selected_export'
+               THEN jsonb_build_object('selected_export_fingerprint', d.client_card_id)
+               ELSE '{}'::jsonb END,
+             i.version,
              COALESCE(d.observed_at, b.discussed_at),
              'extracted_from_source', NOW()
            FROM knowledge_card_drafts d

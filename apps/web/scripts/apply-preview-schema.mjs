@@ -12,6 +12,7 @@ const PREVIEW_MIGRATIONS = [
   new URL('../drizzle/migrations/0020_knowledge_intelligence_events.sql', import.meta.url),
   new URL('../drizzle/migrations/0021_billing_v1_domain.sql', import.meta.url),
   new URL('../drizzle/migrations/0022_recall_ping_persistence.sql', import.meta.url),
+  new URL('../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql', import.meta.url),
 ];
 
 const SAFE_STATEMENT_PREFIXES = [
