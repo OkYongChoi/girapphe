@@ -470,11 +470,23 @@ export async function removePrivatePracticeCardState(
         AND i.id = $2
         AND ${PRIVATE_PRACTICE_ELIGIBILITY_PREDICATE}
       LIMIT 1
+    ), invalidated_attempts AS (
+      UPDATE recall_attempts a
+      SET lifecycle_state = 'invalidated',
+          invalidated_at = NOW(),
+          invalidation_reason = 'item_removed',
+          updated_at = NOW()
+      WHERE a.user_id = $1
+        AND a.knowledge_item_id = $2
+        AND a.lifecycle_state IN ('prepared', 'confidence_selected', 'revealed')
+        AND EXISTS (SELECT 1 FROM eligible)
+      RETURNING a.id
     ), deleted AS (
       DELETE FROM user_private_card_states s
       WHERE s.user_id = $1
         AND s.knowledge_item_id = $2
         AND EXISTS (SELECT 1 FROM eligible)
+        AND (SELECT COUNT(*) FROM invalidated_attempts) >= 0
       RETURNING s.knowledge_item_id
     )
     SELECT
@@ -554,19 +566,29 @@ export async function getPrivatePracticeDomainProgress(
 export async function resetPrivatePracticeProgress(userId: string): Promise<void> {
   await db.accountTransaction(userId, [
     {
-      // Serialize against every existing per-item enrollment or transition.
-      // The rows themselves contain the only authoritative Recall due state,
-      // so deleting them in this transaction also cancels the milestones.
-      text: `WITH ordered_recall_rows AS MATERIALIZED (
-        SELECT s.user_id, s.knowledge_item_id
-        FROM user_private_card_states s
-        WHERE s.user_id = $1
-        ORDER BY s.knowledge_item_id
+      // Serialize against every current schedule and retained attempt before
+      // deleting either product history or the authoritative Practice rows.
+      text: `WITH ordered_recall_items AS MATERIALIZED (
+        SELECT candidates.user_id, candidates.knowledge_item_id
+        FROM (
+          SELECT s.user_id, s.knowledge_item_id
+          FROM user_private_card_states s
+          WHERE s.user_id = $1
+          UNION
+          SELECT a.user_id, a.knowledge_item_id
+          FROM recall_attempts a
+          WHERE a.user_id = $1
+        ) candidates
+        ORDER BY candidates.knowledge_item_id
       )
       SELECT pg_advisory_xact_lock(
         hashtext('recall-schedule:' || row.user_id || ':' || row.knowledge_item_id)
       )
-      FROM ordered_recall_rows row`,
+      FROM ordered_recall_items row`,
+      params: [userId],
+    },
+    {
+      text: 'DELETE FROM recall_attempts WHERE user_id = $1',
       params: [userId],
     },
     {

@@ -30,8 +30,14 @@ export function buildPrivateProductPurgeQuery(userId: string) {
        deleted_graph_edges AS (
          DELETE FROM user_graph_edges WHERE user_id = $1 RETURNING id
        ),
+       deleted_recall_attempts AS (
+         DELETE FROM recall_attempts WHERE user_id = $1 RETURNING id
+       ),
        deleted_private_states AS (
-         DELETE FROM user_private_card_states WHERE user_id = $1 RETURNING knowledge_item_id
+         DELETE FROM user_private_card_states
+         WHERE user_id = $1
+           AND (SELECT COUNT(*) FROM deleted_recall_attempts) >= 0
+         RETURNING knowledge_item_id
        ),
        deleted_graph_nodes AS (
          DELETE FROM user_graph_nodes
@@ -113,6 +119,7 @@ export function buildPrivateProductPurgeQuery(userId: string) {
        (SELECT COUNT(*) FROM deleted_activity) AS deleted_activity,
        (SELECT COUNT(*) FROM deleted_knowledge_product_events) AS deleted_knowledge_product_events,
        (SELECT COUNT(*) FROM deleted_supersessions) AS deleted_supersessions,
+       (SELECT COUNT(*) FROM deleted_recall_attempts) AS deleted_recall_attempts,
        (SELECT COUNT(*) FROM deleted_items) AS deleted_items,
        (SELECT COUNT(*) FROM deleted_create_requests) AS deleted_create_requests,
        (SELECT COUNT(*) FROM deleted_ingestion_request_tombstones) AS deleted_ingestion_request_tombstones,

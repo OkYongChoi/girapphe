@@ -283,11 +283,17 @@ test('private removal and all-progress reset cancel Recall rows under account tr
   assert.equal(calls[0]?.userId, ACTOR_ID);
   assert.deepEqual(calls[0]?.queries[0]?.params, [`recall-schedule:${ACTOR_ID}:eligible-item`]);
   assert.match(calls[0]?.queries[1]?.text ?? '', /DELETE FROM user_private_card_states/);
+  assert.match(calls[0]?.queries[1]?.text ?? '', /UPDATE recall_attempts a/);
+  assert.match(calls[0]?.queries[1]?.text ?? '', /invalidation_reason = 'item_removed'/);
+  const removalSql = calls[0]?.queries[1]?.text ?? '';
+  assert.ok(removalSql.indexOf('invalidated_attempts AS') < removalSql.indexOf('DELETE FROM user_private_card_states'));
   assert.equal(calls[1]?.userId, ACTOR_ID);
   assert.match(calls[1]?.queries[0]?.text ?? '', /pg_advisory_xact_lock/);
-  assert.match(calls[1]?.queries[0]?.text ?? '', /ordered_recall_rows AS MATERIALIZED/);
-  assert.match(calls[1]?.queries[0]?.text ?? '', /ORDER BY s\.knowledge_item_id/);
-  assert.match(calls[1]?.queries[1]?.text ?? '', /DELETE FROM user_private_card_states WHERE user_id = \$1/);
+  assert.match(calls[1]?.queries[0]?.text ?? '', /ordered_recall_items AS MATERIALIZED/);
+  assert.match(calls[1]?.queries[0]?.text ?? '', /FROM recall_attempts a/);
+  assert.match(calls[1]?.queries[0]?.text ?? '', /ORDER BY candidates\.knowledge_item_id/);
+  assert.match(calls[1]?.queries[1]?.text ?? '', /DELETE FROM recall_attempts WHERE user_id = \$1/);
+  assert.match(calls[1]?.queries[2]?.text ?? '', /DELETE FROM user_private_card_states WHERE user_id = \$1/);
 });
 
 test('every private-practice query excludes archived and superseded knowledge', async (context) => {

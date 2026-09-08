@@ -215,10 +215,38 @@ milestones remain outside generic Practice until a Recall-capable action can
 advance them. The legacy rating path also fails closed against a concurrent
 enrollment and retains terminal Recall metadata until an append-only attempt
 record can become the durable outcome history. The review-pool count is derived
-from the same due predicate rather than the broader saved or known totals. Item
-removal or all-progress reset takes the Recall locks before deleting the
-schedule rows. Approval hooks, session and attempt lifecycle, delivery claims,
-notification preferences, device tokens, and UI remain separate feature stages.
+from the same due predicate rather than the broader saved or known totals.
+
+`recall_attempts` adds that owner-scoped, content-free history boundary. A row
+binds an opaque attempt ID to the exact item version, enrollment anchor,
+schedule version, D+1/D+7 milestone, and `concept`/`procedure`/`comparison`
+exercise type. The prepared-session repository derives those fields from a
+server-due schedule; callers cannot supply or override `due_at`. It fills only
+the bounded confidence and reveal timestamps before completion. The table has
+no title, topic, question, answer, recalled response, reconstructed order,
+application response, cue, selector, or source locator columns.
+`resulting_due_at` is reserved only as the immutable audit value written by a
+future atomic completion; it has no queue index and is never a scheduling
+authority. `user_private_card_states.due_at` remains the sole due-state read.
+
+A partial unique index permits one `prepared`, `confidence_selected`, or
+`revealed` attempt per owner, item version, and milestone across devices. Every
+resume, confidence, and reveal transaction re-checks the current item version,
+source-supported revision, lifecycle, supersession, schedule version,
+enrollment generation, due instant, and milestone close before returning an
+active attempt. A mismatch changes the row to the terminal content-free
+`invalidated` state instead of authorizing stale reveal. Completion fields are
+schema-bounded for the next transactional slice, but no completion mutation is
+connected yet.
+
+Attempt retention is capped at 365 days from `started_at`. The existing daily
+private-product purge deletes expired rows. Removing one Practice item
+invalidates its active prepared attempt before deleting the schedule row;
+all-progress reset deletes all Recall attempt history before deleting all
+private Practice state. Full account deletion explicitly deletes the owner's
+attempts before Practice state and knowledge. Approval/enrollment hooks,
+completion and retry transitions, delivery claims, notification preferences,
+device tokens, and UI remain separate feature stages.
 
 ## Billing and Entitlements
 
@@ -313,6 +341,9 @@ Card tables:
 - `user_private_card_states`
   - Nullable assessed/unassessed Practice projection
   - Shared `due_at` plus the content-free Recall schedule snapshot
+- `recall_attempts`
+  - Content-free prepared/confidence/reveal and terminal outcome metadata
+  - One active owner/item-version/milestone attempt and 365-day retention cap
 
 Key constraints:
 

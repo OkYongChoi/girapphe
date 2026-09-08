@@ -26,6 +26,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0021_billing_v1_domain.sql', 63, parsePreviewMigration],
     ['0022_recall_ping_persistence.sql', 15, parsePreviewMigration],
     ['0023_knowledge_ingestion_request_tombstones.sql', 21, parsePreviewMigration],
+    ['0024_recall_prepared_attempts.sql', 4, parsePreviewMigration],
   ];
   for (const [name, expectedCount, parse] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -192,6 +193,27 @@ test('recall persistence migration preserves one scheduling authority and legacy
   assert.match(sql, /ADD COLUMN IF NOT EXISTS "supported_item_version" integer/);
   assert.match(sql, /FOREIGN KEY \("knowledge_item_id", "supported_item_version"\)/);
   assert.doesNotMatch(sql, /^\s*UPDATE\b/im);
+});
+
+test('prepared Recall attempts are content-free, owner-scoped, unique, and retention-bounded', async () => {
+  const sql = await readFile(new URL('../drizzle/migrations/0024_recall_prepared_attempts.sql', import.meta.url), 'utf8');
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS "recall_attempts"/);
+  assert.match(sql, /FOREIGN KEY \("knowledge_item_id", "user_id"\)/);
+  assert.match(sql, /ON DELETE cascade/);
+  assert.match(sql, /idx_recall_attempts_one_active_milestone/);
+  assert.match(
+    sql,
+    /\("user_id", "knowledge_item_id", "item_version", "milestone"\)[\s\S]+WHERE "lifecycle_state" IN \('prepared', 'confidence_selected', 'revealed'\)/,
+  );
+  assert.match(sql, /"retention_expires_at" <= "started_at" \+ INTERVAL '365 days'/);
+  assert.match(sql, /"self_assessed_outcome" text/);
+  assert.match(sql, /"response_duration_bucket" text/);
+  assert.doesNotMatch(sql, /INDEX[^;]+"resulting_due_at"/i);
+  assert.doesNotMatch(
+    sql,
+    /"(?:title|topic|question|answer|content|response_text|reconstructed_order|application_response|memory_cue|selector|source_url|source_locator|transcript)"\s+(?:text|jsonb)/i,
+  );
+  assert.doesNotMatch(sql, /^\s*(?:UPDATE|DELETE)\b/im);
 });
 
 test('typed bundle migration keeps all new fields nullable and does not rewrite legacy rows', async () => {
