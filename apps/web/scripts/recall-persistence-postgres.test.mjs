@@ -701,7 +701,7 @@ test('Private Practice executes Recall-compatible due, rating, removal, and rese
     )).rows, [{ status: 'known', recall_schedule_state: 'd7_pending', recall_schedule_version: 2 }]);
 
     assert.deepEqual(
-      await practice.savePrivatePracticeCardState(userId, itemIds.terminalNull, 'known'),
+      await practice.savePrivatePracticeCardState(userId, itemIds.terminalNull, 'saved'),
       { kind: 'saved' },
     );
     assert.deepEqual((await pool.query(
@@ -710,11 +710,16 @@ test('Private Practice executes Recall-compatible due, rating, removal, and rese
        WHERE user_id = $1 AND knowledge_item_id = $2`,
       [userId, itemIds.terminalNull],
     )).rows, [{
-      status: 'known',
+      status: 'saved',
       recall_schedule_state: 'ordinary_practice',
       recall_d7_outcome: 'unassessed',
       recall_schedule_version: 3,
     }]);
+    assert.deepEqual(await practice.getPrivatePracticeStats(userId), {
+      known_count: 2,
+      saved_count: 1,
+      reviewable_count: 1,
+    });
 
     assert.equal(await practice.removePrivatePracticeCardState(userId, itemIds.dueKnown), true);
     assert.equal((await pool.query(

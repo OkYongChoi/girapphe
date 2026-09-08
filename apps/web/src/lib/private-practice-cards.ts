@@ -32,6 +32,7 @@ export type PrivatePracticeCard = {
 export type PrivatePracticeStats = {
   known_count: number;
   saved_count: number;
+  reviewable_count: number;
 };
 
 export type PrivatePracticeDomainProgress = {
@@ -77,6 +78,7 @@ type PrivatePracticeCardRow = PrivatePracticeEligibilityRecord & {
 type CountRow = {
   known_count: string | number | null;
   saved_count: string | number | null;
+  reviewable_count: string | number | null;
 };
 
 type DomainRow = {
@@ -267,17 +269,21 @@ export async function getEligiblePrivatePracticeCards(
 ): Promise<PrivatePracticeCard[]> {
   const modePredicate = mode === 'review'
     ? `AND (
-         (
-           s.progress_state = 'learning'
-           AND s.status = 'saved'
-           AND (s.due_at IS NULL OR s.due_at <= NOW())
-         )
-         OR (
-           s.progress_state = 'review'
-           AND s.status = 'known'
-           AND s.due_at IS NOT NULL
-           AND s.due_at <= NOW()
-         )
+         s.recall_schedule_state IS NULL
+         OR s.recall_schedule_state = 'ordinary_practice'
+       )
+       AND (
+          (
+            s.progress_state = 'learning'
+            AND s.status = 'saved'
+            AND (s.due_at IS NULL OR s.due_at <= NOW())
+          )
+          OR (
+            s.progress_state = 'review'
+            AND s.status = 'known'
+            AND s.due_at IS NOT NULL
+            AND s.due_at <= NOW()
+          )
        )`
     : `AND (
          s.recall_schedule_state IS NULL
@@ -486,7 +492,23 @@ export async function getPrivatePracticeStats(userId: string): Promise<PrivatePr
   const result = await db.query<CountRow>(`
     SELECT
       COUNT(*) FILTER (WHERE s.knowledge_state = 'known' OR s.status = 'known') AS known_count,
-      COUNT(*) FILTER (WHERE s.progress_state = 'learning' OR s.status = 'saved') AS saved_count
+      COUNT(*) FILTER (WHERE s.progress_state = 'learning' OR s.status = 'saved') AS saved_count,
+      COUNT(*) FILTER (
+        WHERE (s.recall_schedule_state IS NULL OR s.recall_schedule_state = 'ordinary_practice')
+          AND (
+            (
+              s.progress_state = 'learning'
+              AND s.status = 'saved'
+              AND (s.due_at IS NULL OR s.due_at <= NOW())
+            )
+            OR (
+              s.progress_state = 'review'
+              AND s.status = 'known'
+              AND s.due_at IS NOT NULL
+              AND s.due_at <= NOW()
+            )
+          )
+      ) AS reviewable_count
     FROM user_knowledge_items i
     JOIN user_private_card_states s
       ON s.knowledge_item_id = i.id
@@ -498,6 +520,7 @@ export async function getPrivatePracticeStats(userId: string): Promise<PrivatePr
   return {
     known_count: parseCount(row?.known_count),
     saved_count: parseCount(row?.saved_count),
+    reviewable_count: parseCount(row?.reviewable_count),
   };
 }
 

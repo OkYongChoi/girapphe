@@ -16,7 +16,7 @@ import { useI18n } from '@/i18n/client';
 
 interface CardViewerProps {
   initialCard: KnowledgeCard | null;
-  initialStats: { explainable: number; unclear: number };
+  initialStats: { explainable: number; unclear: number; reviewable: number };
   mode: 'new' | 'review';
   isGuest?: boolean;
   guestLimit?: number;
@@ -49,8 +49,8 @@ export default function CardViewer({
   const skippedIds = useRef<Set<string>>(new Set());
   // cards rated this round — excluded when fetching next card, cleared when all cards cycled
   const ratedIds = useRef<Set<string>>(new Set());
-  // review mode: snapshot of how many unclear cards existed at session start
-  const initialReviewPool = useRef(initialStats.unclear);
+  // Review mode snapshots the exact due queue, which can include known cards.
+  const initialReviewPool = useRef(initialStats.reviewable);
   // card-flip state: false = front only, true = answer revealed
   const [revealed, setRevealed] = useState(false);
   // undo state: shown after rating, cleared on undo/skip/next-rating
@@ -84,7 +84,7 @@ export default function CardViewer({
     setStats(initialStats);
     skippedIds.current.clear();
     ratedIds.current.clear();
-    initialReviewPool.current = initialStats.unclear;
+    initialReviewPool.current = initialStats.reviewable;
     setRevealed(false);
     setUndoVisible(false);
     keepRevealedOnBack.current = false;

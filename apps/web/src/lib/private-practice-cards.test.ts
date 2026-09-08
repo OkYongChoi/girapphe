@@ -167,6 +167,28 @@ test('private review SQL admits due known/review rows through the shared due que
   assert.match(calls[0]!.text, /s\.status = 'known'/);
   assert.match(calls[0]!.text, /s\.due_at IS NULL OR s\.due_at <= NOW\(\)/);
   assert.match(calls[0]!.text, /s\.due_at IS NOT NULL/);
+  assert.match(calls[0]!.text, /s\.recall_schedule_state IS NULL/);
+  assert.match(calls[0]!.text, /s\.recall_schedule_state = 'ordinary_practice'/);
+});
+
+test('private stats reports the exact due review pool separately from mastery totals', async (context) => {
+  const originalQuery = db.query;
+  const calls: Array<{ text: string; params?: unknown[] }> = [];
+  context.after(() => { db.query = originalQuery; });
+  db.query = (async (text: string, params?: unknown[]) => {
+    calls.push({ text, params });
+    return { rows: [{ known_count: '2', saved_count: '1', reviewable_count: '1' }] };
+  }) as typeof db.query;
+
+  assert.deepEqual(await getPrivatePracticeStats(ACTOR_ID), {
+    known_count: 2,
+    saved_count: 1,
+    reviewable_count: 1,
+  });
+  assert.match(calls[0]!.text, /AS reviewable_count/);
+  assert.match(calls[0]!.text, /s\.recall_schedule_state = 'ordinary_practice'/);
+  assert.match(calls[0]!.text, /s\.progress_state = 'review'/);
+  assert.match(calls[0]!.text, /s\.due_at <= NOW\(\)/);
 });
 
 test('private ratings use one owner-gated insert and never write shared cards or graph state', async (context) => {
