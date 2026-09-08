@@ -11,7 +11,7 @@ import { getStaticCardContent, type StaticCardContent } from '@/lib/static-card-
 import {
   getMockCardStatus,
   getMockPracticeStats,
-  isCardEligibleForPracticeMode,
+  isCardEligibleForPracticeSelection,
 } from '@/lib/practice-queue';
 import {
   getEligiblePrivatePracticeCards,
@@ -1227,7 +1227,15 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
       lastSeenTs,
       randomTieBreaker: Math.random(),
     };
-  }).filter((candidate) => isCardEligibleForPracticeMode(candidate.card.status ?? null, mode));
+  }).filter((candidate) => isCardEligibleForPracticeSelection(
+    candidate.card.status ?? null,
+    mode,
+    {
+      isPrivateCard: isPersonalCardId(candidate.card.id),
+      progressState: candidate.card.progress_state ?? null,
+      dueAt: candidate.card.due_at ?? null,
+    },
+  ));
 
   candidates.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
@@ -1273,7 +1281,10 @@ export async function saveCardState(cardId: string, status: CardStatus) {
         return { success: false, error: 'invalid_personal_card' };
       }
       const saved = await savePrivatePracticeCardState(user.id, knowledgeItemId, status);
-      if (!saved) {
+      if (saved.kind === 'active_recall') {
+        return { success: false, error: 'recall_session_required' };
+      }
+      if (saved.kind === 'not_available') {
         return { success: false, error: 'personal_card_not_available' };
       }
 
@@ -1534,7 +1545,10 @@ export async function getUserStats() {
   const user = await requireCurrentActor();
 
   if (user.isGuest || !process.env.DATABASE_URL) {
-    return getMockPracticeStats(limitCardsForGuest(await getMockCardsForActor(user.isGuest), user.isGuest).length);
+    const stats = getMockPracticeStats(
+      limitCardsForGuest(await getMockCardsForActor(user.isGuest), user.isGuest).length,
+    );
+    return { ...stats, reviewable: stats.unclear };
   }
 
   try {
@@ -1549,12 +1563,19 @@ export async function getUserStats() {
         COUNT(*) FILTER (
           WHERE progress_state = 'learning'
             OR (progress_state IS NULL AND status = 'saved')
-        ) AS saved_count
+        ) AS saved_count,
+        COUNT(*) FILTER (
+          WHERE (
+            progress_state = 'learning'
+            OR (progress_state IS NULL AND status = 'saved')
+          )
+          AND (due_at IS NULL OR due_at <= NOW())
+        ) AS reviewable_count
       FROM user_card_states
       WHERE user_id = $1;
     `;
     const [res, privateStats] = await Promise.all([
-      pool.query<{ known_count: string; saved_count: string }>(query, [user.id]),
+      pool.query<{ known_count: string; saved_count: string; reviewable_count: string }>(query, [user.id]),
       getPrivatePracticeStats(user.id),
     ]);
 
@@ -1562,10 +1583,12 @@ export async function getUserStats() {
     return {
       explainable: parseInt(row?.known_count ?? '0', 10) + privateStats.known_count,
       unclear: parseInt(row?.saved_count ?? '0', 10) + privateStats.saved_count,
+      reviewable: parseInt(row?.reviewable_count ?? '0', 10) + privateStats.reviewable_count,
     };
   } catch (error) {
     console.error('Error in getUserStats:', error);
-    return getMockPracticeStats((await getMockCards()).length);
+    const stats = getMockPracticeStats((await getMockCards()).length);
+    return { ...stats, reviewable: stats.unclear };
   }
 }
 type RateCardAndAdvanceInput = {

@@ -23,6 +23,7 @@ import {
   getMockCardStatus,
   getMockPracticeStats,
   isCardEligibleForPracticeMode,
+  isCardEligibleForPracticeSelection,
 } from './practice-queue';
 
 test('bounded JSON parsing rejects actual bytes beyond the declared length', async () => {
@@ -115,6 +116,37 @@ test('guest review stats and the mock review queue use the same statuses', () =>
     guestCardCount - stats.explainable - stats.unclear,
   );
   assert.equal(isCardEligibleForPracticeMode('saved', 'new'), false);
+});
+
+test('only due private known cards re-enter the review selector', () => {
+  const now = '2026-09-09T12:00:00.000Z';
+  assert.equal(isCardEligibleForPracticeSelection('known', 'review', {
+    isPrivateCard: true,
+    progressState: 'review',
+    dueAt: '2026-09-09T11:59:59.000Z',
+    now,
+  }), true);
+  assert.equal(isCardEligibleForPracticeSelection('known', 'review', {
+    isPrivateCard: true,
+    progressState: 'review',
+    dueAt: '2026-09-09T12:00:01.000Z',
+    now,
+  }), false);
+  assert.equal(isCardEligibleForPracticeSelection('known', 'review', {
+    isPrivateCard: false,
+    progressState: 'review',
+    dueAt: '2026-09-09T11:59:59.000Z',
+    now,
+  }), false);
+  assert.equal(isCardEligibleForPracticeSelection('known', 'review', {
+    isPrivateCard: true,
+    progressState: 'learning',
+    dueAt: '2026-09-09T11:59:59.000Z',
+    now,
+  }), false);
+  assert.equal(isCardEligibleForPracticeSelection('saved', 'review', {
+    isPrivateCard: false,
+  }), true);
 });
 
 test('personal notes become a distinct group linked by topic matches', () => {

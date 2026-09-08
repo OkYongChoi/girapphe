@@ -14,6 +14,7 @@ import {
   type RecallScheduleSnapshot,
 } from '@stem-brain/shared';
 import db from '@/lib/db';
+import { recallScheduleLockKey } from '@/lib/recall-schedule-lock';
 
 export type PersistedRecallPractice = {
   status: 'known' | 'saved' | null;
@@ -444,10 +445,6 @@ function validateScheduleTransition(
   throw new Error('Ordinary Practice is terminal for the Recall milestone schedule.');
 }
 
-function recallItemLockKey(userId: string, knowledgeItemId: string): string {
-  return `recall-schedule:${userId}:${knowledgeItemId}`;
-}
-
 export async function enrollApprovedRecallScheduleForUser(
   userId: string,
   knowledgeItemId: string,
@@ -461,7 +458,7 @@ export async function enrollApprovedRecallScheduleForUser(
   const [, inserted, current] = await db.accountTransaction<RecallScheduleRow>(userId, [
     {
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
-      params: [recallItemLockKey(userId, knowledgeItemId)],
+      params: [recallScheduleLockKey(userId, knowledgeItemId)],
     },
     {
       text: `INSERT INTO user_private_card_states AS s (
@@ -563,7 +560,7 @@ export async function persistRecallScheduleDecisionForUser(
     const [, current] = await db.accountTransaction<RecallScheduleRow>(userId, [
       {
         text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
-        params: [recallItemLockKey(userId, knowledgeItemId)],
+        params: [recallScheduleLockKey(userId, knowledgeItemId)],
       },
       {
         text: recallScheduleReadQuery('$3::integer'),
@@ -586,7 +583,7 @@ export async function persistRecallScheduleDecisionForUser(
   const [, updated, current] = await db.accountTransaction<RecallScheduleRow>(userId, [
     {
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
-      params: [recallItemLockKey(userId, knowledgeItemId)],
+      params: [recallScheduleLockKey(userId, knowledgeItemId)],
     },
     {
       text: `UPDATE user_private_card_states s
@@ -687,7 +684,7 @@ export async function cancelRecallScheduleForItem(
   const [, deleted, cleared, probe] = await db.accountTransaction<RecallCancellationRow>(userId, [
     {
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
-      params: [recallItemLockKey(userId, knowledgeItemId)],
+      params: [recallScheduleLockKey(userId, knowledgeItemId)],
     },
     {
       text: `DELETE FROM user_private_card_states s

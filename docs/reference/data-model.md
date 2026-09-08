@@ -188,9 +188,17 @@ also compare the complete expected snapshot and schedule version, so a stale
 D+1 transition cannot overwrite a newer D+7 state. Cancellation also compares
 the expected item version, enrollment anchor, and schedule version, so a
 delayed cancellation from an earlier enrollment cannot remove a later
-re-enrollment whose counter restarted. This persistence slice is runtime-inert:
-approval hooks, Practice lifecycle integration, attempts, delivery claims,
-notification preferences, device tokens, and UI are separate feature stages.
+re-enrollment whose counter restarted. Private Practice uses this same due row:
+due terminal `ordinary_practice` projections may re-enter its owner-scoped
+Review queue, while public and guest known cards remain excluded. Active Recall
+milestones remain outside generic Practice until a Recall-capable action can
+advance them. The legacy rating path also fails closed against a concurrent
+enrollment and retains terminal Recall metadata until an append-only attempt
+record can become the durable outcome history. The review-pool count is derived
+from the same due predicate rather than the broader saved or known totals. Item
+removal or all-progress reset takes the Recall locks before deleting the
+schedule rows. Approval hooks, session and attempt lifecycle, delivery claims,
+notification preferences, device tokens, and UI remain separate feature stages.
 
 ## Billing and Entitlements
 

@@ -1,6 +1,7 @@
 import db from '@/lib/db';
 import type { KnowledgeBundleContent, KnowledgeBundleType } from '@stem-brain/shared';
 import { parseKnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
+import { recallScheduleLockKey } from '@/lib/recall-schedule-lock';
 
 export const PERSONAL_CARD_ID_PREFIX = 'personal:';
 const MAX_PERSONAL_KNOWLEDGE_ITEM_ID_LENGTH = 128;
@@ -31,6 +32,7 @@ export type PrivatePracticeCard = {
 export type PrivatePracticeStats = {
   known_count: number;
   saved_count: number;
+  reviewable_count: number;
 };
 
 export type PrivatePracticeDomainProgress = {
@@ -76,6 +78,7 @@ type PrivatePracticeCardRow = PrivatePracticeEligibilityRecord & {
 type CountRow = {
   known_count: string | number | null;
   saved_count: string | number | null;
+  reviewable_count: string | number | null;
 };
 
 type DomainRow = {
@@ -84,6 +87,18 @@ type DomainRow = {
   known: string | number;
   saved: string | number;
 };
+
+type PrivatePracticeMutationRow = {
+  knowledge_item_id?: string | null;
+  recall_schedule_state?: string | null;
+  eligible?: boolean;
+  deleted?: boolean;
+};
+
+export type PrivatePracticeSaveResult =
+  | { kind: 'saved' }
+  | { kind: 'active_recall' }
+  | { kind: 'not_available' };
 
 function parseCount(value: string | number | null | undefined): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
@@ -253,9 +268,31 @@ export async function getEligiblePrivatePracticeCards(
   mode: PrivatePracticeMode,
 ): Promise<PrivatePracticeCard[]> {
   const modePredicate = mode === 'review'
-    ? `AND (s.progress_state = 'learning' OR s.status = 'saved')
-       AND (s.due_at IS NULL OR s.due_at <= NOW())`
-    : '';
+    ? `AND (
+         s.recall_schedule_state IS NULL
+         OR s.recall_schedule_state = 'ordinary_practice'
+       )
+       AND (
+          (
+            s.progress_state = 'learning'
+            AND s.status = 'saved'
+            AND (s.due_at IS NULL OR s.due_at <= NOW())
+          )
+          OR (
+            s.progress_state = 'review'
+            AND s.status = 'known'
+            AND s.due_at IS NOT NULL
+            AND s.due_at <= NOW()
+          )
+       )`
+    : `AND (
+         s.recall_schedule_state IS NULL
+         OR (
+           s.recall_schedule_state = 'ordinary_practice'
+           AND s.due_at IS NOT NULL
+           AND s.due_at <= NOW()
+         )
+       )`;
   const result = await db.query<PrivatePracticeCardRow>(`
     SELECT DISTINCT ON (i.id)
       i.id AS knowledge_item_id,
@@ -305,9 +342,14 @@ export async function savePrivatePracticeCardState(
   userId: string,
   knowledgeItemId: string,
   status: PrivatePracticeStatus,
-): Promise<boolean> {
-  const [result] = await db.accountTransaction<{ knowledge_item_id: string }>(userId, [{
-    text: `INSERT INTO user_private_card_states (
+): Promise<PrivatePracticeSaveResult> {
+  const [, result, probe] = await db.accountTransaction<PrivatePracticeMutationRow>(userId, [
+    {
+      text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
+      params: [recallScheduleLockKey(userId, knowledgeItemId)],
+    },
+    {
+      text: `INSERT INTO user_private_card_states AS s (
       user_id,
       knowledge_item_id,
       status,
@@ -335,11 +377,33 @@ export async function savePrivatePracticeCardState(
       progress_state = EXCLUDED.progress_state,
       due_at = EXCLUDED.due_at,
       last_seen = EXCLUDED.last_seen
-    RETURNING knowledge_item_id`,
-    params: [userId, knowledgeItemId, status],
-  }]);
+    WHERE s.recall_schedule_state IS NULL
+       OR s.recall_schedule_state = 'ordinary_practice'
+    RETURNING knowledge_item_id, recall_schedule_state`,
+      params: [userId, knowledgeItemId, status],
+    },
+    {
+      text: `SELECT
+        i.id AS knowledge_item_id,
+        s.recall_schedule_state
+      FROM user_knowledge_items i
+      LEFT JOIN user_private_card_states s
+        ON s.user_id = i.user_id
+       AND s.knowledge_item_id = i.id
+      WHERE ${ACTIVE_OWNER_PREDICATE}
+        AND i.id = $2
+        AND ${PRIVATE_PRACTICE_ELIGIBILITY_PREDICATE}
+      LIMIT 1`,
+      params: [userId, knowledgeItemId],
+    },
+  ]);
 
-  return result.rows.length === 1;
+  if (result.rows.length === 1) return { kind: 'saved' };
+  if (probe.rows[0]?.recall_schedule_state
+    && probe.rows[0].recall_schedule_state !== 'ordinary_practice') {
+    return { kind: 'active_recall' };
+  }
+  return { kind: 'not_available' };
 }
 
 export async function getSavedPrivatePracticeCards(userId: string): Promise<PrivatePracticeCard[]> {
@@ -392,7 +456,13 @@ export async function removePrivatePracticeCardState(
   userId: string,
   knowledgeItemId: string,
 ): Promise<boolean> {
-  const result = await db.query<{ eligible: boolean; deleted: boolean }>(`
+  const [, result] = await db.accountTransaction<PrivatePracticeMutationRow>(userId, [
+    {
+      text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
+      params: [recallScheduleLockKey(userId, knowledgeItemId)],
+    },
+    {
+      text: `
     WITH eligible AS (
       SELECT i.id
       FROM user_knowledge_items i
@@ -410,7 +480,10 @@ export async function removePrivatePracticeCardState(
     SELECT
       EXISTS (SELECT 1 FROM eligible) AS eligible,
       EXISTS (SELECT 1 FROM deleted) AS deleted
-  `, [userId, knowledgeItemId]);
+  `,
+      params: [userId, knowledgeItemId],
+    },
+  ]);
 
   return result.rows[0]?.eligible === true;
 }
@@ -419,7 +492,23 @@ export async function getPrivatePracticeStats(userId: string): Promise<PrivatePr
   const result = await db.query<CountRow>(`
     SELECT
       COUNT(*) FILTER (WHERE s.knowledge_state = 'known' OR s.status = 'known') AS known_count,
-      COUNT(*) FILTER (WHERE s.progress_state = 'learning' OR s.status = 'saved') AS saved_count
+      COUNT(*) FILTER (WHERE s.progress_state = 'learning' OR s.status = 'saved') AS saved_count,
+      COUNT(*) FILTER (
+        WHERE (s.recall_schedule_state IS NULL OR s.recall_schedule_state = 'ordinary_practice')
+          AND (
+            (
+              s.progress_state = 'learning'
+              AND s.status = 'saved'
+              AND (s.due_at IS NULL OR s.due_at <= NOW())
+            )
+            OR (
+              s.progress_state = 'review'
+              AND s.status = 'known'
+              AND s.due_at IS NOT NULL
+              AND s.due_at <= NOW()
+            )
+          )
+      ) AS reviewable_count
     FROM user_knowledge_items i
     JOIN user_private_card_states s
       ON s.knowledge_item_id = i.id
@@ -431,6 +520,7 @@ export async function getPrivatePracticeStats(userId: string): Promise<PrivatePr
   return {
     known_count: parseCount(row?.known_count),
     saved_count: parseCount(row?.saved_count),
+    reviewable_count: parseCount(row?.reviewable_count),
   };
 }
 
@@ -462,5 +552,26 @@ export async function getPrivatePracticeDomainProgress(
 }
 
 export async function resetPrivatePracticeProgress(userId: string): Promise<void> {
-  await db.query('DELETE FROM user_private_card_states WHERE user_id = $1', [userId]);
+  await db.accountTransaction(userId, [
+    {
+      // Serialize against every existing per-item enrollment or transition.
+      // The rows themselves contain the only authoritative Recall due state,
+      // so deleting them in this transaction also cancels the milestones.
+      text: `WITH ordered_recall_rows AS MATERIALIZED (
+        SELECT s.user_id, s.knowledge_item_id
+        FROM user_private_card_states s
+        WHERE s.user_id = $1
+        ORDER BY s.knowledge_item_id
+      )
+      SELECT pg_advisory_xact_lock(
+        hashtext('recall-schedule:' || row.user_id || ':' || row.knowledge_item_id)
+      )
+      FROM ordered_recall_rows row`,
+      params: [userId],
+    },
+    {
+      text: 'DELETE FROM user_private_card_states WHERE user_id = $1',
+      params: [userId],
+    },
+  ]);
 }
