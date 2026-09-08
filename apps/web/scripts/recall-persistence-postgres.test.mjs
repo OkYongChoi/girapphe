@@ -606,3 +606,144 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
     surfaceCleanupFailures(bodyCompleted, cleanupFailures);
   }
 });
+
+test('Private Practice executes Recall-compatible due, rating, removal, and reset SQL', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const importedPractice = await import('../src/lib/private-practice-cards.ts');
+  const practice = importedPractice.default ?? importedPractice;
+  const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const userId = `live-practice-owner-${crypto.randomUUID()}`;
+  const itemIds = {
+    plain: `live-practice-plain-${crypto.randomUUID()}`,
+    activeNull: `live-practice-active-null-${crypto.randomUUID()}`,
+    dueKnown: `live-practice-due-known-${crypto.randomUUID()}`,
+    futureKnown: `live-practice-future-known-${crypto.randomUUID()}`,
+    terminalNull: `live-practice-terminal-null-${crypto.randomUUID()}`,
+  };
+  const now = Date.now();
+  const d1EnrolledAt = new Date(now).toISOString();
+  const d1DueAt = new Date(now + 24 * 60 * 60 * 1_000).toISOString();
+  const d7EnrolledAt = new Date(now - 169 * 60 * 60 * 1_000).toISOString();
+  const dueKnownAt = new Date(now - 30 * 60 * 1_000).toISOString();
+  const futureKnownAt = new Date(now + 30 * 60 * 1_000).toISOString();
+  const terminalEnrolledAt = new Date(now - 193 * 60 * 60 * 1_000).toISOString();
+  const terminalDueAt = new Date(now - 60 * 1_000).toISOString();
+  let bodyCompleted = false;
+
+  try {
+    for (const [label, itemId] of Object.entries(itemIds)) {
+      await pool.query(
+        `INSERT INTO user_knowledge_items (
+           id, user_id, title, summary, content, topic, tags, knowledge_type,
+           central_question, structured_content, bundle_schema_version, version
+         ) VALUES (
+           $1, $2, $3, '', '', 'recall-live', '[]'::jsonb,
+           'concept', 'What should be reconstructed?',
+           '{"type":"concept","definition":"A private definition.","key_points":[],"examples":[],"non_examples":[],"misconceptions":[]}'::jsonb,
+           1, 1
+         )`,
+        [itemId, userId, `Recall Practice ${label}`],
+      );
+    }
+
+    await pool.query(
+      `INSERT INTO user_private_card_states (
+         user_id, knowledge_item_id, status, knowledge_state, progress_state,
+         due_at, last_seen, recall_enrolled_at, recall_item_version,
+         recall_schedule_state, recall_d1_finalized_incomplete,
+         recall_d7_outcome, recall_schedule_version
+       ) VALUES
+         ($1, $2, NULL, NULL, NULL, $3, NULL, $4, 1, 'd1_pending', FALSE, NULL, 1),
+         ($1, $5, 'known', 'known', 'review', $6, $7, $8, 1, 'd7_pending', FALSE, NULL, 2),
+         ($1, $9, 'known', 'known', 'review', $10, $7, $8, 1, 'd7_pending', FALSE, NULL, 2),
+         ($1, $11, NULL, NULL, NULL, $12, NULL, $13, 1, 'ordinary_practice', TRUE, 'unassessed', 3)`,
+      [
+        userId,
+        itemIds.activeNull,
+        d1DueAt,
+        d1EnrolledAt,
+        itemIds.dueKnown,
+        dueKnownAt,
+        d7EnrolledAt,
+        d7EnrolledAt,
+        itemIds.futureKnown,
+        futureKnownAt,
+        itemIds.terminalNull,
+        terminalDueAt,
+        terminalEnrolledAt,
+      ],
+    );
+
+    const newIds = (await practice.getEligiblePrivatePracticeCards(userId, 'new'))
+      .map((card) => card.id)
+      .sort();
+    assert.deepEqual(newIds, [
+      practice.toPersonalCardId(itemIds.plain),
+      practice.toPersonalCardId(itemIds.terminalNull),
+    ].sort());
+
+    const reviewIds = (await practice.getEligiblePrivatePracticeCards(userId, 'review'))
+      .map((card) => card.id);
+    assert.ok(reviewIds.includes(practice.toPersonalCardId(itemIds.dueKnown)));
+    assert.ok(!reviewIds.includes(practice.toPersonalCardId(itemIds.futureKnown)));
+
+    assert.deepEqual(
+      await practice.savePrivatePracticeCardState(userId, itemIds.dueKnown, 'saved'),
+      { kind: 'active_recall' },
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT status, recall_schedule_state, recall_schedule_version
+       FROM user_private_card_states
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemIds.dueKnown],
+    )).rows, [{ status: 'known', recall_schedule_state: 'd7_pending', recall_schedule_version: 2 }]);
+
+    assert.deepEqual(
+      await practice.savePrivatePracticeCardState(userId, itemIds.terminalNull, 'known'),
+      { kind: 'saved' },
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT status, recall_schedule_state, recall_d7_outcome, recall_schedule_version
+       FROM user_private_card_states
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemIds.terminalNull],
+    )).rows, [{
+      status: 'known',
+      recall_schedule_state: 'ordinary_practice',
+      recall_d7_outcome: 'unassessed',
+      recall_schedule_version: 3,
+    }]);
+
+    assert.equal(await practice.removePrivatePracticeCardState(userId, itemIds.dueKnown), true);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count FROM user_private_card_states
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemIds.dueKnown],
+    )).rows[0]?.count, 0);
+
+    await practice.resetPrivatePracticeProgress(userId);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count FROM user_private_card_states WHERE user_id = $1`,
+      [userId],
+    )).rows[0]?.count, 0);
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    await collectCleanupFailure(cleanupFailures, 'delete private Practice fixtures', () => (
+      pool.query('DELETE FROM user_knowledge_items WHERE user_id = $1', [userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify private Practice fixture removal', async () => {
+      const remaining = (await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::integer FROM user_knowledge_items WHERE user_id = $1) AS item_count,
+           (SELECT COUNT(*)::integer FROM user_private_card_states WHERE user_id = $1) AS state_count`,
+        [userId],
+      )).rows[0];
+      assert.deepEqual(remaining, { item_count: 0, state_count: 0 });
+    });
+    await collectCleanupFailure(cleanupFailures, 'close private Practice database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});

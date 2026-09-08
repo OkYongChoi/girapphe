@@ -29,3 +29,33 @@ export function isCardEligibleForPracticeMode(
 ): boolean {
   return mode === 'new' ? status === null : status === 'saved';
 }
+
+/**
+ * Private Recall rows share Practice's due queue. A due private `known` row is
+ * reviewable, but broadening the generic status rule would make public and
+ * guest `known` cards reappear in review sessions.
+ */
+export function isCardEligibleForPracticeSelection(
+  status: PracticeCardStatus,
+  mode: PracticeMode,
+  context: {
+    isPrivateCard: boolean;
+    progressState?: 'new' | 'learning' | 'review' | null;
+    dueAt?: Date | string | null;
+    now?: Date | string;
+  },
+): boolean {
+  if (isCardEligibleForPracticeMode(status, mode)) return true;
+  if (
+    mode !== 'review'
+    || !context.isPrivateCard
+    || status !== 'known'
+    || context.progressState !== 'review'
+    || !context.dueAt
+  ) {
+    return false;
+  }
+  const dueAt = new Date(context.dueAt).getTime();
+  const now = new Date(context.now ?? new Date()).getTime();
+  return Number.isFinite(dueAt) && Number.isFinite(now) && dueAt <= now;
+}

@@ -9,6 +9,7 @@ import {
   isEligiblePrivatePracticeRecord,
   parsePersonalCardId,
   removePrivatePracticeCardState,
+  resetPrivatePracticeProgress,
   savePrivatePracticeCardState,
   toPersonalCardId,
   type PrivatePracticeEligibilityRecord,
@@ -140,8 +141,32 @@ test('practice selection filters pending, deleted, manual, and cross-owner rows 
   assert.match(calls[0].text, /i\.deleted_at IS NULL/);
   assert.match(calls[0].text, /i\.purge_at IS NULL/);
   assert.match(calls[0].text, /NOT EXISTS \(\s*SELECT 1\s*FROM knowledge_item_supersessions supersession/);
+  assert.match(calls[0].text, /s\.recall_schedule_state IS NULL/);
+  assert.match(calls[0].text, /s\.recall_schedule_state = 'ordinary_practice'/);
+  assert.match(calls[0].text, /s\.due_at IS NOT NULL/);
+  assert.match(calls[0].text, /s\.due_at <= NOW\(\)/);
   assert.doesNotMatch(calls[0].text, /\bknowledge_cards\b/);
   assert.doesNotMatch(calls[0].text, /\buser_card_states\b/);
+});
+
+test('private review SQL admits due known/review rows through the shared due queue', async (context) => {
+  const originalQuery = db.query;
+  const calls: Array<{ text: string; params?: unknown[] }> = [];
+  context.after(() => { db.query = originalQuery; });
+  db.query = (async (text: string, params?: unknown[]) => {
+    calls.push({ text, params });
+    return { rows: [] };
+  }) as typeof db.query;
+
+  await getEligiblePrivatePracticeCards(ACTOR_ID, 'review');
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0]!.text, /s\.progress_state = 'learning'/);
+  assert.match(calls[0]!.text, /s\.status = 'saved'/);
+  assert.match(calls[0]!.text, /s\.progress_state = 'review'/);
+  assert.match(calls[0]!.text, /s\.status = 'known'/);
+  assert.match(calls[0]!.text, /s\.due_at IS NULL OR s\.due_at <= NOW\(\)/);
+  assert.match(calls[0]!.text, /s\.due_at IS NOT NULL/);
 });
 
 test('private ratings use one owner-gated insert and never write shared cards or graph state', async (context) => {
@@ -154,7 +179,10 @@ test('private ratings use one owner-gated insert and never write shared cards or
   });
   db.query = (async (text: string, params?: unknown[]) => {
     calls.push({ text, params });
-    return { rows: [{ knowledge_item_id: params?.[1] }] };
+    if (text.includes('INSERT INTO user_private_card_states')) {
+      return { rows: [{ knowledge_item_id: params?.[1], recall_schedule_state: null }] };
+    }
+    return { rows: [] };
   }) as typeof db.query;
   db.accountTransaction = (async (
     _userId: string,
@@ -166,22 +194,78 @@ test('private ratings use one owner-gated insert and never write shared cards or
     '449fdaf0-1754-45e9-9c43-50d8a4d578f8',
     'saved',
   );
-  assert.equal(saved, true);
-  assert.deepEqual(calls[0].params, [
+  assert.deepEqual(saved, { kind: 'saved' });
+  const write = calls.find((call) => call.text.includes('INSERT INTO user_private_card_states'));
+  assert.ok(write);
+  assert.deepEqual(write.params, [
     ACTOR_ID,
     '449fdaf0-1754-45e9-9c43-50d8a4d578f8',
     'saved',
   ]);
-  assert.match(calls[0].text, /INSERT INTO user_private_card_states/);
-  assert.match(calls[0].text, /FROM user_knowledge_items i/);
-  assert.match(calls[0].text, /EXISTS \(/);
-  assert.match(calls[0].text, /i\.user_id = \$1/);
-  assert.match(calls[0].text, /i\.id = \$2/);
-  assert.match(calls[0].text, /d\.status = 'approved'/);
-  assert.match(calls[0].text, /src\.source_type = 'conversation'/);
-  assert.doesNotMatch(calls[0].text, /INSERT INTO knowledge_cards/);
-  assert.doesNotMatch(calls[0].text, /user_knowledge_states/);
-  assert.doesNotMatch(calls[0].text, /user_knowledge_evidence/);
+  assert.match(write.text, /FROM user_knowledge_items i/);
+  assert.match(write.text, /EXISTS \(/);
+  assert.match(write.text, /i\.user_id = \$1/);
+  assert.match(write.text, /i\.id = \$2/);
+  assert.match(write.text, /d\.status = 'approved'/);
+  assert.match(write.text, /src\.source_type = 'conversation'/);
+  assert.match(write.text, /s\.recall_schedule_state = 'ordinary_practice'/);
+  assert.doesNotMatch(write.text, /recall_enrolled_at\s*=/);
+  assert.doesNotMatch(write.text, /recall_d7_outcome\s*=/);
+  assert.doesNotMatch(write.text, /INSERT INTO knowledge_cards/);
+  assert.doesNotMatch(write.text, /user_knowledge_states/);
+  assert.doesNotMatch(write.text, /user_knowledge_evidence/);
+});
+
+test('private ratings fail closed while a Recall milestone is active', async (context) => {
+  const originalAccountTransaction = db.accountTransaction;
+  const calls: Array<{ text: string; params?: unknown[] }> = [];
+  context.after(() => { db.accountTransaction = originalAccountTransaction; });
+  db.accountTransaction = (async (
+    _userId: string,
+    queries: Parameters<typeof db.accountTransaction>[1],
+  ) => {
+    calls.push(...queries);
+    return [
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ knowledge_item_id: 'eligible-item', recall_schedule_state: 'd7_pending' }] },
+    ];
+  }) as typeof db.accountTransaction;
+
+  const result = await savePrivatePracticeCardState(ACTOR_ID, 'eligible-item', 'known');
+  assert.deepEqual(result, { kind: 'active_recall' });
+  assert.deepEqual(calls[0]?.params, [`recall-schedule:${ACTOR_ID}:eligible-item`]);
+  assert.match(calls[1]?.text ?? '', /WHERE s\.recall_schedule_state IS NULL/);
+  assert.match(calls[1]?.text ?? '', /OR s\.recall_schedule_state = 'ordinary_practice'/);
+});
+
+test('private removal and all-progress reset cancel Recall rows under account transactions', async (context) => {
+  const originalAccountTransaction = db.accountTransaction;
+  const calls: Array<{ userId: string; queries: Parameters<typeof db.accountTransaction>[1] }> = [];
+  context.after(() => { db.accountTransaction = originalAccountTransaction; });
+  db.accountTransaction = (async (
+    userId: string,
+    queries: Parameters<typeof db.accountTransaction>[1],
+  ) => {
+    calls.push({ userId, queries });
+    if (queries.some((query) => query.text.includes('WITH eligible AS'))) {
+      return [{ rows: [] }, { rows: [{ eligible: true, deleted: true }] }];
+    }
+    return queries.map(() => ({ rows: [] }));
+  }) as typeof db.accountTransaction;
+
+  assert.equal(await removePrivatePracticeCardState(ACTOR_ID, 'eligible-item'), true);
+  await resetPrivatePracticeProgress(ACTOR_ID);
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0]?.userId, ACTOR_ID);
+  assert.deepEqual(calls[0]?.queries[0]?.params, [`recall-schedule:${ACTOR_ID}:eligible-item`]);
+  assert.match(calls[0]?.queries[1]?.text ?? '', /DELETE FROM user_private_card_states/);
+  assert.equal(calls[1]?.userId, ACTOR_ID);
+  assert.match(calls[1]?.queries[0]?.text ?? '', /pg_advisory_xact_lock/);
+  assert.match(calls[1]?.queries[0]?.text ?? '', /ordered_recall_rows AS MATERIALIZED/);
+  assert.match(calls[1]?.queries[0]?.text ?? '', /ORDER BY s\.knowledge_item_id/);
+  assert.match(calls[1]?.queries[1]?.text ?? '', /DELETE FROM user_private_card_states WHERE user_id = \$1/);
 });
 
 test('every private-practice query excludes archived and superseded knowledge', async (context) => {
@@ -208,8 +292,9 @@ test('every private-practice query excludes archived and superseded knowledge', 
   await getPrivatePracticeStats(ACTOR_ID);
   await getPrivatePracticeDomainProgress(ACTOR_ID);
 
-  assert.equal(calls.length, 6);
-  for (const call of calls) {
+  const ownerQueries = calls.filter((call) => call.text.includes('FROM user_knowledge_items i'));
+  assert.equal(ownerQueries.length, 7);
+  for (const call of ownerQueries) {
     assert.match(call.text, /i\.user_id = \$1/);
     assert.match(call.text, /i\.archived_at IS NULL/);
     assert.match(call.text, /i\.deleted_at IS NULL/);

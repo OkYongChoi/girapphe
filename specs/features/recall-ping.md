@@ -227,17 +227,19 @@ in a notification log, or to a different signed-in account.
 | `AC-06` | Migration `0022_recall_ping_persistence.sql` and ingestion tests bind every newly created conversation source to its exact immutable item revision while leaving historical sources null. Correction-view rendering and edited-after-source labeling remain planned. |
 | `AC-07` | Planned persistence tests prove free responses and ordering never enter requests, storage, analytics, or logs; memory-cue tests prove explicit save, owner scope, edit/delete, and exclusion from projections. |
 | `AC-08` | `packages/shared/src/recall-schedule.test.mjs` proves the runtime-inert 24/48/168/192-hour boundaries and transition decisions. `apps/web/src/lib/recall-persistence.test.ts` plus `apps/web/scripts/recall-persistence-postgres.test.mjs` prove atomic snapshot persistence and honest assessed/unassessed projections. Attempts and approval/runtime wiring remain planned. |
-| `AC-09` | The shared schedule tests, migration `0022`, repository CAS tests, and live PostgreSQL concurrency test prove one persisted `due_at`, idempotent enrollment/replay, and stale-snapshot rejection. Practice due-query integration, active attempts, delivery operations, daily caps, and durable snooze consumption remain planned. |
+| `AC-09` | The shared schedule tests, migration `0022`, repository CAS tests, and `recall-persistence-postgres.test.mjs` prove one persisted `due_at`, idempotent enrollment/replay, stale-snapshot rejection, and executable Practice due/rating SQL. `private-practice-cards.test.ts` and `stabilization.test.ts` prove due private `known/review` selection without admitting public or guest known cards, keep future unassessed Recall rows out of New mode, and make the legacy rating path fail closed during an active Recall milestone without erasing terminal D+7 metadata. Active attempts, delivery operations, daily caps, and durable snooze consumption remain planned. |
 | `AC-10` | Planned schema, request-shape, telemetry allowlist, and log-redaction tests prove the attempt metadata ceiling and absence of private content. |
-| `AC-11` | Recall repository tests re-check owner, current version, active lifecycle, supersession, and source eligibility on reads and writes; cancellation preserves an assessed Practice projection or removes an unassessed row, and its item-version/enrollment-anchor/schedule-version CAS rejects delayed cancellation from an earlier enrollment generation. Practice removal/reset wiring, disable/sign-out/token behavior, and prepared-session invalidation remain planned. |
+| `AC-11` | Recall repository tests re-check owner, current version, active lifecycle, supersession, and source eligibility on reads and writes; cancellation preserves an assessed Practice projection or removes an unassessed row, and its item-version/enrollment-anchor/schedule-version CAS rejects delayed cancellation from an earlier enrollment generation. Private Practice removal takes the Recall item lock before deleting its row, while all-progress reset takes every existing item lock and deletes the owner rows in one account transaction; `recall-persistence-postgres.test.mjs` executes both paths against isolated synthetic rows. Disable/sign-out/token behavior and prepared-session invalidation remain planned. |
 | `AC-12` | `pnpm --filter @stem-brain/mobile check`, `pnpm harness`, Preview checks, and separate physical iOS/Android notification/deep-link smoke provide repository and device evidence. |
 | `AC-13` | This persistence slice adds no standalone preference, token, delivery, attempt, milestone, or cue records. Its schedule snapshot remains on the existing explicitly deleted private-state row; source/revision deletion ordering is covered by account-deletion tests. Retention and provider cancellation remain requirements for the later tables that need them. |
 | `AC-14` | Planned consent-version, decline, withdrawal, export-deletion, account-deletion propagation, and sink-allowlist tests plus a reviewed participant notice prove research and product consent remain separate. |
 
-The shared scheduling contract and persistence repository are executable but
-deliberately disconnected from production runtime. Unchecked criteria remain
-end-to-end requirements, not claims that Recall Ping, notification delivery,
-approval enrollment, Practice integration, or visible behavior is active.
+The shared scheduling contract and persistence repository are executable. The
+existing private Practice queue now recognizes due assessed Recall rows and its
+remove/reset paths safely delete the same schedule state, but approval,
+enrollment, attempts, notification delivery, and visible Recall behavior remain
+disconnected. Unchecked criteria remain end-to-end requirements, not activation
+claims.
 
 ## Rollout
 
@@ -278,6 +280,9 @@ Planned implementation PR boundaries:
    Recall work before state deletion. Update both SQL selection and the later
    in-memory Practice filter so due `known/review` can return without making
    ordinary public or guest known cards reappear.
+   The Practice compatibility sub-slice (due selection, active-milestone rating
+   guard, and locked removal/reset) landed first; it does not stand in for the
+   remaining session or attempt lifecycle.
 4. **Mobile delivery:** add default-off notification settings, device-token
    lifecycle, generic payloads, scheduler claims, one-time snooze, and the
    authenticated deep link behind platform adapters.

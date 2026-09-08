@@ -11,7 +11,7 @@ import { getStaticCardContent, type StaticCardContent } from '@/lib/static-card-
 import {
   getMockCardStatus,
   getMockPracticeStats,
-  isCardEligibleForPracticeMode,
+  isCardEligibleForPracticeSelection,
 } from '@/lib/practice-queue';
 import {
   getEligiblePrivatePracticeCards,
@@ -1227,7 +1227,15 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
       lastSeenTs,
       randomTieBreaker: Math.random(),
     };
-  }).filter((candidate) => isCardEligibleForPracticeMode(candidate.card.status ?? null, mode));
+  }).filter((candidate) => isCardEligibleForPracticeSelection(
+    candidate.card.status ?? null,
+    mode,
+    {
+      isPrivateCard: isPersonalCardId(candidate.card.id),
+      progressState: candidate.card.progress_state ?? null,
+      dueAt: candidate.card.due_at ?? null,
+    },
+  ));
 
   candidates.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
@@ -1273,7 +1281,10 @@ export async function saveCardState(cardId: string, status: CardStatus) {
         return { success: false, error: 'invalid_personal_card' };
       }
       const saved = await savePrivatePracticeCardState(user.id, knowledgeItemId, status);
-      if (!saved) {
+      if (saved.kind === 'active_recall') {
+        return { success: false, error: 'recall_session_required' };
+      }
+      if (saved.kind === 'not_available') {
         return { success: false, error: 'personal_card_not_available' };
       }
 
