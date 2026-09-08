@@ -1,50 +1,15 @@
 import { NextResponse } from 'next/server';
-import { requireCurrentUserProfile } from '@/lib/auth';
-import { hasAdFreeEntitlement, type BillingPlan } from '@/lib/billing/database';
+import { getCurrentUserProfile } from '@/lib/auth';
+import { readAnnualPlan } from '@/lib/billing/checkout-policy';
 import {
   BillingConfigurationError,
+  CreemProviderRequestError,
   ExistingSubscriptionError,
-  createStripeCheckout,
-  requestHasTrustedOrigin,
-} from '@/lib/billing/stripe';
-import { readBoundedBytes } from '@/lib/billing/bounded-json';
+  PendingCheckoutError,
+  createCreemCheckout,
+} from '@/lib/billing/creem';
+import { requestHasTrustedOrigin } from '@/lib/billing/request-security';
 
-const ALLOWED_PLANS = new Set<BillingPlan>(['monthly', 'annual']);
-
-type PlanBodyResult =
-  | { ok: true; plan: 'monthly' | 'annual' }
-  | { ok: false; reason: 'too_large' | 'invalid' };
-
-async function readPlan(request: Request): Promise<PlanBodyResult> {
-  const contentType = request.headers.get('content-type') ?? '';
-  const body = await readBoundedBytes(request, 4_096);
-  if (!body.ok) return { ok: false, reason: body.reason === 'too_large' ? 'too_large' : 'invalid' };
-  let text: string;
-  try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(body.value);
-  } catch {
-    return { ok: false, reason: 'invalid' };
-  }
-  let value: unknown;
-  if (contentType.includes('application/json')) {
-    let payload: unknown = null;
-    try {
-      payload = JSON.parse(text) as unknown;
-    } catch {
-      payload = null;
-    }
-    value = payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>).plan
-      : null;
-  } else if (contentType.includes('application/x-www-form-urlencoded')) {
-    value = new URLSearchParams(text).get('plan');
-  } else {
-    return { ok: false, reason: 'invalid' };
-  }
-  return typeof value === 'string' && ALLOWED_PLANS.has(value as BillingPlan)
-    ? { ok: true, plan: value as 'monthly' | 'annual' }
-    : { ok: false, reason: 'invalid' };
-}
 
 function subscriptionRedirect(request: Request, error: string) {
   const url = new URL('/subscription', request.url);
@@ -54,36 +19,43 @@ function subscriptionRedirect(request: Request, error: string) {
 
 export async function POST(request: Request) {
   if (!requestHasTrustedOrigin(request)) {
-    return NextResponse.json({ error: 'Invalid request origin.' }, { status: 403 });
+    return NextResponse.json({ error: 'invalid_origin' }, { status: 403 });
   }
-  const user = await requireCurrentUserProfile();
-  const planBody = await readPlan(request);
+  const user = await getCurrentUserProfile();
+  if (!user) return NextResponse.json({ error: 'authentication_required' }, { status: 401 });
+
+  const planBody = await readAnnualPlan(request);
   if (!planBody.ok) {
     if (planBody.reason === 'too_large') {
-      return NextResponse.json({ error: 'Request body is too large.' }, { status: 413 });
+      return NextResponse.json({ error: 'request_too_large' }, { status: 413 });
     }
-    return subscriptionRedirect(request, 'invalid_plan');
+    return subscriptionRedirect(
+      request,
+      planBody.reason === 'monthly' ? 'annual_only' : 'invalid_plan',
+    );
   }
-  const { plan } = planBody;
-  if (await hasAdFreeEntitlement(user.id)) return subscriptionRedirect(request, 'already_active');
 
   try {
-    const checkoutUrl = await createStripeCheckout({
+    const checkoutUrl = await createCreemCheckout({
       userId: user.id,
       email: user.email,
-      plan,
+      plan: planBody.plan,
       requestUrl: request.url,
     });
     return NextResponse.redirect(checkoutUrl, 303);
   } catch (error) {
-    console.error('Unable to create Stripe Checkout session:', error);
+    console.error('Unable to create Creem checkout:', error);
     return subscriptionRedirect(
       request,
       error instanceof BillingConfigurationError
         ? 'not_configured'
         : error instanceof ExistingSubscriptionError
           ? 'subscription_exists'
-          : 'checkout_failed',
+          : error instanceof PendingCheckoutError
+            ? 'payment_processing'
+            : error instanceof CreemProviderRequestError && error.outcome === 'indeterminate'
+              ? 'payment_processing'
+              : 'checkout_failed',
     );
   }
 }

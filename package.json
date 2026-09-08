@@ -23,7 +23,7 @@
     "browser:smoke:headed": "playwright test --headed",
     "browser:authenticated-overlay": "playwright test --config=playwright.authenticated.config.ts && node apps/web/scripts/summarize-authenticated-overlay-results.mjs",
     "browser:authenticated-overlay:summary": "node apps/web/scripts/summarize-authenticated-overlay-results.mjs",
-    "check:worker-size": "node scripts/check-worker-size.mjs",
+    "check:worker-size": "node --test scripts/check-worker-size.test.mjs && node scripts/check-worker-size.mjs",
     "verify:image-size-hardening": "node scripts/verify-image-size-hardening.mjs",
     "harness": "pnpm harness:local",
     "harness:local": "pnpm check && pnpm check:docs && pnpm verify:image-size-hardening && pnpm --filter @stem-brain/web check:env:examples && pnpm --filter @stem-brain/web build",
@@ -63,7 +63,8 @@
       "uuid": "^11.1.1"
     },
     "patchedDependencies": {
-      "image-size@1.2.1": "patches/image-size@1.2.1.patch"
+      "image-size@1.2.1": "patches/image-size@1.2.1.patch",
+      "expo-superwall@1.3.0": "patches/expo-superwall@1.3.0.patch"
     },
     "packageExtensions": {
       "@clerk/expo@*": {

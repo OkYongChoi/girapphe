@@ -1,226 +1,260 @@
-# Girapphe Plus, ads, and `ad_free`
+# Ads and Subscriptions
 
-## Product contract
+## Product boundary
 
-- Learning, conversation-card creation, review, every owner-created private concept, and every
-  owner-created private relationship remain free.
-- The free web Knowledge Map includes a representative, domain-balanced sample of up to 144
-  public concepts. Concepts remains searchable and progressively pageable independently of that
-  graph sample.
-- A free practice session inserts one clearly labeled sponsored card after every five
-  successful forward actions. Rating and Skip count; reveal, Back, Undo, and opening a
-  topic do not.
-- An active `ad_free` entitlement is the backwards-compatible provider and database identifier
-  for Girapphe Plus. It prevents the web or mobile ad component from mounting and unlocks the
-  full public web Knowledge Map. Existing subscribers therefore receive the expanded benefit
-  without a migration or repurchase.
-- Monthly and annual subscriptions unlock the full public web Knowledge Map and remove ads.
-  Web list prices are USD 1/month and USD 10/year; the first eligible Clerk account starting
-  Stripe or Toss web billing receives one shared 14-day trial.
-- A provider redirect, purchase-sheet close, or app-authored assertion never grants access.
-  The server authorizes from reconciled `billing_subscriptions`; mobile may additionally honor
-  RevenueCat's SDK-verified `CustomerInfo` for the signed-in Clerk App User ID while its signed
-  webhook converges that provider state into the server database.
+Girapphe Plus grants the `ad_free` entitlement and full access to the public
+Knowledge Map. Learning, conversation/card creation, review, and user-created
+private concepts and relationships remain free. Billing work must not move that
+boundary or rename `ad_free`.
 
-## Provider flows
+## Billing V1 responsibility split
 
-### Stripe web checkout
+```text
+Web -> Creem -------------------------\
+                                      -> Girapphe billing projection -> ad_free
+iOS/Android -> Apple/Google -> Superwall /
+```
 
-`POST /api/billing/checkout` creates or reuses a Checkout Session after same-origin and
-Clerk checks. Customer mapping, an open-session mutex, provider idempotency, and existing
-subscription checks prevent parallel subscriptions. The mutex is an anonymized, owner-tokened
-account lease acquired under the permanent account-deletion lock; an indeterminate provider
-mutation keeps the lease until its bounded stale-recovery window. Account deletion cannot
-overtake that lease, and it paginates and expires every owned open Checkout Session before
-listing and canceling subscriptions. `POST /api/billing/portal` opens the
-Stripe Customer Portal for the mapped customer. It atomically limits each Clerk user to ten
-portal creation attempts per ten-minute database window; excess attempts return HTTP 429 with
-`Retry-After: 600` before any Stripe request is sent.
+- Creem is the Merchant of Record for web checkout, recurring billing, tax,
+  refunds, and the hosted customer portal.
+- Apple and Google move mobile money. Superwall supplies product loading,
+  native purchase and restore, subscription state, entitlements, server events,
+  and reconciliation support.
+- Girapphe owns the mobile subscription UI, Clerk identity mapping, canonical
+  subscription projection, and product authorization.
+- Superwall-rendered paywalls, campaigns, and paid experimentation are outside
+  V1. Web purchases never pass through Superwall.
 
-`POST /api/webhooks/stripe` verifies the raw-body signature and reconciles the current
-subscription from Stripe before writing `ad_free`. Checkout completion only links state;
-it does not grant access by itself. Configure the webhook for `checkout.session.completed`,
-`checkout.session.expired`, and `customer.subscription.*` events.
+RevenueCat, Stripe acquisition, and Toss acquisition are not part of the target
+architecture. During the mixed-version window, lifecycle-only compatibility is
+retained for Stripe and RevenueCat webhooks, Stripe portal/cancellation,
+RevenueCat authoritative reconciliation, and Toss cancellation/recovery. The
+Stripe checkout API always rejects, Toss prepare/callback/UI routes remain
+absent, and no legacy provider is a new-purchase option.
 
-### Toss Payments web billing
+## Web product and Creem lifecycle
 
-Toss is optional and default-off. It is shown and its API routes operate only when
-`TOSS_BILLING_ENABLED` is exactly `true` in addition to the complete server configuration.
-Credential presence by itself never activates checkout, callbacks, cancellation, or renewals.
-The browser requests card billing authorization with a short-lived, single-use server
-nonce bound to the signed-in user, Toss customer, and selected plan. The callback consumes
-that state before exchanging the one-time authorization value, then immediately redirects
-to a clean subscription URL. Billing keys are AES-GCM encrypted at rest.
+Web offers exactly one new product: Girapphe Plus Annual, USD 10.00, one-year
+automatic renewal, quantity one, tax inclusive, and no trial. The server owns
+the configured product ID and rejects `plan=monthly`; a hidden monthly button is
+not the policy boundary.
 
-Prepare, callback activation, and each scheduled renewal acquire the same anonymized
-per-account Toss lease used by account deletion. Pending-session writes also recheck the
-permanent account marker inside their database transaction. Recovery of an already-issued
-key, accepted-payment reconciliation, cancellation, and key cleanup deliberately remain
-available after deletion starts so external financial state is not stranded.
+`POST /api/billing/checkout` requires Clerk authentication and a trusted origin.
+Inside the per-account billing fence it checks account deletion, canonical
+entitlement, open acquisition blocks, and any unresolved checkout before
+creating or reusing a Creem hosted checkout. The client cannot choose a price,
+currency, entitlement, user ID, or product ID. Provider timeouts and uncertain
+responses remain pending and never trigger an automatic second checkout.
 
-Every charge first creates a unique `toss_billing_charges` row containing the persisted
-billing-cycle and order key. A provider retry therefore reuses the same Toss order. A
-successful payment is marked `paid` before the idempotent entitlement/agreement writes;
-the hourly job reconciles a partial DB write without charging again. Five rows are leased
-per run with bounded retries, after which an unresolved agreement is paused. A charge is
-reused only for the exact persisted plan and cycle; superseded, unattempted rows become
-`abandoned`, while uncertain provider attempts are reconciled before another cycle starts.
-Cancellation fences an in-flight lease and retains failed billing-key deletion as durable
-cleanup work for the hourly job.
+The checkout return URL is only presentation state. It shows bounded processing
+and polls canonical entitlement with backoff for at most about 60 seconds. A
+redirect or checkout-complete event alone cannot grant Plus; verified Creem
+subscription state must converge into the database first.
 
-These records and provider idempotency reduce duplicate-charge risk, but they cannot create an
-exact transaction across Toss and PostgreSQL. A process can still stop after Toss accepts a
-payment and before the local paid marker commits. The next run must reconcile that stable order
-with Toss before retrying; an uncertain result must remain pending/paused for operator review,
-not be treated as proof of failure. Keep the operational gate off until this termination and
-recovery path has been exercised in sandbox mode.
+`POST /api/webhooks/creem` verifies the raw request body with Creem's documented
+`creem-signature` HMAC-SHA256 contract. The event ledger is idempotent,
+retryable, environment-scoped, and lease-based: an event is not permanently
+complete until its local reconciliation succeeds. When possible the handler
+fetches authoritative current subscription state before applying it, and an old
+provider event cannot replace a newer projection.
 
-Toss automatic billing requires the applicable merchant contract and supported domestic
-cards. Girapphe, rather than Toss, owns the renewal schedule. Set `TOSS_BILLING_ENABLED=true`
-only after the contract, test-mode cycle, process-termination recovery drill,
-refund/cancellation operations, scheduler, and live credentials are ready. The workflow itself
-also checks the gate and complete group before calling production.
+Creem owns card collection, recurring charges, tax calculation/remittance, and
+charge retry. Girapphe stores provider references and normalized subscription
+state, never raw card data. A confirmed renewal failure may receive one fixed
+72-hour billing grace. A temporary provider verification outage may receive at
+most one fixed 24-hour technical grace; neither grace slides on duplicate events
+or requests. First-payment failure, confirmed refund revocation, and immediate
+termination receive no grace.
 
-### RevenueCat, App Store, and Google Play
+`POST /api/billing/portal` creates a Creem customer-portal session for a mapped
+Creem customer and still routes a verified legacy Stripe subscriber to Stripe's
+portal during migration. Web refunds are performed manually in Creem: the standard policy is a
+full refund within 14 days of an initial annual purchase or annual renewal, with
+no standard prorated refund after that window. A partial or historical-period
+refund must not revoke a currently valid subscription.
 
-The Expo app signs in with Clerk and uses the Clerk user ID as RevenueCat's App User ID.
-It reads only the exact `ad_free` entitlement, supports monthly/annual packages and restore,
-and logs RevenueCat out before switching Clerk accounts. The authenticated mobile app also
-reads `GET /api/billing/entitlement`, so a Stripe or Toss entitlement on the same Clerk account
-removes mobile ads while RevenueCat purchases continue to remove web ads through the webhook.
+## Mobile product and Superwall lifecycle
 
-`POST /api/webhooks/revenuecat` requires the configured Authorization header and raw-body
-signature. Production accepts only production events whose app ID is in the exact iOS/Android
-allowlist.
-The server uses RevenueCat's secret API to reconcile the current subscriber snapshot,
-including transfers, refunds, expiration, and mobile trials. Store-localized prices remain
-the display source in the app.
+iOS and Android offer store monthly and annual subscriptions through Girapphe's
+own UI. The UI displays the localized StoreKit/Google Play price returned for
+the configured product; it never hardcodes the USD reference prices. No new
+introductory or free trial is configured. An already-live store trial is not
+silently changed and must be reported as an activation finding.
 
-App Store and Google Play introductory-offer eligibility is owned by each store account and
-cannot be made strictly identical to Girapphe's Clerk-wide web trial marker. For one globally
-enforced trial, do not configure separate store introductory trials. If store trials are
-enabled, treat them as platform-specific offers; a detected store trial prevents a later web
-trial, but a previous web trial cannot revoke an offer the store independently grants.
+The app identifies the signed-in Clerk user ID to Superwall, loads the exact
+configured products, and calls the direct purchase or restore API. It does not
+register a Superwall paywall. Local SDK state may make the UI responsive, but a
+mobile-authored claim never grants server authorization. Purchase and restore
+trigger authenticated server reconciliation, and every surface ultimately
+uses `GET /api/billing/entitlement`.
 
-## Exclusive provider and duplicate-charge boundary
+On logout or account switch, the app clears the previous user-specific SDK
+state, identifies the new Clerk user, and refreshes server entitlement before
+showing Plus. Email is not an ownership key and does not transfer a subscription.
+The server accepts only configured Superwall project/application, package or
+bundle, store, environment, product, and `ad_free` entitlement state. Signed
+Svix webhook delivery is a reconciliation trigger; authoritative Superwall
+subscription retrieval determines the current projection.
+The stable Superwall subscription resource id is the canonical provider row
+key. Store root/original and current renewal transaction/order identifiers are
+stored as separate correlation aliases, so a renewal never creates a new
+canonical subscription merely because its store identifier rotated.
 
-Toss is staged but not activation-approved in this release: environment validation rejects
-`TOSS_BILLING_ENABLED=true`, and a compile-time runtime fuse independently fails closed.
-A later activation PR must first add and provider-test a global billing-key fingerprint lock
-covering activation, orphan cleanup, and cancellation recovery. Once approved, Toss remains
-an exclusive acquisition and renewal mode. When `TOSS_BILLING_ENABLED=true`, the
-Stripe and RevenueCat server groups must both be absent. The environment checker rejects a
-complete conflicting group, and the Toss runtime fails closed if any Stripe or RevenueCat
-server value is present. Toss credentials may be staged while the gate remains `false`; add
-the gate as the final production secret only after validation.
+Superwall's current documentation describes direct purchase APIs and an
+infrastructure tier independent of paywall-attributed revenue. This design
+depends on Girapphe-owned UI remaining outside Superwall's MAR-priced paywall
+product. If real configuration would attribute Girapphe revenue or require a
+paid tier, stop activation and record the exact provider requirement before
+changing the architecture. See the official [Superwall pricing](https://superwall.com/pricing),
+[Expo integration](https://superwall.com/docs/expo), and
+[webhook verification](https://superwall.com/docs/integrations/webhooks/verify)
+documentation.
 
-This configuration boundary is defense in depth, not proof that another purchase surface is
-off. Previously issued Stripe Checkout Sessions can remain usable, and a shipped mobile app
-can still reach a RevenueCat offering through its EAS public SDK key even when the Worker has
-no RevenueCat server group. Before enabling Toss, expire open Stripe Checkout Sessions and
-disable Stripe prices/links, make the RevenueCat offering unavailable, and verify in Stripe,
-RevenueCat, App Store Connect, and Google Play that no acquisition path or renewal remains.
-Do not switch away from Toss while an agreement, charge reconciliation, billing-key cleanup,
-or renewal is pending: adding another provider's server values makes Toss fail closed.
+## Canonical entitlement and duplicates
 
-Billing-key issuance is recovered with the original provider idempotency key only inside a
-14-day safety window. An older uncertain issuance is moved to `manual_review`, its one-time
-authorization ciphertext is scrubbed, and the internal billing run returns an error so the
-scheduled workflow alerts an operator. Do not retry that authorization or enable another
-provider until Toss support and the local intent record have been reconciled.
+`billing_subscriptions` projects stable provider subscription identities and
+their store, product, environment, plan, normalized status, period, renewal
+state, provider-event time, and last reconciliation time. `ad_free` is true when
+**any** qualifying subscription is still valid. It is never copied from the
+most recently processed row.
 
-Provider-neutral subscription checks block Stripe or Toss checkout when a reconciled Clerk
-account already has an incomplete, trialing, active, past-due, or paused `ad_free` record. The
-mobile paywall also hides store packages after the same account's server or SDK entitlement is
-known. Asynchronous webhooks and simultaneous requests across devices are not one atomic
-transaction, so activation must still test Stripe-to-store, store-to-Stripe, and, before Toss
-becomes exclusive, old-provider-to-Toss attempts with the same Clerk account. Confirm that the
-second path cannot purchase, no second trial is granted, and only one renewal remains scheduled.
+- Active access and scheduled cancellation before period end remain entitled.
+- Expiration or verified full-period revocation ends that row's access.
+- A valid subscription from another provider keeps `ad_free` true.
+- Duplicate and out-of-order events are harmless.
+- An unresolved cross-provider duplicate opens an acquisition block. Records
+  are preserved for operator ordering, cancellation/refund of the later charge,
+  and reconciliation; V1 does not refund automatically or delete rows.
 
-If two providers charge, stop new acquisition in their dashboards/offerings, preserve all
-provider and local records, reconcile by provider customer/order/transaction IDs, cancel and
-refund the duplicate in the provider that charged it, and let signed webhooks or authoritative
-reconciliation converge `billing_subscriptions`. Never delete a row or grant/revoke `ad_free`
-from a redirect alone. Re-enable acquisition only after both provider dashboards, pending Toss
-orders and `next_charge_at`, and the Clerk account's entitlement agree.
+Before web checkout, canonical state checks web and mobile subscriptions. Before
+mobile purchase options are shown, the app checks both canonical state and local
+Superwall state. This prevents common duplicate purchases but cannot make Apple,
+Google, and Creem one atomic payment network. The UI points an existing subscriber
+to the management destination for the original provider and requires that
+subscription to expire before an intentional provider switch.
+
+## Account deletion
+
+Deletion takes the permanent account/billing fence before blocking new checkout
+and abandoning unresolved acquisition attempts. Girapphe requests scheduled
+cancellation of active Creem renewal, preserves required reconciliation
+metadata, resets the Superwall device identity where supported, and then deletes
+application-owned user data according to the deletion policy.
+
+During the legacy observation window, deletion also expires owned open Stripe
+checkout sessions, cancels renewing Stripe subscriptions, safely cancels any
+persisted Toss agreement, and attempts RevenueCat customer deletion whenever
+the retained deletion credential is configured, even when Girapphe has no local
+RevenueCat subscription row. Missing lifecycle configuration fails deletion
+closed when a corresponding legacy record requires cleanup. This bridge does
+not create a legacy purchase.
+
+Deleting or resetting a Superwall identity does not cancel an App Store or
+Google Play subscription. Store subscribers receive the relevant store
+management instructions; Apple/Google remain the owners of store billing.
+
+## Configuration and acquisition gates
+
+Provider lifecycle groups are all-or-nothing. A partial group fails closed.
+Preview uses the same names with `_PREVIEW` in GitHub settings and only provider
+test/sandbox resources.
+
+| Group | Worker names |
+|---|---|
+| Creem lifecycle | `CREEM_API_KEY`, `CREEM_WEBHOOK_SECRET`, `CREEM_ANNUAL_PRODUCT_ID`, `CREEM_ENVIRONMENT` (`test` or `production`) |
+| Superwall lifecycle | `SUPERWALL_ORGANIZATION_API_KEY`, `SUPERWALL_WEBHOOK_SECRET`, `SUPERWALL_PROJECT_ID`, `SUPERWALL_ENVIRONMENT`, `SUPERWALL_IOS_APPLICATION_ID`, `SUPERWALL_ANDROID_APPLICATION_ID`, `SUPERWALL_IOS_BUNDLE_ID`, `SUPERWALL_ANDROID_PACKAGE_ID`, `SUPERWALL_IOS_MONTHLY_PRODUCT_ID`, `SUPERWALL_IOS_ANNUAL_PRODUCT_ID`, `SUPERWALL_ANDROID_MONTHLY_PRODUCT_ID`, `SUPERWALL_ANDROID_ANNUAL_PRODUCT_ID` |
+| Acquisition gates | `WEB_BILLING_ACQUISITION_ENABLED`, `MOBILE_BILLING_ACQUISITION_ENABLED` |
+| Transitional Stripe lifecycle | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_AD_FREE_MONTHLY`, `STRIPE_PRICE_AD_FREE_ANNUAL` |
+| Transitional RevenueCat lifecycle | `REVENUECAT_WEBHOOK_AUTHORIZATION`, `REVENUECAT_WEBHOOK_SIGNING_SECRET`, `REVENUECAT_APP_IDS`, `REVENUECAT_SECRET_API_KEY`, `REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS`, `REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS` |
+| Transitional Toss recovery | `TOSS_BILLING_ENABLED`, `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`, `TOSS_BILLING_ENCRYPTION_KEY`, `TOSS_MONTHLY_AMOUNT_KRW`, `TOSS_ANNUAL_AMOUNT_KRW`, `TOSS_BILLING_CRON_TOKEN` |
+| AdSense | `NEXT_PUBLIC_ADSENSE_CLIENT_ID`, `NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID`, `NEXT_PUBLIC_ADSENSE_CONSENT_READY` |
+
+`TOSS_BILLING_ENABLED` is a transitional lifecycle/recovery gate, not an
+acquisition gate. Only the exact value `true` with the complete Toss group
+enables renewal, cancellation, and reconciliation for an already-existing
+agreement. It may coexist with retained Stripe and RevenueCat lifecycle groups.
+Toss checkout preparation, callback, and purchase UI remain absent regardless
+of this value; incomplete configuration fails closed.
+
+The gates are explicit booleans, not inferred from secret presence:
+
+- `false`: new purchases are unavailable, while configured webhook,
+  reconciliation, management, cancellation, and existing entitlement paths stay on.
+- `true`: new purchases may be offered only when the matching lifecycle group is
+  complete and provider activation evidence has passed.
+
+Mobile Superwall SDK keys and product identifiers are public Expo/EAS build
+configuration, not Worker secrets. Server organization API keys and webhook
+secrets must never be embedded in an app. See `apps/mobile/SETUP.md` for those
+adapter-specific names.
 
 ## Advertising
 
-Web uses the configured AdSense client and practice slot inside the sponsored-card shell.
-The server exposes those IDs only when `NEXT_PUBLIC_ADSENSE_CONSENT_READY=true`; set that flag
-only after a Google-certified CMP is active for the approved site. If configuration is absent,
-the script is blocked, the request is unfilled, or loading times out, practice remains usable
-and a labeled Girapphe house card appears.
+Web uses the configured AdSense client and practice slot inside the sponsored
+card shell. The server exposes them only when the consent-ready flag is true;
+otherwise practice remains usable with a labeled Girapphe house card.
 
-Mobile uses Google Mobile Ads NativeAd test IDs in development and platform-specific
-production units. The SDK owns asset clicks and AdChoices; each loaded ad is destroyed when
-the card unmounts. UMP consent is gathered and `canRequestAds` must be true before Mobile Ads
-initialization or any request. Production native builds require both AdMob app IDs and both
-NativeAd unit IDs; a runtime consent, request, or load failure falls back to the house card.
-See `apps/mobile/SETUP.md` for EAS,
-store, device, consent, and AdMob preparation.
+Mobile uses Google Mobile Ads with UMP gating and store-specific production
+identifiers. Advertising behavior is unchanged by Billing V1, and `ad_free`
+continues to suppress the sponsored interval across platforms.
 
-## Server configuration names
+## Legacy evidence and rollback boundary
 
-Configure a provider group completely or leave the whole group absent. Values belong in
-GitHub Actions/Cloudflare settings, never in the repository or chat.
+The 2026-09-07 read-only production inspection found zero rows in the Girapphe
+billing subscription/customer/webhook tables and every Toss agreement, intent,
+session, and charge table. GitHub and Cloudflare configuration-name inspection
+also found no Stripe, Toss, RevenueCat, Creem, or Superwall provider values.
+Therefore no reconciled legacy subscriber or unresolved Toss financial state is
+known to Girapphe. That evidence is not sufficient to make migration-time
+deletion safe: `0021_billing_v1_domain.sql` retains every legacy billing/Toss
+table and the previous `(provider, provider_subscription_id)` unique contract
+while adding the environment-aware key required by Billing V1.
 
-| Group | Names |
-|---|---|
-| Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_AD_FREE_MONTHLY`, `STRIPE_PRICE_AD_FREE_ANNUAL` |
-| RevenueCat | `REVENUECAT_WEBHOOK_AUTHORIZATION`, `REVENUECAT_WEBHOOK_SIGNING_SECRET`, `REVENUECAT_APP_IDS`, `REVENUECAT_SECRET_API_KEY`, `REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS`, `REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS` |
-| AdSense | `NEXT_PUBLIC_ADSENSE_CLIENT_ID`, `NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID`, `NEXT_PUBLIC_ADSENSE_CONSENT_READY` |
-| Toss | Gate: `TOSS_BILLING_ENABLED`; credentials: `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`, `TOSS_BILLING_ENCRYPTION_KEY`, `TOSS_MONTHLY_AMOUNT_KRW`, `TOSS_ANNUAL_AMOUNT_KRW`, `TOSS_BILLING_CRON_TOKEN` |
+Provider dashboards were not available to that inspection. Before production
+cleanup, independently verify Stripe has no customer/subscription requiring a
+portal or webhook, Toss has no agreement/billing key/pending charge, and
+RevenueCat has no real subscriber missing from Girapphe. Do not remove provider
+dashboard configuration, Worker secret values, or physical database tables
+until those absence checks or Superwall equivalence are recorded and the new
+deployment has passed its rollback observation window. Cleanup is a separate
+reviewed migration; see `docs/operations/billing.md`.
 
-Preview uses corresponding GitHub secret names with `_PREVIEW` appended and provider
-test/sandbox resources, except AdSense: PR aliases always use the house card because AdSense
-for Content has no PR-domain test slot. Production uses the exact names above. The environment
-checker rejects partially configured groups and test/live mismatches.
+Until that evidence exists, `/api/webhooks/stripe`,
+`/api/webhooks/revenuecat`, `/api/billing/portal`,
+`/api/billing/toss/cancel`, and the authenticated Toss recovery scheduler are
+intentional rollback/lifecycle bridges. Their presence does not reopen provider
+selection or acquisition policy.
 
-## Activation checklist
+Historical migrations and dated architecture reviews remain as audit records.
+Rollback must restore code and schema from a reviewed deployment; it must never
+manufacture legacy subscriptions or silently cancel an external subscription.
 
-1. Apply migrations `0007_private_knowledge_ingestion.sql`,
-   `0008_billing_entitlements.sql`, `0009_private_card_practice.sql`, and
-   `0010_stripe_portal_rate_limit.sql` to the isolated preview database. Preview deploys do
-   not run migrations. Production runs committed Drizzle migrations before deployment.
-2. In Stripe, create the USD 1 monthly and USD 10 annual recurring prices, configure the
-   Customer Portal and signed webhook, then test trial, renewal, cancellation, payment
-   failure, and duplicate Checkout attempts in test mode.
-3. Confirm RevenueCat webhook access (currently a Pro integration), create the exact `ad_free`
-   entitlement, and attach App Store and Play monthly/annual products to the current offering.
-   Use one project-wide production webhook with one auth/signing configuration and the exact
-   iOS/Android app-ID allowlist. Add the secret API key, map the exact store product IDs into
-   the two comma-separated server lists, connect both stores' credentials and server
-   notifications/RTDN, decide the store-trial policy above, and test purchase, restore,
-   transfer, refund, and expiration on physical devices.
-4. Complete App Store Connect and Google Play agreements, tax/banking, subscription terms,
-   review metadata, sandbox/license testers, and the apps' ads/privacy disclosures. Publish
-   final public Terms of Use and Privacy Policy URLs and configure the two mobile URL values.
-   Add an in-app and public-web account-deletion path before store submission.
-5. Add `girapphe.com` to AdSense, complete ownership review until the site is Ready, publish
-   web `ads.txt`, create the practice slot, and activate a Google-certified CMP. Create both
-   AdMob apps/NativeAd units, publish app-ads.txt, and configure/test the UMP message. Only then
-   set the AdSense consent-ready flag and enable production ad values; non-personalized ads
-   still require applicable consent.
-6. If enabling Toss, leave `TOSS_BILLING_ENABLED` absent or `false` while completing the
-   automatic-billing contract, choosing integer KRW prices, generating a base64-encoded 32-byte
-   encryption key and independent scheduler token, and verifying test-card authorization,
-   renewal, cancellation, process termination after provider success, and reconciliation.
-   In a later reviewed activation PR, add and sandbox-test the global billing-key fingerprint
-   lock and incomplete-activation recovery before opening the runtime fuse. Expire or disable
-   every Stripe and store acquisition surface, verify there are no pending
-   renewals or provider transitions, run the cross-provider attempt matrix above, switch the
-   complete Toss credential group to live values, verify the scheduler target, and only then
-   add the gate as the final secret with the exact value `true`.
-7. Add names through GitHub Secrets/EAS Environments, deploy a PR preview, and verify webhooks,
-   the fifth-action ad, `ad_free` suppression, account switching, and provider dashboards.
+## External activation evidence
 
-PR aliases change per pull request, while provider webhook destinations and signing secrets
-are fixed settings. Preview deploys therefore do not prove webhook delivery automatically.
-For a bounded test, register the exact current PR alias in provider test mode with the matching
-`_PREVIEW` signing secret (or forward Stripe test events with Stripe CLI), serialize that test,
-and remove the temporary endpoint afterward. Do not use the base preview Worker as a durable
-review endpoint: it can be replaced by the most recently deployed internal PR.
+Code and mocked tests are necessary but do not activate billing. Keep both
+acquisition gates false until the applicable evidence is recorded:
 
-Provider sandbox/live transactions, store review, physical-device NativeAd/purchase behavior,
-and production webhook delivery are external activation checks; local builds cannot prove them.
+1. Apply all migrations, including `0021_billing_v1_domain.sql`, to the isolated
+   preview database and run the repository harness.
+2. Creem: merchant/business approval, production product and webhook, payout
+   setup, hosted checkout, real test payment, webhook, cancellation, portal,
+   refund, failed payment, duplicate-checkout recovery, first production
+   transaction, and first payout.
+3. Superwall: production project/app configuration, exact Clerk identity mapping,
+   Apple/Google product equivalence, signed server events, authoritative
+   reconciliation, and confirmation that Girapphe's direct-purchase use is not
+   billed as paywall-attributed MAR.
+4. Apple: agreements/tax/banking and physical-device official sandbox purchase,
+   restore, cancellation/expiration, account switch, server event, refund or
+   revocation, and canonical Girapphe entitlement.
+5. Google: agreements/tax/banking and official test purchase, restore,
+   cancellation/expiration, account switch, server event, refund or revocation,
+   and canonical Girapphe entitlement.
+6. Verify web purchase grants mobile access and mobile purchase grants web
+   access for the same Clerk account, including duplicate prevention and
+   account-deletion handling.
+
+PR Preview aliases change per pull request, so provider webhook delivery is not
+proved automatically. Register only the exact current alias with matching test
+credentials for a bounded test, then remove it. Never use production secrets in
+a Preview Worker and never label mocked coverage as provider-ready evidence.

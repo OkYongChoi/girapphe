@@ -6,7 +6,7 @@ import accountLifecycle from '../src/lib/account-lifecycle.ts';
 const {
   buildAccountDeletionFenceQueries,
   buildActiveAccountGuardQueries,
-  deriveAccountBillingOperationEventId,
+  deriveAccountBillingOperationScopeKey,
 } = accountLifecycle;
 
 const databaseUrl = process.env.ACCOUNT_BILLING_FENCE_TEST_DATABASE_URL?.trim();
@@ -28,19 +28,21 @@ async function runTransaction(client, queries) {
 
 function billingLeaseQuery(userId, provider, owner) {
   return {
-    text: `INSERT INTO billing_webhook_events (
-             provider, event_id, event_type, processed_at, created_at
-           ) VALUES ($1, $2, $3, NULL, NOW())
-           ON CONFLICT (provider, event_id) DO UPDATE SET
-             event_type = EXCLUDED.event_type,
-             created_at = NOW()
-           WHERE billing_webhook_events.processed_at IS NULL
-             AND billing_webhook_events.created_at < NOW() - INTERVAL '10 minutes'
-           RETURNING event_id`,
+    text: `INSERT INTO billing_account_operations (
+             scope_key, provider, operation, owner_token, expires_at, created_at, updated_at
+           ) VALUES ($1, $2, 'checkout', $3, NOW() + INTERVAL '10 minutes', NOW(), NOW())
+           ON CONFLICT (scope_key) DO UPDATE SET
+             provider = EXCLUDED.provider,
+             operation = EXCLUDED.operation,
+             owner_token = EXCLUDED.owner_token,
+             expires_at = EXCLUDED.expires_at,
+             updated_at = NOW()
+           WHERE billing_account_operations.expires_at <= NOW()
+           RETURNING scope_key`,
     params: [
+      deriveAccountBillingOperationScopeKey(userId),
       provider,
-      deriveAccountBillingOperationEventId(userId, provider),
-      `account.billing.test:${owner}`,
+      owner,
     ],
   };
 }
@@ -59,24 +61,30 @@ test('PostgreSQL serializes account deletion against billing initiation in both 
       scope_key TEXT PRIMARY KEY,
       deleted_at TIMESTAMPTZ NOT NULL
     )`);
-    await admin.query(`CREATE TABLE billing_webhook_events (
+    await admin.query(`CREATE TABLE billing_account_operations (
+      scope_key TEXT PRIMARY KEY,
       provider TEXT NOT NULL,
-      event_id TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      processed_at TIMESTAMPTZ,
+      operation TEXT NOT NULL,
+      owner_token TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL,
-      PRIMARY KEY (provider, event_id)
+      updated_at TIMESTAMPTZ NOT NULL
     )`);
-    await admin.query(`CREATE TABLE toss_prepare_rate_limits (
+    await admin.query(`CREATE TABLE billing_checkout_attempts (
       user_id TEXT PRIMARY KEY,
-      request_count INTEGER NOT NULL DEFAULT 1
+      status TEXT NOT NULL
+    )`);
+    await admin.query(`CREATE TABLE billing_acquisition_blocks (
+      user_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      resolved_at TIMESTAMPTZ
     )`);
 
     const first = await pool.connect();
     try {
       await first.query(`SET search_path TO "${schema}"`);
       const userId = 'user_initiation_first';
-      const lease = billingLeaseQuery(userId, 'stripe', 'owner-first');
+      const lease = billingLeaseQuery(userId, 'creem', 'owner-first');
       const claimed = await runTransaction(first, [
         ...buildActiveAccountGuardQueries(userId),
         lease,
@@ -93,8 +101,8 @@ test('PostgreSQL serializes account deletion against billing initiation in both 
       )).rows[0]?.count, 0);
 
       await first.query(
-        `DELETE FROM billing_webhook_events
-         WHERE provider = $1 AND event_id = $2 AND event_type = $3`,
+        `DELETE FROM billing_account_operations
+         WHERE scope_key = $1 AND provider = $2 AND owner_token = $3`,
         lease.params,
       );
       const retriedDeletion = await runTransaction(
@@ -102,11 +110,34 @@ test('PostgreSQL serializes account deletion against billing initiation in both 
         buildAccountDeletionFenceQueries(userId),
       );
       assert.equal(retriedDeletion[1]?.rowCount, 1);
+
+      const pendingUserId = 'user_mobile_purchase_pending';
+      await first.query(
+        `INSERT INTO billing_acquisition_blocks (user_id, reason, resolved_at)
+         VALUES ($1, 'mobile_purchase_pending', NULL)`,
+        [pendingUserId],
+      );
+      const pendingDeletion = await runTransaction(
+        first,
+        buildAccountDeletionFenceQueries(pendingUserId),
+      );
+      assert.equal(pendingDeletion[1]?.rowCount, 0);
+      await first.query(
+        `UPDATE billing_acquisition_blocks
+         SET resolved_at = NOW()
+         WHERE user_id = $1 AND reason = 'mobile_purchase_pending'`,
+        [pendingUserId],
+      );
+      const resolvedDeletion = await runTransaction(
+        first,
+        buildAccountDeletionFenceQueries(pendingUserId),
+      );
+      assert.equal(resolvedDeletion[1]?.rowCount, 1);
     } finally {
       first.release();
     }
 
-    await admin.query('TRUNCATE billing_webhook_events, mcp_deleted_account_markers, toss_prepare_rate_limits');
+    await admin.query('TRUNCATE billing_account_operations, billing_acquisition_blocks, mcp_deleted_account_markers, billing_checkout_attempts');
     const deletionClient = await pool.connect();
     const initiationClient = await pool.connect();
     try {
@@ -129,7 +160,7 @@ test('PostgreSQL serializes account deletion against billing initiation in both 
           const guard = buildActiveAccountGuardQueries(userId);
           await initiationClient.query(guard[0].text, guard[0].params);
           await initiationClient.query(guard[1].text, guard[1].params);
-          const lease = billingLeaseQuery(userId, 'toss', 'owner-second');
+          const lease = billingLeaseQuery(userId, 'superwall', 'owner-second');
           await initiationClient.query(lease.text, lease.params);
           await initiationClient.query('COMMIT');
           return null;
@@ -157,23 +188,23 @@ test('PostgreSQL serializes account deletion against billing initiation in both 
       const claimError = await claimPromise;
       assert.equal(claimError?.code, '23505');
       assert.equal((await admin.query(
-        'SELECT COUNT(*)::int AS count FROM billing_webhook_events',
+        'SELECT COUNT(*)::int AS count FROM billing_account_operations',
       )).rows[0]?.count, 0);
       assert.equal((await admin.query(
         'SELECT COUNT(*)::int AS count FROM mcp_deleted_account_markers',
       )).rows[0]?.count, 1);
 
-      const tossPrepareError = await runTransaction(initiationClient, [
+      const checkoutWriteError = await runTransaction(initiationClient, [
         ...buildActiveAccountGuardQueries(userId),
         {
-          text: `INSERT INTO toss_prepare_rate_limits (user_id, request_count)
-                 VALUES ($1, 1)`,
+          text: `INSERT INTO billing_checkout_attempts (user_id, status)
+                 VALUES ($1, 'creating')`,
           params: [userId],
         },
       ]).then(() => null, (error) => error);
-      assert.equal(tossPrepareError?.code, '23505');
+      assert.equal(checkoutWriteError?.code, '23505');
       assert.equal((await admin.query(
-        'SELECT COUNT(*)::int AS count FROM toss_prepare_rate_limits',
+        'SELECT COUNT(*)::int AS count FROM billing_checkout_attempts',
       )).rows[0]?.count, 0);
     } finally {
       await deletionClient.query('ROLLBACK').catch(() => undefined);

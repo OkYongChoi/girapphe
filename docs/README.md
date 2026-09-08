@@ -19,6 +19,7 @@ This folder contains technical documentation for the Personal STEM Brain project
 - [Recall Ping Selected Wireflow](./reference/recall-ping-wireflow.md)
 - [WebMCP Browser Tools](./reference/webmcp.md)
 - [Ads and Subscriptions](./reference/monetization.md)
+- [Billing V1 Operations](./operations/billing.md)
 - [Data Model](./reference/data-model.md)
 - [Development & Operations](./operations/development.md)
 - [Recall Ping Seven-Day Pilot](./operations/recall-ping-pilot.md)

@@ -22,8 +22,8 @@ The workflow first deploys the preview Worker to apply its non-versioned Worker 
 uploads the PR-specific alias. Review and share only the PR alias URL; the base preview Worker
 is not a review environment and can be replaced by whichever internal PR deploys last. Provider
 webhooks are not validated automatically because each PR alias changes. For a focused sandbox
-test, temporarily register the exact PR alias and matching `_PREVIEW` signing secret (or use a
-Stripe CLI forwarder), then remove it after the test.
+test, temporarily register the exact PR alias and matching `_PREVIEW` signing secret, serialize
+the test, then remove the endpoint.
 
 The smoke test retries for up to one minute because a newly assigned preview alias can briefly
 return `404` while Cloudflare propagates it.
@@ -55,19 +55,26 @@ Configure these under GitHub repository Settings → Secrets and variables → A
 | Production evidence | `AUTHENTICATED_OVERLAY_E2E_USER_EMAIL` | Repository variable for the independently owned production synthetic user; used only after explicit manual confirmation. |
 | Variable | `APP_BASE_URL` | `https://www.girapphe.com` |
 
-Monetization is optional, but each enabled provider group must be complete. Preview names add
-`_PREVIEW`; production names do not. AdSense is production-only: PR aliases deliberately show
-the house card because there is no approved AdSense-for-Content test slot for a changing PR domain.
+Billing lifecycle processing is optional until provider activation, but each configured group
+must be complete. Preview GitHub names add `_PREVIEW`; production names do not. AdSense is
+production-only: PR aliases deliberately show the house card because there is no approved
+AdSense-for-Content test slot for a changing PR domain.
 
 | Group | Secret names |
 |---|---|
-| Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_AD_FREE_MONTHLY`, `STRIPE_PRICE_AD_FREE_ANNUAL` |
-| RevenueCat | `REVENUECAT_WEBHOOK_AUTHORIZATION`, `REVENUECAT_WEBHOOK_SIGNING_SECRET`, `REVENUECAT_APP_IDS`, `REVENUECAT_SECRET_API_KEY`, `REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS`, `REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS` |
+| Creem lifecycle | `CREEM_API_KEY`, `CREEM_WEBHOOK_SECRET`, `CREEM_ANNUAL_PRODUCT_ID`, `CREEM_ENVIRONMENT` |
+| Superwall lifecycle | `SUPERWALL_ORGANIZATION_API_KEY`, `SUPERWALL_WEBHOOK_SECRET`, `SUPERWALL_PROJECT_ID`, `SUPERWALL_ENVIRONMENT`, both application IDs, bundle/package IDs, and monthly/annual product IDs listed in `docs/reference/monetization.md` |
+| Acquisition gates | `WEB_BILLING_ACQUISITION_ENABLED`, `MOBILE_BILLING_ACQUISITION_ENABLED` |
 | AdSense | `NEXT_PUBLIC_ADSENSE_CLIENT_ID`, `NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID`, `NEXT_PUBLIC_ADSENSE_CONSENT_READY` |
-| Toss Payments | Default-off gate `TOSS_BILLING_ENABLED`; credentials `NEXT_PUBLIC_TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`, `TOSS_BILLING_ENCRYPTION_KEY`, `TOSS_MONTHLY_AMOUNT_KRW`, `TOSS_ANNUAL_AMOUNT_KRW`, `TOSS_BILLING_CRON_TOKEN` |
 
 The mobile build values, including final public Terms and Privacy URLs, are configured separately in EAS Environments. Follow
-`apps/mobile/SETUP.md`; do not put server-side RevenueCat or payment secrets in an Expo build.
+`apps/mobile/SETUP.md`; do not put the Superwall organization API key, webhook secret, or other
+server payment secrets in an Expo build.
+
+The deployment workflow reads the two gates and both provider environment selectors from GitHub
+Actions variables. Provider credentials and configured IDs are read from Actions secrets and
+synced to the Worker. Keep both gates `false` until the matching provider evidence is complete.
+Acquisition `false` must not be used to remove lifecycle configuration from an existing subscriber.
 
 The four Clerk route values are deployment-managed constants: `/login`, `/signup`, and `/practice`.
 They are included in both Worker environments; do not add redundant GitHub secrets for them.
@@ -76,10 +83,10 @@ They are included in both Worker environments; do not add redundant GitHub secre
 
 1. In Neon, create a dedicated **schema-only** branch/database for previews. Do not
    select current production data.
-2. Apply the current Drizzle migrations to that database, including
-   `0007_private_knowledge_ingestion.sql`, `0008_billing_entitlements.sql`,
-   `0009_private_card_practice.sql`, and `0010_stripe_portal_rate_limit.sql`. Add only
-   synthetic or anonymized seed data when representative QA data is needed.
+2. Apply every current Drizzle migration through `0021_billing_v1_domain.sql`. Add only synthetic
+   or anonymized seed data when representative QA data is needed. Migration `0021` is additive:
+   it preserves legacy billing tables and the old subscription-reference key so the previous
+   Worker can keep running during deployment and remains a valid rollback target.
 3. Save its connection string as `DATABASE_URL_PREVIEW`.
 4. In Clerk, use a development/preview instance for the preview keys. Confirm sign-in works on a PR URL.
 
@@ -110,8 +117,10 @@ curl --fail-with-body https://www.girapphe.com/api/health
 
 Expected core GitHub Secrets are the entries in the first table above. A missing core preview
 secret causes the preview job to fail before upload; a missing core production secret blocks
-production validation. Optional monetization groups may be absent, but a partially configured
-group fails validation so that a checkout or webhook cannot be exposed half-configured.
+production validation. Billing lifecycle groups may be absent before activation, but a partial
+group fails validation. A `true` acquisition gate also fails validation unless its complete
+lifecycle group is present. A `false` gate leaves configured webhooks, reconciliation,
+management, and cancellation available.
 
 After the first PR preview deploys, verify all three of the following:
 
@@ -161,24 +170,22 @@ execution, logs, and retry operations. That migration requires a custom OpenNext
 `scheduled` handler and a deliberate redesign of how the cleanup function is invoked; it is not
 an automatic token-removal change.
 
-## Scheduled Toss renewals
+## Billing activation
 
-The `Process Toss subscription renewals` workflow calls the production-only internal billing
-endpoint hourly at minute 17. It does nothing unless `TOSS_BILLING_ENABLED` is exactly `true`
-and the complete Toss credential group is present. Once enabled, Girapphe owns the renewal
-calendar, durable per-cycle order IDs, reconciliation, and retry/pause behavior; Toss does not
-schedule these charges for the application.
+Deployment and mocked tests do not prove a payment integration is production-ready. Keep both
+acquisition gates false until the checklist in `docs/reference/monetization.md` records Creem
+merchant/product/webhook/payout evidence, Superwall project and identity mapping, official Apple
+and Google test purchases, signed server events, authoritative entitlement reconciliation, and
+cross-platform/account-switch behavior. Creem's first production transaction and payout, plus
+physical-device Apple evidence and official Google test-purchase evidence, remain explicit launch
+blockers.
 
-`TOSS_BILLING_ENABLED=true` is rejected by both environment validation and a compile-time
-runtime fuse in this release. Before a later PR opens that fuse, complete the Toss automatic-billing contract and test
-authorization, initial charge or trial, process termination after provider success, renewal,
-failed-payment retry, cancellation races, reconciliation, and billing-key cleanup with sandbox
-credentials. Toss is exclusive: remove the Stripe and RevenueCat server groups, expire or
-disable their external purchase surfaces, and complete the cross-provider attempt matrix before
-adding the gate as the final production secret in that later release. Rotate `TOSS_BILLING_CRON_TOKEN` independently from
-`TOSS_BILLING_ENCRYPTION_KEY`. See `docs/reference/monetization.md` for the complete activation
-checklist. A billing-key issue that remains uncertain for 14 days is quarantined without another
-provider call; the scheduled workflow fails visibly and requires provider-support/manual review.
+Deployment deliberately leaves legacy Stripe, RevenueCat, and Toss Worker secret values untouched
+during the mixed-version Billing V1 rollout. Delete those bindings, provider dashboard
+configuration, and legacy tables only in a separately reviewed cleanup after confirming that there
+is no orphan Stripe subscription, Toss agreement/billing key/pending charge, or RevenueCat
+subscriber absent from Girapphe's database and after the new deployment's rollback window closes.
+Follow `docs/operations/billing.md`; historical migrations remain audit records.
 
 ## Local work and verification
 

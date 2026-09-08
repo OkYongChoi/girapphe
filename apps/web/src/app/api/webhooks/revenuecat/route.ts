@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import {
   claimWebhookEvent,
-  markWebhookEventProcessed,
-  releaseWebhookEvent,
+  completeWebhookEvent,
+  currentBillingEnvironment,
+  recordWebhookFailure,
 } from '@/lib/billing/database';
 import { constantTimeTextEqual, verifyTimestampedHmac } from '@/lib/billing/hmac';
 import {
@@ -59,16 +60,25 @@ export async function POST(request: Request) {
   if (!isRevenueCatEventInScope(event, expectedAppIds)) {
     return NextResponse.json({ received: true, ignored: true });
   }
-  const claim = await claimWebhookEvent('revenuecat', event.id, event.type);
+  const eventTimestamp = typeof event.payload.event_timestamp_ms === 'number'
+    ? new Date(event.payload.event_timestamp_ms)
+    : null;
+  const claim = await claimWebhookEvent({
+    provider: 'revenuecat',
+    environment: currentBillingEnvironment(),
+    eventId: event.id,
+    eventType: event.type,
+    providerEventAt: eventTimestamp && !Number.isNaN(eventTimestamp.getTime()) ? eventTimestamp : null,
+  });
   if (claim === 'processed') return NextResponse.json({ received: true, duplicate: true });
   if (claim === 'busy') return NextResponse.json({ error: 'Event is already processing.' }, { status: 409 });
 
   try {
     await processRevenueCatEvent(event);
-    await markWebhookEventProcessed('revenuecat', event.id);
+    await completeWebhookEvent(claim);
     return NextResponse.json({ received: true });
   } catch (error) {
-    await releaseWebhookEvent('revenuecat', event.id).catch(() => undefined);
+    await recordWebhookFailure(claim, 'legacy_reconciliation_failed').catch(() => undefined);
     console.error('RevenueCat webhook processing failed:', error);
     return NextResponse.json({ error: 'Webhook processing failed.' }, { status: 500 });
   }

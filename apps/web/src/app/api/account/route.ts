@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth, reverificationErrorResponse } from '@clerk/nextjs/server';
 import { AccountDeletionError, deleteGirappheAccount } from '@/lib/account-deletion';
-import { requestHasTrustedOrigin } from '@/lib/billing/stripe';
+import { requestHasTrustedOrigin } from '@/lib/billing/request-security';
 import { hasValidClerkConfig } from '@/lib/clerk-env';
 
 export const dynamic = 'force-dynamic';

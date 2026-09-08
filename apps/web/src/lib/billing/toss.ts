@@ -13,29 +13,6 @@ type TossBillingAuthorization = {
   customerKey: string;
 };
 
-const EXCLUSIVE_PROVIDER_SERVER_KEYS = [
-  'STRIPE_SECRET_KEY',
-  'STRIPE_WEBHOOK_SECRET',
-  'STRIPE_PRICE_AD_FREE_MONTHLY',
-  'STRIPE_PRICE_AD_FREE_ANNUAL',
-  'REVENUECAT_WEBHOOK_AUTHORIZATION',
-  'REVENUECAT_WEBHOOK_SIGNING_SECRET',
-  'REVENUECAT_APP_IDS',
-  'REVENUECAT_SECRET_API_KEY',
-  'REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS',
-  'REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS',
-] as const;
-
-// A billing-key delete/adopt operation needs a provider-tested global
-// fingerprint lock before Toss can be activated. Keep this compile-time fuse
-// closed; tests may exercise the staged implementation only in NODE_ENV=test.
-const TOSS_BILLING_RUNTIME_APPROVED = false;
-
-function hasTossBillingTestOverride() {
-  return process.env.NODE_ENV === 'test'
-    && process.env.TOSS_BILLING_TEST_OVERRIDE === 'true';
-}
-
 export type TossPayment = {
   paymentKey: string;
   orderId: string;
@@ -69,6 +46,9 @@ export class TossProviderRequestError extends TossBillingError {
 }
 
 export function isTossBillingEnabled() {
+  // Billing V1 exposes no Toss checkout preparation, callback, or purchase UI.
+  // This exact gate enables only retained lifecycle/recovery operations for an
+  // already-existing Toss agreement (renewal, cancellation, and reconciliation).
   return process.env.TOSS_BILLING_ENABLED === 'true';
 }
 
@@ -97,22 +77,8 @@ function decodeEncryptionKey(raw: string) {
 export function getTossBillingConfig(): TossBillingConfig {
   if (!isTossBillingEnabled()) {
     throw new TossBillingError(
-      'Toss recurring billing is disabled by the operational gate.',
+      'Toss legacy lifecycle/recovery processing is disabled by the operational gate.',
       'TOSS_BILLING_DISABLED'
-    );
-  }
-
-  if (!TOSS_BILLING_RUNTIME_APPROVED && !hasTossBillingTestOverride()) {
-    throw new TossBillingError(
-      'Toss recurring billing is staged but not approved for runtime activation.',
-      'TOSS_ACTIVATION_PENDING'
-    );
-  }
-
-  if (EXCLUSIVE_PROVIDER_SERVER_KEYS.some((name) => Boolean(process.env[name]?.trim()))) {
-    throw new TossBillingError(
-      'Toss recurring billing cannot run while Stripe or RevenueCat server configuration is present.',
-      'TOSS_PROVIDER_CONFLICT'
     );
   }
 

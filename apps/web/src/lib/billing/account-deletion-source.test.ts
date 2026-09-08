@@ -5,7 +5,7 @@ import {
   buildActiveAccountGuardQueries,
   buildAccountDeletionFenceQueries,
   deriveAccountAdvisoryLockKey,
-  deriveAccountBillingOperationEventId,
+  deriveAccountBillingOperationScopeKey,
   deriveDeletedAccountScopeKey,
 } from '../account-lifecycle';
 import {
@@ -34,15 +34,23 @@ test('account deletion covers every owner-scoped private product table', () => {
     'user_quiz_rate_limits',
     'user_card_states',
     'toss_prepare_rate_limits',
+    'billing_request_rate_limits',
   ];
 
   for (const table of privateTables) {
     assert.match(source, new RegExp(`DELETE FROM ${table}\\b[\\s\\S]{0,120}user_id = \\$1`), `${table} must be owner-deleted`);
   }
+  assert.match(source, /cancelCreemRenewalForAccountDeletion/);
   assert.match(source, /cancelStripeSubscriptionsForAccountDeletion/);
   assert.match(source, /cancelTossBilling/);
-  assert.match(source, /deleteRevenueCatCustomer/);
-  assert.doesNotMatch(source, /REVENUECAT_SECRET_API_KEY[^\n]*return false/);
+  assert.match(source, /deleteLegacyRevenueCatProfile/);
+  assert.match(
+    source,
+    /!shouldAttemptRevenueCatCustomerDeletion\(subscriptionIds\.length > 0\)/,
+  );
+  assert.match(source, /return await deleteRevenueCatCustomer\(userId\)/);
+  assert.match(source, /abandonAcquisitionAttemptsForDeletion/);
+  assert.match(source, /superwallDeviceResetRequired: true/);
   assert.match(source, /client\.users\.deleteUser\(userId\)/);
 });
 
@@ -76,21 +84,19 @@ test('account deletion commits its permanent fence before provider cleanup witho
   const fence = source.indexOf('async function beginAccountDeletionFence');
   const deleteEntry = source.indexOf('export async function deleteGirappheAccount');
   const fenceCall = source.indexOf('await beginAccountDeletionFence(userId)', deleteEntry);
-  const stripeCleanup = source.indexOf('cancelRenewingWebBilling(userId)', fenceCall);
-  const revenueCatCleanup = source.indexOf('deleteProcessorCustomerData(userId)', stripeCleanup);
-  const purge = source.indexOf('purgePrivateProductData(userId)', revenueCatCleanup);
+  const billingCleanup = source.indexOf('cancelRenewingWebBilling(userId)', fenceCall);
+  const purge = source.indexOf('purgePrivateProductData(userId)', billingCleanup);
 
   assert.ok(fence >= 0 && fence < deleteEntry);
   assert.match(source.slice(fence, deleteEntry), /buildAccountDeletionFenceQueries\(userId\)/);
-  assert.ok(fenceCall < stripeCleanup && stripeCleanup < revenueCatCleanup && revenueCatCleanup < purge);
+  assert.ok(fenceCall < billingCleanup && billingCleanup < purge);
   assert.match(source, /\], \{ isolationLevel: 'ReadCommitted' \}\)/);
   assert.doesNotMatch(source, /DELETE FROM mcp_deleted_account_markers/);
 
   const userId = 'user_sensitive_clerk_identifier';
   const scopeKey = deriveDeletedAccountScopeKey(userId);
   const lockKey = deriveAccountAdvisoryLockKey(userId);
-  const stripeLeaseId = deriveAccountBillingOperationEventId(userId, 'stripe');
-  const tossLeaseId = deriveAccountBillingOperationEventId(userId, 'toss');
+  const billingOperationScopeKey = deriveAccountBillingOperationScopeKey(userId);
   const deletionQueries = buildAccountDeletionFenceQueries(userId);
   assert.equal(deletionQueries.length, 2);
   assert.match(deletionQueries[0]!.text, /pg_advisory_xact_lock/);
@@ -98,18 +104,19 @@ test('account deletion commits its permanent fence before provider cleanup witho
   assert.match(deletionQueries[1]!.text, /INSERT INTO mcp_deleted_account_markers/);
   assert.match(
     deletionQueries[1]!.text,
-    /WHERE NOT EXISTS \([\s\S]*billing_webhook_events[\s\S]*created_at >= NOW\(\) - INTERVAL '10 minutes'/,
+    /WHERE NOT EXISTS \([\s\S]*billing_account_operations[\s\S]*scope_key = \$2[\s\S]*expires_at > NOW\(\)/,
   );
-  assert.deepEqual(deletionQueries[1]!.params, [scopeKey, stripeLeaseId, tossLeaseId]);
+  assert.match(
+    deletionQueries[1]!.text,
+    /billing_acquisition_blocks[\s\S]*user_id = \$3[\s\S]*reason = 'mobile_purchase_pending'[\s\S]*resolved_at IS NULL/,
+  );
+  assert.deepEqual(deletionQueries[1]!.params, [scopeKey, billingOperationScopeKey, userId]);
   assert.match(scopeKey, /^[0-9a-f]{64}$/);
   assert.equal(scopeKey.includes(userId), false);
   assert.equal(lockKey, `mcp-account-lifecycle:${scopeKey}`);
   assert.equal(lockKey.includes(userId), false);
-  assert.match(stripeLeaseId, /^account-billing:[0-9a-f]{64}$/);
-  assert.match(tossLeaseId, /^account-billing:[0-9a-f]{64}$/);
-  assert.notEqual(stripeLeaseId, tossLeaseId);
-  assert.equal(stripeLeaseId.includes(userId), false);
-  assert.equal(tossLeaseId.includes(userId), false);
+  assert.match(billingOperationScopeKey, /^[0-9a-f]{64}$/);
+  assert.equal(billingOperationScopeKey.includes(userId), false);
   assert.equal(deriveMcpDeletedAccountScopeKey(userId), scopeKey);
   assert.equal(deriveMcpAccountAdvisoryLockKey(userId), lockKey);
 });
@@ -164,40 +171,6 @@ test('account-owned knowledge and practice insert paths use the lifecycle guard'
     assert.ok(accountLock >= 0 && accountLock < markerAssert, `${startToken}: guard order`);
     assert.match(body.slice(markerAssert), /isolationLevel: 'ReadCommitted'/, `${startToken}: fresh marker snapshot`);
   }
-});
-
-test('Toss initiation and renewal are fenced while recovery and cleanup remain available', () => {
-  const source = readFileSync(new URL('./toss-subscriptions.ts', import.meta.url), 'utf8');
-  const rateStart = source.indexOf('async function createRateLimitedTossBillingSession');
-  const prepareStart = source.indexOf('export async function prepareTossBilling');
-  const claimStart = source.indexOf('export async function claimTossBillingSession');
-  const activationCoreStart = source.indexOf('async function activateTossBillingWithLease');
-  const activationStart = source.indexOf('export async function activateTossBilling');
-  const dueStart = source.indexOf('export async function processDueTossBilling');
-  const cancelStart = source.indexOf('export async function cancelTossBilling');
-  const recoveryStart = source.indexOf('async function recoverIssuingTossBillingKeyIntents');
-  const orphanCleanupStart = source.indexOf('async function cleanupOrphanedTossBillingKeyIntents');
-
-  assert.match(source.slice(rateStart, prepareStart), /db\.accountTransaction/);
-  assert.match(source.slice(claimStart, activationStart), /db\.accountTransaction/);
-  const activation = source.slice(activationStart, dueStart);
-  assert.ok(
-    activation.indexOf("claimTossAccountOperation(input.userId, 'activation')")
-      < activation.indexOf('activateTossBillingWithLease(input)'),
-  );
-  const activationCore = source.slice(activationCoreStart, activationStart);
-  assert.match(activationCore, /getBillingCustomer\(input\.userId\)/);
-  assert.match(activationCore, /materializeTossBillingKeyIntent\(intent\)/);
-  const due = source.slice(dueStart, cancelStart);
-  assert.ok(
-    due.indexOf("claimAccountBillingOperation(")
-      < due.indexOf('prepareTossCharge({'),
-  );
-  assert.ok(due.indexOf("'renewal'") < due.indexOf('executeTossCharge({'));
-
-  const recovery = source.slice(recoveryStart, orphanCleanupStart);
-  assert.doesNotMatch(recovery, /claimAccountBillingOperation|accountTransaction/);
-  assert.match(recovery, /materializeTossBillingKeyIntent/);
 });
 
 test('MCP route maps a deleted OAuth account to the same non-leaky unauthorized response', () => {

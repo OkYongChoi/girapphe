@@ -104,7 +104,6 @@ export type TossBillingSession = {
 function isPlan(value: string): value is TossBillingPlan {
   return value === 'monthly' || value === 'annual';
 }
-
 function addTrialPeriod(date: Date) {
   return new Date(date.getTime() + 14 * 86_400_000);
 }

@@ -31,6 +31,7 @@ export function constantTimeTextEqual(actual: string, expected: string) {
   return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
 }
 
+/** Stripe's legacy webhook signature envelope; not used by Creem. */
 export function verifyTimestampedHmac(
   rawBody: string | Uint8Array,
   signatureHeader: string,
@@ -39,13 +40,22 @@ export function verifyTimestampedHmac(
 ) {
   const { timestamp, signatures } = parseTimestampedSignature(signatureHeader);
   if (!timestamp || signatures.length === 0 || !/^\d+$/.test(timestamp)) return false;
-
   const timestampSeconds = Number(timestamp);
   if (!Number.isSafeInteger(timestampSeconds)) return false;
   if (Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds) > toleranceSeconds) return false;
-
   const bodyBytes = typeof rawBody === 'string' ? Buffer.from(rawBody, 'utf8') : Buffer.from(rawBody);
-  const signedPayload = Buffer.concat([Buffer.from(`${timestamp}.`, 'utf8'), bodyBytes]);
-  const expected = createHmac('sha256', secret).update(signedPayload).digest('hex');
+  const expected = createHmac('sha256', secret)
+    .update(Buffer.concat([Buffer.from(`${timestamp}.`, 'utf8'), bodyBytes]))
+    .digest('hex');
   return signatures.some((signature) => constantTimeHexEqual(signature, expected));
+}
+
+export function verifyRawBodyHmacSha256(
+  rawBody: string | Uint8Array,
+  signature: string,
+  secret: string,
+) {
+  const bodyBytes = typeof rawBody === 'string' ? Buffer.from(rawBody, 'utf8') : Buffer.from(rawBody);
+  const expected = createHmac('sha256', secret).update(bodyBytes).digest('hex');
+  return constantTimeHexEqual(signature.trim(), expected);
 }

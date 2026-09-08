@@ -15,6 +15,7 @@ import {
   type DifficultyOption,
   type DomainOption,
   filterNodes,
+  getAccessiblePublicNodeById,
   getDomainOptions,
   getNodeSummary,
   getRelatedNodes,
@@ -28,6 +29,7 @@ import {
   resolveBrowseDomain,
 } from '@/browse-concepts';
 import { useMobileAuth } from '@/auth';
+import { useSubscription } from '@/subscriptions';
 import { useI18n } from '@/i18n';
 import { knowledgeBundleTypeLabel, quickNoteLabel } from '@/knowledge-bundle-ui';
 import { normalizeCardNodeId, useLocalizedContent } from '@/localized-content';
@@ -44,6 +46,7 @@ const EMPTY_STATUS_BY_NODE_ID = new Map<string, CardStatus | null>();
 export default function BrowseScreen() {
   const router = useRouter();
   const { isSignedIn, userId } = useMobileAuth();
+  const subscription = useSubscription();
   const { direction, formatNumber, locale, plural, t } = useI18n();
   const [query, setQuery] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<DomainOption>('All');
@@ -67,11 +70,15 @@ export default function BrowseScreen() {
       filterNodes({
         domain: selectedDomain,
         difficulty: selectedDifficulty,
-        limit: 80,
+        fullPublicMap: subscription.isAdFree,
+        limit: subscription.isAdFree ? null : 80,
       }),
-    [selectedDifficulty, selectedDomain],
+    [selectedDifficulty, selectedDomain, subscription.isAdFree],
   );
-  const selectedPublicNodeId = selectedPublicNode?.id ?? (candidateNodes.some((node) => node.id === selectedConceptId)
+  const accessibleSelectedPublicNode = selectedPublicNode
+    ? getAccessiblePublicNodeById(selectedPublicNode.id, subscription.isAdFree)
+    : undefined;
+  const selectedPublicNodeId = accessibleSelectedPublicNode?.id ?? (candidateNodes.some((node) => node.id === selectedConceptId)
     ? selectedConceptId ?? undefined
     : undefined);
   const localized = useLocalizedContent(
@@ -104,14 +111,17 @@ export default function BrowseScreen() {
     [publicNodes, visiblePersonalNotes],
   );
   const activeConcept = concepts.find((concept) => concept.id === selectedConceptId)
-    ?? (selectedPublicNode
-      ? { kind: 'public' as const, id: selectedPublicNode.id, node: selectedPublicNode }
+    ?? (accessibleSelectedPublicNode
+      ? { kind: 'public' as const, id: accessibleSelectedPublicNode.id, node: accessibleSelectedPublicNode }
       : null)
     ?? concepts[0]
     ?? null;
   const activeNode = activeConcept?.kind === 'public' ? activeConcept.node : null;
   const activeNote = activeConcept?.kind === 'personal' ? activeConcept.note : null;
-  const relatedNodes = useMemo(() => (activeNode ? getRelatedNodes(activeNode.id) : []), [activeNode]);
+  const relatedNodes = useMemo(
+    () => (activeNode ? getRelatedNodes(activeNode.id, 4, subscription.isAdFree) : []),
+    [activeNode, subscription.isAdFree],
+  );
 
   function labelFor(node: GraphNode) { return localized.get(node.id)?.label ?? localized.get(node.id)?.title ?? node.label; }
   function domainFor(node: GraphNode) { return localized.get(node.id)?.domain_label ?? localizeDomain(locale, node.domain); }

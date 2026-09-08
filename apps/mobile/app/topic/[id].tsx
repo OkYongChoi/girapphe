@@ -2,8 +2,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getDomainColor, type GraphNode } from '@stem-brain/graph-engine';
 import {
+  getAccessiblePublicNodeById,
   getDependentNodes,
-  getNodeById,
   getNodeExplanation,
   getNodeSummary,
   getPrerequisiteNodes,
@@ -14,14 +14,29 @@ import { useLocalizedContent } from '@/localized-content';
 import { localizeDomain, localizeType } from '@stem-brain/shared';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 import { KnowledgeText } from '@/components/knowledge-text';
+import { useSubscription } from '@/subscriptions';
 
 export default function TopicDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const node = getNodeById(id);
+  const subscription = useSubscription();
+  const node = subscription.isReady
+    ? getAccessiblePublicNodeById(id, subscription.isAdFree)
+    : undefined;
   const { direction, formatNumber, locale, t } = useI18n();
-  const localized = useLocalizedContent(id ? [id] : []);
-  const content = id ? localized.get(id) : undefined;
+  const localized = useLocalizedContent(node ? [node.id] : [], node?.id);
+  const content = node ? localized.get(node.id) : undefined;
+
+  if (!subscription.isReady) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { direction }]}>
+        <Stack.Screen options={{ title: t('topic.title') }} />
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>{t('common.loading')}</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!node) {
     return (
@@ -41,9 +56,9 @@ export default function TopicDetailScreen() {
     );
   }
 
-  const prerequisites = getPrerequisiteNodes(node.id);
-  const dependents = getDependentNodes(node.id);
-  const related = getRelatedNodes(node.id, 6);
+  const prerequisites = getPrerequisiteNodes(node.id, subscription.isAdFree);
+  const dependents = getDependentNodes(node.id, subscription.isAdFree);
+  const related = getRelatedNodes(node.id, 6, subscription.isAdFree);
 
   function openTopic(nextNode: GraphNode) {
     router.push({ pathname: '/topic/[id]', params: { id: nextNode.id } });

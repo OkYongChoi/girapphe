@@ -37,8 +37,11 @@ function pngSize(relativePath: string) {
   };
 }
 
-function withProductionEnvironment<T>(operation: () => T): T {
-  const values: Record<string, string> = {
+function withProductionEnvironment<T>(
+  operation: () => T,
+  overrides: Record<string, string | undefined> = {},
+): T {
+  const values: Record<string, string | undefined> = {
     EAS_BUILD_PROFILE: 'production',
     EXPO_PUBLIC_APP_BASE_URL: 'https://www.girapphe.com',
     EXPO_PUBLIC_TERMS_URL: 'https://www.girapphe.com/terms',
@@ -46,19 +49,24 @@ function withProductionEnvironment<T>(operation: () => T): T {
     EXPO_PUBLIC_SUPPORT_URL: 'https://www.girapphe.com/support',
     EXPO_PUBLIC_ACCOUNT_DELETION_URL: 'https://www.girapphe.com/account/delete',
     EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_live_releasecheck1234567890',
-    EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: 'appl_releasecheck',
-    EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY: 'goog_releasecheck',
-    EXPO_PUBLIC_REVENUECAT_MONTHLY_PACKAGE_ID: '$rc_monthly',
-    EXPO_PUBLIC_REVENUECAT_ANNUAL_PACKAGE_ID: '$rc_annual',
+    EXPO_PUBLIC_SUPERWALL_IOS_API_KEY: 'pk_releasecheck_ios',
+    EXPO_PUBLIC_SUPERWALL_ANDROID_API_KEY: 'pk_releasecheck_android',
+    EXPO_PUBLIC_SUPERWALL_IOS_MONTHLY_PURCHASE_IDENTIFIER: 'com.girapphe.plus.monthly',
+    EXPO_PUBLIC_SUPERWALL_IOS_ANNUAL_PURCHASE_IDENTIFIER: 'com.girapphe.plus.annual',
+    EXPO_PUBLIC_SUPERWALL_ANDROID_MONTHLY_PURCHASE_IDENTIFIER: 'girapphe_plus_monthly:monthly:sw-none',
+    EXPO_PUBLIC_SUPERWALL_ANDROID_ANNUAL_PURCHASE_IDENTIFIER: 'girapphe_plus_annual:annual:sw-none',
+    EXPO_PUBLIC_MOBILE_BILLING_ACQUISITION_ENABLED: 'true',
     EXPO_PUBLIC_ADMOB_IOS_APP_ID: 'ca-app-pub-1000000000000000~1000000000',
     EXPO_PUBLIC_ADMOB_ANDROID_APP_ID: 'ca-app-pub-2000000000000000~2000000000',
     EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID: 'ca-app-pub-1000000000000000/3000000000',
     EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID: 'ca-app-pub-2000000000000000/4000000000',
+    ...overrides,
   };
   const previous = new Map<string, string | undefined>();
   for (const [name, value] of Object.entries(values)) {
     previous.set(name, process.env[name]);
-    process.env[name] = value;
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
   }
   try {
     return operation();
@@ -96,6 +104,42 @@ assert.equal(easJson.build?.production?.distribution, 'store');
 assert.equal(easJson.build?.production?.environment, 'production');
 
 const productionConfig = withProductionEnvironment(() => appConfig({ config: appJson.expo } as never));
+assert.doesNotThrow(() => withProductionEnvironment(
+  () => appConfig({ config: appJson.expo } as never),
+  {
+    EXPO_PUBLIC_MOBILE_BILLING_ACQUISITION_ENABLED: 'false',
+    EXPO_PUBLIC_SUPERWALL_IOS_MONTHLY_PURCHASE_IDENTIFIER: undefined,
+    EXPO_PUBLIC_SUPERWALL_IOS_ANNUAL_PURCHASE_IDENTIFIER: undefined,
+    EXPO_PUBLIC_SUPERWALL_ANDROID_MONTHLY_PURCHASE_IDENTIFIER: undefined,
+    EXPO_PUBLIC_SUPERWALL_ANDROID_ANNUAL_PURCHASE_IDENTIFIER: undefined,
+  },
+), 'Disabling acquisition must not disable existing subscriber lifecycle configuration.');
+assert.throws(() => withProductionEnvironment(
+  () => appConfig({ config: appJson.expo } as never),
+  { EXPO_PUBLIC_SUPERWALL_IOS_ANNUAL_PURCHASE_IDENTIFIER: undefined },
+), /Production mobile acquisition requires the Superwall purchase identifier/);
+assert.throws(() => withProductionEnvironment(
+  () => appConfig({ config: appJson.expo } as never),
+  { EXPO_PUBLIC_MOBILE_BILLING_ACQUISITION_ENABLED: 'enabled' },
+), /explicit boolean mobile acquisition gate/);
+for (const invalidAndroidIdentifier of [
+  'girapphe_plus_monthly',
+  'girapphe_plus_monthly:monthly:sw-auto',
+  'girapphe_plus_monthly::sw-none',
+  'girapphe_plus_monthly:monthly:sw-none:extra',
+]) {
+  assert.throws(() => withProductionEnvironment(
+    () => appConfig({ config: appJson.expo } as never),
+    { EXPO_PUBLIC_SUPERWALL_ANDROID_MONTHLY_PURCHASE_IDENTIFIER: invalidAndroidIdentifier },
+  ), /exact product:base-plan:sw-none format/);
+}
+assert.throws(() => withProductionEnvironment(
+  () => appConfig({ config: appJson.expo } as never),
+  {
+    EXPO_PUBLIC_SUPERWALL_ANDROID_ANNUAL_PURCHASE_IDENTIFIER:
+      'girapphe_plus_monthly:monthly:sw-none',
+  },
+), /monthly and annual product IDs must be distinct/);
 assert.equal(productionConfig.name, 'Girapphe');
 assert.equal(productionConfig.ios?.bundleIdentifier, 'com.girapphe.app');
 assert.equal(productionConfig.android?.package, 'com.girapphe.app');

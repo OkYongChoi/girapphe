@@ -46,7 +46,10 @@ function LocalPracticeScreen() {
   const [isRevealed, setIsRevealed] = useState(false);
   const [ratings, setRatings] = useState<Record<string, Rating>>({});
   const currentNode = practiceNodes[cardIndex % Math.max(practiceNodes.length, 1)];
-  const relatedNodes = useMemo(() => (currentNode ? getRelatedNodes(currentNode.id, 3) : []), [currentNode]);
+  const relatedNodes = useMemo(
+    () => (currentNode ? getRelatedNodes(currentNode.id, 3, isAdFree) : []),
+    [currentNode, isAdFree],
+  );
   const localized = useLocalizedContent(practiceNodes.map((node) => node.id), currentNode?.id);
   const content = currentNode ? localized.get(currentNode.id) : undefined;
   const knownCount = Object.values(ratings).filter((rating) => rating === 'known').length;
@@ -166,7 +169,7 @@ function LocalPracticeScreen() {
               <View style={styles.metaRow}>
                 <Text style={styles.metaChip}>{content?.type_label ?? localizeType(locale, currentNode.type)}</Text>
                 <Text style={styles.metaChip}>{t('home.level', { value: formatNumber(currentNode.level) })}</Text>
-                <Text style={styles.metaChip}>{t('home.prerequisites', { count: formatNumber(getPrerequisiteCount(currentNode.id)) })}</Text>
+                <Text style={styles.metaChip}>{t('home.prerequisites', { count: formatNumber(getPrerequisiteCount(currentNode.id, isAdFree)) })}</Text>
               </View>
               <Pressable
                 accessibilityRole="button"
