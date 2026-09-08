@@ -2,7 +2,7 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { useState } from 'react';
-import { browserLogoutOptions } from '@/lib/browser-logout-options';
+import { completeBrowserLogout } from '@/lib/browser-logout';
 
 export default function LogoutButton({
   label,
@@ -24,7 +24,12 @@ export default function LogoutButton({
 
     setPending(true);
     try {
-      await signOut(browserLogoutOptions(redirectUrl, sessionId));
+      await completeBrowserLogout({
+        redirectUrl,
+        sessionId,
+        signOut,
+        redirect: (url) => window.location.assign(url),
+      });
     } catch {
       setPending(false);
     }
