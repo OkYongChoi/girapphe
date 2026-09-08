@@ -686,7 +686,7 @@ test('Private Practice executes Recall-compatible due, rating, removal, and rese
 
     const reviewIds = (await practice.getEligiblePrivatePracticeCards(userId, 'review'))
       .map((card) => card.id);
-    assert.ok(reviewIds.includes(practice.toPersonalCardId(itemIds.dueKnown)));
+    assert.ok(!reviewIds.includes(practice.toPersonalCardId(itemIds.dueKnown)));
     assert.ok(!reviewIds.includes(practice.toPersonalCardId(itemIds.futureKnown)));
 
     assert.deepEqual(
@@ -715,6 +715,10 @@ test('Private Practice executes Recall-compatible due, rating, removal, and rese
       recall_d7_outcome: 'unassessed',
       recall_schedule_version: 3,
     }]);
+
+    const terminalReviewIds = (await practice.getEligiblePrivatePracticeCards(userId, 'review'))
+      .map((card) => card.id);
+    assert.ok(terminalReviewIds.includes(practice.toPersonalCardId(itemIds.terminalNull)));
     assert.deepEqual(await practice.getPrivatePracticeStats(userId), {
       known_count: 2,
       saved_count: 1,
