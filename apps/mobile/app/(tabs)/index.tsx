@@ -20,6 +20,7 @@ import {
   ROOT_DOMAINS,
   type DomainOption,
   filterNodes,
+  getAccessiblePublicNodeById,
   getDomainOptions,
   getFeaturedNodes,
   getLevelCount,
@@ -59,15 +60,21 @@ export default function HomeScreen() {
     fullPublicMap: subscription.isAdFree,
     limit: subscription.isAdFree ? null : 36,
   }), [selectedDomain, subscription.isAdFree]);
-  const prerequisiteCount = useMemo(() => getPrerequisiteCount(selectedNode.id), [selectedNode.id]);
+  const activeSelectedNode = getAccessiblePublicNodeById(selectedNode.id, subscription.isAdFree)
+    ?? featuredNodes[0]
+    ?? visibleNodes[0];
+  const prerequisiteCount = useMemo(
+    () => getPrerequisiteCount(activeSelectedNode.id, subscription.isAdFree),
+    [activeSelectedNode.id, subscription.isAdFree],
+  );
   const [personalNotes, setPersonalNotes] = useState<PersonalNoteSummary[]>([]);
   const [cardsByNodeId, setCardsByNodeId] = useState<Map<string, GraphCardSummary>>(new Map());
   const [graphOwnerId, setGraphOwnerId] = useState<string | null>(null);
   const hasCurrentPrivateGraph = isCurrentPrivateGraphOwner(isSignedIn, userId, graphOwnerId);
   const currentPersonalNotes = hasCurrentPrivateGraph ? personalNotes : EMPTY_PERSONAL_NOTES;
   const currentCardsByNodeId = hasCurrentPrivateGraph ? cardsByNodeId : EMPTY_CARDS_BY_NODE_ID;
-  const contentIds = useMemo(() => [...new Set([...visibleNodes.map((node) => node.id), ...featuredNodes.map((node) => node.id), selectedNode.id])], [featuredNodes, selectedNode.id, visibleNodes]);
-  const localized = useLocalizedContent(contentIds, selectedNode.id);
+  const contentIds = useMemo(() => [...new Set([...visibleNodes.map((node) => node.id), ...featuredNodes.map((node) => node.id), activeSelectedNode.id])], [activeSelectedNode.id, featuredNodes, visibleNodes]);
+  const localized = useLocalizedContent(contentIds, activeSelectedNode.id);
 
   function cardFor(node: GraphNode) { return currentCardsByNodeId.get(node.id); }
   function labelFor(node: GraphNode) { return cardFor(node)?.title ?? localized.get(node.id)?.label ?? localized.get(node.id)?.title ?? node.label; }
@@ -101,7 +108,7 @@ export default function HomeScreen() {
   );
 
   function openSelectedTopic() {
-    router.push({ pathname: '/topic/[id]', params: { id: selectedNode.id } });
+    router.push({ pathname: '/topic/[id]', params: { id: activeSelectedNode.id } });
   }
 
   async function signOut() {
@@ -168,7 +175,7 @@ export default function HomeScreen() {
                   onPress={() => setSelectedNode(node)}
                   style={({ pressed }) => [
                     styles.featuredCard,
-                    selectedNode.id === node.id && styles.featuredCardSelected,
+                    activeSelectedNode.id === node.id && styles.featuredCardSelected,
                     pressed && styles.pressed,
                   ]}
                 >
@@ -183,20 +190,20 @@ export default function HomeScreen() {
 
             <View style={styles.detailPanel}>
               <View style={styles.detailHeader}>
-                <View style={[styles.domainDot, { backgroundColor: getDomainColor(selectedNode.domain) }]} />
-                <Text style={styles.detailDomain}>{domainFor(selectedNode)}</Text>
+                <View style={[styles.domainDot, { backgroundColor: getDomainColor(activeSelectedNode.domain) }]} />
+                <Text style={styles.detailDomain}>{domainFor(activeSelectedNode)}</Text>
               </View>
-              <KnowledgeText value={labelFor(selectedNode)} direction={direction} numberOfLines={2} style={styles.detailTitle} />
-              <KnowledgeText value={summaryFor(selectedNode)} direction={direction} numberOfLines={5} style={styles.detailText} />
-              <TranslationFallbackNotice dark translation={localized.get(selectedNode.id)} />
+              <KnowledgeText value={labelFor(activeSelectedNode)} direction={direction} numberOfLines={2} style={styles.detailTitle} />
+              <KnowledgeText value={summaryFor(activeSelectedNode)} direction={direction} numberOfLines={5} style={styles.detailText} />
+              <TranslationFallbackNotice dark translation={localized.get(activeSelectedNode.id)} />
               <View style={styles.metaRow}>
-                <Text style={styles.metaChip}>{typeFor(selectedNode)}</Text>
-                <Text style={styles.metaChip}>{t('home.level', { value: formatNumber(selectedNode.level) })}</Text>
+                <Text style={styles.metaChip}>{typeFor(activeSelectedNode)}</Text>
+                <Text style={styles.metaChip}>{t('home.level', { value: formatNumber(activeSelectedNode.level) })}</Text>
                 <Text style={styles.metaChip}>{t('home.prerequisites', { count: formatNumber(prerequisiteCount) })}</Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={t('home.openTopicA11y', { topic: labelFor(selectedNode) })}
+                accessibilityLabel={t('home.openTopicA11y', { topic: labelFor(activeSelectedNode) })}
                 onPress={openSelectedTopic}
                 style={({ pressed }) => [styles.detailButton, pressed && styles.pressed]}
               >
@@ -259,7 +266,7 @@ export default function HomeScreen() {
             onPress={() => setSelectedNode(item)}
             style={({ pressed }) => [
               styles.nodeRow,
-              selectedNode.id === item.id && styles.nodeRowSelected,
+              activeSelectedNode.id === item.id && styles.nodeRowSelected,
               pressed && styles.pressed,
             ]}
           >

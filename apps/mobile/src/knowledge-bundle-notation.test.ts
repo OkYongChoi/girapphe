@@ -167,8 +167,8 @@ test('selected detail surfaces render notation while pressable list rows stay na
   assert.match(browseSource, /<KnowledgeText[\s\S]*value=\{activeNote\?\.title/);
   assert.match(browseSource, /<KnowledgeText value=\{activeNote\.central_question\}/);
   assert.match(browseSource, /activeNote\?\.structured_content[\s\S]*<MobileKnowledgeBundleView content=\{activeNote\.structured_content\}/);
-  assert.match(homeSource, /<KnowledgeText value=\{labelFor\(selectedNode\)\}/);
-  assert.match(homeSource, /<KnowledgeText value=\{summaryFor\(selectedNode\)\}/);
+  assert.match(homeSource, /<KnowledgeText value=\{labelFor\(activeSelectedNode\)\}/);
+  assert.match(homeSource, /<KnowledgeText value=\{summaryFor\(activeSelectedNode\)\}/);
   assert.match(homeSource, /currentPersonalNotes\.slice\(0, 3\)[\s\S]*<KnowledgeText[\s\S]*value=\{note\.title\}[\s\S]*prefix="● "/);
 
   const browseRows = browseSource.slice(browseSource.indexOf('        renderItem={({ item }) => ('));

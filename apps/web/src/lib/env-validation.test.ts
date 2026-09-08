@@ -254,6 +254,84 @@ test('legacy Stripe lifecycle rejects identical price IDs while new acquisition 
   assert.deepEqual(distinctResult.errors, []);
 });
 
+test('legacy Stripe lifecycle rejects secret keys from the wrong environment', () => {
+  const legacyStripeEnv = {
+    STRIPE_WEBHOOK_SECRET: `whsec_${'s'.repeat(32)}`,
+    STRIPE_PRICE_AD_FREE_MONTHLY: 'price_legacy_monthly',
+    STRIPE_PRICE_AD_FREE_ANNUAL: 'price_legacy_annual',
+  };
+  const productionResult = validate({
+    envName: 'prod',
+    map: baseEnv({
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkKey('pk_live_'),
+      CLERK_SECRET_KEY: clerkKey('sk_live_'),
+      APP_BASE_URL: 'https://www.girapphe.com',
+      DATABASE_URL: 'postgres://user:password@host/prod_db?sslmode=require',
+      ADMIN_CLERK_USER_ID: 'user_123',
+      PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
+      ...legacyStripeEnv,
+      STRIPE_SECRET_KEY: `sk_test_${'s'.repeat(24)}`,
+    }),
+    allowPlaceholders: false,
+  });
+
+  assert.deepEqual(productionResult.errors, [
+    'Prod Stripe lifecycle processing must use a live secret key.',
+  ]);
+
+  const previewResult = validate({
+    envName: 'preview',
+    map: baseEnv({
+      APP_BASE_URL: 'https://preview.girapphe.test',
+      DATABASE_URL: 'postgres://user:password@host/preview_db?sslmode=require',
+      ...legacyStripeEnv,
+      STRIPE_SECRET_KEY: `sk_live_${'s'.repeat(24)}`,
+    }),
+    allowPlaceholders: false,
+  });
+
+  assert.deepEqual(previewResult.errors, [
+    'preview Stripe lifecycle processing must use a test secret key.',
+  ]);
+});
+
+test('legacy RevenueCat lifecycle rejects overlapping monthly and annual product IDs', () => {
+  const legacyRevenueCatEnv = {
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkKey('pk_live_'),
+    CLERK_SECRET_KEY: clerkKey('sk_live_'),
+    APP_BASE_URL: 'https://www.girapphe.com',
+    DATABASE_URL: 'postgres://user:password@host/prod_db?sslmode=require',
+    ADMIN_CLERK_USER_ID: 'user_123',
+    PERSONAL_KNOWLEDGE_PURGE_TOKEN: 'x'.repeat(32),
+    REVENUECAT_WEBHOOK_AUTHORIZATION: `Bearer ${'r'.repeat(32)}`,
+    REVENUECAT_WEBHOOK_SIGNING_SECRET: 'r'.repeat(32),
+    REVENUECAT_APP_IDS: 'app_ios,app_android',
+    REVENUECAT_SECRET_API_KEY: `sk_${'r'.repeat(24)}`,
+    REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS: 'ios.monthly, shared.product, android.monthly',
+    REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS: 'ios.annual,shared.product,android.annual',
+  };
+  const overlappingResult = validate({
+    envName: 'prod',
+    map: baseEnv(legacyRevenueCatEnv),
+    allowPlaceholders: false,
+  });
+
+  assert.deepEqual(overlappingResult.errors, [
+    'RevenueCat monthly and annual product ID lists must not overlap.',
+  ]);
+
+  const distinctResult = validate({
+    envName: 'prod',
+    map: baseEnv({
+      ...legacyRevenueCatEnv,
+      REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS: 'ios.annual,android.annual',
+    }),
+    allowPlaceholders: false,
+  });
+
+  assert.deepEqual(distinctResult.errors, []);
+});
+
 test('capacity dashboard provider groups activate only with their control-plane tokens', () => {
   const dormant = validate({
     envName: 'prod',

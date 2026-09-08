@@ -15,6 +15,7 @@ import {
   type DifficultyOption,
   type DomainOption,
   filterNodes,
+  getAccessiblePublicNodeById,
   getDomainOptions,
   getNodeSummary,
   getRelatedNodes,
@@ -74,7 +75,10 @@ export default function BrowseScreen() {
       }),
     [selectedDifficulty, selectedDomain, subscription.isAdFree],
   );
-  const selectedPublicNodeId = selectedPublicNode?.id ?? (candidateNodes.some((node) => node.id === selectedConceptId)
+  const accessibleSelectedPublicNode = selectedPublicNode
+    ? getAccessiblePublicNodeById(selectedPublicNode.id, subscription.isAdFree)
+    : undefined;
+  const selectedPublicNodeId = accessibleSelectedPublicNode?.id ?? (candidateNodes.some((node) => node.id === selectedConceptId)
     ? selectedConceptId ?? undefined
     : undefined);
   const localized = useLocalizedContent(
@@ -107,14 +111,17 @@ export default function BrowseScreen() {
     [publicNodes, visiblePersonalNotes],
   );
   const activeConcept = concepts.find((concept) => concept.id === selectedConceptId)
-    ?? (selectedPublicNode
-      ? { kind: 'public' as const, id: selectedPublicNode.id, node: selectedPublicNode }
+    ?? (accessibleSelectedPublicNode
+      ? { kind: 'public' as const, id: accessibleSelectedPublicNode.id, node: accessibleSelectedPublicNode }
       : null)
     ?? concepts[0]
     ?? null;
   const activeNode = activeConcept?.kind === 'public' ? activeConcept.node : null;
   const activeNote = activeConcept?.kind === 'personal' ? activeConcept.note : null;
-  const relatedNodes = useMemo(() => (activeNode ? getRelatedNodes(activeNode.id) : []), [activeNode]);
+  const relatedNodes = useMemo(
+    () => (activeNode ? getRelatedNodes(activeNode.id, 4, subscription.isAdFree) : []),
+    [activeNode, subscription.isAdFree],
+  );
 
   function labelFor(node: GraphNode) { return localized.get(node.id)?.label ?? localized.get(node.id)?.title ?? node.label; }
   function domainFor(node: GraphNode) { return localized.get(node.id)?.domain_label ?? localizeDomain(locale, node.domain); }

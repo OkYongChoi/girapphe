@@ -399,6 +399,12 @@ export function validate({ envName, map, allowPlaceholders }) {
   if (!allowPlaceholders && legacyStripeConfigured) {
     const secret = valueFor(map, 'STRIPE_SECRET_KEY');
     if (!/^sk_(test|live)_/.test(secret)) errors.push('STRIPE_SECRET_KEY has an invalid format.');
+    if (envName === 'prod' && !secret.startsWith('sk_live_')) {
+      errors.push('Prod Stripe lifecycle processing must use a live secret key.');
+    }
+    if (envName !== 'prod' && !secret.startsWith('sk_test_')) {
+      errors.push(`${envName} Stripe lifecycle processing must use a test secret key.`);
+    }
     if (!valueFor(map, 'STRIPE_WEBHOOK_SECRET').startsWith('whsec_')) {
       errors.push('STRIPE_WEBHOOK_SECRET must start with whsec_.');
     }
@@ -420,6 +426,21 @@ export function validate({ envName, map, allowPlaceholders }) {
     }
     if (!valueFor(map, 'REVENUECAT_SECRET_API_KEY').startsWith('sk_')) {
       errors.push('REVENUECAT_SECRET_API_KEY must be a RevenueCat secret API key starting with sk_.');
+    }
+    const monthlyProductIds = new Set(
+      valueFor(map, 'REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+    const annualProductIds = new Set(
+      valueFor(map, 'REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+    if ([...monthlyProductIds].some((productId) => annualProductIds.has(productId))) {
+      errors.push('RevenueCat monthly and annual product ID lists must not overlap.');
     }
   }
 
