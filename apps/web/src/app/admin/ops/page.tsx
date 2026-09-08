@@ -159,7 +159,7 @@ export default async function OpsPage({ searchParams }: { searchParams: Promise<
               <Metric label="Requests" value={snapshot.cloudflare.requests === null ? 'Not connected' : formatNumber(snapshot.cloudflare.requests)} />
               <Metric label="Error rate" value={snapshot.cloudflare.errorRate === null ? 'Not connected' : formatNumber(snapshot.cloudflare.errorRate, { style: 'percent', maximumFractionDigits: 2 })} />
               <Metric label="Peak CPU p99" value={snapshot.cloudflare.peakCpuP99Ms === null ? 'Not connected' : `${formatNumber(snapshot.cloudflare.peakCpuP99Ms, { maximumFractionDigits: 1 })} ms`} />
-              <Metric label="Worker bundle" value={`${formatNumber(snapshot.cloudflare.workerBundleBudgetKiB)} KiB`} detail="shared compressed limit" />
+              <Metric label="Bundle budget" value={`${formatNumber(snapshot.cloudflare.workerBundleUncompressedBudgetKiB / 1024)} MiB`} detail="repository release guard · uncompressed" />
             </dl>
           </div>
           {snapshot.cloudflare.state === 'unavailable' ? <p className="mt-6 rounded-md border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-400">Cloudflare signal is unavailable: {stateReason(snapshot.cloudflare.reason)}.</p> : <Trend points={snapshot.cloudflare.requestTrend} color="cyan" label="Requests: current versus prior range" />}
