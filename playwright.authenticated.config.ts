@@ -54,5 +54,17 @@ export default defineConfig({
       },
       dependencies: ['authenticated-setup'],
     },
+    {
+      name: 'authenticated-logout',
+      testMatch: /authenticated-logout\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1440, height: 900 },
+        storageState: 'playwright/.clerk/authenticated-overlay-user.json',
+      },
+      // Logging out revokes the shared synthetic browser session, so this
+      // project must run only after every read-only authenticated check.
+      dependencies: ['authenticated-desktop', 'authenticated-mobile'],
+    },
   ],
 });
