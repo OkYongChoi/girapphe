@@ -2,9 +2,9 @@ import 'server-only';
 
 import {
   deletePreConfirmationImportEventsForSubjectForUser,
-  recordKnowledgeProductEventsForUser,
-  reassignKnowledgeProductEventsSubjectForUser,
+  finalizeChatGptExportCompletionEventsForUser,
 } from '@/lib/knowledge-product-events';
+import { hasMemoryKnowledgeImportBatchForUser } from '@/lib/knowledge-ingestion';
 
 type ChatGptExportCompletion = {
   importSessionId: string;
@@ -18,14 +18,30 @@ type ChatGptExportCompletion = {
 
 type ChatGptExportTelemetryDependencies = {
   deletePreConfirmationEvents: typeof deletePreConfirmationImportEventsForSubjectForUser;
-  recordEvents: typeof recordKnowledgeProductEventsForUser;
-  reassignEvents: typeof reassignKnowledgeProductEventsSubjectForUser;
+  finalizeEvents: (
+    userId: string,
+    completion: ChatGptExportCompletion,
+  ) => Promise<number>;
 };
 
 const defaultDependencies: ChatGptExportTelemetryDependencies = {
   deletePreConfirmationEvents: deletePreConfirmationImportEventsForSubjectForUser,
-  recordEvents: recordKnowledgeProductEventsForUser,
-  reassignEvents: reassignKnowledgeProductEventsSubjectForUser,
+  finalizeEvents: (userId, completion) => finalizeChatGptExportCompletionEventsForUser(
+    userId,
+    {
+      importSessionId: completion.importSessionId,
+      batchId: completion.result.batchId!,
+      selectionCount: completion.selectionCount,
+      created: completion.result.created,
+      draftCount: completion.result.draftCount,
+    },
+    {
+      memoryBatchExists: () => hasMemoryKnowledgeImportBatchForUser(
+        userId,
+        completion.result.batchId!,
+      ),
+    },
+  ),
 };
 
 export async function recordChatGptExportCompletionTelemetry(
@@ -40,27 +56,5 @@ export async function recordChatGptExportCompletionTelemetry(
     ).catch(() => undefined);
     return;
   }
-  if (completion.result.batchId !== completion.importSessionId) {
-    await dependencies.reassignEvents(
-      userId,
-      completion.importSessionId,
-      completion.result.batchId,
-    ).catch(() => undefined);
-  }
-
-  const events: unknown[] = [{
-    eventName: 'conversation_import_confirmed',
-    eventVersion: 1,
-    subjectId: completion.result.batchId,
-    selectionCount: completion.selectionCount,
-  }];
-  if (completion.result.created) {
-    events.push({
-      eventName: 'conversation_import_candidates_ready',
-      eventVersion: 1,
-      subjectId: completion.result.batchId,
-      selectionCount: completion.result.draftCount,
-    });
-  }
-  await dependencies.recordEvents(userId, events).catch(() => undefined);
+  await dependencies.finalizeEvents(userId, completion).catch(() => undefined);
 }

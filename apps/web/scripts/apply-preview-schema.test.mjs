@@ -19,7 +19,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0020_knowledge_intelligence_events.sql', 3],
     ['0021_billing_v1_domain.sql', 63],
     ['0022_recall_ping_persistence.sql', 15],
-    ['0023_knowledge_ingestion_request_tombstones.sql', 3],
+    ['0023_knowledge_ingestion_request_tombstones.sql', 9],
   ];
   for (const [name, expectedCount] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -240,13 +240,29 @@ test('selected export migration widens only the explicit ingestion scope', async
 
 test('selected export deletion tombstones are content-free and owner scoped', async () => {
   const sql = await readFile(new URL('../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql', import.meta.url), 'utf8');
-  assert.doesNotMatch(sql, /^\s*(?:UPDATE|DELETE|INSERT)\b/im);
+  const statements = parsePreviewMigration(sql);
+  assert.ok(statements.every((statement) => !/^\s*(?:UPDATE|DELETE|INSERT)\b/i.test(statement)));
   assert.match(sql, /PRIMARY KEY\("user_id", "provider", "request_id"\)/);
   assert.match(sql, /"created_at" timestamp with time zone DEFAULT now\(\) NOT NULL/);
   assert.match(sql, /DROP CONSTRAINT IF EXISTS "knowledge_ingestion_batches_user_provider_request_key"/);
   assert.match(sql, /DROP CONSTRAINT IF EXISTS "knowledge_ingestion_batches_user_id_provider_request_id_key"/);
   assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS "idx_knowledge_ingestion_batches_user_provider_scope_request"/);
   assert.match(sql, /\("user_id", "provider", "scope", "request_id"\)/);
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS "idx_knowledge_product_events_user_subject"/);
+  assert.match(sql, /AFTER DELETE ON public\.knowledge_ingestion_batches/);
+  assert.match(sql, /REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches/);
+  assert.match(sql, /FOR EACH STATEMENT/);
+  assert.match(sql, /DELETE FROM public\.knowledge_product_events AS event[\s\S]+USING deleted_knowledge_ingestion_batches AS batch/);
+  assert.match(sql, /BEFORE INSERT ON public\.knowledge_product_events/);
+  assert.match(sql, /AFTER UPDATE OF subject_id ON public\.knowledge_product_events/);
+  assert.match(sql, /NEW\.event_name IN \([\s\S]+conversation_import_confirmed[\s\S]+conversation_import_candidates_ready[\s\S]+conversation_import_first_value_viewed/);
+  assert.match(sql, /NEW\.event_name = 'knowledge_candidate_resolved'/);
+  assert.match(sql, /NEW\.event_name IN \('conversation_import_started', 'conversation_import_parsed'\)/);
+  assert.match(sql, /batch\.provider = 'chatgpt' AND batch\.scope = 'selected_export'/);
+  assert.equal((sql.match(/pg_catalog\.decode\('00', 'hex'\)/g) ?? []).length, 2);
+  for (const statement of statements.slice(4)) {
+    assert.doesNotThrow(() => assertSafePreviewStatement(statement));
+  }
   assert.doesNotMatch(sql, /"(?:title|topic|message|content|filename|source_url|conversation_ref|selection)"\s+(?:text|jsonb)/i);
 });
 

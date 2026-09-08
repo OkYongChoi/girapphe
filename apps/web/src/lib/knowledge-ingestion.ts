@@ -12,6 +12,10 @@ import {
 import { canRunRuntimeSchemaBootstrap } from '@/lib/schema-bootstrap';
 import { parseKnowledgeBundleFields, projectKnowledgeBundle } from '@/lib/knowledge-bundle-runtime';
 import {
+  deleteMemoryKnowledgeProductEventsForSubjectForUser,
+  knowledgeProductEventSubjectHash,
+} from '@/lib/knowledge-product-events';
+import {
   normalizeKnowledgeEvidenceSourceReference,
   normalizeKnowledgeOpaqueReference,
   normalizeKnowledgeSourceUrl,
@@ -33,6 +37,7 @@ export const MCP_DRAFTS_PER_USER_PER_HOUR = 500;
 export const MAX_PENDING_KNOWLEDGE_DRAFTS_PER_USER = 500;
 export const MAX_KNOWLEDGE_DRAFTS_PER_USER = 100_000;
 export const MAX_KNOWLEDGE_BATCHES_PER_USER = 20_000;
+export const MAX_SELECTED_EXPORT_IDEMPOTENCY_SLOTS_PER_USER = MAX_KNOWLEDGE_BATCHES_PER_USER * 2;
 export const MAX_KNOWLEDGE_ITEMS_PER_USER = 50_000;
 export const MAX_KNOWLEDGE_REUSE_ITEMS = 100;
 const ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL = `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
@@ -406,6 +411,13 @@ const memoryKnowledgeSources = new Map<string, Array<{
   confirmed_at: string;
   created_at: string;
 }>>();
+
+export function hasMemoryKnowledgeImportBatchForUser(userId: string, batchId: string): boolean {
+  const batch = memoryBatches.get(batchId);
+  return batch?.user_id === userId
+    && batch.provider === 'chatgpt'
+    && batch.scope === 'selected_export';
+}
 
 export function getMemoryPrivateKnowledgeEdgesForTesting(userId: string): PrivateKnowledgeEdge[] {
   return (memoryEdges.get(userId) ?? []).map((edge) => ({ ...edge }));
@@ -805,6 +817,33 @@ function removeExistingSelectedExportDrafts(
       || retainedReferences.has(relation.targetId.replace(/^draft:/, ''))
     )),
   }));
+}
+
+function legacyDraftIdentityMatches(
+  cards: readonly DraftPayload[],
+  existingDrafts: readonly Pick<KnowledgeCardDraft, 'client_card_id'>[],
+): boolean {
+  const legacyAliasesByCard = cards.map((card) => (
+    card.duplicate_client_card_ids.filter((clientCardId) => clientCardId !== card.client_card_id)
+  ));
+  if (legacyAliasesByCard.some((aliases) => aliases.length !== 1)) return false;
+  const legacyClientCardIds = legacyAliasesByCard.flat();
+  const expected = legacyClientCardIds.toSorted();
+  const actual = existingDrafts.map((draft) => draft.client_card_id).toSorted();
+  return actual.length === expected.length
+    && actual.every((clientCardId, index) => clientCardId === expected[index]);
+}
+
+export function hasSelectedExportIdempotencyCapacity(
+  tombstoneCount: number,
+  liveSelectedExportBatchCount: number,
+): boolean {
+  if (!Number.isSafeInteger(tombstoneCount) || tombstoneCount < 0
+    || !Number.isSafeInteger(liveSelectedExportBatchCount) || liveSelectedExportBatchCount < 0) {
+    return false;
+  }
+  return tombstoneCount + (liveSelectedExportBatchCount * 2) + 2
+    <= MAX_SELECTED_EXPORT_IDEMPOTENCY_SLOTS_PER_USER;
 }
 
 function selectedExportClientCardIdFromMessageRef(value: unknown): string | null {
@@ -1560,6 +1599,7 @@ export async function createKnowledgeDraftBatchForUser(
           && batch.provider === 'chatgpt'
           && batch.scope === 'selected_export'
           && batch.request_id.toLowerCase() === legacySessionRequestId
+          && legacyDraftIdentityMatches(cards, memoryDrafts.get(batch.id) ?? [])
         ))
       : undefined;
     if (legacySessionBatch) {
@@ -1646,7 +1686,11 @@ export async function createKnowledgeDraftBatchForUser(
       || new Date(sourceToken.expires_at).getTime() <= nowMs)) {
       throw new Error('The MCP token is no longer active.');
     }
-    if (userBatches.length >= MAX_KNOWLEDGE_BATCHES_PER_USER
+    if ((scope === 'selected_export' && !hasSelectedExportIdempotencyCapacity(
+      deletedRequests?.size ?? 0,
+      userBatches.filter((batch) => batch.scope === 'selected_export').length,
+    ))
+      || userBatches.length >= MAX_KNOWLEDGE_BATCHES_PER_USER
       || userDrafts.length + cards.length > MAX_KNOWLEDGE_DRAFTS_PER_USER
       || pendingDrafts + cards.length > MAX_PENDING_KNOWLEDGE_DRAFTS_PER_USER
       || knowledgeItemCount + cards.length > MAX_KNOWLEDGE_ITEMS_PER_USER
@@ -1725,6 +1769,14 @@ export async function createKnowledgeDraftBatchForUser(
           OR ($18::text IS NOT NULL AND tombstone.request_id = $18)
         )
       LIMIT 1
+    ), requested_drafts AS MATERIALIZED (
+      SELECT d.*
+      FROM jsonb_to_recordset($7::jsonb) AS d(
+        id text, client_card_id text, duplicate_client_card_ids jsonb,
+        title text, summary text, explanation text, topic text, tags jsonb, relations jsonb,
+        knowledge_type text, central_question text, structured_content jsonb, bundle_schema_version int,
+        dedupe_key text, proposed_evidence jsonb, observed_at timestamptz
+      )
     ), legacy_session_batch AS MATERIALIZED (
       SELECT b.id
       FROM knowledge_ingestion_batches b
@@ -1737,15 +1789,26 @@ export async function createKnowledgeDraftBatchForUser(
         AND b.provider = $3
         AND b.scope = 'selected_export'
         AND LOWER(b.request_id) = $20
+        AND NOT EXISTS (
+          SELECT 1
+          FROM requested_drafts requested
+          WHERE (
+            SELECT COUNT(*)
+            FROM jsonb_array_elements_text(requested.duplicate_client_card_ids) AS alias(value)
+            WHERE alias.value <> requested.client_card_id
+          ) <> 1
+        )
+        AND (
+          SELECT COALESCE(jsonb_agg(existing.client_card_id ORDER BY existing.client_card_id), '[]'::jsonb)
+          FROM knowledge_card_drafts existing
+          WHERE existing.batch_id = b.id AND existing.user_id = b.user_id
+        ) = (
+          SELECT COALESCE(jsonb_agg(alias.value ORDER BY alias.value), '[]'::jsonb)
+          FROM requested_drafts requested
+          CROSS JOIN LATERAL jsonb_array_elements_text(requested.duplicate_client_card_ids) AS alias(value)
+          WHERE alias.value <> requested.client_card_id
+        )
       LIMIT 1
-    ), requested_drafts AS MATERIALIZED (
-      SELECT d.*
-      FROM jsonb_to_recordset($7::jsonb) AS d(
-        id text, client_card_id text, duplicate_client_card_ids jsonb,
-        title text, summary text, explanation text, topic text, tags jsonb, relations jsonb,
-        knowledge_type text, central_question text, structured_content jsonb, bundle_schema_version int,
-        dedupe_key text, proposed_evidence jsonb, observed_at timestamptz
-      )
     ), novel_drafts AS MATERIALIZED (
       SELECT requested.*
       FROM requested_drafts requested
@@ -1821,6 +1884,12 @@ export async function createKnowledgeDraftBatchForUser(
           WHERE t.id = $6 AND t.user_id = $2 AND t.revoked_at IS NULL AND t.expires_at > NOW()
         ))
         AND (SELECT COUNT(*) FROM knowledge_ingestion_batches b WHERE b.user_id = $2) < $8
+        AND ($16::text <> 'selected_export' OR (
+          (SELECT COUNT(*) FROM knowledge_ingestion_request_tombstones tombstone WHERE tombstone.user_id = $2)
+          + (2 * (SELECT COUNT(*) FROM knowledge_ingestion_batches b
+                  WHERE b.user_id = $2 AND b.scope = 'selected_export'))
+          + 2 <= $21::bigint
+        ))
         AND (SELECT COUNT(*) FROM knowledge_card_drafts d WHERE d.user_id = $2)
           + (SELECT COUNT(*) FROM prepared_drafts) <= $9
         AND (SELECT COUNT(*) FROM knowledge_card_drafts d WHERE d.user_id = $2 AND d.status = 'pending')
@@ -1961,6 +2030,7 @@ export async function createKnowledgeDraftBatchForUser(
         sessionTombstoneId,
         legacySessionBatchId,
         legacySessionRequestId,
+        MAX_SELECTED_EXPORT_IDEMPOTENCY_SLOTS_PER_USER,
       ]
     ),
   ], { isolationLevel: 'ReadCommitted' });
@@ -4267,6 +4337,7 @@ export async function deleteKnowledgeImportBatchForUser(
         .filter(([key]) => key !== 'batch_id' && key !== 'draft_id' && key !== 'client_card_id'));
       source.source_locator = Object.keys(retainedLocator).length > 0 ? retainedLocator : null;
     }
+    deleteMemoryKnowledgeProductEventsForSubjectForUser(userId, batchId);
     memoryDrafts.delete(batchId);
     memoryBatches.delete(batchId);
     return { deleted: true, approvedKnowledgePreserved };
@@ -4274,6 +4345,7 @@ export async function deleteKnowledgeImportBatchForUser(
 
   await ensureKnowledgeIngestionSchema();
   const sql = getTransactionSql();
+  const batchSubjectHash = knowledgeProductEventSubjectHash(userId, batchId);
   const resultSets = await sql.transaction((tx) => [
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
     tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
@@ -4284,6 +4356,11 @@ export async function deleteKnowledgeImportBatchForUser(
          SELECT id, scope, provider, request_id FROM knowledge_ingestion_batches
          WHERE id = $1 AND user_id = $2
          FOR UPDATE
+       ), deleted_events AS MATERIALIZED (
+         DELETE FROM knowledge_product_events event
+         USING owned_batch owned
+         WHERE event.user_id = $2 AND event.subject_id = $3
+         RETURNING event.id
        ), tombstoned_request AS MATERIALIZED (
          INSERT INTO knowledge_ingestion_request_tombstones
            (user_id, provider, request_id)
@@ -4333,12 +4410,13 @@ export async function deleteKnowledgeImportBatchForUser(
          USING owned_batch owned
          WHERE b.id = owned.id AND b.user_id = $2
            AND (SELECT COUNT(*) FROM detached_sources) >= 0
+           AND (SELECT COUNT(*) FROM deleted_events) >= 0
            AND (SELECT COUNT(*) FROM tombstoned_request) >= 0
          RETURNING b.id
        )
        SELECT EXISTS (SELECT 1 FROM deleted_batch) AS deleted,
          (SELECT COUNT(*)::integer FROM approved_items) AS approved_knowledge_preserved`,
-      [batchId, userId],
+      [batchId, userId, batchSubjectHash],
     ),
   ], { isolationLevel: 'ReadCommitted' });
   const row = (resultSets[4] as Array<{ deleted: boolean; approved_knowledge_preserved: number }>)[0];

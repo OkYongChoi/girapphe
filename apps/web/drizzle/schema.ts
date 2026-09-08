@@ -625,6 +625,7 @@ export const knowledgeProductEvents = pgTable("knowledge_product_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("idx_knowledge_product_events_user_created").on(t.userId, t.createdAt),
+  index("idx_knowledge_product_events_user_subject").on(t.userId, t.subjectId),
   index("idx_knowledge_product_events_user_dismissed").on(t.userId, t.subjectId)
     .where(sql`${t.eventName} = 'knowledge_signal_dismissed'`),
   check("knowledge_product_events_name_check", sql`${t.eventName} IN (

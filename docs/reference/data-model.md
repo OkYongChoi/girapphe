@@ -101,14 +101,22 @@ selector rows that support it; it does not copy source text.
 events. Its `subject_id` is a per-owner SHA-256 hash; optional signal type,
 bounded outcome, and aggregate count are allowlisted by database checks. It has
 no message, title, topic, filename, URL, knowledge-content, or context-output
-column, and full account deletion removes all rows for the owner.
+column, and full account deletion removes all rows for the owner. Selected-export
+completion and import deletion share the account, ingestion, and import locks;
+completion reassigns/inserts only for an exact live owner/provider/scope batch,
+while deletion purges that batch subject in the same transaction. Migration
+`0023` also keeps this invariant across a mixed-version deployment: its
+statement-level delete trigger removes batch telemetry, and its event triggers
+drop late completion, first-value, candidate-resolution, or legacy reassignment
+rows whose owner-scoped batch no longer exists. The trigger definitions live in
+the migration and `schema.sql`; Drizzle declares their supporting indexes.
 Accepted HTTPS source URLs reject embedded credentials and drop query strings
 and fragments before persistence; opaque conversation references reject
 `scheme://` values.
 
 ## Conversation Draft Ingestion
 
-`knowledge_ingestion_batches` is idempotent by user, provider, and request ID.
+`knowledge_ingestion_batches` is idempotent by user, provider, scope, and request ID.
 Its scope is `current_conversation` for connector/MCP selections or
 `selected_export` for an explicit selection from a locally parsed provider
 export. MCP-token-backed writes remain restricted to `current_conversation`.
@@ -121,6 +129,12 @@ typed item, version-one structured JSON is authoritative; flat summary/content
 is regenerated as a compatibility projection for search, graph, practice, and
 older clients. Approval creates the personal card, private node, source
 record, and valid edges in one database transaction.
+
+Selected-export deletion retains only owner/provider/request tombstones needed
+to reject delayed transport retries. A live selected-export batch reserves two
+identity slots; live reservations plus durable tombstones are capped at 40,000
+per owner, so repeated creation and deletion cannot grow the idempotency ledger
+without bound.
 
 Every newly written conversation source records the exact
 `supported_item_version` whose immutable revision it supports. Historical

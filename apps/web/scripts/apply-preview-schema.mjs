@@ -66,6 +66,98 @@ function normalizedSql(statement) {
   return statement.replace(/\s+/g, ' ').trim().replace(/;$/, '');
 }
 
+const SAFE_KNOWLEDGE_IMPORT_TELEMETRY_STATEMENTS = new Set([
+  `CREATE OR REPLACE FUNCTION public.delete_knowledge_import_batch_product_events()
+   RETURNS trigger
+   LANGUAGE plpgsql
+   SECURITY INVOKER
+   SET search_path = pg_catalog
+   AS $$
+   BEGIN
+     DELETE FROM public.knowledge_product_events AS event
+     USING deleted_knowledge_ingestion_batches AS batch
+     WHERE event.user_id = batch.user_id
+       AND event.subject_id = pg_catalog.encode(
+         pg_catalog.sha256(
+           pg_catalog.convert_to(batch.user_id, 'UTF8')
+           || pg_catalog.decode('00', 'hex')
+           || pg_catalog.convert_to(batch.id, 'UTF8')
+         ),
+         'hex'
+       );
+     RETURN NULL;
+   END;
+   $$`,
+  `CREATE OR REPLACE TRIGGER knowledge_ingestion_batches_delete_product_events
+   AFTER DELETE ON public.knowledge_ingestion_batches
+   REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches
+   FOR EACH STATEMENT
+   EXECUTE FUNCTION public.delete_knowledge_import_batch_product_events()`,
+  `CREATE OR REPLACE FUNCTION public.guard_knowledge_import_batch_event()
+   RETURNS trigger
+   LANGUAGE plpgsql
+   SECURITY INVOKER
+   SET search_path = pg_catalog
+   AS $$
+   DECLARE
+     requires_live_batch boolean := FALSE;
+     requires_selected_export_batch boolean := FALSE;
+   BEGIN
+     IF NEW.event_name = 'knowledge_candidate_resolved' THEN
+       requires_live_batch := TRUE;
+     ELSIF NEW.event_name IN (
+       'conversation_import_confirmed',
+       'conversation_import_candidates_ready',
+       'conversation_import_first_value_viewed'
+     ) OR (
+       TG_OP = 'UPDATE'
+       AND NEW.event_name IN ('conversation_import_started', 'conversation_import_parsed')
+     ) THEN
+       requires_live_batch := TRUE;
+       requires_selected_export_batch := TRUE;
+     END IF;
+
+     IF NOT requires_live_batch THEN
+       RETURN NEW;
+     END IF;
+
+     PERFORM 1
+     FROM public.knowledge_ingestion_batches AS batch
+     WHERE batch.user_id = NEW.user_id
+       AND (
+         NOT requires_selected_export_batch
+         OR (batch.provider = 'chatgpt' AND batch.scope = 'selected_export')
+       )
+       AND NEW.subject_id = pg_catalog.encode(
+         pg_catalog.sha256(
+           pg_catalog.convert_to(batch.user_id, 'UTF8')
+           || pg_catalog.decode('00', 'hex')
+           || pg_catalog.convert_to(batch.id, 'UTF8')
+         ),
+         'hex'
+       )
+     FOR KEY SHARE;
+     IF FOUND THEN
+       RETURN NEW;
+     END IF;
+
+     IF TG_OP = 'UPDATE' THEN
+       DELETE FROM public.knowledge_product_events AS event
+       WHERE event.id = NEW.id;
+     END IF;
+     RETURN NULL;
+   END;
+   $$`,
+  `CREATE OR REPLACE TRIGGER knowledge_product_events_guard_import_batch_insert
+   BEFORE INSERT ON public.knowledge_product_events
+   FOR EACH ROW
+   EXECUTE FUNCTION public.guard_knowledge_import_batch_event()`,
+  `CREATE OR REPLACE TRIGGER knowledge_product_events_cleanup_import_batch_update
+   AFTER UPDATE OF subject_id ON public.knowledge_product_events
+   FOR EACH ROW
+   EXECUTE FUNCTION public.guard_knowledge_import_batch_event()`,
+].map(normalizedSql));
+
 function keywordCount(statement, keyword) {
   return statement.match(new RegExp(`\\b${keyword}\\b`, 'gi'))?.length ?? 0;
 }
@@ -130,11 +222,14 @@ export function assertSafePreviewStatement(statement) {
     && /OR "last_reconciled_at" IS NULL;?$/i.test(statement);
   const isPreviewBillingEnvironmentStatement = PREVIEW_BILLING_ENVIRONMENT_STATEMENTS
     .includes(statement.replace(/;$/, ''));
+  const isKnownKnowledgeImportTelemetryStatement = SAFE_KNOWLEDGE_IMPORT_TELEMETRY_STATEMENTS
+    .has(normalizedSql(statement));
   if (!isBoundedRetentionBackfill
     && !isKnownRelationOriginDefault
     && !isKnownRecallStateStatement(statement)
     && !isKnownBillingNormalization
     && !isPreviewBillingEnvironmentStatement
+    && !isKnownKnowledgeImportTelemetryStatement
     && !SAFE_STATEMENT_PREFIXES.some((pattern) => pattern.test(statement))) {
     throw new Error(`Refusing non-idempotent preview migration statement: ${statement.slice(0, 80)}`);
   }

@@ -659,6 +659,73 @@ test('lets a pre-rollout session expand its selection without reusing a differen
   }
 });
 
+test('does not reuse a legacy session when a delimiter collision represents different selected exchanges', async () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  try {
+    const userId = `user_export_legacy_reverse_collision_${crypto.randomUUID()}`;
+    const importSessionId = crypto.randomUUID();
+    const legacyInput = {
+      source: 'chatgpt_export',
+      consent: true,
+      importSessionId,
+      selections: [{
+        conversationId: 'a',
+        messageId: 'b|c:d',
+        title: 'Legacy ambiguous tuple',
+        question: 'Which single legacy tuple was selected?',
+        answer: 'One delimiter-shaped tuple was selected before v2.',
+        createdAt: null,
+      }],
+    };
+    const currentInput = {
+      source: 'chatgpt_export',
+      consent: true,
+      importSessionId,
+      selections: [{
+        conversationId: 'a',
+        messageId: 'b',
+        title: 'First current tuple',
+        question: 'Which first current tuple was selected?',
+        answer: 'The first current tuple is independent.',
+        createdAt: null,
+      }, {
+        conversationId: 'c',
+        messageId: 'd',
+        title: 'Second current tuple',
+        question: 'Which second current tuple was selected?',
+        answer: 'The second current tuple is independent.',
+        createdAt: null,
+      }],
+    };
+    const legacyBatchInput = buildParentV1ChatGptBatchInput(legacyInput);
+    const currentBatchInput = buildChatGptExportBatchInput(
+      chatGptExportImportInputSchema.parse(currentInput),
+    );
+    assert.equal(currentBatchInput.legacyRequestId, legacyBatchInput.requestId);
+
+    const legacy = await createKnowledgeDraftBatchForUser(
+      userId,
+      legacyBatchInput,
+      null,
+      importSessionId,
+    );
+    const current = await createChatGptExportDraftBatchForUser(userId, currentInput);
+    assert.equal(current.created, true);
+    assert.notEqual(current.batchId, legacy.batchId);
+    assert.equal(current.draftCount, 2);
+    assert.deepEqual(
+      (await getKnowledgeDraftBatchForUser(userId, current.batchId))?.drafts
+        .map((draft) => draft.central_question)
+        .toSorted(),
+      currentInput.selections.map((selection) => selection.question).toSorted(),
+    );
+  } finally {
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  }
+});
+
 test('uses independent batch identities when one local session expands its selection after a lost response', async () => {
   const originalDatabaseUrl = process.env.DATABASE_URL;
   delete process.env.DATABASE_URL;
@@ -871,13 +938,9 @@ test('keeps completion telemetry best-effort, rehomes every resolved import, and
       calls.push({ type: 'delete-pre-confirmation', userId, subjectId });
       return 2;
     },
-    reassignEvents: async (userId, fromSubjectId, toSubjectId) => {
-      calls.push({ type: 'reassign', userId, fromSubjectId, toSubjectId });
-      return 1;
-    },
-    recordEvents: async (userId, events) => {
-      calls.push({ type: 'record', userId, events });
-      return events.length;
+    finalizeEvents: async (userId, completion) => {
+      calls.push({ type: 'finalize', userId, completion });
+      return completion.result.created ? 2 : 1;
     },
   };
   await recordChatGptExportCompletionTelemetry('telemetry-owner', {
@@ -891,18 +954,18 @@ test('keeps completion telemetry best-effort, rehomes every resolved import, and
     result: { batchId: 'first-batch', created: false, draftCount: 0 },
   }, dependencies);
 
-  const recordedEvents = calls
-    .filter((call) => call.type === 'record')
-    .flatMap((call) => call.events);
-  assert.equal(recordedEvents.filter((event) => event.eventName === 'conversation_import_confirmed').length, 2);
-  assert.equal(recordedEvents.filter((event) => event.eventName === 'conversation_import_candidates_ready').length, 1);
-  assert.deepEqual(recordedEvents.map((event) => event.selectionCount), [2, 2, 2]);
-  assert.deepEqual(calls.filter((call) => call.type === 'reassign'), [{
-    type: 'reassign', userId: 'telemetry-owner',
-    fromSubjectId: 'first-session', toSubjectId: 'first-batch',
+  assert.deepEqual(calls.filter((call) => call.type === 'finalize'), [{
+    type: 'finalize', userId: 'telemetry-owner',
+    completion: {
+      importSessionId: 'first-session', selectionCount: 2,
+      result: { batchId: 'first-batch', created: true, draftCount: 2 },
+    },
   }, {
-    type: 'reassign', userId: 'telemetry-owner',
-    fromSubjectId: 'retry-session', toSubjectId: 'first-batch',
+    type: 'finalize', userId: 'telemetry-owner',
+    completion: {
+      importSessionId: 'retry-session', selectionCount: 2,
+      result: { batchId: 'first-batch', created: false, draftCount: 0 },
+    },
   }]);
 
   await recordChatGptExportCompletionTelemetry('telemetry-owner', {
@@ -913,7 +976,7 @@ test('keeps completion telemetry best-effort, rehomes every resolved import, and
   assert.deepEqual(calls.filter((call) => call.type === 'delete-pre-confirmation'), [{
     type: 'delete-pre-confirmation', userId: 'telemetry-owner', subjectId: 'detached-session',
   }]);
-  assert.equal(calls.filter((call) => call.type === 'record').length, 2);
+  assert.equal(calls.filter((call) => call.type === 'finalize').length, 2);
 
   await assert.doesNotReject(() => recordChatGptExportCompletionTelemetry('telemetry-owner', {
     importSessionId: 'failed-telemetry-session',
@@ -921,8 +984,7 @@ test('keeps completion telemetry best-effort, rehomes every resolved import, and
     result: { batchId: 'persisted-batch', created: true, draftCount: 1 },
   }, {
     deletePreConfirmationEvents: async () => { throw new Error('telemetry cleanup unavailable'); },
-    recordEvents: async () => { throw new Error('telemetry insert unavailable'); },
-    reassignEvents: async () => { throw new Error('telemetry reassignment unavailable'); },
+    finalizeEvents: async () => { throw new Error('telemetry finalization unavailable'); },
   }));
   await assert.doesNotReject(() => recordChatGptExportCompletionTelemetry('telemetry-owner', {
     importSessionId: 'failed-detached-session',
@@ -930,9 +992,69 @@ test('keeps completion telemetry best-effort, rehomes every resolved import, and
     result: { batchId: null, created: false, draftCount: 0 },
   }, {
     deletePreConfirmationEvents: async () => { throw new Error('telemetry cleanup unavailable'); },
-    recordEvents: async () => { throw new Error('record should not run'); },
-    reassignEvents: async () => { throw new Error('reassign should not run'); },
+    finalizeEvents: async () => { throw new Error('finalize should not run'); },
   }));
+});
+
+test('memory import deletion and a stale completion cannot leave orphan batch telemetry', async () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  const userId = `telemetry-delete-owner-${crypto.randomUUID()}`;
+  const importSessionId = crypto.randomUUID();
+  try {
+    clearMemoryKnowledgeProductEventsForTesting(userId);
+    await recordKnowledgeProductEventsForUser(userId, [{
+      eventName: 'conversation_import_started', eventVersion: 1, subjectId: importSessionId,
+    }, {
+      eventName: 'conversation_import_parsed', eventVersion: 1,
+      subjectId: importSessionId, selectionCount: 1,
+    }, {
+      eventName: 'knowledge_context_created', eventVersion: 1,
+      subjectId: importSessionId, selectionCount: 1,
+    }]);
+    const created = await createChatGptExportDraftBatchForUser(userId, {
+      source: 'chatgpt_export',
+      consent: true,
+      importSessionId,
+      selections: [{
+        conversationId: `telemetry-delete-conversation-${crypto.randomUUID()}`,
+        messageId: `telemetry-delete-message-${crypto.randomUUID()}`,
+        title: 'Deletion telemetry serialization',
+        question: 'Can stale completion recreate deleted import telemetry?',
+        answer: 'No. Completion verifies the exact selected-export batch under the deletion locks.',
+        createdAt: null,
+      }],
+    });
+    assert.equal(created.created, true);
+    await recordChatGptExportCompletionTelemetry(userId, {
+      importSessionId,
+      selectionCount: 1,
+      result: created,
+    });
+    assert.equal(
+      getMemoryKnowledgeProductEventsForTesting(userId)
+        .filter((event) => event.eventName.startsWith('conversation_import_')).length,
+      4,
+    );
+
+    assert.deepEqual(await deleteKnowledgeImportBatchForUser(userId, created.batchId), {
+      deleted: true,
+      approvedKnowledgePreserved: 0,
+    });
+    await recordChatGptExportCompletionTelemetry(userId, {
+      importSessionId,
+      selectionCount: 1,
+      result: created,
+    });
+    assert.deepEqual(
+      getMemoryKnowledgeProductEventsForTesting(userId).map((event) => event.eventName),
+      ['knowledge_context_created'],
+    );
+  } finally {
+    clearMemoryKnowledgeProductEventsForTesting(userId);
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  }
 });
 
 test('schema sources agree on the selected-export scope', async () => {

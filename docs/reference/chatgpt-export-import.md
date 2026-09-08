@@ -57,8 +57,12 @@ opaque request and import-session identities so an arbitrarily delayed
 transport retry cannot restore the deleted selection. A session compatibility
 identity is also retained when deleting a pre-rollout ChatGPT batch whose batch
 ID was the import-session ID, so an old open tab cannot bypass the new request
-format. The guard contains no selected text or raw provider identifier, is not
-an import job, and full account deletion removes it.
+format. Each live selected-export batch reserves two identity slots, and the
+combined live-batch reservations plus durable tombstones are capped at 40,000
+per owner. Deletion swaps the live reservation for at most two tombstones, so
+repeated create/delete cycles cannot grow the guard table without bound. The
+guard contains no selected text or raw provider identifier, is not an import
+job, and full account deletion removes it.
 
 The base import fingerprint hashes a versioned JSON encoding of sorted
 `[conversationRef, messageRef]` tuples, so selection order is irrelevant while
@@ -70,10 +74,13 @@ discarded. The server assigns each persisted batch an independent opaque ID, so
 changing the selected set after a lost response cannot collide with a prior
 batch that used the same local session. For a pre-rollout ChatGPT batch whose
 batch ID was the import-session ID, the server recognizes that legacy session
-only when its selection fingerprint also matches, before considering rejected
-drafts novel. A delayed old-tab retry therefore resolves to the existing batch
-after ignore, while selection growth in the same session can still prepare its
-new sources and a fresh session may select an ignored source again. The local selection list also uses a collision-free tuple encoding,
+only when its selection fingerprint and the complete multiset of stored legacy
+draft identities both match, before considering rejected drafts novel. The
+second check also rejects the reverse delimiter-collision case where one old
+tuple and two current tuples share the same v1 text encoding. A delayed old-tab
+retry therefore resolves to the existing batch after ignore, while selection
+growth in the same session can still prepare its new sources and a fresh
+session may select an ignored source again. The local selection list also uses a collision-free tuple encoding,
 so selecting one delimiter-shaped provider ID cannot select a second exchange.
 Stored conversation/message references use the same versioned,
 domain-separated encoding before one-way SHA-256 hashing. New candidates whose
@@ -123,12 +130,18 @@ request identity.
 If the user deletes a pending import while its request is still in flight, the
 content-free retry guard permanently prevents that exact request from restoring
 selected text. A later explicit import has a new session ID and is not blocked.
-Post-commit analytics subject reassignment and event insertion are best-effort
-and cannot turn a successfully persisted import into a failed response. When
-the transaction resolves either a created or duplicate-only import to a batch
-ID that differs from the local session ID, the content-free started/parsed
-events are reassigned to the batch subject rather than deleted, preserving one
-deletable import funnel without storing either raw identifier.
+Post-commit analytics remain best-effort and cannot turn a successfully
+persisted import into a failed response. Completion takes the shared
+account-to-ingestion-to-import lock order, verifies the exact owner/provider/
+selected-export batch, and performs started/parsed reassignment plus completion
+insertion in one transaction. Import-job deletion takes the same locks and
+purges that batch subject inside its deletion transaction. Completion therefore
+either precedes deletion and is purged, or follows deletion and writes nothing;
+it cannot recreate orphan telemetry for a deleted job. When ingestion resolves
+either a created or duplicate-only import to a live batch ID that differs from
+the local session ID, the content-free started/parsed events are reassigned to
+the batch subject rather than deleted, preserving one deletable import funnel
+without storing either raw identifier.
 If deduplication resolves to a deleted-job tombstone or an approved source whose
 import job is already detached, the result explicitly has no persisted batch.
 Only started/parsed events for that local session are then removed and no
@@ -142,7 +155,15 @@ the existing ingestion lifecycle.
 ## Release boundary
 
 Apply migrations `0019` and `0023` before enabling the route in Preview or
-production. Preview schema preparation includes both migrations. Repository tests prove
+production. Preview schema preparation includes both migrations, and production
+deployment runs migrations before publishing the Worker. Migration `0023`
+installs an expand/contract bridge: a statement-level batch-delete trigger
+purges every batch-subject event, while insert and reassignment triggers reject
+or remove late import events unless their owner-scoped batch is still live.
+Keep those triggers installed throughout any Worker rollback or old-request
+drain window; removing the database half first reopens the mixed-version race.
+Drizzle declares the supporting indexes, while the trigger definitions are
+authoritative in the migration and `schema.sql`. Repository tests prove
 parsing, fail-closed active-branch traversal, strict consent input, canonical
 selection hashing, owner-scoped overlapping-import deduplication, telemetry
 isolation, selected-export scope, and pending-only persistence. A release still

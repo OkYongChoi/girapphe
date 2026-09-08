@@ -29,7 +29,6 @@ import {
   type PrivateKnowledgeGraph,
 } from '@/lib/knowledge-ingestion';
 import {
-  deleteKnowledgeProductEventsForSubjectForUser,
   recordKnowledgeProductEventsForUser,
 } from '@/lib/knowledge-product-events';
 import { isAiThinkingHistoryEnabledForUser } from '@/lib/ai-thinking-history-rollout';
@@ -172,9 +171,6 @@ export async function deleteKnowledgeImportBatch(formData: FormData): Promise<vo
   const user = await requireCurrentUser();
   const batchId = String(formData.get('batch_id') ?? '').trim();
   if (!batchId) return;
-  const owned = await getKnowledgeDraftBatchForUser(user.id, batchId);
-  if (!owned) return;
-  await deleteKnowledgeProductEventsForSubjectForUser(user.id, batchId);
   await deleteKnowledgeImportBatchForUser(user.id, batchId);
   revalidateKnowledgeSurfaces(batchId);
 }
