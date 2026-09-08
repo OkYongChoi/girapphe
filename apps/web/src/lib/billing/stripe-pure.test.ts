@@ -3,105 +3,16 @@ import test from 'node:test';
 import db from '@/lib/db';
 import {
   cancelStripeSubscriptionsForAccountDeletion,
-  createStripeCheckout,
   isStripeCheckoutConfigured,
   parseStripeEvent,
   processStripeEvent,
   requestHasTrustedOrigin,
-  StripeProviderRequestError,
   STRIPE_PROVIDER_TIMEOUT_MS,
 } from './stripe';
 
-test('Stripe Checkout releases a successful lease but retains an indeterminate mutation lease', async (context) => {
-  const originalQuery = db.query;
-  const originalAccountTransaction = db.accountTransaction;
-  const originalFetch = globalThis.fetch;
-  const previous = new Map([
-    ['DATABASE_URL', process.env.DATABASE_URL],
-    ['STRIPE_SECRET_KEY', process.env.STRIPE_SECRET_KEY],
-    ['STRIPE_PRICE_AD_FREE_MONTHLY', process.env.STRIPE_PRICE_AD_FREE_MONTHLY],
-    ['STRIPE_PRICE_AD_FREE_ANNUAL', process.env.STRIPE_PRICE_AD_FREE_ANNUAL],
-    ['APP_BASE_URL', process.env.APP_BASE_URL],
-  ]);
-  context.after(() => {
-    db.query = originalQuery;
-    db.accountTransaction = originalAccountTransaction;
-    globalThis.fetch = originalFetch;
-    restoreEnvironment(previous);
-  });
-  process.env.DATABASE_URL = 'postgresql://test.invalid/girapphe';
-  process.env.STRIPE_SECRET_KEY = 'sk_test_checkout_lease';
-  process.env.STRIPE_PRICE_AD_FREE_MONTHLY = 'price_monthly';
-  process.env.STRIPE_PRICE_AD_FREE_ANNUAL = 'price_annual';
-  process.env.APP_BASE_URL = 'https://app.example.com';
-
-  const databaseCalls: Array<{ text: string; params?: unknown[] }> = [];
-  db.accountTransaction = (async (_userId, queries) => [{
-    rows: [{ event_id: queries[0]?.params?.[1] }],
-  }]) as typeof db.accountTransaction;
-  db.query = (async (text: string, params?: unknown[]) => {
-    databaseCalls.push({ text, params });
-    if (text.includes('AS blocked')) return { rows: [{ blocked: false }] };
-    if (text.includes('SELECT stripe_customer_id')) {
-      return { rows: [{ stripe_customer_id: 'cus_checkout_lease' }] };
-    }
-    if (text.includes('SET trial_consumed_at = date_trunc')) {
-      return { rows: [{ trial_consumed_at: new Date('2030-01-01T00:00:00.000Z') }] };
-    }
-    return { rows: [] };
-  }) as typeof db.query;
-
-  let checkoutCreates = 0;
-  globalThis.fetch = (async (input, init) => {
-    const url = String(input);
-    if (init?.method === 'GET' && url.includes('/checkout/sessions?')) {
-      return Response.json({ data: [] });
-    }
-    if (init?.method === 'GET' && url.includes('/subscriptions?')) {
-      return Response.json({ data: [] });
-    }
-    if (init?.method === 'POST' && url.endsWith('/checkout/sessions')) {
-      checkoutCreates += 1;
-      if (checkoutCreates === 1) {
-        return Response.json({ url: 'https://checkout.stripe.test/session-success' });
-      }
-      throw new TypeError('simulated lost Checkout response');
-    }
-    throw new Error(`Unexpected Stripe request: ${init?.method ?? 'GET'} ${url}`);
-  }) as typeof fetch;
-
-  assert.equal(await createStripeCheckout({
-    userId: 'user_checkout_success',
-    email: 'success@example.com',
-    plan: 'monthly',
-    requestUrl: 'https://app.example.com/subscription',
-  }), 'https://checkout.stripe.test/session-success');
-  const releasesAfterSuccess = databaseCalls.filter(({ text }) => (
-    text.includes('DELETE FROM billing_webhook_events')
-  )).length;
-  assert.equal(releasesAfterSuccess, 1);
-
-  await assert.rejects(
-    createStripeCheckout({
-      userId: 'user_checkout_indeterminate',
-      email: 'lost@example.com',
-      plan: 'monthly',
-      requestUrl: 'https://app.example.com/subscription',
-    }),
-    (error: unknown) => error instanceof StripeProviderRequestError
-      && error.outcome === 'indeterminate',
-  );
-  assert.equal(databaseCalls.filter(({ text }) => (
-    text.includes('DELETE FROM billing_webhook_events')
-  )).length, releasesAfterSuccess);
-  assert.equal(databaseCalls.some(({ text, params }) => (
-    text.includes('SET trial_consumed_at = NULL')
-    && params?.[0] === 'user_checkout_indeterminate'
-  )), false);
-});
-
 test('account deletion cancels current and retired Girapphe Stripe subscriptions', async (context) => {
   const originalQuery = db.query;
+  const originalTransaction = db.transaction;
   const originalFetch = globalThis.fetch;
   const previous = new Map([
     ['DATABASE_URL', process.env.DATABASE_URL],
@@ -111,6 +22,7 @@ test('account deletion cancels current and retired Girapphe Stripe subscriptions
   ]);
   context.after(() => {
     db.query = originalQuery;
+    db.transaction = originalTransaction;
     globalThis.fetch = originalFetch;
     restoreEnvironment(previous);
   });
@@ -236,6 +148,7 @@ test('parses a Stripe event and converts its Unix timestamp from seconds', () =>
 
 test('a late active Stripe subscription for a deleted account is canceled and stored as canceled', async (context) => {
   const originalQuery = db.query;
+  const originalTransaction = db.transaction;
   const originalFetch = globalThis.fetch;
   const previous = new Map([
     ['DATABASE_URL', process.env.DATABASE_URL],
@@ -245,6 +158,7 @@ test('a late active Stripe subscription for a deleted account is canceled and st
   ]);
   context.after(() => {
     db.query = originalQuery;
+    db.transaction = originalTransaction;
     globalThis.fetch = originalFetch;
     restoreEnvironment(previous);
   });
@@ -267,6 +181,14 @@ test('a late active Stripe subscription for a deleted account is canceled and st
     }
     return { rows: [] };
   }) as typeof db.query;
+  db.transaction = (async (queries) => queries.map(({ text, params }) => {
+    writes.push({ text, params });
+    return { rows: text.includes('INSERT INTO billing_subscriptions')
+      ? [{ provider_subscription_id: 'sub_deleted_webhook' }]
+      : text.includes('deletion_marker_assertion')
+        ? [{ deletion_marker_assertion: 1 }]
+        : [] };
+  })) as typeof db.transaction;
 
   const providerMethods: string[] = [];
   const subscription = {
@@ -299,7 +221,7 @@ test('a late active Stripe subscription for a deleted account is canceled and st
   const upsert = writes.find(({ text }) => text.includes('INSERT INTO billing_subscriptions'));
   assert.ok(upsert);
   assert.equal(upsert.params?.[1], 'user_deleted_webhook');
-  assert.equal(upsert.params?.[6], 'canceled');
+  assert.equal(upsert.params?.[10], 'canceled');
 });
 
 test('rejects malformed Stripe event envelopes and timestamps', () => {
@@ -332,29 +254,12 @@ test('rejects malformed Stripe event envelopes and timestamps', () => {
   }
 });
 
-test('requires the complete Stripe checkout configuration group', (context) => {
-  const snapshot = new Map(
-    STRIPE_CONFIGURATION_KEYS.map((name) => [name, process.env[name]]),
-  );
+test('Stripe checkout remains disabled even with a complete legacy lifecycle group', (context) => {
+  const snapshot = new Map(STRIPE_CONFIGURATION_KEYS.map((name) => [name, process.env[name]]));
   context.after(() => restoreEnvironment(snapshot));
-
   for (const name of STRIPE_CONFIGURATION_KEYS) process.env[name] = `test_${name}`;
-  assert.equal(isStripeCheckoutConfigured(), true);
-
-  process.env.STRIPE_PRICE_AD_FREE_ANNUAL = process.env.STRIPE_PRICE_AD_FREE_MONTHLY;
-  assert.equal(isStripeCheckoutConfigured(), false, 'monthly and annual prices must differ');
-
-  for (const missingName of STRIPE_CONFIGURATION_KEYS) {
-    for (const name of STRIPE_CONFIGURATION_KEYS) process.env[name] = `test_${name}`;
-    delete process.env[missingName];
-    assert.equal(
-      isStripeCheckoutConfigured(),
-      false,
-      `${missingName} must be required`,
-    );
-  }
+  assert.equal(isStripeCheckoutConfigured(), false);
 });
-
 test('trusts only the exact configured web origin', (context) => {
   const previousBaseUrl = process.env.APP_BASE_URL;
   context.after(() => {

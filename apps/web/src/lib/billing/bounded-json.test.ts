@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readBoundedBytes, readBoundedJson } from './bounded-json';
+import {
+  readBoundedBytes,
+  readBoundedJson,
+  readBoundedResponseJson,
+  requestBodyIsEmpty,
+} from './bounded-json';
 
 function streamingRequest(chunks: string[], headers?: HeadersInit) {
   const encoder = new TextEncoder();
@@ -10,7 +15,7 @@ function streamingRequest(chunks: string[], headers?: HeadersInit) {
       controller.close();
     },
   });
-  return new Request('https://girapphe.com/api/billing/toss/prepare', {
+  return new Request('https://girapphe.com/api/billing/checkout', {
     method: 'POST',
     headers,
     body,
@@ -68,4 +73,26 @@ test('bounded byte reader preserves exact webhook bytes and rejects understated 
     8,
   );
   assert.deepEqual(rejected, { ok: false, reason: 'too_large' });
+});
+
+test('empty-body guard rejects bytes even when content length is absent or understated', async () => {
+  assert.equal(await requestBodyIsEmpty(new Request('https://girapphe.com', {
+    method: 'POST',
+  })), true);
+  assert.equal(await requestBodyIsEmpty(streamingRequest([])), true);
+  assert.equal(await requestBodyIsEmpty(streamingRequest(['x'])), false);
+  assert.equal(await requestBodyIsEmpty(
+    streamingRequest(['x'], { 'Content-Length': '0' }),
+  ), false);
+});
+
+test('bounded provider response parsing rejects oversized and malformed JSON', async () => {
+  const accepted = await readBoundedResponseJson(Response.json({ id: 'sub_1' }), 64);
+  assert.deepEqual(accepted, { ok: true, value: { id: 'sub_1' } });
+
+  const oversized = await readBoundedResponseJson(new Response('x'.repeat(65)), 64);
+  assert.deepEqual(oversized, { ok: false, reason: 'too_large' });
+
+  const malformed = await readBoundedResponseJson(new Response('{'), 64);
+  assert.deepEqual(malformed, { ok: false, reason: 'invalid_json' });
 });

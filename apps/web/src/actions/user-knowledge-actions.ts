@@ -1,5 +1,7 @@
 'use server';
 
+import { recordKnowledgeProductEventForUser } from '@/lib/knowledge-product-events';
+
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
@@ -1004,7 +1006,15 @@ export async function resolveKnowledgeDraft(formData: FormData): Promise<Resolve
     expectedTargetVersion,
     reviewed,
   });
+  await recordKnowledgeProductEventForUser(user.id, {
+    eventName: 'knowledge_candidate_resolved',
+    eventVersion: 1,
+    subjectId: batchId,
+    outcome: action === 'create' ? 'approved' : action === 'merge' ? 'merged' : 'updated',
+    selectionCount: 1,
+  }).catch(() => undefined);
   revalidateResolvedKnowledge(batchId, reviewed?.topic);
+  revalidatePath('/insights');
   return result;
 }
 
@@ -1019,7 +1029,12 @@ export async function ignoreKnowledgeDraft(formData: FormData): Promise<ResolveK
     expectedDraftVersion,
     action: 'ignore',
   });
+  await recordKnowledgeProductEventForUser(user.id, {
+    eventName: 'knowledge_candidate_resolved', eventVersion: 1,
+    subjectId: batchId, outcome: 'ignored', selectionCount: 1,
+  }).catch(() => undefined);
   revalidateResolvedKnowledge(batchId);
+  revalidatePath('/insights');
   return result;
 }
 

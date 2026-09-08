@@ -1,0 +1,158 @@
+diff --git a/android/src/main/java/expo/modules/superwallexpo/SuperwallExpoModule.kt b/android/src/main/java/expo/modules/superwallexpo/SuperwallExpoModule.kt
+index 9e3e9143a737249e7578a1bb4d43742a6b87af0b..cc36e48106ec6af9793bfb06a0d9cd132596c36a 100644
+--- a/android/src/main/java/expo/modules/superwallexpo/SuperwallExpoModule.kt
++++ b/android/src/main/java/expo/modules/superwallexpo/SuperwallExpoModule.kt
+@@ -466,6 +466,38 @@ class SuperwallExpoModule : Module() {
+       }
+     }
+ 
++    // Direct Google Play infrastructure for apps that own their subscription UI.
++    // A full identifier may select a base plan and `sw-none` to avoid an offer.
++    AsyncFunction("getProducts") { productIdentifiers: List<String>, promise: Promise ->
++      ioScope.launch {
++        Superwall.instance.getProducts(*productIdentifiers.toTypedArray()).fold({ products ->
++          scope.launch {
++            promise.resolve(products.values.map { it.toJson() })
++          }
++        }, { error ->
++          scope.launch {
++            promise.reject(CodedException(error))
++          }
++        })
++      }
++    }
++
++    AsyncFunction("purchaseProduct") { productIdentifier: String, promise: Promise ->
++      ioScope.launch {
++        Superwall.instance.purchase(productIdentifier).fold({ result ->
++          scope.launch {
++            promise.resolve(result.toJson())
++          }
++        }, { error ->
++          scope.launch {
++            // Integration/network failures are indeterminate and must reject;
++            // only the SDK's explicit PurchaseResult.Failed is safe to release.
++            promise.reject(CodedException(error))
++          }
++        })
++      }
++    }
++
+     AsyncFunction("dismiss") { promise: Promise ->
+       ioScope.launch {
+         Superwall.instance.dismiss()
+diff --git a/android/src/main/java/expo/modules/superwallexpo/json/PurchaseResult.kt b/android/src/main/java/expo/modules/superwallexpo/json/PurchaseResult.kt
+index 6efbf120961cd84d4e5088792b215f677d5b46f7..40344f537311099f4a0193cf9f43625b143dfb9b 100644
+--- a/android/src/main/java/expo/modules/superwallexpo/json/PurchaseResult.kt
++++ b/android/src/main/java/expo/modules/superwallexpo/json/PurchaseResult.kt
+@@ -2,6 +2,13 @@ package expo.modules.superwallexpo.json
+ 
+ import com.superwall.sdk.delegate.PurchaseResult
+ 
++fun PurchaseResult.toJson(): Map<String, Any?> = when (this) {
++    is PurchaseResult.Cancelled -> mapOf("type" to "cancelled")
++    is PurchaseResult.Purchased -> mapOf("type" to "purchased")
++    is PurchaseResult.Pending -> mapOf("type" to "pending")
++    is PurchaseResult.Failed -> mapOf("type" to "failed", "error" to errorMessage)
++}
++
+ fun purchaseResultFromJson(json: Map<String, Any>): PurchaseResult {
+     return when (json["type"] as String) {
+         "cancelled" -> PurchaseResult.Cancelled()
+diff --git a/build/src/SuperwallExpoModule.d.ts b/build/src/SuperwallExpoModule.d.ts
+index 5a8159ceeb3b717093df3224fa7ab6e2d7caaa06..4abd01684bc877c9e4bf2527e684f1c02dfbf403 100644
+--- a/build/src/SuperwallExpoModule.d.ts
++++ b/build/src/SuperwallExpoModule.d.ts
+@@ -2,6 +2,24 @@ import { NativeModule } from "expo";
+ import type { PresentationResult } from "./compat/lib/PresentationResult";
+ import type { EntitlementsInfo, IntegrationAttributes, RestorationResultResponse, SuperwallExpoModuleEvents } from "./SuperwallExpoModule.types";
+ export type SubscriptionStatus = any;
++export type DirectStoreProduct = {
++    productIdentifier: string;
++    fullIdentifier?: string;
++    localizedPrice: string;
++    localizedSubscriptionPeriod?: string;
++    period?: string;
++    hasFreeTrial?: boolean;
++    currencyCode?: string;
++};
++export type DirectPurchaseResult = {
++    type: "cancelled" | "purchased" | "pending";
++} | {
++    type: "unavailable";
++    error?: string;
++} | {
++    type: "failed";
++    error?: string;
++};
+ declare class SuperwallExpoModule extends NativeModule<SuperwallExpoModuleEvents> {
+     getApiKey(): string;
+     registerPlacement(placement: string, params?: Map<string, any> | Record<string, any>, handlerId?: string | null): Promise<void>;
+@@ -27,6 +45,8 @@ declare class SuperwallExpoModule extends NativeModule<SuperwallExpoModuleEvents
+     didHandleBackPressed(shouldConsume: boolean): void;
+     didHandleCustomCallback(callbackId: string, status: string, data?: Record<string, any>): Promise<void>;
+     restorePurchases(): Promise<RestorationResultResponse>;
++    getProducts(productIdentifiers: string[]): Promise<DirectStoreProduct[]>;
++    purchaseProduct(productIdentifier: string): Promise<DirectPurchaseResult>;
+     dismiss(): Promise<void>;
+     confirmAllAssignments(): Promise<any[]>;
+     getPresentationResult(placement: string, params?: Map<string, any> | Record<string, any>): Promise<PresentationResult>;
+diff --git a/ios/Json/PurchaseResult+Json.swift b/ios/Json/PurchaseResult+Json.swift
+index 6a77182fa9214e14fcf69108fee5e3ed7f161798..b86f975a6775555ffee39036f6c29cc36f08e099 100644
+--- a/ios/Json/PurchaseResult+Json.swift
++++ b/ios/Json/PurchaseResult+Json.swift
+@@ -9,6 +9,19 @@ struct PurchaseResultError: LocalizedError {
+ }
+ 
+ extension PurchaseResult {
++  func toJson() -> [String: Any] {
++    switch self {
++    case .cancelled:
++      return ["type": "cancelled"]
++    case .purchased:
++      return ["type": "purchased"]
++    case .pending:
++      return ["type": "pending"]
++    case .failed(let error):
++      return ["type": "failed", "error": error.localizedDescription]
++    }
++  }
++
+   static func fromJson(_ dictionary: [String: Any]) -> PurchaseResult? {
+     guard let type = dictionary["type"] as? String else {
+       return nil
+diff --git a/ios/SuperwallExpoModule.swift b/ios/SuperwallExpoModule.swift
+index d940806393b765da20815f0cb7829709612a77c5..82f00054bf7559efbd02b06846c6f20173e2535e 100644
+--- a/ios/SuperwallExpoModule.swift
++++ b/ios/SuperwallExpoModule.swift
+@@ -388,6 +388,30 @@ public class SuperwallExpoModule: Module {
+       }
+     }
+ 
++    // Direct StoreKit infrastructure for apps that own their subscription UI.
++    // No Superwall paywall or campaign is involved in these calls.
++    AsyncFunction("getProducts") { (productIdentifiers: [String], promise: Promise) in
++      Task {
++        let products = await Superwall.shared.products(for: Set(productIdentifiers))
++        promise.resolve(products.map { $0.toJson() })
++      }
++    }
++
++    AsyncFunction("purchaseProduct") { (productIdentifier: String, promise: Promise) in
++      Task {
++        let products = await Superwall.shared.products(for: Set([productIdentifier]))
++        guard let product = products.first(where: { $0.productIdentifier == productIdentifier }) else {
++          promise.resolve([
++            "type": "unavailable",
++            "error": "The configured App Store product is unavailable.",
++          ])
++          return
++        }
++        let result = await Superwall.shared.purchase(product)
++        promise.resolve(result.toJson())
++      }
++    }
++
+     AsyncFunction("dismiss") { (promise: Promise) in
+       Superwall.shared.dismiss {
+         promise.resolve(nil)

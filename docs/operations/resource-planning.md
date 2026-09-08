@@ -14,8 +14,11 @@ sizing decision. Those values are provider-owned and time-sensitive.
   Workers. The repository does not currently use Durable Objects, Queues, or a
   custom scheduled Worker entrypoint.
 - **Worker bundle guardrail**: `scripts/check-worker-size.mjs` enforces a
-  `3020 KiB` compressed upload budget so bundle growth becomes visible before
-  platform script-size limits are threatened.
+  `16384 KiB` uncompressed upload budget so bundle growth becomes visible well
+  before Cloudflare's current `64 MiB` uncompressed Worker limit. Cloudflare no
+  longer enforces a compressed-size limit; Wrangler's gzip value is diagnostic
+  only. See [Workers limits](https://developers.cloudflare.com/workers/platform/limits/#worker-size)
+  and the [2026-09-04 limit change](https://developers.cloudflare.com/changelog/post/2026-09-04-increased-worker-size-limit/).
 - **Clerk**: one auth boundary covers web, mobile, and MCP OAuth metadata.
   Guest practice can still run without Clerk, but private notes, billing,
   restore, admin, and OAuth-backed MCP draft creation all depend on a valid
@@ -122,7 +125,7 @@ It never exposes provider credentials to the browser.
 
 - **Cloudflare**: Worker request/error totals, a current-versus-prior-range
   request comparison, and `cpuTimeP99` come from the Workers Analytics GraphQL
-  API. The dashboard also shows the repository-owned compressed Worker bundle
+  API. The dashboard also shows the repository-owned uncompressed Worker bundle
   budget from `config/resource-limits.json`.
 - **Clerk**: the Backend API supplies total users and sign-ins during the
   selected range via the documented `last_sign_in_at_*` filters. Monthly

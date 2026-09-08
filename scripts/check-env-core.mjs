@@ -232,13 +232,33 @@ export function validate({ envName, map, allowPlaceholders }) {
     }
   }
 
-  const stripeKeys = [
+  const creemKeys = [
+    'CREEM_API_KEY',
+    'CREEM_WEBHOOK_SECRET',
+    'CREEM_ANNUAL_PRODUCT_ID',
+    'CREEM_ENVIRONMENT',
+  ];
+  const superwallKeys = [
+    'SUPERWALL_ORGANIZATION_API_KEY',
+    'SUPERWALL_WEBHOOK_SECRET',
+    'SUPERWALL_PROJECT_ID',
+    'SUPERWALL_ENVIRONMENT',
+    'SUPERWALL_IOS_APPLICATION_ID',
+    'SUPERWALL_ANDROID_APPLICATION_ID',
+    'SUPERWALL_IOS_BUNDLE_ID',
+    'SUPERWALL_ANDROID_PACKAGE_ID',
+    'SUPERWALL_IOS_MONTHLY_PRODUCT_ID',
+    'SUPERWALL_IOS_ANNUAL_PRODUCT_ID',
+    'SUPERWALL_ANDROID_MONTHLY_PRODUCT_ID',
+    'SUPERWALL_ANDROID_ANNUAL_PRODUCT_ID',
+  ];
+  const legacyStripeKeys = [
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
     'STRIPE_PRICE_AD_FREE_MONTHLY',
     'STRIPE_PRICE_AD_FREE_ANNUAL',
   ];
-  const revenueCatKeys = [
+  const legacyRevenueCatKeys = [
     'REVENUECAT_WEBHOOK_AUTHORIZATION',
     'REVENUECAT_WEBHOOK_SIGNING_SECRET',
     'REVENUECAT_APP_IDS',
@@ -246,18 +266,18 @@ export function validate({ envName, map, allowPlaceholders }) {
     'REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS',
     'REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS',
   ];
-  const adSenseKeys = [
-    'NEXT_PUBLIC_ADSENSE_CLIENT_ID',
-    'NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID',
-    'NEXT_PUBLIC_ADSENSE_CONSENT_READY',
-  ];
-  const tossKeys = [
+  const legacyTossKeys = [
     'NEXT_PUBLIC_TOSS_CLIENT_KEY',
     'TOSS_SECRET_KEY',
     'TOSS_BILLING_ENCRYPTION_KEY',
     'TOSS_MONTHLY_AMOUNT_KRW',
     'TOSS_ANNUAL_AMOUNT_KRW',
     'TOSS_BILLING_CRON_TOKEN',
+  ];
+  const adSenseKeys = [
+    'NEXT_PUBLIC_ADSENSE_CLIENT_ID',
+    'NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID',
+    'NEXT_PUBLIC_ADSENSE_CONSENT_READY',
   ];
   const cloudflareOpsKeys = [
     'CLOUDFLARE_ACCOUNT_ID',
@@ -269,11 +289,23 @@ export function validate({ envName, map, allowPlaceholders }) {
     'NEON_BRANCH_ID',
   ];
 
-  const stripeConfigured = validateCompleteGroup(
-    map, 'Stripe billing', stripeKeys, allowPlaceholders, errors, warnings, envName,
+  const creemConfigured = validateCompleteGroup(
+    map, 'Creem lifecycle processing', creemKeys, allowPlaceholders, errors, warnings, envName,
   );
-  const revenueCatConfigured = validateCompleteGroup(
-    map, 'RevenueCat entitlement sync', revenueCatKeys, allowPlaceholders, errors, warnings, envName,
+  const superwallConfigured = validateCompleteGroup(
+    map, 'Superwall lifecycle processing', superwallKeys, allowPlaceholders, errors, warnings, envName,
+  );
+  const legacyStripeConfigured = validateCompleteGroup(
+    map, 'Legacy Stripe lifecycle bridge', legacyStripeKeys,
+    allowPlaceholders, errors, warnings, envName,
+  );
+  const legacyRevenueCatConfigured = validateCompleteGroup(
+    map, 'Legacy RevenueCat lifecycle bridge', legacyRevenueCatKeys,
+    allowPlaceholders, errors, warnings, envName,
+  );
+  const legacyTossConfigured = validateCompleteGroup(
+    map, 'Legacy Toss recovery bridge', legacyTossKeys,
+    allowPlaceholders, errors, warnings, envName,
   );
   const adSenseConfigured = validateCompleteGroup(
     map, 'AdSense practice ads', adSenseKeys, allowPlaceholders, errors, warnings, envName,
@@ -284,47 +316,108 @@ export function validate({ envName, map, allowPlaceholders }) {
   validateCompleteGroup(
     map, 'Neon control-plane dashboard', neonOpsKeys, allowPlaceholders, errors, warnings, envName, 'NEON_API_KEY',
   );
-  const tossConfigured = validateCompleteGroup(
-    map, 'Toss recurring billing', tossKeys, allowPlaceholders, errors, warnings, envName,
-  );
+  const webAcquisitionEnabled = valueFor(map, 'WEB_BILLING_ACQUISITION_ENABLED');
+  const mobileAcquisitionEnabled = valueFor(map, 'MOBILE_BILLING_ACQUISITION_ENABLED');
+  for (const [key, value, configured] of [
+    ['WEB_BILLING_ACQUISITION_ENABLED', webAcquisitionEnabled, creemConfigured],
+    ['MOBILE_BILLING_ACQUISITION_ENABLED', mobileAcquisitionEnabled, superwallConfigured],
+  ]) {
+    if (value && !['true', 'false'].includes(value)) {
+      errors.push(`${key} must be exactly true or false.`);
+    }
+    if (value === 'true' && !configured) {
+      errors.push(`${key}=true requires its complete provider lifecycle group.`);
+    }
+  }
+  if (creemConfigured && webAcquisitionEnabled !== 'true') {
+    warnings.push('Creem lifecycle processing is configured while new web acquisition stays disabled.');
+  }
+  if (superwallConfigured && mobileAcquisitionEnabled !== 'true') {
+    warnings.push('Superwall lifecycle processing is configured while new mobile acquisition stays disabled.');
+  }
+  // Keep this gate byte-for-byte exact so deployment validation matches the
+  // runtime check in isTossBillingEnabled().
   const tossBillingEnabled = map.get('TOSS_BILLING_ENABLED') ?? '';
   if (tossBillingEnabled && !['true', 'false'].includes(tossBillingEnabled)) {
     errors.push('TOSS_BILLING_ENABLED must be exactly true or false.');
   }
-  if (tossBillingEnabled === 'true' && !tossConfigured) {
-    errors.push('TOSS_BILLING_ENABLED=true requires the complete Toss recurring billing group.');
+  if (tossBillingEnabled === 'true' && !legacyTossConfigured) {
+    errors.push('TOSS_BILLING_ENABLED=true requires the complete legacy Toss recovery group.');
   }
-  if (tossBillingEnabled === 'true') {
-    errors.push('TOSS_BILLING_ENABLED=true is not release-approved; the runtime safety fuse is closed.');
+  if (legacyTossConfigured && tossBillingEnabled !== 'true') {
+    warnings.push('Legacy Toss credentials are retained while lifecycle/recovery processing stays disabled.');
   }
-  if (tossBillingEnabled === 'true' && (stripeConfigured || revenueCatConfigured)) {
-    errors.push('TOSS_BILLING_ENABLED=true is exclusive; Stripe and RevenueCat server groups must be absent.');
-  }
-  if (tossConfigured && tossBillingEnabled !== 'true') {
-    warnings.push('Toss credentials are configured but TOSS_BILLING_ENABLED is not true; Toss stays disabled.');
+  if (legacyTossConfigured && tossBillingEnabled === 'true') {
+    warnings.push('Legacy Toss lifecycle/recovery processing is enabled; new Toss acquisition remains unavailable.');
   }
 
-  if (!allowPlaceholders && stripeConfigured) {
-    const stripeSecret = valueFor(map, 'STRIPE_SECRET_KEY');
-    if (!/^sk_(test|live)_/.test(stripeSecret)) errors.push('STRIPE_SECRET_KEY has an invalid format.');
+  if (!allowPlaceholders && creemConfigured) {
+    const creemEnvironment = valueFor(map, 'CREEM_ENVIRONMENT');
+    if (!['test', 'production'].includes(creemEnvironment)) {
+      errors.push('CREEM_ENVIRONMENT must be exactly test or production.');
+    }
+    if (envName === 'prod' && creemEnvironment !== 'production') {
+      errors.push('Prod Creem lifecycle processing must use the production environment.');
+    }
+    if (envName !== 'prod' && creemEnvironment !== 'test') {
+      errors.push(`${envName} Creem lifecycle processing must use the test environment.`);
+    }
+  }
+
+  if (!allowPlaceholders && superwallConfigured) {
+    const superwallEnvironment = valueFor(map, 'SUPERWALL_ENVIRONMENT');
+    if (!['test', 'production'].includes(superwallEnvironment)) {
+      errors.push('SUPERWALL_ENVIRONMENT must be exactly test or production.');
+    }
+    if (envName === 'prod' && superwallEnvironment !== 'production') {
+      errors.push('Prod Superwall lifecycle processing must use the production environment.');
+    }
+    if (envName !== 'prod' && superwallEnvironment !== 'test') {
+      errors.push(`${envName} Superwall lifecycle processing must use the test environment.`);
+    }
+    if (!valueFor(map, 'SUPERWALL_WEBHOOK_SECRET').startsWith('whsec_')) {
+      errors.push('SUPERWALL_WEBHOOK_SECRET must be the Svix signing secret starting with whsec_.');
+    }
+    for (const key of [
+      'SUPERWALL_PROJECT_ID',
+      'SUPERWALL_IOS_APPLICATION_ID',
+      'SUPERWALL_ANDROID_APPLICATION_ID',
+    ]) {
+      const value = valueFor(map, key);
+      if (!/^\d+$/.test(value) || Number(value) <= 0 || !Number.isSafeInteger(Number(value))) {
+        errors.push(`${key} must be a positive integer.`);
+      }
+    }
+    for (const platform of ['IOS', 'ANDROID']) {
+      if (valueFor(map, `SUPERWALL_${platform}_MONTHLY_PRODUCT_ID`)
+        === valueFor(map, `SUPERWALL_${platform}_ANNUAL_PRODUCT_ID`)) {
+        errors.push(`Superwall ${platform.toLowerCase()} monthly and annual product IDs must be distinct.`);
+      }
+    }
+  }
+
+  if (!allowPlaceholders && legacyStripeConfigured) {
+    const secret = valueFor(map, 'STRIPE_SECRET_KEY');
+    if (!/^sk_(test|live)_/.test(secret)) errors.push('STRIPE_SECRET_KEY has an invalid format.');
+    if (envName === 'prod' && !secret.startsWith('sk_live_')) {
+      errors.push('Prod Stripe lifecycle processing must use a live secret key.');
+    }
+    if (envName !== 'prod' && !secret.startsWith('sk_test_')) {
+      errors.push(`${envName} Stripe lifecycle processing must use a test secret key.`);
+    }
     if (!valueFor(map, 'STRIPE_WEBHOOK_SECRET').startsWith('whsec_')) {
       errors.push('STRIPE_WEBHOOK_SECRET must start with whsec_.');
     }
     for (const key of ['STRIPE_PRICE_AD_FREE_MONTHLY', 'STRIPE_PRICE_AD_FREE_ANNUAL']) {
       if (!valueFor(map, key).startsWith('price_')) errors.push(`${key} must start with price_.`);
     }
-    if (valueFor(map, 'STRIPE_PRICE_AD_FREE_MONTHLY') === valueFor(map, 'STRIPE_PRICE_AD_FREE_ANNUAL')) {
+    if (valueFor(map, 'STRIPE_PRICE_AD_FREE_MONTHLY')
+      === valueFor(map, 'STRIPE_PRICE_AD_FREE_ANNUAL')) {
       errors.push('Stripe monthly and annual price IDs must be distinct.');
-    }
-    if (envName === 'prod' && !stripeSecret.startsWith('sk_live_')) {
-      errors.push('Prod Stripe billing must use a live secret key.');
-    }
-    if (envName !== 'prod' && !stripeSecret.startsWith('sk_test_')) {
-      errors.push(`${envName} Stripe billing must use a test secret key.`);
     }
   }
 
-  if (!allowPlaceholders && revenueCatConfigured) {
+  if (!allowPlaceholders && legacyRevenueCatConfigured) {
     if (!valueFor(map, 'REVENUECAT_WEBHOOK_AUTHORIZATION').startsWith('Bearer ')) {
       errors.push('REVENUECAT_WEBHOOK_AUTHORIZATION must be the complete Bearer header value.');
     }
@@ -334,39 +427,36 @@ export function validate({ envName, map, allowPlaceholders }) {
     if (!valueFor(map, 'REVENUECAT_SECRET_API_KEY').startsWith('sk_')) {
       errors.push('REVENUECAT_SECRET_API_KEY must be a RevenueCat secret API key starting with sk_.');
     }
-    const monthlyProductIds = new Set(valueFor(map, 'REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS').split(',').map((value) => value.trim()).filter(Boolean));
-    const annualProductIds = new Set(valueFor(map, 'REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS').split(',').map((value) => value.trim()).filter(Boolean));
-    const appIds = new Set(valueFor(map, 'REVENUECAT_APP_IDS').split(',').map((value) => value.trim()).filter(Boolean));
-    if (appIds.size < 2) {
-      errors.push('REVENUECAT_APP_IDS must contain the distinct iOS and Android RevenueCat app IDs.');
-    }
+    const monthlyProductIds = new Set(
+      valueFor(map, 'REVENUECAT_PRODUCT_AD_FREE_MONTHLY_IDS')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+    const annualProductIds = new Set(
+      valueFor(map, 'REVENUECAT_PRODUCT_AD_FREE_ANNUAL_IDS')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
     if ([...monthlyProductIds].some((productId) => annualProductIds.has(productId))) {
-      errors.push('RevenueCat monthly and annual store product identifier lists cannot overlap.');
+      errors.push('RevenueCat monthly and annual product ID lists must not overlap.');
     }
   }
 
-  if (!allowPlaceholders && adSenseConfigured) {
-    if (envName !== 'prod') {
-      errors.push('AdSense practice ads are production-only; development and PR previews use the house card.');
-    }
-    if (!/^ca-pub-\d+$/.test(valueFor(map, 'NEXT_PUBLIC_ADSENSE_CLIENT_ID'))) {
-      errors.push('NEXT_PUBLIC_ADSENSE_CLIENT_ID must look like ca-pub-<digits>.');
-    }
-    if (!/^\d+$/.test(valueFor(map, 'NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID'))) {
-      errors.push('NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID must contain digits only.');
-    }
-    if (valueFor(map, 'NEXT_PUBLIC_ADSENSE_CONSENT_READY') !== 'true') {
-      errors.push('NEXT_PUBLIC_ADSENSE_CONSENT_READY must be true only after the certified CMP is active.');
-    }
-  }
-
-  if (!allowPlaceholders && tossConfigured) {
+  if (!allowPlaceholders && legacyTossConfigured) {
     const clientKey = valueFor(map, 'NEXT_PUBLIC_TOSS_CLIENT_KEY');
     const secretKey = valueFor(map, 'TOSS_SECRET_KEY');
     if (!/^(test|live)_ck_/.test(clientKey)) errors.push('NEXT_PUBLIC_TOSS_CLIENT_KEY has an invalid format.');
-    if (!/^(test|live)_sk_/.test(secretKey)) errors.push('TOSS_SECRET_KEY must be a direct API secret key (test_sk_... or live_sk_...).');
+    if (!/^(test|live)_(g)?sk_/.test(secretKey)) errors.push('TOSS_SECRET_KEY has an invalid format.');
     if (clientKey.startsWith('test_') !== secretKey.startsWith('test_')) {
       errors.push('Toss client and secret keys must use the same environment.');
+    }
+    if (envName === 'prod' && !clientKey.startsWith('live_')) {
+      errors.push('Prod Toss lifecycle/recovery must use live keys.');
+    }
+    if (envName !== 'prod' && !clientKey.startsWith('test_')) {
+      errors.push(`${envName} Toss lifecycle/recovery must use test keys.`);
     }
     for (const key of ['TOSS_MONTHLY_AMOUNT_KRW', 'TOSS_ANNUAL_AMOUNT_KRW']) {
       const amount = Number(valueFor(map, key));
@@ -382,11 +472,20 @@ export function validate({ envName, map, allowPlaceholders }) {
     if (valueFor(map, 'TOSS_BILLING_CRON_TOKEN') === encryptionKey) {
       errors.push('Toss billing encryption key and scheduler token must be independent values.');
     }
-    if (envName === 'prod' && !clientKey.startsWith('live_')) {
-      errors.push('Prod Toss billing must use live keys.');
+  }
+
+  if (!allowPlaceholders && adSenseConfigured) {
+    if (envName !== 'prod') {
+      errors.push('AdSense practice ads are production-only; development and PR previews use the house card.');
     }
-    if (envName !== 'prod' && !clientKey.startsWith('test_')) {
-      errors.push(`${envName} Toss billing must use test keys.`);
+    if (!/^ca-pub-\d+$/.test(valueFor(map, 'NEXT_PUBLIC_ADSENSE_CLIENT_ID'))) {
+      errors.push('NEXT_PUBLIC_ADSENSE_CLIENT_ID must look like ca-pub-<digits>.');
+    }
+    if (!/^\d+$/.test(valueFor(map, 'NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID'))) {
+      errors.push('NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID must contain digits only.');
+    }
+    if (valueFor(map, 'NEXT_PUBLIC_ADSENSE_CONSENT_READY') !== 'true') {
+      errors.push('NEXT_PUBLIC_ADSENSE_CONSENT_READY must be true only after the certified CMP is active.');
     }
   }
 

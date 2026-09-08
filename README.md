@@ -30,8 +30,12 @@ This project implements an AI/CS knowledge graph MVP with:
 - Mobile store release checklist: `docs/apps/store-release.md`
 - API spec: `docs/reference/api-spec.md`
 - WebMCP browser tools: `docs/reference/webmcp.md`
+- ChatGPT export import: `docs/reference/chatgpt-export-import.md`
+- Private knowledge intelligence: `docs/reference/knowledge-intelligence.md`
+- Knowledge export, deletion, and rollout controls: `docs/reference/knowledge-data-controls.md`
 - Data model: `docs/reference/data-model.md`
 - Ads and subscriptions: `docs/reference/monetization.md`
+- Billing operations and activation gates: `docs/operations/billing.md`
 - Mobile purchase and AdMob setup: `apps/mobile/SETUP.md`
 - Knowledge graph spec: `docs/reference/knowledge-graph-spec.md`
 - Development/operations: `docs/operations/development.md`
@@ -120,6 +124,8 @@ Core routes:
 - `/knowledge`
 - `/my-knowledge`
 - `/knowledge-inbox`
+- `/knowledge-inbox/import`
+- `/insights`
 - `/topics`
 - `/subscription`
 - `/dashboard`
@@ -133,6 +139,10 @@ pending candidates. Each candidate stays non-canonical until the user
 explicitly chooses save as new, merge, update, or ignore. Confirmed items then
 appear in a private Topic Hub with overview, open-question, local-graph,
 timeline, lifecycle-history, provenance, and context-pack views.
+
+The separate ChatGPT export adapter parses an extracted `conversations.json`
+locally and sends only explicitly selected, bounded Q&A exchanges into the same
+pending review lifecycle. It never stores the archive or unselected messages.
 
 Provenance retains source selectors and metadata, never raw transcript text.
 Context-pack downloads likewise contain only selected canonical knowledge and
@@ -259,11 +269,15 @@ Registration only when a target client requires it, and include `profile` in
 the default scopes. Girapphe publishes OAuth discovery under `/.well-known/`;
 see [MCP card-draft ingestion](docs/reference/mcp-card-ingestion.md).
 
-Stripe, RevenueCat, AdSense, and Toss are optional complete configuration groups. Toss also
-requires the separate, default-off `TOSS_BILLING_ENABLED=true` operational gate. The exact
-server names, webhook/scheduler requirements, migrations, and activation tests are documented
-in [Ads and subscriptions](docs/reference/monetization.md). Mobile Clerk, RevenueCat, and AdMob
-public build values belong in EAS Environments; see [Mobile setup](apps/mobile/SETUP.md).
+Creem and Superwall lifecycle configuration use separate complete groups. New
+web and mobile acquisition remain independently fail-closed behind
+`WEB_BILLING_ACQUISITION_ENABLED` and
+`MOBILE_BILLING_ACQUISITION_ENABLED`; turning a gate off does not disable
+webhooks, reconciliation, management, or cancellation for existing subscribers.
+The exact Worker names and provider activation evidence are documented in
+[Ads and subscriptions](docs/reference/monetization.md). Public mobile Clerk,
+Superwall, and AdMob build values belong in EAS Environments; server provider
+secrets never belong in an Expo build. See [Mobile setup](apps/mobile/SETUP.md).
 
 Admin routes additionally require:
 

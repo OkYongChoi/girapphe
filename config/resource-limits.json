@@ -1,5 +1,5 @@
 {
   "worker": {
-    "compressedKiB": 3020
+    "uncompressedReleaseBudgetKiB": 16384
   }
 }

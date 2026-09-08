@@ -6,7 +6,6 @@ export const dynamic = 'force-dynamic';
 async function digest(value: string) {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
 }
-
 async function safeSecretEqual(received: string, expected: string) {
   const [left, right] = await Promise.all([digest(received), digest(expected)]);
   let difference = 0;

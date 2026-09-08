@@ -27,7 +27,7 @@ export type CloudflareSnapshot = ProviderSnapshot & {
   errorRate: number | null;
   peakCpuP99Ms: number | null;
   requestTrend: TrendPoint[];
-  workerBundleBudgetKiB: number;
+  workerBundleUncompressedBudgetKiB: number;
 };
 
 export type ClerkSnapshot = ProviderSnapshot & {
@@ -212,7 +212,7 @@ async function collectCloudflare(range: OpsRange, deps: OpsDependencies): Promis
     errorRate: null,
     peakCpuP99Ms: null,
     requestTrend: [],
-    workerBundleBudgetKiB: resourceLimits.worker.compressedKiB,
+    workerBundleUncompressedBudgetKiB: resourceLimits.worker.uncompressedReleaseBudgetKiB,
   };
   const accountId = deps.env.CLOUDFLARE_ACCOUNT_ID;
   const token = deps.env.CLOUDFLARE_ANALYTICS_API_TOKEN;
@@ -278,7 +278,7 @@ async function collectCloudflare(range: OpsRange, deps: OpsDependencies): Promis
       fetchedAt: now.toISOString(),
       source,
       ...metrics,
-      workerBundleBudgetKiB: resourceLimits.worker.compressedKiB,
+      workerBundleUncompressedBudgetKiB: resourceLimits.worker.uncompressedReleaseBudgetKiB,
     };
   } catch (error) {
     return { ...unavailable(source, reasonFor(error), now), ...empty };

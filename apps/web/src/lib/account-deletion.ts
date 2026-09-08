@@ -3,10 +3,20 @@ import 'server-only';
 import { clerkClient } from '@clerk/nextjs/server';
 import db from '@/lib/db';
 import { buildAccountDeletionFenceQueries } from '@/lib/account-lifecycle';
+import {
+  abandonAcquisitionAttemptsForDeletion,
+  getProviderCustomerId,
+  getProviderSubscriptionIdsForUser,
+  getUnresolvedCheckoutAttempt,
+} from '@/lib/billing/database';
+import { cancelCreemRenewalForAccountDeletion } from '@/lib/billing/creem';
+import {
+  deleteRevenueCatCustomer,
+  shouldAttemptRevenueCatCustomerDeletion,
+} from '@/lib/billing/revenuecat';
 import { cancelStripeSubscriptionsForAccountDeletion } from '@/lib/billing/stripe';
 import { cancelTossBilling } from '@/lib/billing/toss-subscriptions';
 import { isTossBillingConfigured } from '@/lib/billing/toss';
-import { deleteRevenueCatCustomer } from '@/lib/billing/revenuecat';
 
 export class AccountDeletionError extends Error {
   constructor(
@@ -32,31 +42,36 @@ async function beginAccountDeletionFence(userId: string) {
   }
 }
 
-async function hasTossBillingRecords(userId: string) {
-  const result = await db.query<{ exists: boolean }>(
-    `SELECT EXISTS (
-       SELECT 1 FROM toss_billing_agreements WHERE user_id = $1
-       UNION ALL
-       SELECT 1 FROM toss_billing_sessions WHERE user_id = $1
-     ) AS exists`,
-    [userId],
-  );
-  return result.rows[0]?.exists === true;
-}
-
 async function cancelRenewingWebBilling(userId: string) {
   try {
+    const [creemSubscriptionIds, unresolved, creemCustomerId] = await Promise.all([
+      getProviderSubscriptionIdsForUser(userId, 'creem'),
+      getUnresolvedCheckoutAttempt(userId),
+      getProviderCustomerId(userId, 'creem'),
+    ]);
+    const creemCanceled = creemSubscriptionIds.length > 0
+      || creemCustomerId !== null
+      || unresolved?.provider === 'creem'
+      ? await cancelCreemRenewalForAccountDeletion(userId)
+      : 0;
     const stripeCanceled = await cancelStripeSubscriptionsForAccountDeletion(userId);
     let tossCanceled = 0;
-    if (await hasTossBillingRecords(userId)) {
-      if (!isTossBillingConfigured()) {
-        throw new Error('Toss billing cleanup is not configured.');
-      }
+    const tossRecords = await db.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM toss_billing_agreements WHERE user_id = $1
+         UNION ALL
+         SELECT 1 FROM toss_billing_sessions WHERE user_id = $1
+       ) AS exists`,
+      [userId],
+    );
+    if (tossRecords.rows[0]?.exists === true) {
+      if (!isTossBillingConfigured()) throw new Error('Toss billing cleanup is not configured.');
       const result = await cancelTossBilling(userId);
       if (result.pending > 0) throw new Error('A Toss charge is still being reconciled.');
       tossCanceled = result.canceled;
     }
-    return { stripeCanceled, tossCanceled };
+    await abandonAcquisitionAttemptsForDeletion(userId);
+    return { creemCanceled, stripeCanceled, tossCanceled };
   } catch (cause) {
     console.error('Unable to cancel renewing web billing before account deletion:', cause);
     throw new AccountDeletionError(
@@ -66,13 +81,15 @@ async function cancelRenewingWebBilling(userId: string) {
   }
 }
 
-async function deleteProcessorCustomerData(userId: string) {
+async function deleteLegacyRevenueCatProfile(userId: string): Promise<boolean | null> {
+  const subscriptionIds = await getProviderSubscriptionIdsForUser(userId, 'revenuecat');
+  if (!shouldAttemptRevenueCatCustomerDeletion(subscriptionIds.length > 0)) return null;
   try {
     return await deleteRevenueCatCustomer(userId);
   } catch (cause) {
-    console.error('Unable to delete RevenueCat customer data:', cause);
+    console.error('Unable to delete legacy RevenueCat customer data:', cause);
     throw new AccountDeletionError(
-      'Mobile purchase profile data could not be deleted safely. Try again or use the support page.',
+      'Legacy mobile purchase profile data could not be deleted safely. Try again or use the support page.',
       'BILLING_CANCELLATION',
     );
   }
@@ -100,6 +117,9 @@ async function purgePrivateProductData(userId: string) {
        deleted_activity AS (
          DELETE FROM knowledge_item_activity WHERE user_id = $1 RETURNING id
        ),
+       deleted_knowledge_product_events AS (
+         DELETE FROM knowledge_product_events WHERE user_id = $1 RETURNING id
+       ),
        deleted_supersessions AS (
          DELETE FROM knowledge_item_supersessions WHERE user_id = $1 RETURNING id
        ),
@@ -121,6 +141,7 @@ async function purgePrivateProductData(userId: string) {
            AND (SELECT COUNT(*) FROM deleted_sources) >= 0
            AND (SELECT COUNT(*) FROM deleted_revisions) >= 0
            AND (SELECT COUNT(*) FROM deleted_activity) >= 0
+           AND (SELECT COUNT(*) FROM deleted_knowledge_product_events) >= 0
            AND (SELECT COUNT(*) FROM deleted_supersessions) >= 0
            AND (SELECT COUNT(*) FROM deleted_private_states) >= 0
            AND (SELECT COUNT(*) FROM deleted_graph_nodes) >= 0
@@ -171,11 +192,15 @@ async function purgePrivateProductData(userId: string) {
        ),
        deleted_toss_limits AS (
          DELETE FROM toss_prepare_rate_limits WHERE user_id = $1 RETURNING user_id
+       ),
+       deleted_billing_limits AS (
+         DELETE FROM billing_request_rate_limits WHERE user_id = $1 RETURNING user_id
        )
      SELECT
        (SELECT COUNT(*) FROM deleted_evidence_spans) AS deleted_evidence_spans,
        (SELECT COUNT(*) FROM deleted_revisions) AS deleted_revisions,
        (SELECT COUNT(*) FROM deleted_activity) AS deleted_activity,
+       (SELECT COUNT(*) FROM deleted_knowledge_product_events) AS deleted_knowledge_product_events,
        (SELECT COUNT(*) FROM deleted_supersessions) AS deleted_supersessions,
        (SELECT COUNT(*) FROM deleted_items) AS deleted_items,
        (SELECT COUNT(*) FROM deleted_create_requests) AS deleted_create_requests,
@@ -186,7 +211,8 @@ async function purgePrivateProductData(userId: string) {
        (SELECT COUNT(*) FROM deleted_knowledge_states) AS deleted_knowledge_states,
        (SELECT COUNT(*) FROM deleted_quiz_limits) AS deleted_quiz_limits,
        (SELECT COUNT(*) FROM deleted_card_states) AS deleted_card_states,
-       (SELECT COUNT(*) FROM deleted_toss_limits) AS deleted_toss_limits`,
+       (SELECT COUNT(*) FROM deleted_toss_limits) AS deleted_toss_limits,
+       (SELECT COUNT(*) FROM deleted_billing_limits) AS deleted_billing_limits`,
       params: [userId],
     },
   ], { isolationLevel: 'ReadCommitted' });
@@ -202,9 +228,9 @@ export async function deleteGirappheAccount(userId: string) {
 
   await beginAccountDeletionFence(userId);
   const billing = await cancelRenewingWebBilling(userId);
-  const revenueCatDeleted = await deleteProcessorCustomerData(userId);
+  const revenueCatDeleted = await deleteLegacyRevenueCatProfile(userId);
   await purgePrivateProductData(userId);
   const client = await clerkClient();
   await client.users.deleteUser(userId);
-  return { ...billing, revenueCatDeleted };
+  return { ...billing, revenueCatDeleted, superwallDeviceResetRequired: true };
 }

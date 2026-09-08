@@ -17,7 +17,28 @@ export default function SubscriptionScreen() {
   const router = useRouter();
   const auth = useMobileAuth();
   const subscription = useSubscription();
-  const { direction, formatNumber, t } = useI18n();
+  const { direction, formatDate, formatNumber, t } = useI18n();
+  const active = subscription.activeSubscription;
+  const legacyWebProvider = active?.provider === 'stripe'
+    ? 'Stripe'
+    : active?.provider === 'toss'
+      ? 'Toss Payments'
+      : active?.provider ?? '';
+  const source = active?.provider === 'creem'
+    ? t('subscription.sourceWeb')
+    : active?.store === 'app_store'
+      ? t('subscription.sourceApple')
+      : active?.store === 'play_store'
+        ? t('subscription.sourceGoogle')
+        : active?.store === 'web'
+          ? t('subscription.sourceLegacyWeb', { provider: legacyWebProvider })
+          : null;
+  const accessThroughDate = active?.currentPeriodEnd
+    ? new Date(active.currentPeriodEnd)
+    : null;
+  const accessThrough = accessThroughDate && Number.isFinite(accessThroughDate.getTime())
+    ? formatDate(accessThroughDate, { dateStyle: 'medium' })
+    : null;
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
@@ -39,14 +60,30 @@ export default function SubscriptionScreen() {
             <PrimaryButton label={t('auth.signIn')} onPress={() => router.push('/sign-in')} />
           </>
         ) : !subscription.isReady ? (
-          <SetupNotice body={t('subscription.checking')} />
+          <SetupNotice body={t('subscription.checking')} title={t('subscription.kicker')} />
         ) : subscription.isAdFree ? (
           <View style={styles.activeCard}>
             <Text style={styles.activeTitle}>{t('subscription.activeTitle')}</Text>
             <Text style={styles.activeText}>{t('subscription.activeText')}</Text>
+            {active && source ? (
+              <Text style={styles.activeMeta}>
+                {t('subscription.activeMeta', {
+                  plan: active.plan === 'annual' ? t('subscription.annual') : t('subscription.monthly'),
+                  source,
+                  date: accessThrough ?? t('subscription.datePending'),
+                })}
+              </Text>
+            ) : null}
+            {active?.cancelAtPeriodEnd ? (
+              <Text style={styles.activeMeta}>{t('subscription.cancelsAtPeriodEnd')}</Text>
+            ) : null}
           </View>
+        ) : subscription.isConfirming ? (
+          <SetupNotice body={t('subscription.confirming')} title={t('subscription.kicker')} />
         ) : !subscription.isConfigured ? (
           <SetupNotice body={t('subscription.storeKeyMissing')} />
+        ) : !subscription.acquisitionEnabled ? (
+          <SetupNotice body={t('subscription.acquisitionDisabled')} title={t('subscription.kicker')} />
         ) : subscription.plans.length > 0 ? (
           <View style={styles.planList}>
             {subscription.plans.map((plan) => (
@@ -61,6 +98,12 @@ export default function SubscriptionScreen() {
         ) : (
           <SetupNotice body={t('subscription.noPlans')} />
         )}
+
+        {subscription.trialProductIds.length > 0 ? (
+          <Text accessibilityLiveRegion="polite" style={styles.trialNotice}>
+            {t('subscription.existingTrialDetected')}
+          </Text>
+        ) : null}
 
         {subscription.error ? (
           <Text accessibilityLiveRegion="polite" style={styles.errorText}>
@@ -133,11 +176,11 @@ function PlanCard({ plan, disabled, onPurchase }: { plan: SubscriptionPlan; disa
   );
 }
 
-function SetupNotice({ body }: { body: string }) {
+function SetupNotice({ body, title }: { body: string; title?: string }) {
   const { t } = useI18n();
   return (
     <View style={styles.noticeCard}>
-      <Text style={styles.noticeTitle}>{t('subscription.setupNeeded')}</Text>
+      <Text style={styles.noticeTitle}>{title ?? t('subscription.setupNeeded')}</Text>
       <Text style={styles.noticeText}>{body}</Text>
     </View>
   );
@@ -163,6 +206,7 @@ const styles = StyleSheet.create({
   activeCard: { borderRadius: 12, borderWidth: 1, borderColor: '#a6e7bd', backgroundColor: '#eafcf0', padding: 18 },
   activeTitle: { color: '#176b38', fontSize: 19, fontWeight: '900' },
   activeText: { color: '#2a7145', fontSize: 14, lineHeight: 21, marginTop: 7 },
+  activeMeta: { color: '#2a7145', fontSize: 12, lineHeight: 18, marginTop: 7 },
   noticeCard: { borderRadius: 12, borderWidth: 1, borderColor: '#e0e5ec', backgroundColor: '#ffffff', padding: 18 },
   noticeTitle: { color: '#111827', fontSize: 18, fontWeight: '900' },
   noticeText: { color: '#607080', fontSize: 14, lineHeight: 21, marginTop: 7 },
@@ -180,6 +224,7 @@ const styles = StyleSheet.create({
   restoreButton: { minHeight: 50, borderRadius: 8, borderWidth: 1, borderColor: '#cbd3df', backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center', marginTop: 14 },
   restoreButtonText: { color: '#111827', fontSize: 15, fontWeight: '800' },
   errorText: { color: '#b42318', fontSize: 13, fontWeight: '700', lineHeight: 19, marginTop: 12 },
+  trialNotice: { color: '#8a4b0f', fontSize: 12, fontWeight: '700', lineHeight: 18, marginTop: 12 },
   termsText: { color: '#73808c', fontSize: 12, lineHeight: 18, marginTop: 18 },
   legalLinks: { flexDirection: 'row', gap: 18, marginTop: 12 },
   legalLinkText: { color: '#1f5fd1', fontSize: 13, fontWeight: '800', textDecorationLine: 'underline' },

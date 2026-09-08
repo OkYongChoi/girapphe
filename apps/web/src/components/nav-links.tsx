@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: '/my-knowledge', label: 'nav.myNotes' },
   { href: '/topics', label: 'nav.topics', authOnly: true },
   { href: '/knowledge-inbox', label: 'nav.knowledgeInbox', authOnly: true },
+  { href: '/my-knowledge?view=insights', label: 'nav.insights', authOnly: true },
   { href: '/ranking', label: 'nav.ranking' },
 ] as const;
 

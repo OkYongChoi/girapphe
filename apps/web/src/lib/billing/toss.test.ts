@@ -15,7 +15,6 @@ import {
 
 function setTestTossEnvironment() {
   process.env.TOSS_BILLING_ENABLED = 'true';
-  process.env.TOSS_BILLING_TEST_OVERRIDE = 'true';
   process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY = 'test_ck_example';
   process.env.TOSS_SECRET_KEY = 'test_sk_example';
   process.env.TOSS_BILLING_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
@@ -34,7 +33,6 @@ test('keeps month-end billing periods on a valid UTC calendar day', () => {
     '2025-02-28T09:30:00.000Z',
   );
 });
-
 test('derives a stable order id per persisted billing cycle', async () => {
   const first = await createTossOrderId('agreement_1', 'renewal:2026-08-16T00:00:00.000Z');
   const retry = await createTossOrderId('agreement_1', 'renewal:2026-08-16T00:00:00.000Z');
@@ -54,10 +52,9 @@ test('creates a one-time checkout state with a strict wire format', () => {
   assert.equal(isTossCheckoutState(first.toUpperCase()), false);
 });
 
-test('requires an explicit exact operational gate in addition to complete Toss credentials', () => {
+test('requires an explicit exact lifecycle gate in addition to complete Toss credentials', () => {
   const previous = {
     enabled: process.env.TOSS_BILLING_ENABLED,
-    override: process.env.TOSS_BILLING_TEST_OVERRIDE,
     client: process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY,
     secret: process.env.TOSS_SECRET_KEY,
     encryption: process.env.TOSS_BILLING_ENCRYPTION_KEY,
@@ -86,17 +83,16 @@ test('requires an explicit exact operational gate in addition to complete Toss c
     process.env.TOSS_BILLING_ENABLED = 'true';
     assert.equal(isTossBillingConfigured(), true);
 
-    delete process.env.TOSS_BILLING_TEST_OVERRIDE;
+    delete process.env.TOSS_SECRET_KEY;
     assert.equal(isTossBillingConfigured(), false);
     assert.throws(
       () => getTossBillingConfig(),
       (error: unknown) => error instanceof TossBillingError
-        && error.code === 'TOSS_ACTIVATION_PENDING',
+        && error.code === 'TOSS_CONFIGURATION_ERROR',
     );
   } finally {
     const entries: Array<[string, string | undefined]> = [
       ['TOSS_BILLING_ENABLED', previous.enabled],
-      ['TOSS_BILLING_TEST_OVERRIDE', previous.override],
       ['NEXT_PUBLIC_TOSS_CLIENT_KEY', previous.client],
       ['TOSS_SECRET_KEY', previous.secret],
       ['TOSS_BILLING_ENCRYPTION_KEY', previous.encryption],
@@ -111,11 +107,10 @@ test('requires an explicit exact operational gate in addition to complete Toss c
   }
 });
 
-test('rejects Toss activation while another billing provider has server configuration', () => {
+test('allows Toss legacy lifecycle while Stripe and RevenueCat lifecycle configurations coexist', () => {
   const conflictingKeys = ['STRIPE_SECRET_KEY', 'REVENUECAT_SECRET_API_KEY'] as const;
   const previous = new Map<string, string | undefined>([
     ['TOSS_BILLING_ENABLED', process.env.TOSS_BILLING_ENABLED],
-    ['TOSS_BILLING_TEST_OVERRIDE', process.env.TOSS_BILLING_TEST_OVERRIDE],
     ['NEXT_PUBLIC_TOSS_CLIENT_KEY', process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY],
     ['TOSS_SECRET_KEY', process.env.TOSS_SECRET_KEY],
     ['TOSS_BILLING_ENCRYPTION_KEY', process.env.TOSS_BILLING_ENCRYPTION_KEY],
@@ -127,17 +122,10 @@ test('rejects Toss activation while another billing provider has server configur
   setTestTossEnvironment();
 
   try {
-    for (const name of conflictingKeys) {
-      for (const key of conflictingKeys) delete process.env[key];
-      process.env[name] = 'configured';
-
-      assert.equal(isTossBillingConfigured(), false);
-      assert.throws(
-        () => getTossBillingConfig(),
-        (error: unknown) => error instanceof TossBillingError
-          && error.code === 'TOSS_PROVIDER_CONFLICT',
-      );
-    }
+    process.env.STRIPE_SECRET_KEY = 'sk_live_legacy';
+    process.env.REVENUECAT_SECRET_API_KEY = 'sk_legacy';
+    assert.equal(isTossBillingConfigured(), true);
+    assert.doesNotThrow(() => getTossBillingConfig());
   } finally {
     for (const [name, value] of previous) {
       if (value === undefined) delete process.env[name];
@@ -149,7 +137,6 @@ test('rejects Toss activation while another billing provider has server configur
 test('encrypts stored billing keys with authenticated AES-GCM', async () => {
   const previous = {
     enabled: process.env.TOSS_BILLING_ENABLED,
-    override: process.env.TOSS_BILLING_TEST_OVERRIDE,
     client: process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY,
     secret: process.env.TOSS_SECRET_KEY,
     encryption: process.env.TOSS_BILLING_ENCRYPTION_KEY,
@@ -174,7 +161,6 @@ test('encrypts stored billing keys with authenticated AES-GCM', async () => {
   } finally {
     const entries: Array<[string, string | undefined]> = [
       ['TOSS_BILLING_ENABLED', previous.enabled],
-      ['TOSS_BILLING_TEST_OVERRIDE', previous.override],
       ['NEXT_PUBLIC_TOSS_CLIENT_KEY', previous.client],
       ['TOSS_SECRET_KEY', previous.secret],
       ['TOSS_BILLING_ENCRYPTION_KEY', previous.encryption],
@@ -193,7 +179,6 @@ test('accepts Toss billing-key deletion with an empty successful response', asyn
   const previousFetch = globalThis.fetch;
   const previous = {
     enabled: process.env.TOSS_BILLING_ENABLED,
-    override: process.env.TOSS_BILLING_TEST_OVERRIDE,
     client: process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY,
     secret: process.env.TOSS_SECRET_KEY,
     encryption: process.env.TOSS_BILLING_ENCRYPTION_KEY,
@@ -210,7 +195,6 @@ test('accepts Toss billing-key deletion with an empty successful response', asyn
     globalThis.fetch = previousFetch;
     const entries: Array<[string, string | undefined]> = [
       ['TOSS_BILLING_ENABLED', previous.enabled],
-      ['TOSS_BILLING_TEST_OVERRIDE', previous.override],
       ['NEXT_PUBLIC_TOSS_CLIENT_KEY', previous.client],
       ['TOSS_SECRET_KEY', previous.secret],
       ['TOSS_BILLING_ENCRYPTION_KEY', previous.encryption],

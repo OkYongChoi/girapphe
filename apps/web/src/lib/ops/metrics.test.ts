@@ -78,6 +78,7 @@ test('collects configured provider signals without exposing credentials', async 
   });
 
   assert.equal(snapshot.cloudflare.state, 'attention');
+  assert.equal(snapshot.cloudflare.workerBundleUncompressedBudgetKiB, 16_384);
   assert.equal(snapshot.clerk.signedInUsers, 4);
   assert.equal(snapshot.neon.state, 'healthy');
   assert.equal(snapshot.neon.consumptionState, 'plan_required');

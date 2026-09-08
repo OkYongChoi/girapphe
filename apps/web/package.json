@@ -25,6 +25,8 @@
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "db:prepare:preview": "node scripts/apply-preview-schema.mjs",
     "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
+    "billing:block:resolve": "node scripts/resolve-billing-acquisition-block.mjs",
+    "billing:creem-attempt:resolve": "node scripts/resolve-creem-checkout-attempt.mjs",
     "build:cf": "opennextjs-cloudflare build",
     "preview:cf": "node ../../scripts/run-with-env.mjs --file .env.local --optional -- opennextjs-cloudflare build && node ../../scripts/run-with-env.mjs --file .env.local --optional -- wrangler dev --env preview",
     "test:localization": "tsx --test src/i18n/messages.test.ts src/lib/content-translation-guards.test.ts",
@@ -46,6 +48,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-force-graph-3d": "^1.29.1",
+    "svix": "2.3.0",
     "three": "0.183.2",
     "zod": "^4.3.6"
   },

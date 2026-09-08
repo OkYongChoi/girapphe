@@ -102,6 +102,16 @@ export async function seedAuthenticatedOverlayFixtureWithClient(client, userIdIn
 
   await client.query('BEGIN');
   try {
+    const productEventsTable = await client.query(
+      `SELECT to_regclass('public.knowledge_product_events') IS NOT NULL AS available`,
+    );
+    if (productEventsTable.rows[0]?.available) {
+      await client.query(
+        'DELETE FROM knowledge_product_events WHERE user_id = $1',
+        [userId],
+      );
+    }
+
     for (const item of items) {
       await client.query(
         `INSERT INTO user_knowledge_items (

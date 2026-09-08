@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import {
   claimWebhookEvent,
-  markWebhookEventProcessed,
-  releaseWebhookEvent,
+  completeWebhookEvent,
+  currentBillingEnvironment,
+  recordWebhookFailure,
 } from '@/lib/billing/database';
 import { verifyTimestampedHmac } from '@/lib/billing/hmac';
 import { parseStripeEvent, processStripeEvent } from '@/lib/billing/stripe';
@@ -34,16 +35,22 @@ export async function POST(request: Request) {
   }
   const event = parseStripeEvent(payload);
   if (!event) return NextResponse.json({ error: 'Invalid Stripe event.' }, { status: 400 });
-  const claim = await claimWebhookEvent('stripe', event.id, event.type);
+  const claim = await claimWebhookEvent({
+    provider: 'stripe',
+    environment: currentBillingEnvironment(),
+    eventId: event.id,
+    eventType: event.type,
+    providerEventAt: event.createdAt,
+  });
   if (claim === 'processed') return NextResponse.json({ received: true, duplicate: true });
   if (claim === 'busy') return NextResponse.json({ error: 'Event is already processing.' }, { status: 409 });
 
   try {
     await processStripeEvent(event);
-    await markWebhookEventProcessed('stripe', event.id);
+    await completeWebhookEvent(claim);
     return NextResponse.json({ received: true });
   } catch (error) {
-    await releaseWebhookEvent('stripe', event.id).catch(() => undefined);
+    await recordWebhookFailure(claim, 'legacy_reconciliation_failed').catch(() => undefined);
     console.error('Stripe webhook processing failed:', error);
     return NextResponse.json({ error: 'Webhook processing failed.' }, { status: 500 });
   }

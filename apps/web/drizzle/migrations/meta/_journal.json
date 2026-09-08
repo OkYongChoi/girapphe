@@ -117,8 +117,29 @@
     {
       "idx": 16,
       "version": "7",
-      "when": 1788393600000,
-      "tag": "0019_recall_ping_persistence",
+      "when": 1788652800000,
+      "tag": "0019_selected_export_ingestion",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788739200000,
+      "tag": "0020_knowledge_intelligence_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788825600000,
+      "tag": "0021_billing_v1_domain",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788876000000,
+      "tag": "0022_recall_ping_persistence",
       "breakpoints": true
     }
   ]

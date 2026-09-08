@@ -47,7 +47,7 @@ test('Recall migration bootstraps an absent Practice table, preserves rows, and 
 
   try {
     const migrationSql = await readFile(
-      new URL('../drizzle/migrations/0019_recall_ping_persistence.sql', import.meta.url),
+      new URL('../drizzle/migrations/0022_recall_ping_persistence.sql', import.meta.url),
       'utf8',
     );
     const statements = parsePreviewMigration(migrationSql);

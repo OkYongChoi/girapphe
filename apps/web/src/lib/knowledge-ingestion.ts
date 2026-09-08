@@ -40,6 +40,7 @@ const ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL = `INSERT INTO mcp_deleted_account_mar
   FROM mcp_deleted_account_markers
   WHERE scope_key = $1`;
 export const KNOWLEDGE_PROVIDERS = ['chatgpt', 'claude', 'gemini', 'other'] as const;
+export const KNOWLEDGE_INGESTION_SCOPES = ['current_conversation', 'selected_export'] as const;
 export const KNOWLEDGE_RELATION_TYPES = [
   'prerequisite',
   'related',
@@ -64,6 +65,7 @@ export const CAUSAL_KNOWLEDGE_RELATION_TYPES = [
 ] as const satisfies readonly KnowledgeRelationType[];
 
 export type KnowledgeProvider = (typeof KNOWLEDGE_PROVIDERS)[number];
+export type KnowledgeIngestionScope = (typeof KNOWLEDGE_INGESTION_SCOPES)[number];
 export type KnowledgeRelationType = (typeof KNOWLEDGE_RELATION_TYPES)[number];
 export type KnowledgeTargetKind = 'public' | 'private' | 'draft';
 export type KnowledgeRelationOrigin = 'explicit_user' | 'extracted_from_source' | 'model_inferred';
@@ -106,10 +108,12 @@ export type CreateKnowledgeDraftCardInput = {
   structuredContent?: KnowledgeBundleContent;
   bundleSchemaVersion?: 1;
   proposedEvidence?: KnowledgeEvidenceSelector[];
+  observedAt?: string | null;
 };
 
 export type CreateKnowledgeDraftBatchInput = {
   provider: KnowledgeProvider;
+  scope?: KnowledgeIngestionScope;
   requestId: string;
   conversationRef?: string;
   sourceUrl?: string;
@@ -128,7 +132,7 @@ export type KnowledgeDraftBatch = {
   id: string;
   source_type: 'conversation';
   provider: KnowledgeProvider;
-  scope: 'current_conversation';
+  scope: KnowledgeIngestionScope;
   conversation_ref: string | null;
   source_url: string | null;
   discussed_at: string | null;
@@ -157,6 +161,7 @@ export type KnowledgeCardDraft = {
   bundle_schema_version: number | null;
   dedupe_key: string;
   proposed_evidence: KnowledgeEvidenceSelector[];
+  observed_at: string | null;
   resolution_action: KnowledgeDraftResolutionAction | null;
   target_knowledge_item_id: string | null;
   resolved_at: string | null;
@@ -354,6 +359,7 @@ type DraftPayload = {
   bundle_schema_version: number | null;
   dedupe_key: string;
   proposed_evidence: KnowledgeEvidenceSelector[];
+  observed_at: string | null;
 };
 
 type MemoryBatchRecord = KnowledgeDraftBatch & {
@@ -706,6 +712,10 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
       : { summary: preferredSummary, content: sanitizeKnowledgeContent(String(card.explanation ?? ''), 6000) };
     const relations = sanitizeProposedRelations(card.relations);
     const proposedEvidence = sanitizeKnowledgeEvidenceSelectors(card.proposedEvidence);
+    const observedAt = sanitizeTimestamp(card.observedAt);
+    if (card.observedAt !== undefined && card.observedAt !== null && !observedAt) {
+      throw new Error(`Card ${index + 1} has an invalid observedAt timestamp.`);
+    }
     if (relations.length !== (card.relations?.length ?? 0)
       || proposedEvidence.length !== (card.proposedEvidence?.length ?? 0)
       || !relationsReferenceValidEvidence(relations, proposedEvidence.length)) {
@@ -731,6 +741,7 @@ function sanitizeDraftCards(cards: CreateKnowledgeDraftCardInput[]): DraftPayloa
         centralQuestion: bundle?.central_question,
       }),
       proposed_evidence: proposedEvidence,
+      observed_at: observedAt,
     };
   });
 }
@@ -769,7 +780,7 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           updated_at TIMESTAMPTZ DEFAULT NOW(), committed_at TIMESTAMPTZ, discarded_at TIMESTAMPTZ,
           UNIQUE(user_id, provider, request_id),
           CHECK (source_type = 'conversation'), CHECK (provider IN ('chatgpt', 'claude', 'gemini', 'other')),
-          CHECK (scope = 'current_conversation'), CHECK (status IN ('pending', 'partial', 'approved', 'discarded'))
+          CHECK (scope IN ('current_conversation', 'selected_export')), CHECK (status IN ('pending', 'partial', 'approved', 'discarded'))
         );
       `);
       await pool.query(`
@@ -780,7 +791,7 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
           proposed_relations JSONB NOT NULL DEFAULT '[]'::jsonb, knowledge_type TEXT, central_question TEXT,
           structured_content JSONB, bundle_schema_version INTEGER, dedupe_key TEXT, resolution_action TEXT,
           target_knowledge_item_id TEXT REFERENCES user_knowledge_items(id) ON DELETE CASCADE,
-          resolved_at TIMESTAMPTZ, proposed_evidence JSONB,
+          resolved_at TIMESTAMPTZ, proposed_evidence JSONB, observed_at TIMESTAMPTZ,
           status TEXT NOT NULL DEFAULT 'pending', version INTEGER NOT NULL DEFAULT 1,
           knowledge_item_id TEXT REFERENCES user_knowledge_items(id) ON DELETE SET NULL, created_at TIMESTAMPTZ DEFAULT NOW(),
           updated_at TIMESTAMPTZ DEFAULT NOW(), approved_at TIMESTAMPTZ, UNIQUE(batch_id, client_card_id),
@@ -820,7 +831,8 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
         ADD COLUMN IF NOT EXISTS resolution_action TEXT,
         ADD COLUMN IF NOT EXISTS target_knowledge_item_id TEXT REFERENCES user_knowledge_items(id) ON DELETE CASCADE,
         ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ,
-        ADD COLUMN IF NOT EXISTS proposed_evidence JSONB`);
+        ADD COLUMN IF NOT EXISTS proposed_evidence JSONB,
+        ADD COLUMN IF NOT EXISTS observed_at TIMESTAMPTZ`);
       await pool.query(`
         CREATE TABLE IF NOT EXISTS user_graph_nodes (
           id TEXT PRIMARY KEY, user_id TEXT NOT NULL, knowledge_item_id TEXT NOT NULL REFERENCES user_knowledge_items(id) ON DELETE CASCADE,
@@ -883,6 +895,11 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
         ADD COLUMN IF NOT EXISTS mcp_token_id TEXT,
         ADD COLUMN IF NOT EXISTS source_url TEXT,
         ADD COLUMN IF NOT EXISTS discussed_at TIMESTAMPTZ`);
+      await pool.query(`ALTER TABLE knowledge_ingestion_batches
+        DROP CONSTRAINT IF EXISTS knowledge_ingestion_batches_scope_check`);
+      await pool.query(`ALTER TABLE knowledge_ingestion_batches
+        ADD CONSTRAINT knowledge_ingestion_batches_scope_check
+          CHECK (scope IN ('current_conversation', 'selected_export')) NOT VALID`);
       await pool.query(`ALTER TABLE user_graph_edges
         ADD COLUMN IF NOT EXISTS relation_origin TEXT,
         ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ`);
@@ -1354,6 +1371,7 @@ function mapDraftRow(row: Record<string, unknown>): KnowledgeCardDraft {
           centralQuestion: bundle?.central_question,
         }),
     proposed_evidence: sanitizeKnowledgeEvidenceSelectors(row.proposed_evidence),
+    observed_at: row.observed_at ? new Date(String(row.observed_at)).toISOString() : null,
     resolution_action: row.resolution_action as KnowledgeDraftResolutionAction | null ?? null,
     target_knowledge_item_id: row.target_knowledge_item_id ? String(row.target_knowledge_item_id) : null,
     resolved_at: row.resolved_at ? new Date(String(row.resolved_at)).toISOString() : null,
@@ -1370,7 +1388,7 @@ function mapBatchRow(row: Record<string, unknown>): KnowledgeDraftBatch {
     id: String(row.id),
     source_type: 'conversation',
     provider: row.provider as KnowledgeProvider,
-    scope: 'current_conversation',
+    scope: row.scope === 'selected_export' ? 'selected_export' : 'current_conversation',
     conversation_ref: normalizeKnowledgeOpaqueReference(row.conversation_ref),
     source_url: normalizeKnowledgeSourceUrl(row.source_url),
     discussed_at: row.discussed_at ? new Date(String(row.discussed_at)).toISOString() : null,
@@ -1387,11 +1405,20 @@ function mapBatchRow(row: Record<string, unknown>): KnowledgeDraftBatch {
 export async function createKnowledgeDraftBatchForUser(
   userId: string,
   input: CreateKnowledgeDraftBatchInput,
-  sourceTokenId: string | null = null
+  sourceTokenId: string | null = null,
+  batchId: string = randomUUID(),
 ): Promise<CreateKnowledgeDraftBatchResult> {
   if (!userId || userId.startsWith('guest_')) throw new Error('A signed-in user is required.');
   const provider = String(input.provider ?? '').toLowerCase();
   if (!isProvider(provider)) throw new Error('Unsupported conversation provider.');
+  const scopeValue = String(input.scope ?? 'current_conversation');
+  if (!(KNOWLEDGE_INGESTION_SCOPES as readonly string[]).includes(scopeValue)) {
+    throw new Error('Unsupported conversation ingestion scope.');
+  }
+  const scope = scopeValue as KnowledgeIngestionScope;
+  if (sourceTokenId && scope !== 'current_conversation') {
+    throw new Error('MCP credentials may create drafts only from the current conversation.');
+  }
   const requestId = sanitizeIdentifier(String(input.requestId ?? ''), 160);
   if (!requestId) throw new Error('requestId is required for idempotency.');
   const conversationRef = sanitizeOpaqueReference(input.conversationRef);
@@ -1440,7 +1467,7 @@ export async function createKnowledgeDraftBatchForUser(
       throw new Error('Knowledge ingestion quota exceeded.');
     }
     const now = new Date().toISOString();
-    const batchId = randomUUID();
+    if (memoryBatches.has(batchId)) throw new Error('Unable to create the draft batch.');
     const drafts = cards.map<KnowledgeCardDraft>((card) => ({
       id: card.id,
       batch_id: batchId,
@@ -1457,6 +1484,7 @@ export async function createKnowledgeDraftBatchForUser(
       bundle_schema_version: card.bundle_schema_version,
       dedupe_key: card.dedupe_key,
       proposed_evidence: card.proposed_evidence,
+      observed_at: card.observed_at,
       resolution_action: null,
       target_knowledge_item_id: null,
       resolved_at: null,
@@ -1473,7 +1501,7 @@ export async function createKnowledgeDraftBatchForUser(
       mcp_token_id: sourceTokenId,
       source_type: 'conversation',
       provider,
-      scope: 'current_conversation',
+      scope,
       conversation_ref: conversationRef,
       source_url: sourceUrl,
       discussed_at: discussedAt,
@@ -1490,7 +1518,6 @@ export async function createKnowledgeDraftBatchForUser(
   }
 
   await ensureKnowledgeIngestionSchema();
-  const batchId = randomUUID();
   const deletedAccountScopeKey = deriveMcpDeletedAccountScopeKey(userId);
   const sql = getTransactionSql();
   const resultSets = await sql.transaction((tx) => [
@@ -1501,9 +1528,9 @@ export async function createKnowledgeDraftBatchForUser(
     WITH inserted_batch AS (
       INSERT INTO knowledge_ingestion_batches
         (id, user_id, source_type, provider, scope, request_id, conversation_ref, source_url, discussed_at, mcp_token_id)
-      SELECT $1, $2, 'conversation', $3, 'current_conversation', $4, $5, $14, $15, $6
+      SELECT $1, $2, 'conversation', $3, $16, $4, $5, $14, $15, $6
       WHERE NOT EXISTS (
-          SELECT 1 FROM mcp_deleted_account_markers marker WHERE marker.scope_key = $16
+          SELECT 1 FROM mcp_deleted_account_markers marker WHERE marker.scope_key = $17
         )
         AND ($6::text IS NULL OR EXISTS (
           SELECT 1 FROM mcp_access_tokens t
@@ -1538,14 +1565,15 @@ export async function createKnowledgeDraftBatchForUser(
     ), inserted_drafts AS (
       INSERT INTO knowledge_card_drafts
         (id, batch_id, user_id, client_card_id, title, summary, explanation, topic, tags, proposed_relations,
-         knowledge_type, central_question, structured_content, bundle_schema_version, dedupe_key, proposed_evidence)
+         knowledge_type, central_question, structured_content, bundle_schema_version, dedupe_key, proposed_evidence, observed_at)
       SELECT d.id, rb.id, $2, d.client_card_id, d.title, d.summary, d.explanation, d.topic, d.tags, d.relations,
-        d.knowledge_type, d.central_question, d.structured_content, d.bundle_schema_version, d.dedupe_key, d.proposed_evidence
+        d.knowledge_type, d.central_question, d.structured_content, d.bundle_schema_version, d.dedupe_key, d.proposed_evidence,
+        d.observed_at
       FROM resolved_batch rb
       CROSS JOIN jsonb_to_recordset($7::jsonb) AS d(
         id text, client_card_id text, title text, summary text, explanation text, topic text, tags jsonb, relations jsonb,
         knowledge_type text, central_question text, structured_content jsonb, bundle_schema_version int,
-        dedupe_key text, proposed_evidence jsonb
+        dedupe_key text, proposed_evidence jsonb, observed_at timestamptz
       )
       WHERE rb.created
       RETURNING id
@@ -1572,6 +1600,7 @@ export async function createKnowledgeDraftBatchForUser(
         MCP_DRAFTS_PER_TOKEN_PER_HOUR,
         sourceUrl,
         discussedAt,
+        scope,
         deletedAccountScopeKey,
       ]
     ),
@@ -1587,11 +1616,18 @@ export async function createKnowledgeDraftBatchForUser(
   };
 }
 
-export async function getKnowledgeDraftBatchesForUser(userId: string, includeCompleted = false): Promise<KnowledgeDraftBatch[]> {
+export async function getKnowledgeDraftBatchesForUser(
+  userId: string,
+  includeCompleted = false,
+  options: { limit?: number; offset?: number } = {},
+): Promise<KnowledgeDraftBatch[]> {
+  const limit = Math.max(1, Math.min(100, options.limit ?? 100));
+  const offset = Math.max(0, Math.min(MAX_KNOWLEDGE_BATCHES_PER_USER, options.offset ?? 0));
   if (!process.env.DATABASE_URL) {
     return Array.from(memoryBatches.values())
       .filter((batch) => batch.user_id === userId && (includeCompleted || batch.status === 'pending' || batch.status === 'partial'))
-      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(offset, offset + limit);
   }
   await ensureKnowledgeIngestionSchema();
   const result = await pool.query<Record<string, unknown>>(
@@ -1606,9 +1642,9 @@ export async function getKnowledgeDraftBatchesForUser(userId: string, includeCom
     WHERE b.user_id = $1 AND ($2::boolean OR b.status IN ('pending', 'partial'))
     GROUP BY b.id
     ORDER BY b.created_at DESC
-    LIMIT 100;
+    LIMIT $3 OFFSET $4;
     `,
-    [userId, includeCompleted]
+    [userId, includeCompleted, limit, offset]
   );
   return result.rows.map(mapBatchRow);
 }
@@ -1643,7 +1679,7 @@ export async function getKnowledgeDraftBatchForUser(
   const draftResult = await pool.query<Record<string, unknown>>(
     `SELECT id, batch_id, client_card_id, title, summary, explanation, topic, tags,
       proposed_relations, knowledge_type, central_question, structured_content, bundle_schema_version,
-      dedupe_key, proposed_evidence, resolution_action, target_knowledge_item_id, resolved_at::text,
+      dedupe_key, proposed_evidence, observed_at::text, resolution_action, target_knowledge_item_id, resolved_at::text,
       status, version, knowledge_item_id, created_at::text, updated_at::text
      FROM knowledge_card_drafts WHERE batch_id = $1 AND user_id = $2 ORDER BY created_at, id`,
     [batchId, userId]
@@ -2985,7 +3021,7 @@ async function getKnowledgeDraftForUserById(userId: string, draftId: string): Pr
   const result = await pool.query<Record<string, unknown>>(
     `SELECT d.id, d.batch_id, d.client_card_id, d.title, d.summary, d.explanation, d.topic, d.tags,
        d.proposed_relations, d.knowledge_type, d.central_question, d.structured_content, d.bundle_schema_version,
-       d.dedupe_key, d.proposed_evidence, d.resolution_action, d.target_knowledge_item_id, d.resolved_at,
+       d.dedupe_key, d.proposed_evidence, d.observed_at, d.resolution_action, d.target_knowledge_item_id, d.resolved_at,
        d.status, d.version, d.knowledge_item_id, d.created_at, d.updated_at
      FROM knowledge_card_drafts d
      JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id
@@ -3519,6 +3555,7 @@ export async function approveKnowledgeDraftsForUser(
         centralQuestion: plan.draft.central_question,
         structuredContent: plan.draft.structured_content,
         bundleSchemaVersion: plan.draft.bundle_schema_version,
+        observedAt: plan.draft.observed_at,
       });
       const node = ensureMemoryPrivateNode(userId, item, 'conversation');
       const plannedEndpoint = plannedNodes.get(plan.draft.id)!;
@@ -3638,10 +3675,10 @@ export async function approveKnowledgeDraftsForUser(
       queries.push(tx.query(
         `INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags,
            knowledge_type, central_question, structured_content, bundle_schema_version,
-           version, dedupe_key)
+           version, dedupe_key, observed_at)
          SELECT $1, $2, d.title, d.summary, CASE WHEN d.explanation <> '' THEN d.explanation ELSE d.summary END, d.topic, d.tags,
            d.knowledge_type, d.central_question, d.structured_content, d.bundle_schema_version,
-           1, d.dedupe_key
+           1, d.dedupe_key, d.observed_at
          FROM knowledge_card_drafts d JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id
          WHERE d.id = $3 AND d.batch_id = $4 AND d.user_id = $2 AND d.status = 'pending'
            AND d.version = $5 AND b.status <> 'discarded'
@@ -3667,12 +3704,13 @@ export async function approveKnowledgeDraftsForUser(
         [plan.revisionId, plan.itemId, userId]
       ));
       queries.push(tx.query(
-        `INSERT INTO knowledge_card_sources
-          (id, user_id, knowledge_item_id, batch_id, draft_id, source_type, provider,
-           conversation_ref, source_url, source_locator, supported_item_version,
-           discussed_at, relation_origin, confirmed_at)
-         SELECT $1, $2, $3, b.id, d.id, 'conversation', b.provider, b.conversation_ref,
-           b.source_url, $6::jsonb, i.version, b.discussed_at, 'extracted_from_source', NOW()
+         `INSERT INTO knowledge_card_sources
+           (id, user_id, knowledge_item_id, batch_id, draft_id, source_type, provider,
+            conversation_ref, source_url, source_locator, supported_item_version,
+            discussed_at, relation_origin, confirmed_at)
+          SELECT $1, $2, $3, b.id, d.id, 'conversation', b.provider, b.conversation_ref,
+           b.source_url, $6::jsonb, i.version, COALESCE(d.observed_at, b.discussed_at),
+           'extracted_from_source', NOW()
          FROM knowledge_card_drafts d
          JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id
          JOIN user_knowledge_items i ON i.id = $3 AND i.user_id = $2
@@ -3802,6 +3840,73 @@ export async function discardKnowledgeDraftBatchForUser(userId: string, batchId:
   );
 }
 
+export async function deleteKnowledgeImportBatchForUser(
+  userId: string,
+  batchIdInput: string,
+): Promise<{ deleted: boolean; approvedKnowledgePreserved: number }> {
+  const batchId = sanitizeIdentifier(batchIdInput, 160);
+  if (!userId || !batchId) return { deleted: false, approvedKnowledgePreserved: 0 };
+  if (!process.env.DATABASE_URL) {
+    const batch = memoryBatches.get(batchId);
+    if (!batch || batch.user_id !== userId) return { deleted: false, approvedKnowledgePreserved: 0 };
+    const drafts = memoryDrafts.get(batchId) ?? [];
+    const approvedKnowledgePreserved = new Set(drafts
+      .flatMap((draft) => draft.status === 'approved' && draft.knowledge_item_id ? [draft.knowledge_item_id] : [])).size;
+    const sources = memoryKnowledgeSources.get(userId) ?? [];
+    for (const source of sources) {
+      if (source.source_locator?.batch_id !== batchId) continue;
+      const retainedLocator = Object.fromEntries(Object.entries(source.source_locator)
+        .filter(([key]) => key !== 'batch_id' && key !== 'draft_id' && key !== 'client_card_id'));
+      source.source_locator = Object.keys(retainedLocator).length > 0 ? retainedLocator : null;
+    }
+    memoryDrafts.delete(batchId);
+    memoryBatches.delete(batchId);
+    return { deleted: true, approvedKnowledgePreserved };
+  }
+
+  await ensureKnowledgeIngestionSchema();
+  const sql = getTransactionSql();
+  const resultSets = await sql.transaction((tx) => [
+    tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
+    tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
+    tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-import:${userId}:${batchId}`]),
+    tx.query(
+      `WITH owned_batch AS MATERIALIZED (
+         SELECT id FROM knowledge_ingestion_batches
+         WHERE id = $1 AND user_id = $2
+         FOR UPDATE
+       ), approved_items AS MATERIALIZED (
+         SELECT DISTINCT d.knowledge_item_id AS id
+         FROM knowledge_card_drafts d
+         JOIN owned_batch b ON b.id = d.batch_id
+         WHERE d.user_id = $2 AND d.status = 'approved' AND d.knowledge_item_id IS NOT NULL
+       ), detached_sources AS (
+         UPDATE knowledge_card_sources s SET
+           batch_id = NULL,
+           draft_id = NULL,
+           source_locator = CASE WHEN s.source_locator IS NULL THEN NULL
+             ELSE s.source_locator - 'batch_id' - 'draft_id' - 'client_card_id' END
+         WHERE s.user_id = $2 AND s.batch_id IN (SELECT id FROM owned_batch)
+         RETURNING s.id
+       ), deleted_batch AS (
+         DELETE FROM knowledge_ingestion_batches b
+         USING owned_batch owned
+         WHERE b.id = owned.id AND b.user_id = $2
+           AND (SELECT COUNT(*) FROM detached_sources) >= 0
+         RETURNING b.id
+       )
+       SELECT EXISTS (SELECT 1 FROM deleted_batch) AS deleted,
+         (SELECT COUNT(*)::integer FROM approved_items) AS approved_knowledge_preserved`,
+      [batchId, userId],
+    ),
+  ], { isolationLevel: 'ReadCommitted' });
+  const row = (resultSets[3] as Array<{ deleted: boolean; approved_knowledge_preserved: number }>)[0];
+  return {
+    deleted: row?.deleted === true,
+    approvedKnowledgePreserved: Number(row?.approved_knowledge_preserved ?? 0),
+  };
+}
+
 type SanitizedReviewedKnowledgePayload = {
   title: string;
   summary: string;
@@ -3900,6 +4005,7 @@ function reviewedPayloadFromDraft(draft: KnowledgeCardDraft): SanitizedReviewedK
     centralQuestion: draft.central_question,
     structuredContent: draft.structured_content,
     bundleSchemaVersion: draft.bundle_schema_version,
+    observedAt: draft.observed_at,
     evidenceSelectors: draft.proposed_evidence,
     relations: draft.relations,
   });
@@ -4017,7 +4123,7 @@ function recordMemoryConversationSource(
       client_card_id: draft.client_card_id,
     },
     supported_item_version: itemVersion,
-    discussed_at: batch.discussed_at,
+    discussed_at: draft.observed_at ?? batch.discussed_at,
     relation_origin: 'extracted_from_source' as const,
     confirmed_at: new Date().toISOString(),
     created_at: new Date().toISOString(),
@@ -4540,7 +4646,8 @@ export async function resolveKnowledgeDraftForUser(
              relation_origin, confirmed_at
            )
            SELECT $1, $2, $3, b.id, d.id, 'conversation', b.provider,
-             b.conversation_ref, b.source_url, $6::jsonb, i.version, b.discussed_at,
+             b.conversation_ref, b.source_url, $6::jsonb, i.version,
+             COALESCE(d.observed_at, b.discussed_at),
              'extracted_from_source', NOW()
            FROM knowledge_card_drafts d
            JOIN knowledge_ingestion_batches b ON b.id = d.batch_id AND b.user_id = d.user_id

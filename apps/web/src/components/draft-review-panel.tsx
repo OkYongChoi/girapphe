@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
@@ -8,6 +8,7 @@ import {
   discardKnowledgeDraftBatch,
   updateKnowledgeDraft,
 } from '@/actions/knowledge-ingestion-actions';
+import { recordKnowledgeProductEvents } from '@/actions/knowledge-product-event-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import SubmitButton from '@/components/submit-button';
 import { draftDependencies, includeDraftDependencies } from '@/components/draft-review-selection';
@@ -111,6 +112,19 @@ function readTags(record: Record<string, unknown>) {
   const value = record.tags;
   if (Array.isArray(value)) return value.filter((tag): tag is string => typeof tag === 'string').join(', ');
   return typeof value === 'string' ? value : '';
+}
+
+function readEvidenceCount(record: Record<string, unknown>) {
+  return Array.isArray(record.proposed_evidence) ? record.proposed_evidence.length : 0;
+}
+
+function formatObservedAt(value: string, locale: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
 }
 
 function normalizeRelationType(value: unknown): EditableRelation['type'] {
@@ -337,7 +351,7 @@ function DraftCardEditor({
   targetListId: string;
   dependencyRequired: boolean;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [saveError, setSaveError] = useState<string | null>(null);
   const record = asRecord(draft);
   const id = readString(record, 'id', 'draft_id');
@@ -348,6 +362,8 @@ function DraftCardEditor({
   const topic = readString(record, 'topic', 'domain') || 'general';
   const version = typeof record.version === 'number' ? record.version : Number(record.version ?? 1);
   const relations = readRelations(record);
+  const observedAt = readString(record, 'observed_at', 'observedAt');
+  const evidenceCount = readEvidenceCount(record);
   const knowledgeType: KnowledgeBundleType | null = isKnowledgeBundleType(record.knowledge_type) ? record.knowledge_type : null;
   const centralQuestion = readString(record, 'central_question');
   const structuredContent = record.structured_content && typeof record.structured_content === 'object'
@@ -370,6 +386,10 @@ function DraftCardEditor({
           <span className="block text-xs font-semibold uppercase tracking-wide text-amber-700">{t('inbox.candidateUnconfirmed')}</span>
           <span className="mt-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">{knowledgeType ? `${t('bundle.structuredView')} · ${t(`bundle.type.${knowledgeType}`)}` : t('bundle.quickNote')}</span>
           <span className="mt-1 block truncate text-base font-semibold text-slate-950">{title || 'Untitled draft'}</span>
+          <span className="mt-1 block text-xs text-slate-500">
+            {[formatObservedAt(observedAt, locale), t('topic.graph.evidence', { count: evidenceCount }), `${relations.length} ${t('bundle.visual.relationship')}`]
+              .filter(Boolean).join(' · ')}
+          </span>
           <span className="mt-1 block font-mono text-[10px] text-slate-400">{id}</span>
         </label>
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${selected ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
@@ -460,9 +480,35 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
   const { locale, t } = useI18n();
   const batchRecord = asRecord(batch);
   const batchId = readString(batchRecord, 'id', 'batch_id');
+  const batchScope = readString(batchRecord, 'scope');
   const provider = providerLabel(batchRecord);
   const sourceReference = readString(batchRecord, 'source_reference', 'source_ref', 'conversation_ref', 'external_source_id');
   const sourceUrl = readString(batchRecord, 'source_url');
+  const firstValue = useMemo(() => {
+    const topics = [...new Set(drafts.map((draft) => readString(asRecord(draft), 'topic', 'domain') || 'general'))];
+    const dates = drafts
+      .map((draft) => readString(asRecord(draft), 'observed_at', 'observedAt'))
+      .filter((value) => value && Number.isFinite(new Date(value).getTime()))
+      .toSorted();
+    return {
+      topics,
+      firstDate: dates.at(0) ?? '',
+      lastDate: dates.at(-1) ?? '',
+      evidenceCount: drafts.reduce<number>((sum, draft) => sum + readEvidenceCount(asRecord(draft)), 0),
+      relationCount: drafts.reduce<number>((sum, draft) => sum + readRelations(asRecord(draft)).length, 0),
+    };
+  }, [drafts]);
+  const firstValueRecorded = useRef(false);
+  useEffect(() => {
+    if (firstValueRecorded.current || batchScope !== 'selected_export' || !batchId || drafts.length === 0) return;
+    firstValueRecorded.current = true;
+    void recordKnowledgeProductEvents([{
+      eventName: 'conversation_import_first_value_viewed',
+      eventVersion: 1,
+      subjectId: batchId,
+      selectionCount: drafts.length,
+    }]).catch(() => undefined);
+  }, [batchId, batchScope, drafts.length]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
   const [approvalError, setApprovalError] = useState<string | null>(null);
@@ -546,6 +592,28 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
             {sourceReference ? <p className="mt-1 max-w-xs truncate text-xs text-slate-600">Source {sourceReference}</p> : null}
             {sourceUrl.startsWith('https://') ? <a href={sourceUrl} target="_blank" rel="noreferrer noopener" className="mt-1 block text-xs font-semibold text-blue-700 hover:underline">{t('inbox.openSelectedSource')} ↗</a> : null}
           </div>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-[linear-gradient(120deg,#ecfdf5_0%,#ffffff_58%,#eff6ff_100%)] p-4 md:p-5" aria-label="Candidate transformation summary">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">{t('inbox.candidateUnconfirmed')}</p>
+            <h3 className="mt-1 text-lg font-black text-slate-950">{t('inbox.reviewSubtitle')}</h3>
+          </div>
+          {firstValue.firstDate ? (
+            <p className="rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
+              {formatObservedAt(firstValue.firstDate, locale)}
+              {firstValue.lastDate && firstValue.lastDate !== firstValue.firstDate ? ` → ${formatObservedAt(firstValue.lastDate, locale)}` : ''}
+            </p>
+          ) : null}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {firstValue.topics.map((topic) => (
+            <span key={topic} className="rounded-full bg-slate-950 px-3 py-1 text-xs font-bold text-white">{topic}</span>
+          ))}
+          <span className="rounded-full border border-blue-200 bg-white/80 px-3 py-1 text-xs font-semibold text-blue-800">{t('topic.graph.evidence', { count: firstValue.evidenceCount })}</span>
+          <span className="rounded-full border border-amber-200 bg-white/80 px-3 py-1 text-xs font-semibold text-amber-800">{firstValue.relationCount} {t('bundle.visual.relationship')}</span>
         </div>
       </section>
 

@@ -1,25 +1,24 @@
 import {
   AD_FREE_ENTITLEMENT,
-  claimAccountBillingOperation,
   claimStripePortalRateSlot,
-  claimTrial,
   consumeTrialFromWebhook,
   findUserIdByStripeCustomer,
-  hasBlockingSubscription,
   getStripeCustomerId,
   getStripeSubscriptionIds,
   isAccountDeletionMarked,
-  releaseAccountBillingOperation,
   releaseTrialClaim,
   saveStripeCustomer,
   upsertSubscription,
+  upsertLegacyStripeSubscriptionDuringAccountDeletion,
   type BillingPlan,
+  type BillingStatus,
 } from '@/lib/billing/database';
 
 export const STRIPE_API_VERSION = '2026-02-25.clover';
 export const STRIPE_PROVIDER_TIMEOUT_MS = 10_000;
 
 type JsonObject = Record<string, unknown>;
+type LegacyStripePlan = BillingPlan | 'unknown';
 
 type StripeEvent = {
   id: string;
@@ -81,29 +80,17 @@ function requiredSecret(name: string) {
   return value;
 }
 
-function priceForPlan(plan: Exclude<BillingPlan, 'unknown'>) {
-  const monthly = requiredSecret('STRIPE_PRICE_AD_FREE_MONTHLY');
-  const annual = requiredSecret('STRIPE_PRICE_AD_FREE_ANNUAL');
-  if (monthly === annual) {
-    throw new BillingConfigurationError('Stripe monthly and annual price IDs must be distinct.');
-  }
-  return plan === 'monthly' ? monthly : annual;
-}
-
 export function isStripeCheckoutConfigured() {
-  const monthly = process.env.STRIPE_PRICE_AD_FREE_MONTHLY?.trim();
-  const annual = process.env.STRIPE_PRICE_AD_FREE_ANNUAL?.trim();
-  return Boolean(
-    process.env.DATABASE_URL
-      && process.env.STRIPE_SECRET_KEY
-      && process.env.STRIPE_WEBHOOK_SECRET
-      && monthly
-      && annual
-      && monthly !== annual,
-  );
+  // Billing V1 never permits new Stripe acquisition. Provider credentials are
+  // lifecycle-only until the final legacy subscription is gone.
+  return false;
 }
 
-function planForPrice(priceId: string | null): BillingPlan {
+export function isStripeLifecycleConfigured() {
+  return Boolean(process.env.DATABASE_URL && process.env.STRIPE_SECRET_KEY);
+}
+
+function planForPrice(priceId: string | null): LegacyStripePlan {
   if (process.env.STRIPE_PRICE_AD_FREE_MONTHLY === process.env.STRIPE_PRICE_AD_FREE_ANNUAL) {
     return 'unknown';
   }
@@ -217,31 +204,6 @@ async function stripeGet<T extends JsonObject>(
   );
 }
 
-async function ensureStripeCustomer(userId: string, email: string) {
-  const existing = await getStripeCustomerId(userId);
-  if (existing) return existing;
-
-  const body = new URLSearchParams();
-  if (email) body.set('email', email);
-  body.set('metadata[user_id]', userId);
-  const customer = await stripeRequest<JsonObject>(
-    'customers',
-    body,
-    `girapphe-customer:${userId}`,
-  );
-  const createdId = stringValue(customer.id);
-  if (!createdId) {
-    throw new StripeProviderRequestError(
-      'Stripe did not return a customer id.',
-      'indeterminate',
-    );
-  }
-
-  // A Toss-created billing customer row may already exist with a NULL Stripe id.
-  // COALESCE in saveStripeCustomer fills that row without replacing an existing mapping.
-  return saveStripeCustomer(userId, createdId);
-}
-
 function checkoutBaseUrl(requestUrl: string) {
   const configured = process.env.APP_BASE_URL?.trim();
   if (configured) {
@@ -264,136 +226,17 @@ export function requestHasTrustedOrigin(request: Request) {
   }
 }
 
-async function findOpenCheckoutUrl(customerId: string, userId: string) {
-  const sessions = await stripeGet<JsonObject>('checkout/sessions', new URLSearchParams({
-    customer: customerId,
-    status: 'open',
-    limit: '10',
-  }));
-  if (!Array.isArray(sessions.data)) {
-    throw new Error('Stripe did not return a Checkout Session list.');
-  }
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  for (const candidate of sessions.data) {
-    if (!isObject(candidate)) continue;
-    const metadata = metadataOf(candidate.metadata);
-    const expiresAt = numberValue(candidate.expires_at);
-    if (
-      candidate.mode === 'subscription'
-      && metadata.user_id === userId
-      && metadata.entitlement === AD_FREE_ENTITLEMENT
-      && (!expiresAt || expiresAt > nowSeconds)
-    ) {
-      const url = stringValue(candidate.url);
-      if (url) return url;
-    }
-  }
-  return null;
-}
-
-async function hasBlockingStripeSubscription(customerId: string) {
-  requiredSecret('STRIPE_PRICE_AD_FREE_MONTHLY');
-  requiredSecret('STRIPE_PRICE_AD_FREE_ANNUAL');
-  const subscriptions = await stripeGet<JsonObject>('subscriptions', new URLSearchParams({
-    customer: customerId,
-    status: 'all',
-    limit: '100',
-  }));
-  if (!Array.isArray(subscriptions.data)) {
-    throw new Error('Stripe did not return a subscription list.');
-  }
-  const blockingStatuses = new Set([
-    'incomplete',
-    'trialing',
-    'active',
-    'past_due',
-    'unpaid',
-    'paused',
-  ]);
-  return subscriptions.data.some((candidate) => (
-    isObject(candidate)
-      && blockingStatuses.has(stringValue(candidate.status) ?? '')
-      && planForPrice(subscriptionPriceId(candidate)) !== 'unknown'
-  ));
-}
-
 export async function createStripeCheckout(input: {
   userId: string;
   email: string;
-  plan: Exclude<BillingPlan, 'unknown'>;
+  plan: BillingPlan;
   requestUrl: string;
-}) {
-  const priceId = priceForPlan(input.plan);
-  const lease = await claimAccountBillingOperation(input.userId, 'stripe', 'checkout');
-  if (!lease) throw new Error('A checkout session is already being created.');
-  let releaseLease = true;
-  let claimedAtIso: string | null = null;
-  try {
-    if (await hasBlockingSubscription(input.userId)) {
-      throw new ExistingSubscriptionError('An ad-free subscription already needs management.');
-    }
-    const customerId = await ensureStripeCustomer(input.userId, input.email);
-    // One account may only have one pending ad-free Checkout, even if the user
-    // switches plan buttons while the first hosted session is still open.
-    const openCheckoutUrl = await findOpenCheckoutUrl(customerId, input.userId);
-    if (openCheckoutUrl) return openCheckoutUrl;
-    if (await hasBlockingStripeSubscription(customerId)) {
-      throw new ExistingSubscriptionError('An existing Stripe subscription must be managed first.');
-    }
-
-    const claimedAt = await claimTrial(input.userId);
-    claimedAtIso = claimedAt?.toISOString() ?? null;
-    const baseUrl = checkoutBaseUrl(input.requestUrl);
-    const body = new URLSearchParams({
-      mode: 'subscription',
-      customer: customerId,
-      client_reference_id: input.userId,
-      'line_items[0][price]': priceId,
-      'line_items[0][quantity]': '1',
-      success_url: `${baseUrl}/subscription?checkout=returned`,
-      cancel_url: `${baseUrl}/subscription?checkout=cancelled`,
-      payment_method_collection: 'always',
-      'metadata[user_id]': input.userId,
-      'metadata[plan]': input.plan,
-      'metadata[entitlement]': AD_FREE_ENTITLEMENT,
-      'subscription_data[metadata][user_id]': input.userId,
-      'subscription_data[metadata][plan]': input.plan,
-      'subscription_data[metadata][entitlement]': AD_FREE_ENTITLEMENT,
-    });
-    if (claimedAtIso) {
-      body.set('subscription_data[trial_period_days]', '14');
-      body.set('metadata[trial_claimed_at]', claimedAtIso);
-    }
-
-    const idempotencyWindow = claimedAtIso ?? Math.floor(Date.now() / 600_000).toString();
-    const session = await stripeRequest<JsonObject>(
-      'checkout/sessions',
-      body,
-      `girapphe-checkout:${input.userId}:${input.plan}:${idempotencyWindow}`,
-    );
-    const url = stringValue(session.url);
-    if (!url) {
-      throw new StripeProviderRequestError(
-        'Stripe did not return a Checkout URL.',
-        'indeterminate',
-      );
-    }
-    return url;
-  } catch (error) {
-    if (error instanceof StripeProviderRequestError && error.outcome === 'indeterminate') {
-      releaseLease = false;
-    }
-    if (claimedAtIso && releaseLease) {
-      await releaseTrialClaim(input.userId, claimedAtIso);
-    }
-    throw error;
-  } finally {
-    if (releaseLease) {
-      await releaseAccountBillingOperation(lease).catch(() => undefined);
-    }
-  }
+}): Promise<never> {
+  void input;
+  throw new BillingConfigurationError(
+    'New Stripe checkout is disabled. Girapphe web acquisition uses Creem.',
+  );
 }
-
 export async function createStripePortal(input: { userId: string; requestUrl: string }) {
   const customerId = await getStripeCustomerId(input.userId);
   if (!customerId) throw new Error('No Stripe customer is linked to this account.');
@@ -547,7 +390,7 @@ function subscriptionPeriod(object: JsonObject, field: 'current_period_start' | 
   return firstItem ? timestampToDate(firstItem[field]) : null;
 }
 
-function normalizeStripeStatus(value: unknown) {
+function normalizeStripeStatus(value: unknown): BillingStatus {
   const status = stringValue(value);
   if (status === 'unpaid') return 'past_due';
   if (status === 'incomplete_expired') return 'expired';
@@ -559,7 +402,7 @@ function normalizeStripeStatus(value: unknown) {
     'paused',
     'incomplete',
   ].includes(status)
-    ? status
+    ? status as BillingStatus
     : 'incomplete';
 }
 
@@ -600,9 +443,10 @@ async function processSubscription(object: JsonObject, providerEventAt: Date) {
   let reconciledObject = object;
   let effectiveProviderEventAt = providerEventAt;
   const incomingStatus = normalizeStripeStatus(object.status);
+  const deletingAccount = await isAccountDeletionMarked(userId);
   if (
     !['canceled', 'expired'].includes(incomingStatus)
-    && await isAccountDeletionMarked(userId)
+    && deletingAccount
   ) {
     reconciledObject = await stripeDelete<JsonObject>(
       `subscriptions/${encodeURIComponent(providerSubscriptionId)}`,
@@ -610,11 +454,15 @@ async function processSubscription(object: JsonObject, providerEventAt: Date) {
     effectiveProviderEventAt = new Date();
   }
   const reconciledStatus = normalizeStripeStatus(reconciledObject.status);
-  await upsertSubscription({
+  const subscription = {
     provider: 'stripe',
+    environment: process.env.APP_ENV === 'prod' ? 'production' : 'test',
+    providerCustomerId: stringValue(reconciledObject.customer),
     providerSubscriptionId,
+    providerEventId: null,
     userId,
     store: 'web',
+    productId: priceId,
     plan,
     status: reconciledStatus,
     entitlement: AD_FREE_ENTITLEMENT,
@@ -622,8 +470,21 @@ async function processSubscription(object: JsonObject, providerEventAt: Date) {
     currentPeriodEnd: subscriptionPeriod(reconciledObject, 'current_period_end'),
     trialEnd: timestampToDate(reconciledObject.trial_end),
     cancelAtPeriodEnd: reconciledObject.cancel_at_period_end === true,
+    autoRenew: reconciledStatus === 'canceled'
+      ? false
+      : reconciledObject.cancel_at_period_end === true
+        ? false
+        : true,
     providerEventAt: effectiveProviderEventAt,
-  });
+    lastReconciledAt: new Date(),
+    graceReason: null,
+    graceExpiresAt: null,
+  } as const;
+  if (deletingAccount) {
+    await upsertLegacyStripeSubscriptionDuringAccountDeletion(subscription);
+  } else {
+    await upsertSubscription(subscription);
+  }
   if (reconciledStatus === 'trialing') {
     await consumeTrialFromWebhook(userId);
   }

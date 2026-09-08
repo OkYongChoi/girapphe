@@ -41,6 +41,16 @@ function requireProductionPattern(name: string, pattern: RegExp, description: st
   return value;
 }
 
+function requireAndroidNoOfferPurchaseIdentifier(name: string, value: string | undefined): string {
+  const identifier = clean(value);
+  if (!identifier || !/^[^:\s]+:[^:\s]+:sw-none$/.test(identifier)) {
+    throw new Error(
+      `Production mobile acquisition requires ${name} in the exact product:base-plan:sw-none format.`,
+    );
+  }
+  return identifier;
+}
+
 type ExpoPlugin = NonNullable<ExpoConfig['plugins']>[number];
 
 function pluginName(plugin: ExpoPlugin): string {
@@ -72,8 +82,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const isProduction = process.env.EAS_BUILD_PROFILE === 'production';
   const clerkPublishableKey = clean(process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY);
   const appBaseUrl = clean(process.env.EXPO_PUBLIC_APP_BASE_URL);
-  const monthlyPackageId = clean(process.env.EXPO_PUBLIC_REVENUECAT_MONTHLY_PACKAGE_ID) ?? '$rc_monthly';
-  const annualPackageId = clean(process.env.EXPO_PUBLIC_REVENUECAT_ANNUAL_PACKAGE_ID) ?? '$rc_annual';
+  const mobileAcquisitionGate = clean(process.env.EXPO_PUBLIC_MOBILE_BILLING_ACQUISITION_ENABLED);
+  const superwallProductIds = {
+    iosMonthly: clean(process.env.EXPO_PUBLIC_SUPERWALL_IOS_MONTHLY_PURCHASE_IDENTIFIER),
+    iosAnnual: clean(process.env.EXPO_PUBLIC_SUPERWALL_IOS_ANNUAL_PURCHASE_IDENTIFIER),
+    androidMonthly: clean(process.env.EXPO_PUBLIC_SUPERWALL_ANDROID_MONTHLY_PURCHASE_IDENTIFIER),
+    androidAnnual: clean(process.env.EXPO_PUBLIC_SUPERWALL_ANDROID_ANNUAL_PURCHASE_IDENTIFIER),
+  };
   const iosAppId = isProduction
     ? clean(process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID)
     : GOOGLE_SAMPLE_IOS_APP_ID;
@@ -103,14 +118,19 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       'a Clerk live publishable key',
     );
     requireProductionPattern(
-      'EXPO_PUBLIC_REVENUECAT_IOS_API_KEY',
-      /^appl_[A-Za-z0-9_]+$/,
-      'a RevenueCat Apple public SDK key',
+      'EXPO_PUBLIC_SUPERWALL_IOS_API_KEY',
+      /^pk_[A-Za-z0-9_-]{8,}$/,
+      'a Superwall public iOS SDK key',
     );
     requireProductionPattern(
-      'EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY',
-      /^goog_[A-Za-z0-9_]+$/,
-      'a RevenueCat Google public SDK key',
+      'EXPO_PUBLIC_SUPERWALL_ANDROID_API_KEY',
+      /^pk_[A-Za-z0-9_-]{8,}$/,
+      'a Superwall public Android SDK key',
+    );
+    requireProductionPattern(
+      'EXPO_PUBLIC_MOBILE_BILLING_ACQUISITION_ENABLED',
+      /^(true|false)$/,
+      'the explicit boolean mobile acquisition gate',
     );
     const productionIosAppId = requireProductionPattern(
       'EXPO_PUBLIC_ADMOB_IOS_APP_ID',
@@ -138,8 +158,26 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     if (productionIosUnitId === productionAndroidUnitId) {
       throw new Error('Production iOS and Android NativeAd unit IDs must be distinct.');
     }
-    if (monthlyPackageId === annualPackageId) {
-      throw new Error('RevenueCat monthly and annual package IDs must be distinct.');
+    if (mobileAcquisitionGate === 'true') {
+      for (const [name, value] of Object.entries(superwallProductIds)) {
+        if (!value) {
+          throw new Error(`Production mobile acquisition requires the Superwall purchase identifier ${name}.`);
+        }
+      }
+      if (superwallProductIds.iosMonthly === superwallProductIds.iosAnnual) {
+        throw new Error('Superwall iOS monthly and annual product IDs must be distinct.');
+      }
+      if (superwallProductIds.androidMonthly === superwallProductIds.androidAnnual) {
+        throw new Error('Superwall Android monthly and annual product IDs must be distinct.');
+      }
+      requireAndroidNoOfferPurchaseIdentifier(
+        'EXPO_PUBLIC_SUPERWALL_ANDROID_MONTHLY_PURCHASE_IDENTIFIER',
+        superwallProductIds.androidMonthly,
+      );
+      requireAndroidNoOfferPurchaseIdentifier(
+        'EXPO_PUBLIC_SUPERWALL_ANDROID_ANNUAL_PURCHASE_IDENTIFIER',
+        superwallProductIds.androidAnnual,
+      );
     }
     requireProductionUrl('EXPO_PUBLIC_APP_BASE_URL');
     if (clean(process.env.EXPO_PUBLIC_APP_BASE_URL) !== 'https://www.girapphe.com') {

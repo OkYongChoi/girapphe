@@ -11,7 +11,8 @@
   "workers_dev": false,
   "preview_urls": false,
   "vars": {
-    "APP_ENV": "base"
+    "APP_ENV": "base",
+    "AI_THINKING_HISTORY_ROLLOUT": "off"
   },
   "assets": {
     "directory": ".open-next/assets",
@@ -26,7 +27,8 @@
       "workers_dev": true,
       "preview_urls": true,
       "vars": {
-        "APP_ENV": "preview"
+        "APP_ENV": "preview",
+        "AI_THINKING_HISTORY_ROLLOUT": "all"
       },
       "ai": {
         "binding": "AI"
@@ -46,7 +48,8 @@
         }
       ],
       "vars": {
-        "APP_ENV": "prod"
+        "APP_ENV": "prod",
+        "AI_THINKING_HISTORY_ROLLOUT": "allowlist"
       },
       "ai": {
         "binding": "AI"

@@ -64,7 +64,6 @@ test('Stripe portal denial consumes no provider request', async (context) => {
   );
   assert.equal(fetchCalls, 0);
 });
-
 test('an allowed Stripe portal request reaches the provider after the atomic rate slot', async (context) => {
   configurePortalTestEnvironment(context);
   const originalQuery = db.query;
