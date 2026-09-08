@@ -40,8 +40,53 @@ export function buildAuthenticatedOverlaySummary(metrics, generatedAt = new Date
   return { generatedAt, projects, runs: metrics };
 }
 
-export function renderAuthenticatedOverlaySummary(summary) {
+export function buildAuthenticatedThinkingHistorySummary(metrics) {
+  const byProject = Map.groupBy(metrics, (metric) => metric.project);
+  const projects = Object.fromEntries([...byProject.entries()].map(([project, rows]) => [
+    project,
+    {
+      runs: rows.length,
+      messageAssetRequests: summarize(rows.map((row) => row.messageAsset.requests)),
+      messageAssetStatuses: [...new Set(rows.map((row) => row.messageAsset.status))],
+      privateEvidenceMinimum: Math.min(...rows.map((row) => row.syntheticPrivateEvidenceCount)),
+      contextRequestsBeforeIntentWorst: Math.max(
+        ...rows.map((row) => row.contextRequestsBeforeIntent),
+      ),
+      contextFlows: [...new Set(rows.map((row) => row.contextApiStatuses.join(' -> ')))],
+      contextBytes: summarize(rows.map((row) => row.contextBytes)),
+      browserErrorCount: rows.reduce((total, row) => total + row.browserErrorCount, 0),
+      durationMs: summarize(rows.map((row) => row.durationMs)),
+    },
+  ]));
+  return { projects, runs: metrics };
+}
+
+export function renderAuthenticatedThinkingHistorySummary(summary) {
+  if (!summary) {
+    return [
+      '## Thinking History private path',
+      '',
+      'Not enabled for this run. Production evidence remains separately gated.',
+      '',
+    ].join('\n');
+  }
+
   return [
+    '## Thinking History private path',
+    '',
+    '| Project | Runs | Message asset requests median / worst; statuses | Private evidence minimum | Pre-intent context requests worst | Context API flow | Context bytes median / worst | Browser errors | Duration median / worst |',
+    '| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |',
+    ...Object.entries(summary.projects).map(([project, value]) => (
+      `| ${project} | ${value.runs} | ${value.messageAssetRequests.median} / ${value.messageAssetRequests.worst}; ${value.messageAssetStatuses.join(', ')} | ${value.privateEvidenceMinimum} | ${value.contextRequestsBeforeIntentWorst} | ${value.contextFlows.join(', ')} | ${formatBytes(value.contextBytes.median)} / ${formatBytes(value.contextBytes.worst)} | ${value.browserErrorCount} | ${value.durationMs.median} ms / ${value.durationMs.worst} ms |`
+    )),
+    '',
+    'Synthetic owner-scoped Playwright evidence. The context flow must remain 204 viewed event followed by one 200 selected-context export; this is not production user telemetry.',
+    '',
+  ].join('\n');
+}
+
+export function renderAuthenticatedOverlaySummary(summary, thinkingHistory = null) {
+  const overlay = [
   '# Authenticated overlay performance',
   '',
   '| Project | Runs | Click to canvas median / worst | Overlay headers median / worst | Decoded by canvas median / worst | Transfer by canvas median / worst |',
@@ -56,6 +101,7 @@ export function renderAuthenticatedOverlaySummary(summary) {
   'Synthetic Playwright measurements. Overlay timing ends at response headers, and byte counts include data received through canvas display so streaming RSC responses do not block the evidence run. These are not production user telemetry.',
   '',
   ].join('\n');
+  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}`;
 }
 
 export async function summarizeAuthenticatedOverlayResults(
@@ -73,8 +119,26 @@ export async function summarizeAuthenticatedOverlayResults(
   const metrics = await Promise.all(names.map(async (name) => (
     JSON.parse(await fs.readFile(path.join(metricsDirectory, name), 'utf8'))
   )));
-  const summary = buildAuthenticatedOverlaySummary(metrics);
-  const markdown = renderAuthenticatedOverlaySummary(summary);
+  const thinkingHistoryDirectory = path.join(resultsDirectory, 'thinking-history');
+  let thinkingHistoryNames = [];
+  try {
+    thinkingHistoryNames = (await fs.readdir(thinkingHistoryDirectory))
+      .filter((name) => name.endsWith('.json'))
+      .sort();
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  const thinkingHistoryMetrics = await Promise.all(thinkingHistoryNames.map(async (name) => (
+    JSON.parse(await fs.readFile(path.join(thinkingHistoryDirectory, name), 'utf8'))
+  )));
+  const thinkingHistory = thinkingHistoryMetrics.length > 0
+    ? buildAuthenticatedThinkingHistorySummary(thinkingHistoryMetrics)
+    : null;
+  const summary = {
+    ...buildAuthenticatedOverlaySummary(metrics),
+    thinkingHistory,
+  };
+  const markdown = renderAuthenticatedOverlaySummary(summary, thinkingHistory);
 
   await fs.mkdir(resultsDirectory, { recursive: true });
   await Promise.all([

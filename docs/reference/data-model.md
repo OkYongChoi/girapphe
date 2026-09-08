@@ -2,7 +2,7 @@
 
 ## Overview
 
-The platform maintains six main data groups:
+The platform maintains seven main data groups:
 
 1. Graph structure (`graph_nodes`, `graph_edges`)
 2. User knowledge state (`user_knowledge_states`)
@@ -14,10 +14,12 @@ The platform maintains six main data groups:
    (`knowledge_ingestion_batches`, `knowledge_card_drafts`,
    `knowledge_card_sources`, `mcp_access_tokens`,
    `mcp_request_rate_limits`, `mcp_deleted_account_markers`)
-6. Billing and entitlements (`billing_provider_accounts`,
+6. Privacy-safe thinking-history events (`knowledge_product_events`)
+7. Billing and entitlements (`billing_provider_accounts`,
    `billing_subscriptions`, `billing_checkout_attempts`,
    `billing_acquisition_blocks`, `billing_webhook_events`, and
-   `billing_account_operations`)
+   `billing_account_operations`, with legacy `billing_customers` and Toss
+   lifecycle tables retained during migration)
 
 Card model now separates:
 
@@ -95,6 +97,11 @@ replacement still exists; null therefore is not a universal liveness signal.
 `knowledge_evidence_spans` stores source positions without transcript text.
 `knowledge_relation_evidence` links an owner-scoped private edge to the reviewed
 selector rows that support it; it does not copy source text.
+`knowledge_product_events` stores versioned thinking-history funnel and reuse
+events. Its `subject_id` is a per-owner SHA-256 hash; optional signal type,
+bounded outcome, and aggregate count are allowlisted by database checks. It has
+no message, title, topic, filename, URL, knowledge-content, or context-output
+column, and full account deletion removes all rows for the owner.
 Accepted HTTPS source URLs reject embedded credentials and drop query strings
 and fragments before persistence; opaque conversation references reject
 `scheme://` values.
@@ -102,7 +109,10 @@ and fragments before persistence; opaque conversation references reject
 ## Conversation Draft Ingestion
 
 `knowledge_ingestion_batches` is idempotent by user, provider, and request ID.
-Its scope is constrained to `current_conversation`. `knowledge_card_drafts`
+Its scope is `current_conversation` for connector/MCP selections or
+`selected_export` for an explicit selection from a locally parsed provider
+export. MCP-token-backed writes remain restricted to `current_conversation`.
+Raw archives and unselected messages are not persisted. `knowledge_card_drafts`
 stores editable pending concepts, explicit tags, version numbers, and proposed
 typed relationships. Both it and `user_knowledge_items` have nullable
 `knowledge_type`, `central_question`, `structured_content`, and
@@ -211,6 +221,7 @@ Private knowledge and ingestion tables:
 - `knowledge_card_sources`
 - `knowledge_item_revisions`
 - `knowledge_item_activity`
+- `knowledge_product_events`
 - `knowledge_item_supersessions`
 - `knowledge_evidence_spans`
 - `knowledge_relation_evidence`

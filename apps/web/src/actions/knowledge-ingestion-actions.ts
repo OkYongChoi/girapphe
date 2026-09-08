@@ -3,10 +3,15 @@
 import { revalidatePath } from 'next/cache';
 import { requireCurrentUser } from '@/lib/auth';
 import {
+  createChatGptExportDraftBatchForUser,
+  type ChatGptExportImportInput,
+} from '@/lib/chatgpt-export-import';
+import {
   approveKnowledgeDraftsForUser,
   createMcpAccessTokenForUser,
   createPrivateKnowledgeEdgeForUser,
   deletePrivateKnowledgeEdgeForUser,
+  deleteKnowledgeImportBatchForUser,
   discardKnowledgeDraftBatchForUser,
   getKnowledgeDraftBatchForUser,
   getKnowledgeDraftBatchesForUser,
@@ -23,6 +28,11 @@ import {
   type McpAccessToken,
   type PrivateKnowledgeGraph,
 } from '@/lib/knowledge-ingestion';
+import {
+  deleteKnowledgeProductEventsForSubjectForUser,
+  recordKnowledgeProductEventsForUser,
+} from '@/lib/knowledge-product-events';
+import { isAiThinkingHistoryEnabledForUser } from '@/lib/ai-thinking-history-rollout';
 
 export type {
   KnowledgeCardDraft,
@@ -41,6 +51,8 @@ function revalidateKnowledgeSurfaces(batchId?: string) {
   revalidatePath('/my-knowledge');
   revalidatePath('/grid');
   revalidatePath('/knowledge');
+  revalidatePath('/insights');
+  revalidatePath('/account/delete');
 }
 
 export async function getKnowledgeDraftBatches(): Promise<KnowledgeDraftBatch[]> {
@@ -51,6 +63,31 @@ export async function getKnowledgeDraftBatches(): Promise<KnowledgeDraftBatch[]>
 export async function getKnowledgeDraftBatch(batchId: string): Promise<{ batch: KnowledgeDraftBatch; drafts: KnowledgeCardDraft[] } | null> {
   const user = await requireCurrentUser();
   return getKnowledgeDraftBatchForUser(user.id, batchId);
+}
+
+export async function createChatGptExportDrafts(
+  input: ChatGptExportImportInput,
+): Promise<{ batchId: string; draftCount: number; reviewPath: string }> {
+  const user = await requireCurrentUser();
+  if (!isAiThinkingHistoryEnabledForUser(user.id)) {
+    throw new Error('AI thinking history import is not enabled for this account.');
+  }
+  const result = await createChatGptExportDraftBatchForUser(user.id, input);
+  if (result.batchId !== input.importSessionId) {
+    await deleteKnowledgeProductEventsForSubjectForUser(user.id, input.importSessionId);
+  }
+  await recordKnowledgeProductEventsForUser(user.id, [
+    {
+      eventName: 'conversation_import_confirmed', eventVersion: 1,
+      subjectId: result.batchId, selectionCount: result.draftCount,
+    },
+    {
+      eventName: 'conversation_import_candidates_ready', eventVersion: 1,
+      subjectId: result.batchId, selectionCount: result.draftCount,
+    },
+  ]).catch(() => undefined);
+  revalidateKnowledgeSurfaces(result.batchId);
+  return { batchId: result.batchId, draftCount: result.draftCount, reviewPath: result.reviewPath };
 }
 
 export async function updateKnowledgeDraft(formData: FormData): Promise<void> {
@@ -116,6 +153,12 @@ export async function approveKnowledgeDrafts(formData: FormData): Promise<{ appr
     draftVersions = {};
   }
   const result = await approveKnowledgeDraftsForUser(user.id, batchId, selectedIds, draftVersions);
+  if (result.approved > 0) {
+    await recordKnowledgeProductEventsForUser(user.id, [{
+      eventName: 'knowledge_candidate_resolved', eventVersion: 1,
+      subjectId: batchId, outcome: 'approved', selectionCount: result.approved,
+    }]).catch(() => undefined);
+  }
   revalidateKnowledgeSurfaces(batchId);
   return result;
 }
@@ -125,6 +168,21 @@ export async function discardKnowledgeDraftBatch(formData: FormData): Promise<vo
   const batchId = String(formData.get('batch_id') ?? '').trim();
   if (!batchId) return;
   await discardKnowledgeDraftBatchForUser(user.id, batchId);
+  await recordKnowledgeProductEventsForUser(user.id, [{
+    eventName: 'knowledge_candidate_resolved', eventVersion: 1,
+    subjectId: batchId, outcome: 'cancelled', selectionCount: 0,
+  }]).catch(() => undefined);
+  revalidateKnowledgeSurfaces(batchId);
+}
+
+export async function deleteKnowledgeImportBatch(formData: FormData): Promise<void> {
+  const user = await requireCurrentUser();
+  const batchId = String(formData.get('batch_id') ?? '').trim();
+  if (!batchId) return;
+  const owned = await getKnowledgeDraftBatchForUser(user.id, batchId);
+  if (!owned) return;
+  await deleteKnowledgeProductEventsForSubjectForUser(user.id, batchId);
+  await deleteKnowledgeImportBatchForUser(user.id, batchId);
   revalidateKnowledgeSurfaces(batchId);
 }
 

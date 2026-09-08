@@ -30,6 +30,9 @@ This project implements an AI/CS knowledge graph MVP with:
 - Mobile store release checklist: `docs/apps/store-release.md`
 - API spec: `docs/reference/api-spec.md`
 - WebMCP browser tools: `docs/reference/webmcp.md`
+- ChatGPT export import: `docs/reference/chatgpt-export-import.md`
+- Private knowledge intelligence: `docs/reference/knowledge-intelligence.md`
+- Knowledge export, deletion, and rollout controls: `docs/reference/knowledge-data-controls.md`
 - Data model: `docs/reference/data-model.md`
 - Ads and subscriptions: `docs/reference/monetization.md`
 - Billing operations and activation gates: `docs/operations/billing.md`
@@ -121,6 +124,8 @@ Core routes:
 - `/knowledge`
 - `/my-knowledge`
 - `/knowledge-inbox`
+- `/knowledge-inbox/import`
+- `/insights`
 - `/topics`
 - `/subscription`
 - `/dashboard`
@@ -134,6 +139,10 @@ pending candidates. Each candidate stays non-canonical until the user
 explicitly chooses save as new, merge, update, or ignore. Confirmed items then
 appear in a private Topic Hub with overview, open-question, local-graph,
 timeline, lifecycle-history, provenance, and context-pack views.
+
+The separate ChatGPT export adapter parses an extracted `conversations.json`
+locally and sends only explicitly selected, bounded Q&A exchanges into the same
+pending review lifecycle. It never stores the archive or unselected messages.
 
 Provenance retains source selectors and metadata, never raw transcript text.
 Context-pack downloads likewise contain only selected canonical knowledge and

@@ -206,7 +206,7 @@ session, and charge table. GitHub and Cloudflare configuration-name inspection
 also found no Stripe, Toss, RevenueCat, Creem, or Superwall provider values.
 Therefore no reconciled legacy subscriber or unresolved Toss financial state is
 known to Girapphe. That evidence is not sufficient to make migration-time
-deletion safe: `0019_billing_v1_domain.sql` retains every legacy billing/Toss
+deletion safe: `0021_billing_v1_domain.sql` retains every legacy billing/Toss
 table and the previous `(provider, provider_subscription_id)` unique contract
 while adding the environment-aware key required by Billing V1.
 
@@ -234,7 +234,7 @@ manufacture legacy subscriptions or silently cancel an external subscription.
 Code and mocked tests are necessary but do not activate billing. Keep both
 acquisition gates false until the applicable evidence is recorded:
 
-1. Apply all migrations, including `0019_billing_v1_domain.sql`, to the isolated
+1. Apply all migrations, including `0021_billing_v1_domain.sql`, to the isolated
    preview database and run the repository harness.
 2. Creem: merchant/business approval, production product and webhook, payout
    setup, hosted checkout, real test payment, webhook, cancellation, portal,

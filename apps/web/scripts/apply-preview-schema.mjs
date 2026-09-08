@@ -8,7 +8,9 @@ const PREVIEW_MIGRATIONS = [
   new URL('../drizzle/migrations/0016_conversation_knowledge_hub.sql', import.meta.url),
   new URL('../drizzle/migrations/0017_supersession_replacement_tombstones.sql', import.meta.url),
   new URL('../drizzle/migrations/0018_expression_history_causality.sql', import.meta.url),
-  new URL('../drizzle/migrations/0019_billing_v1_domain.sql', import.meta.url),
+  new URL('../drizzle/migrations/0019_selected_export_ingestion.sql', import.meta.url),
+  new URL('../drizzle/migrations/0020_knowledge_intelligence_events.sql', import.meta.url),
+  new URL('../drizzle/migrations/0021_billing_v1_domain.sql', import.meta.url),
 ];
 
 const SAFE_STATEMENT_PREFIXES = [
@@ -24,7 +26,7 @@ const SAFE_STATEMENT_PREFIXES = [
   /^DROP INDEX IF EXISTS\s+"?idx_billing_webhook_events_pending"?\b/i,
 ];
 
-// 0019 defaults legacy rows to production so the same migration is safe for
+// 0021 defaults legacy rows to production so the same migration is safe for
 // production. Preview owns a separate database: immediately reclassify the
 // pre-existing legacy rows and its compatibility defaults inside this fenced
 // transaction so old Preview subscriptions and event leases remain visible.

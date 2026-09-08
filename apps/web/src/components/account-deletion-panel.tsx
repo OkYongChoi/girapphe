@@ -35,8 +35,8 @@ export function AccountDeletionPanel({ email }: { email: string }) {
     <section className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-5">
       <h2 className="text-xl font-black text-red-950">Permanently delete this account</h2>
       <p className="mt-3 text-sm leading-6 text-red-900">
-        Signed in as <strong>{email || 'your Girapphe account'}</strong>. This deletes private notes, reviewed drafts,
-        learning progress, access tokens, and your authentication account. It cannot be undone.
+        Signed in as <strong>{email || 'your Girapphe account'}</strong>. This deletes private notes, approved knowledge,
+        import jobs, pending drafts, intelligence feedback, reuse activity, learning progress, access tokens, and your authentication account. It cannot be undone and has no recovery window.
       </p>
       <p className="mt-3 text-sm leading-6 text-red-900">
         Cancel App Store or Google Play renewal separately before continuing. Girapphe will attempt to cancel supported web renewal.

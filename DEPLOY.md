@@ -83,8 +83,8 @@ They are included in both Worker environments; do not add redundant GitHub secre
 
 1. In Neon, create a dedicated **schema-only** branch/database for previews. Do not
    select current production data.
-2. Apply every current Drizzle migration through `0019_billing_v1_domain.sql`. Add only synthetic
-   or anonymized seed data when representative QA data is needed. Migration `0019` is additive:
+2. Apply every current Drizzle migration through `0021_billing_v1_domain.sql`. Add only synthetic
+   or anonymized seed data when representative QA data is needed. Migration `0021` is additive:
    it preserves legacy billing tables and the old subscription-reference key so the previous
    Worker can keep running during deployment and remains a valid rollback target.
 3. Save its connection string as `DATABASE_URL_PREVIEW`.

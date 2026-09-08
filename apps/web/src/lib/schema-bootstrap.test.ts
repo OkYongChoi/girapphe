@@ -47,7 +47,7 @@ test('fresh schema retains every legacy billing lifecycle table during migration
   );
 
   const migration = readFileSync(
-    new URL('../../drizzle/migrations/0019_billing_v1_domain.sql', import.meta.url),
+    new URL('../../drizzle/migrations/0021_billing_v1_domain.sql', import.meta.url),
     'utf8',
   );
   assert.match(

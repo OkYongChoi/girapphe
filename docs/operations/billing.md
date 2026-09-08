@@ -8,7 +8,7 @@ recovery path merely because repository tests pass.
 
 1. Keep `WEB_BILLING_ACQUISITION_ENABLED=false` and
    `MOBILE_BILLING_ACQUISITION_ENABLED=false`.
-2. Apply `0019_billing_v1_domain.sql`. It is additive: legacy billing/Toss
+2. Apply `0021_billing_v1_domain.sql`. It is additive: legacy billing/Toss
    tables and the old `(provider, provider_subscription_id)` unique constraint
    remain available to the running Worker and a rollback. Billing V1 adds a
    separate environment-aware unique constraint.
@@ -100,7 +100,7 @@ a duplicate and never issue an automatic refund in V1.
 ## Rollback
 
 First set the affected acquisition gate to `false`. Keep lifecycle processing
-and canonical entitlement reads running. Because migration 0019 preserves the
+and canonical entitlement reads running. Because migration 0021 preserves the
 legacy tables, subscription key, and secret values, the previously reviewed
 Worker remains a database-compatible rollback target during the observation
 window. Reconcile provider events received during the incident before reopening

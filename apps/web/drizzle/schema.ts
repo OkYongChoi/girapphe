@@ -277,7 +277,7 @@ export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", 
   index("idx_knowledge_ingestion_batches_token_created").on(t.mcpTokenId, t.createdAt).where(sql`${t.mcpTokenId} IS NOT NULL`),
   check("knowledge_ingestion_batches_source_type_check", sql`${t.sourceType} IN ('conversation')`),
   check("knowledge_ingestion_batches_provider_check", sql`${t.provider} IN ('chatgpt', 'claude', 'gemini', 'other')`),
-  check("knowledge_ingestion_batches_scope_check", sql`${t.scope} IN ('current_conversation')`),
+  check("knowledge_ingestion_batches_scope_check", sql`${t.scope} IN ('current_conversation', 'selected_export')`),
   check("knowledge_ingestion_batches_status_check", sql`${t.status} IN ('pending', 'partial', 'approved', 'discarded')`),
   check("knowledge_ingestion_batches_source_url_check", sql`${t.sourceUrl} IS NULL OR (
     char_length(${t.sourceUrl}) BETWEEN 1 AND 2048
@@ -317,6 +317,7 @@ export const knowledgeCardDrafts = pgTable("knowledge_card_drafts", {
     polarity?: "supports" | "contradicts";
     quality?: "unknown" | "low" | "medium" | "high";
   }>>(),
+  observedAt: timestamp("observed_at", { withTimezone: true }),
   status: text("status").notNull().default("pending"),
   version: integer("version").notNull().default(1),
   knowledgeItemId: text("knowledge_item_id").references(() => userKnowledgeItems.id, { onDelete: "set null" }),
@@ -516,6 +517,44 @@ export const knowledgeItemActivity = pgTable("knowledge_item_activity", {
   index("idx_knowledge_item_activity_user_type_created").on(t.userId, t.activityType, t.createdAt),
   check("knowledge_item_activity_type_check", sql`${t.activityType} IN ('confirmed', 'connected', 'verified', 'reused', 'revised', 'superseded', 'archived', 'restored')`),
   check("knowledge_item_activity_metadata_check", sql`jsonb_typeof(${t.metadata}) = 'object'`),
+]);
+
+export const knowledgeProductEvents = pgTable("knowledge_product_events", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  eventName: text("event_name").notNull(),
+  eventVersion: integer("event_version").notNull().default(1),
+  subjectId: text("subject_id").notNull(),
+  signalType: text("signal_type"),
+  outcome: text("outcome"),
+  selectionCount: integer("selection_count"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("idx_knowledge_product_events_user_created").on(t.userId, t.createdAt),
+  index("idx_knowledge_product_events_user_dismissed").on(t.userId, t.subjectId)
+    .where(sql`${t.eventName} = 'knowledge_signal_dismissed'`),
+  check("knowledge_product_events_name_check", sql`${t.eventName} IN (
+    'conversation_import_started', 'conversation_import_parsed',
+    'conversation_import_confirmed', 'conversation_import_candidates_ready',
+    'conversation_import_first_value_viewed', 'knowledge_candidate_resolved',
+    'knowledge_signal_viewed', 'knowledge_signal_evidence_opened',
+    'knowledge_signal_dismissed', 'knowledge_context_created'
+  )`),
+  check("knowledge_product_events_version_check", sql`${t.eventVersion} = 1`),
+  check("knowledge_product_events_subject_check", sql`${t.subjectId} ~ '^[0-9a-f]{64}$'`),
+  check("knowledge_product_events_signal_type_check", sql`${t.signalType} IS NULL OR ${t.signalType} IN (
+    'thought_change', 'contradiction', 'connection', 'rediscovery', 'topic_emergence'
+  )`),
+  check("knowledge_product_events_outcome_check", sql`${t.outcome} IS NULL OR ${t.outcome} IN (
+    'approved', 'merged', 'updated', 'ignored', 'cancelled',
+    'unhelpful', 'incorrect', 'scope_changed'
+  )`),
+  check("knowledge_product_events_selection_count_check", sql`${t.selectionCount} IS NULL OR ${t.selectionCount} BETWEEN 0 AND 100000`),
+  check("knowledge_product_events_shape_check", sql`
+    ((${t.eventName} IN ('knowledge_signal_viewed', 'knowledge_signal_evidence_opened', 'knowledge_signal_dismissed')) = (${t.signalType} IS NOT NULL))
+    AND ((${t.eventName} = 'knowledge_signal_dismissed') = COALESCE(${t.outcome} IN ('unhelpful', 'incorrect', 'scope_changed'), false))
+    AND ((${t.eventName} = 'knowledge_candidate_resolved') = COALESCE(${t.outcome} IN ('approved', 'merged', 'updated', 'ignored', 'cancelled'), false))
+  `),
 ]);
 
 export const knowledgeItemSupersessions = pgTable("knowledge_item_supersessions", {

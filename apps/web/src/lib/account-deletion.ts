@@ -108,6 +108,9 @@ async function purgePrivateProductData(userId: string) {
        deleted_activity AS (
          DELETE FROM knowledge_item_activity WHERE user_id = $1 RETURNING id
        ),
+       deleted_knowledge_product_events AS (
+         DELETE FROM knowledge_product_events WHERE user_id = $1 RETURNING id
+       ),
        deleted_supersessions AS (
          DELETE FROM knowledge_item_supersessions WHERE user_id = $1 RETURNING id
        ),
@@ -135,6 +138,7 @@ async function purgePrivateProductData(userId: string) {
            AND (SELECT COUNT(*) FROM deleted_sources) >= 0
            AND (SELECT COUNT(*) FROM deleted_revisions) >= 0
            AND (SELECT COUNT(*) FROM deleted_activity) >= 0
+           AND (SELECT COUNT(*) FROM deleted_knowledge_product_events) >= 0
            AND (SELECT COUNT(*) FROM deleted_supersessions) >= 0
            AND (SELECT COUNT(*) FROM deleted_private_states) >= 0
            AND (SELECT COUNT(*) FROM deleted_graph_nodes) >= 0
@@ -193,6 +197,7 @@ async function purgePrivateProductData(userId: string) {
        (SELECT COUNT(*) FROM deleted_evidence_spans) AS deleted_evidence_spans,
        (SELECT COUNT(*) FROM deleted_revisions) AS deleted_revisions,
        (SELECT COUNT(*) FROM deleted_activity) AS deleted_activity,
+       (SELECT COUNT(*) FROM deleted_knowledge_product_events) AS deleted_knowledge_product_events,
        (SELECT COUNT(*) FROM deleted_supersessions) AS deleted_supersessions,
        (SELECT COUNT(*) FROM deleted_items) AS deleted_items,
        (SELECT COUNT(*) FROM deleted_create_requests) AS deleted_create_requests,

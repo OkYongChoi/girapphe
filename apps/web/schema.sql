@@ -218,7 +218,8 @@ CREATE TABLE IF NOT EXISTS knowledge_ingestion_batches (
   user_id TEXT NOT NULL,
   source_type TEXT NOT NULL DEFAULT 'conversation' CHECK (source_type = 'conversation'),
   provider TEXT NOT NULL CHECK (provider IN ('chatgpt', 'claude', 'gemini', 'other')),
-  scope TEXT NOT NULL DEFAULT 'current_conversation' CHECK (scope = 'current_conversation'),
+  scope TEXT NOT NULL DEFAULT 'current_conversation'
+    CHECK (scope IN ('current_conversation', 'selected_export')),
   request_id TEXT NOT NULL,
   conversation_ref TEXT
     CONSTRAINT knowledge_ingestion_batches_conversation_ref_check
@@ -269,6 +270,7 @@ CREATE TABLE IF NOT EXISTS knowledge_card_drafts (
   target_knowledge_item_id TEXT REFERENCES user_knowledge_items(id) ON DELETE CASCADE,
   resolved_at TIMESTAMP WITH TIME ZONE,
   proposed_evidence JSONB,
+  observed_at TIMESTAMP WITH TIME ZONE,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
   version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
   knowledge_item_id TEXT REFERENCES user_knowledge_items(id) ON DELETE SET NULL,
@@ -1043,3 +1045,40 @@ CREATE TABLE IF NOT EXISTS graph_node_translations (
 
 CREATE INDEX IF NOT EXISTS idx_graph_node_translations_locale_status
 ON graph_node_translations(locale, status);
+
+-- Privacy-safe AI thinking-history funnel events. Subject ids are server-side
+-- hashes; authored content, topics, filenames, URLs, and context output are forbidden.
+CREATE TABLE IF NOT EXISTS knowledge_product_events (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  event_name TEXT NOT NULL CHECK (event_name IN (
+    'conversation_import_started', 'conversation_import_parsed',
+    'conversation_import_confirmed', 'conversation_import_candidates_ready',
+    'conversation_import_first_value_viewed', 'knowledge_candidate_resolved',
+    'knowledge_signal_viewed', 'knowledge_signal_evidence_opened',
+    'knowledge_signal_dismissed', 'knowledge_context_created'
+  )),
+  event_version INTEGER NOT NULL DEFAULT 1 CHECK (event_version = 1),
+  subject_id TEXT NOT NULL CHECK (subject_id ~ '^[0-9a-f]{64}$'),
+  signal_type TEXT CHECK (signal_type IS NULL OR signal_type IN (
+    'thought_change', 'contradiction', 'connection', 'rediscovery', 'topic_emergence'
+  )),
+  outcome TEXT CHECK (outcome IS NULL OR outcome IN (
+    'approved', 'merged', 'updated', 'ignored', 'cancelled',
+    'unhelpful', 'incorrect', 'scope_changed'
+  )),
+  selection_count INTEGER CHECK (selection_count IS NULL OR selection_count BETWEEN 0 AND 100000),
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT knowledge_product_events_shape_check CHECK (
+    ((event_name IN ('knowledge_signal_viewed', 'knowledge_signal_evidence_opened', 'knowledge_signal_dismissed')) = (signal_type IS NOT NULL))
+    AND ((event_name = 'knowledge_signal_dismissed') = COALESCE(outcome IN ('unhelpful', 'incorrect', 'scope_changed'), FALSE))
+    AND ((event_name = 'knowledge_candidate_resolved') = COALESCE(outcome IN ('approved', 'merged', 'updated', 'ignored', 'cancelled'), FALSE))
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_product_events_user_created
+ON knowledge_product_events(user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_product_events_user_dismissed
+ON knowledge_product_events(user_id, subject_id)
+WHERE event_name = 'knowledge_signal_dismissed';
