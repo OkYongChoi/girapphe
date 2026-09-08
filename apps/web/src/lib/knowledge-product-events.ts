@@ -252,18 +252,18 @@ export async function finalizeChatGptExportCompletionEventsForUser(
         PRE_CONFIRMATION_IMPORT_EVENTS,
       );
     }
-    const hourAgo = now.getTime() - 60 * 60 * 1_000;
-    const recentCount = existing.filter((event) => Date.parse(event.createdAt) >= hourAgo).length;
-    if (existing.length + events.length > MAX_EVENTS_PER_OWNER
-      || recentCount + events.length > MAX_EVENTS_PER_HOUR) {
-      throw new KnowledgeProductEventLimitError();
-    }
     for (const event of existing) {
       if (event.subjectId !== sessionSubjectHash
         || !PRE_CONFIRMATION_IMPORT_EVENTS.includes(
           event.eventName as (typeof PRE_CONFIRMATION_IMPORT_EVENTS)[number],
         )) continue;
       event.subjectId = batchSubjectHash;
+    }
+    const hourAgo = now.getTime() - 60 * 60 * 1_000;
+    const recentCount = existing.filter((event) => Date.parse(event.createdAt) >= hourAgo).length;
+    if (existing.length + events.length > MAX_EVENTS_PER_OWNER
+      || recentCount + events.length > MAX_EVENTS_PER_HOUR) {
+      throw new KnowledgeProductEventLimitError();
     }
     existing.push(...events.map((event) => ({
       ...event,
@@ -322,7 +322,7 @@ export async function finalizeChatGptExportCompletionEventsForUser(
       UPDATE knowledge_product_events SET subject_id = $4
       WHERE user_id = $1 AND subject_id = $3 AND subject_id <> $4
         AND event_name IN ('conversation_import_started', 'conversation_import_parsed')
-        AND EXISTS (SELECT 1 FROM eligible_batch)
+        AND EXISTS (SELECT 1 FROM owned_batch)
       RETURNING id
     ), cleared AS (
       DELETE FROM knowledge_product_events

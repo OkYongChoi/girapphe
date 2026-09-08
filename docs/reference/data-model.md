@@ -108,10 +108,13 @@ while deletion purges that batch subject in the same transaction. Migration
 `0023` also keeps this invariant across a mixed-version deployment: its
 batch-insert trigger rejects delayed old-Worker retries covered by an
 owner-scoped request or session tombstone, its statement-level delete trigger
-removes batch telemetry, and its event triggers drop late completion,
+creates those tombstones for draining-Worker deletions and removes batch
+telemetry, and its event triggers drop late completion,
 first-value, candidate-resolution, or legacy reassignment rows whose
 owner-scoped batch no longer exists. The trigger definitions live in the
-migration and `schema.sql`; Drizzle declares their supporting indexes.
+migration and `schema.sql`; a preceding insert/delete trigger takes the stable
+owner lifecycle lock so both deletion/replay commit orders observe the guard.
+Drizzle declares the supporting indexes.
 Accepted HTTPS source URLs reject embedded credentials and drop query strings
 and fragments before persistence; opaque conversation references reject
 `scheme://` values.
@@ -136,7 +139,8 @@ Selected-export deletion retains only owner/provider/request tombstones needed
 to reject delayed transport retries. A live selected-export batch reserves two
 identity slots; live reservations plus durable tombstones are capped at 40,000
 per owner, so repeated creation and deletion cannot grow the idempotency ledger
-without bound.
+without bound. The account-deletion marker distinguishes an owner-wide purge,
+where the delete trigger must not recreate tombstones being removed.
 
 Every newly written conversation source records the exact
 `supported_item_version` whose immutable revision it supports. Historical

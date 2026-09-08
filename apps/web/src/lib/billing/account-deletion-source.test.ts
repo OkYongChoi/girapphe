@@ -101,9 +101,17 @@ test('account deletion removes revision-bound sources before their referenced re
 
 test('account deletion removes product events before batch deletion triggers run', () => {
   const source = readFileSync(new URL('../account-private-purge.ts', import.meta.url), 'utf8');
+  const deletedBatches = source.indexOf('deleted_batches AS');
+  const deletedTombstones = source.indexOf('deleted_ingestion_request_tombstones AS');
+
+  assert.ok(deletedBatches >= 0 && deletedBatches < deletedTombstones);
   assert.match(
     source,
     /deleted_batches AS \([\s\S]{0,240}DELETE FROM knowledge_ingestion_batches[\s\S]{0,240}COUNT\(\*\) FROM deleted_knowledge_product_events/,
+  );
+  assert.match(
+    source,
+    /deleted_ingestion_request_tombstones AS \([\s\S]{0,240}DELETE FROM knowledge_ingestion_request_tombstones[\s\S]{0,240}COUNT\(\*\) FROM deleted_batches/,
   );
 });
 

@@ -54,10 +54,6 @@ export function buildPrivateProductPurgeQuery(userId: string) {
        deleted_create_requests AS (
          DELETE FROM user_knowledge_create_requests WHERE user_id = $1 RETURNING request_id
        ),
-       deleted_ingestion_request_tombstones AS (
-         DELETE FROM knowledge_ingestion_request_tombstones
-         WHERE user_id = $1 RETURNING request_id
-       ),
        deleted_drafts AS (
          DELETE FROM knowledge_card_drafts
          WHERE user_id = $1
@@ -70,6 +66,12 @@ export function buildPrivateProductPurgeQuery(userId: string) {
            AND (SELECT COUNT(*) FROM deleted_drafts) >= 0
            AND (SELECT COUNT(*) FROM deleted_knowledge_product_events) >= 0
          RETURNING id
+       ),
+       deleted_ingestion_request_tombstones AS (
+         DELETE FROM knowledge_ingestion_request_tombstones
+         WHERE user_id = $1
+           AND (SELECT COUNT(*) FROM deleted_batches) >= 0
+         RETURNING request_id
        ),
        selected_mcp_tokens AS MATERIALIZED (
          SELECT id FROM mcp_access_tokens WHERE user_id = $1

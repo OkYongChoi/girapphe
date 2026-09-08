@@ -32,7 +32,9 @@ const eventImported = await import('../src/lib/knowledge-product-events.ts');
 const eventModule = eventImported.default ?? eventImported;
 const {
   clearMemoryKnowledgeProductEventsForTesting,
+  finalizeChatGptExportCompletionEventsForUser,
   getMemoryKnowledgeProductEventsForTesting,
+  knowledgeProductEventSubjectHash,
   recordKnowledgeProductEventsForUser,
 } = eventModule;
 
@@ -1050,6 +1052,72 @@ test('memory import deletion and a stale completion cannot leave orphan batch te
       getMemoryKnowledgeProductEventsForTesting(userId).map((event) => event.eventName),
       ['knowledge_context_created'],
     );
+  } finally {
+    clearMemoryKnowledgeProductEventsForTesting(userId);
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  }
+});
+
+test('memory quota exhaustion still rehomes pre-confirmation events for deletion', async () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  const userId = `telemetry-quota-owner-${crypto.randomUUID()}`;
+  const importSessionId = crypto.randomUUID();
+  try {
+    clearMemoryKnowledgeProductEventsForTesting(userId);
+    await recordKnowledgeProductEventsForUser(userId, [{
+      eventName: 'conversation_import_started', eventVersion: 1, subjectId: importSessionId,
+    }, {
+      eventName: 'conversation_import_parsed', eventVersion: 1,
+      subjectId: importSessionId, selectionCount: 1,
+    }]);
+    const created = await createChatGptExportDraftBatchForUser(userId, {
+      source: 'chatgpt_export',
+      consent: true,
+      importSessionId,
+      selections: [{
+        conversationId: `telemetry-quota-conversation-${crypto.randomUUID()}`,
+        messageId: `telemetry-quota-message-${crypto.randomUUID()}`,
+        title: 'Quota-safe telemetry grouping',
+        question: 'Can quota exhaustion leave import events detached?',
+        answer: 'No. Existing pre-confirmation events still move to the deletable batch subject.',
+        createdAt: null,
+      }],
+    });
+    for (let offset = 0; offset < 118; offset += 10) {
+      const count = Math.min(10, 118 - offset);
+      await recordKnowledgeProductEventsForUser(userId, Array.from({ length: count }, (_, index) => ({
+        eventName: 'knowledge_context_created',
+        eventVersion: 1,
+        subjectId: `quota-context-${offset + index}`,
+      })));
+    }
+    await assert.rejects(finalizeChatGptExportCompletionEventsForUser(userId, {
+      importSessionId,
+      batchId: created.batchId,
+      selectionCount: 1,
+      created: true,
+      draftCount: 1,
+    }, {
+      memoryBatchExists: () => true,
+    }), { name: 'KnowledgeProductEventLimitError' });
+    const sessionHash = knowledgeProductEventSubjectHash(userId, importSessionId);
+    const batchHash = knowledgeProductEventSubjectHash(userId, created.batchId);
+    const beforeDeletion = getMemoryKnowledgeProductEventsForTesting(userId);
+    assert.equal(beforeDeletion.length, 120);
+    assert.equal(beforeDeletion.filter((event) => event.subjectId === sessionHash).length, 0);
+    assert.equal(beforeDeletion.filter((event) => event.subjectId === batchHash).length, 2);
+
+    assert.deepEqual(await deleteKnowledgeImportBatchForUser(userId, created.batchId), {
+      deleted: true,
+      approvedKnowledgePreserved: 0,
+    });
+    const afterDeletion = getMemoryKnowledgeProductEventsForTesting(userId);
+    assert.equal(afterDeletion.length, 118);
+    assert.equal(afterDeletion.some((event) => (
+      event.subjectId === sessionHash || event.subjectId === batchHash
+    )), false);
   } finally {
     clearMemoryKnowledgeProductEventsForTesting(userId);
     if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;

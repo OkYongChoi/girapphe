@@ -67,6 +67,48 @@ function normalizedSql(statement) {
 }
 
 const SAFE_KNOWLEDGE_IMPORT_BRIDGE_STATEMENTS = new Set([
+  `CREATE OR REPLACE FUNCTION public.lock_selected_export_batch_owner()
+   RETURNS trigger
+   LANGUAGE plpgsql
+   SECURITY INVOKER
+   SET search_path = pg_catalog
+   AS $$
+   DECLARE
+     batch_user_id text;
+   BEGIN
+     IF TG_OP = 'DELETE' THEN
+       IF OLD.scope <> 'selected_export' THEN
+         RETURN OLD;
+       END IF;
+       batch_user_id := OLD.user_id;
+     ELSE
+       IF NEW.scope <> 'selected_export' THEN
+         RETURN NEW;
+       END IF;
+       batch_user_id := NEW.user_id;
+     END IF;
+
+     PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(
+       'mcp-account-lifecycle:' || pg_catalog.encode(
+         pg_catalog.sha256(
+           pg_catalog.convert_to('girapphe:mcp-account-lifecycle:v1', 'UTF8')
+           || pg_catalog.decode('00', 'hex')
+           || pg_catalog.convert_to(batch_user_id, 'UTF8')
+         ),
+         'hex'
+       )
+     ));
+
+     IF TG_OP = 'DELETE' THEN
+       RETURN OLD;
+     END IF;
+     RETURN NEW;
+   END;
+   $$`,
+  `CREATE OR REPLACE TRIGGER knowledge_ingestion_batches_00_lock_selected_export_owner
+   BEFORE INSERT OR DELETE ON public.knowledge_ingestion_batches
+   FOR EACH ROW
+   EXECUTE FUNCTION public.lock_selected_export_batch_owner()`,
   `CREATE OR REPLACE FUNCTION public.guard_deleted_selected_export_batch_insert()
    RETURNS trigger
    LANGUAGE plpgsql
@@ -90,6 +132,21 @@ const SAFE_KNOWLEDGE_IMPORT_BRIDGE_STATEMENTS = new Set([
        AND pg_catalog.lower(NEW.request_id) ~ '^chatgpt-export:[0-9a-f]{48}$'
        AND pg_catalog.lower(NEW.id) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN
        session_tombstone_id := 'selected-export-session:v1:' || pg_catalog.lower(NEW.id);
+     END IF;
+
+     PERFORM 1
+     FROM public.mcp_deleted_account_markers AS marker
+     WHERE marker.scope_key = pg_catalog.encode(
+       pg_catalog.sha256(
+         pg_catalog.convert_to('girapphe:mcp-account-lifecycle:v1', 'UTF8')
+         || pg_catalog.decode('00', 'hex')
+         || pg_catalog.convert_to(NEW.user_id, 'UTF8')
+       ),
+       'hex'
+     )
+     FOR KEY SHARE;
+     IF FOUND THEN
+       RETURN NULL;
      END IF;
 
      PERFORM 1
@@ -122,6 +179,42 @@ const SAFE_KNOWLEDGE_IMPORT_BRIDGE_STATEMENTS = new Set([
    SET search_path = pg_catalog
    AS $$
    BEGIN
+     INSERT INTO public.knowledge_ingestion_request_tombstones
+       (user_id, provider, request_id)
+     SELECT batch.user_id, batch.provider, candidate.request_id
+     FROM deleted_knowledge_ingestion_batches AS batch
+     CROSS JOIN LATERAL (
+       VALUES
+         (batch.request_id),
+         (CASE
+           WHEN pg_catalog.lower(batch.request_id) ~ ':session:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+             THEN 'selected-export-session:v1:' || pg_catalog.substring(
+               pg_catalog.lower(batch.request_id),
+               ':session:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$'
+             )
+           WHEN batch.provider = 'chatgpt'
+             AND pg_catalog.lower(batch.request_id) ~ '^chatgpt-export:[0-9a-f]{48}$'
+             AND pg_catalog.lower(batch.id) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+             THEN 'selected-export-session:v1:' || pg_catalog.lower(batch.id)
+           ELSE NULL
+         END)
+     ) AS candidate(request_id)
+     WHERE batch.scope = 'selected_export'
+       AND candidate.request_id IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1
+         FROM public.mcp_deleted_account_markers AS marker
+         WHERE marker.scope_key = pg_catalog.encode(
+           pg_catalog.sha256(
+             pg_catalog.convert_to('girapphe:mcp-account-lifecycle:v1', 'UTF8')
+             || pg_catalog.decode('00', 'hex')
+             || pg_catalog.convert_to(batch.user_id, 'UTF8')
+           ),
+           'hex'
+         )
+       )
+     ON CONFLICT (user_id, provider, request_id) DO NOTHING;
+
      DELETE FROM public.knowledge_product_events AS event
      USING deleted_knowledge_ingestion_batches AS batch
      WHERE event.user_id = batch.user_id

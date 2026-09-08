@@ -62,7 +62,13 @@ combined live-batch reservations plus durable tombstones are capped at 40,000
 per owner. Deletion swaps the live reservation for at most two tombstones, so
 repeated create/delete cycles cannot grow the guard table without bound. The
 guard contains no selected text or raw provider identifier, is not an import
-job, and full account deletion removes it.
+job, and full account deletion removes it. The database batch-delete trigger
+also creates the same opaque tombstones, so a deletion served by a draining
+pre-rollout Worker remains final. A database trigger makes every selected-export
+batch insert or delete take the stable owner lifecycle lock before checking the
+guard, including raw mixed-version statements. A permanent account-deletion fence suppresses
+that trigger write while the owner-wide purge removes both batches and existing
+tombstones.
 
 The base import fingerprint hashes a versioned JSON encoding of sorted
 `[conversationRef, messageRef]` tuples, so selection order is irrelevant while
@@ -134,7 +140,9 @@ Post-commit analytics remain best-effort and cannot turn a successfully
 persisted import into a failed response. Completion takes the shared
 account-to-ingestion-to-import lock order, verifies the exact owner/provider/
 selected-export batch, and performs started/parsed reassignment plus completion
-insertion in one transaction. Import-job deletion takes the same locks and
+insertion in one transaction. Started/parsed reassignment happens even when the
+owner event quota has no room for new completion events, so every event already
+associated with the import remains deletable with the batch. Import-job deletion takes the same locks and
 purges that batch subject inside its deletion transaction. Completion therefore
 either precedes deletion and is purged, or follows deletion and writes nothing;
 it cannot recreate orphan telemetry for a deleted job. When ingestion resolves
@@ -159,9 +167,12 @@ production. Preview schema preparation includes both migrations, and production
 deployment runs migrations before publishing the Worker. Migration `0023`
 installs an expand/contract bridge: a selected-export batch-insert trigger
 rejects old-Worker retries covered by an owner-scoped request or session
-tombstone, a statement-level batch-delete trigger purges every batch-subject
-event, and event insert/reassignment triggers reject or remove late telemetry
-unless its owner-scoped batch is still live.
+tombstone, a statement-level batch-delete trigger writes those tombstones for
+draining-Worker deletions and purges every batch-subject event, and event
+insert/reassignment triggers reject or remove late telemetry
+unless its owner-scoped batch is still live. A preceding insert/delete trigger
+serializes the bridge on the same account lifecycle lock used by every deployed
+Worker generation, closing both commit orders of the absent-tombstone race.
 Keep those triggers installed throughout any Worker rollback or old-request
 drain window; removing the database half first reopens the mixed-version race.
 Drizzle declares the supporting indexes, while the trigger definitions are

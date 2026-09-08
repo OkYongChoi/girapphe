@@ -280,7 +280,10 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     reassignKnowledgeProductEventsSubjectForUser,
   } = eventModule.default ?? eventModule;
   const { recordChatGptExportCompletionTelemetry } = telemetryModule.default ?? telemetryModule;
-  const { deriveMcpAccountAdvisoryLockKey } = accountLifecycleModule.default ?? accountLifecycleModule;
+  const {
+    deriveMcpAccountAdvisoryLockKey,
+    deriveMcpDeletedAccountScopeKey,
+  } = accountLifecycleModule.default ?? accountLifecycleModule;
   const { buildPrivateProductPurgeQuery } = accountPurgeModule.default ?? accountPurgeModule;
   const pool = new Pool({
     connectionString: databaseUrl,
@@ -330,19 +333,26 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
   const telemetryUserId = `live-selected-export-telemetry-${fixtureId}`;
   const telemetryCompletionFirstUserId = `live-selected-export-telemetry-first-${fixtureId}`;
   const telemetryDeletionFirstUserId = `live-selected-export-deletion-first-${fixtureId}`;
+  const telemetryQuotaUserId = `live-selected-export-telemetry-quota-${fixtureId}`;
   const mixedOldDeleteUserId = `live-selected-export-old-delete-${fixtureId}`;
   const mixedOldCompletionUserId = `live-selected-export-old-completion-${fixtureId}`;
   const eventGuardUserId = `live-selected-export-event-guard-${fixtureId}`;
   const mixedOldBatchGuardUserId = `live-selected-export-old-batch-guard-${fixtureId}`;
+  const mixedOldDeletionGuardUserId = `live-selected-export-old-deletion-guard-${fixtureId}`;
+  const mixedOldDeleteFirstUserId = `live-selected-export-old-delete-first-${fixtureId}`;
+  const mixedOldInsertFirstUserId = `live-selected-export-old-insert-first-${fixtureId}`;
   const accountPurgeUserId = `live-selected-export-account-purge-${fixtureId}`;
+  const accountPurgeScopeKey = deriveMcpDeletedAccountScopeKey(accountPurgeUserId);
   const triggerInsertFirstUserId = `live-selected-export-trigger-insert-first-${fixtureId}`;
   const triggerDeleteFirstUserId = `live-selected-export-trigger-delete-first-${fixtureId}`;
   const fixtureUserIds = [
     userId, otherUserId, legacyUserId, legacyIgnoredUserId, legacyExpandedUserId,
     legacyCollisionUserId, capacityUserId, crossScopeUserId, telemetryUserId,
-    telemetryCompletionFirstUserId, telemetryDeletionFirstUserId,
+    telemetryCompletionFirstUserId, telemetryDeletionFirstUserId, telemetryQuotaUserId,
     mixedOldDeleteUserId, mixedOldCompletionUserId,
-    eventGuardUserId, mixedOldBatchGuardUserId, accountPurgeUserId,
+    eventGuardUserId, mixedOldBatchGuardUserId, mixedOldDeletionGuardUserId,
+    mixedOldDeleteFirstUserId, mixedOldInsertFirstUserId,
+    accountPurgeUserId,
     triggerInsertFirstUserId, triggerDeleteFirstUserId,
   ];
   const selection = (suffix, question) => ({
@@ -374,6 +384,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
          AND NOT trigger.tgisinternal
        ORDER BY trigger.tgname`,
       [[
+        'knowledge_ingestion_batches_00_lock_selected_export_owner',
         'knowledge_ingestion_batches_delete_product_events',
         'knowledge_ingestion_batches_guard_selected_export_insert',
         'knowledge_product_events_cleanup_import_batch_update',
@@ -386,6 +397,9 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       nspname: row.nspname,
       tgenabled: row.tgenabled,
     })), [{
+      tgname: 'knowledge_ingestion_batches_00_lock_selected_export_owner',
+      relname: 'knowledge_ingestion_batches', nspname: 'public', tgenabled: 'O',
+    }, {
       tgname: 'knowledge_ingestion_batches_delete_product_events',
       relname: 'knowledge_ingestion_batches', nspname: 'public', tgenabled: 'O',
     }, {
@@ -398,10 +412,11 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       tgname: 'knowledge_product_events_guard_import_batch_insert',
       relname: 'knowledge_product_events', nspname: 'public', tgenabled: 'O',
     }]);
-    assert.match(installedTriggers[0].definition, /AFTER DELETE[\s\S]+REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches[\s\S]+FOR EACH STATEMENT/);
-    assert.match(installedTriggers[1].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
-    assert.match(installedTriggers[2].definition, /AFTER UPDATE OF subject_id[\s\S]+FOR EACH ROW/);
-    assert.match(installedTriggers[3].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[0].definition, /BEFORE INSERT OR DELETE[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[1].definition, /AFTER DELETE[\s\S]+REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches[\s\S]+FOR EACH STATEMENT/);
+    assert.match(installedTriggers[2].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[3].definition, /AFTER UPDATE OF subject_id[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[4].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
 
     const unicodeHashFixture = {
       userId: `소유자-${fixtureId}`,
@@ -448,14 +463,16 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       mixedOldBatch.batchId,
     ), { deleted: true, approvedKnowledgePreserved: 0 });
 
-    const directOldBatchInsert = (id, requestId) => pool.query(
+    const directOldBatchInsert = (owner, id, requestId, executor = pool) => executor.query(
       `INSERT INTO knowledge_ingestion_batches
         (id, user_id, source_type, provider, scope, request_id)
        VALUES ($1, $2, 'conversation', 'chatgpt', 'selected_export', $3)
+       ON CONFLICT DO NOTHING
        RETURNING id`,
-      [id, mixedOldBatchGuardUserId, requestId],
+      [id, owner, requestId],
     );
     assert.equal((await directOldBatchInsert(
+      mixedOldBatchGuardUserId,
       mixedOldBatchGuardInput.importSessionId,
       mixedOldBatchInput.requestId,
     )).rowCount, 0, 'the exact pre-rollout retry must remain deleted');
@@ -465,10 +482,12 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     ).slice(0, 48)}`;
     assert.notEqual(changedLegacyRequestId, mixedOldBatchInput.requestId);
     assert.equal((await directOldBatchInsert(
+      mixedOldBatchGuardUserId,
       mixedOldBatchGuardInput.importSessionId,
       changedLegacyRequestId,
     )).rowCount, 0, 'the pre-rollout session identity must block selection-growth replay');
     assert.equal((await directOldBatchInsert(
+      mixedOldBatchGuardUserId,
       crypto.randomUUID(),
       `${changedLegacyRequestId}:session:${mixedOldBatchGuardInput.importSessionId}`,
     )).rowCount, 0, 'the current request format must honor the same session tombstone');
@@ -477,6 +496,157 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
        FROM knowledge_ingestion_batches WHERE user_id = $1`,
       [mixedOldBatchGuardUserId],
     )).rows[0].count, 0);
+
+    const mixedOldDeletionGuardInput = {
+      ...mixedOldBatchGuardInput,
+      importSessionId: crypto.randomUUID(),
+      selections: [selection(
+        'mixed-old-deletion-guard',
+        'Can a deletion served by the draining Worker remain final?',
+      )],
+    };
+    const mixedOldDeletionBatchInput = buildParentV1ChatGptBatchInput(
+      mixedOldDeletionGuardInput,
+      (value) => chatGptExportImportInputSchema.parse(value),
+      buildChatGptExportBatchInput,
+    );
+    const mixedOldDeletionBatch = await createKnowledgeDraftBatchForUser(
+      mixedOldDeletionGuardUserId,
+      mixedOldDeletionBatchInput,
+      null,
+      mixedOldDeletionGuardInput.importSessionId,
+    );
+    assert.equal(mixedOldDeletionBatch.created, true);
+    assert.equal((await pool.query(
+      `DELETE FROM knowledge_ingestion_batches
+       WHERE id = $1 AND user_id = $2 RETURNING id`,
+      [mixedOldDeletionBatch.batchId, mixedOldDeletionGuardUserId],
+    )).rowCount, 1);
+    assert.deepEqual((await pool.query(
+      `SELECT request_id FROM knowledge_ingestion_request_tombstones
+       WHERE user_id = $1 AND provider = 'chatgpt'
+       ORDER BY request_id`,
+      [mixedOldDeletionGuardUserId],
+    )).rows, [{ request_id: mixedOldDeletionBatchInput.requestId }, {
+      request_id: `selected-export-session:v1:${mixedOldDeletionGuardInput.importSessionId}`,
+    }]);
+    assert.equal((await directOldBatchInsert(
+      mixedOldDeletionGuardUserId,
+      mixedOldDeletionGuardInput.importSessionId,
+      mixedOldDeletionBatchInput.requestId,
+    )).rowCount, 0, 'the database must tombstone a deletion served by the draining Worker');
+
+    const exerciseOldWorkerDeleteReplayOrder = async (owner, deletionFirst) => {
+      const importSessionId = crypto.randomUUID();
+      const input = {
+        source: 'chatgpt_export', consent: true, importSessionId,
+        selections: [selection(
+          deletionFirst ? 'old-delete-first-race' : 'old-insert-first-race',
+          'Can the database serialize a draining Worker deletion and replay?',
+        )],
+      };
+      const batchInput = buildParentV1ChatGptBatchInput(
+        input,
+        (value) => chatGptExportImportInputSchema.parse(value),
+        buildChatGptExportBatchInput,
+      );
+      const batch = await createKnowledgeDraftBatchForUser(
+        owner,
+        batchInput,
+        null,
+        importSessionId,
+      );
+      assert.deepEqual({ created: batch.created, batchId: batch.batchId }, {
+        created: true,
+        batchId: importSessionId,
+      });
+
+      const deleteClient = await pool.connect();
+      const replayClient = await pool.connect();
+      let deleteOpen = false;
+      let replayOpen = false;
+      let waitingPromise;
+      try {
+        if (deletionFirst) {
+          await deleteClient.query('BEGIN');
+          deleteOpen = true;
+          assert.equal((await deleteClient.query(
+            `DELETE FROM knowledge_ingestion_batches
+             WHERE id = $1 AND user_id = $2 RETURNING id`,
+            [batch.batchId, owner],
+          )).rowCount, 1);
+
+          await replayClient.query('BEGIN');
+          replayOpen = true;
+          const replayPid = (await replayClient.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+          let replaySettled = false;
+          waitingPromise = directOldBatchInsert(
+            owner,
+            importSessionId,
+            batchInput.requestId,
+            replayClient,
+          ).then((result) => {
+            replaySettled = true;
+            return result;
+          });
+          await waitForBackendLockWait(pool, replayPid);
+          assert.equal(replaySettled, false, 'replay must wait for the delete-side account lock');
+
+          await deleteClient.query('COMMIT');
+          deleteOpen = false;
+          assert.equal((await waitingPromise).rowCount, 0);
+          await replayClient.query('COMMIT');
+          replayOpen = false;
+        } else {
+          await replayClient.query('BEGIN');
+          replayOpen = true;
+          assert.equal((await directOldBatchInsert(
+            owner,
+            importSessionId,
+            batchInput.requestId,
+            replayClient,
+          )).rowCount, 0);
+
+          await deleteClient.query('BEGIN');
+          deleteOpen = true;
+          const deletePid = (await deleteClient.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+          let deleteSettled = false;
+          waitingPromise = deleteClient.query(
+            `DELETE FROM knowledge_ingestion_batches
+             WHERE id = $1 AND user_id = $2 RETURNING id`,
+            [batch.batchId, owner],
+          ).then((result) => {
+            deleteSettled = true;
+            return result;
+          });
+          await waitForBackendLockWait(pool, deletePid);
+          assert.equal(deleteSettled, false, 'deletion must wait for the insert-side account lock');
+
+          await replayClient.query('COMMIT');
+          replayOpen = false;
+          assert.equal((await waitingPromise).rowCount, 1);
+          await deleteClient.query('COMMIT');
+          deleteOpen = false;
+        }
+      } finally {
+        if (waitingPromise) await waitingPromise.catch(() => undefined);
+        if (replayOpen) await replayClient.query('ROLLBACK').catch(() => undefined);
+        if (deleteOpen) await deleteClient.query('ROLLBACK').catch(() => undefined);
+        replayClient.release();
+        deleteClient.release();
+      }
+
+      assert.deepEqual((await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::integer FROM knowledge_ingestion_batches
+            WHERE user_id = $1) AS batches,
+           (SELECT COUNT(*)::integer FROM knowledge_ingestion_request_tombstones
+            WHERE user_id = $1) AS tombstones`,
+        [owner],
+      )).rows[0], { batches: 0, tombstones: 2 });
+    };
+    await exerciseOldWorkerDeleteReplayOrder(mixedOldDeleteFirstUserId, true);
+    await exerciseOldWorkerDeleteReplayOrder(mixedOldInsertFirstUserId, false);
 
     const crossScopeInput = {
       source: 'chatgpt_export', consent: true, importSessionId: crypto.randomUUID(),
@@ -1230,6 +1400,61 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     await exerciseTelemetryDeletionOrder(telemetryCompletionFirstUserId, true);
     await exerciseTelemetryDeletionOrder(telemetryDeletionFirstUserId, false);
 
+    const quotaSessionId = crypto.randomUUID();
+    await recordKnowledgeProductEventsForUser(telemetryQuotaUserId, [{
+      eventName: 'conversation_import_started', eventVersion: 1, subjectId: quotaSessionId,
+    }, {
+      eventName: 'conversation_import_parsed', eventVersion: 1,
+      subjectId: quotaSessionId, selectionCount: 1,
+    }]);
+    const quotaResult = await create(telemetryQuotaUserId, [selection(
+      'telemetry-quota',
+      'Can a full telemetry quota still preserve deletable import grouping?',
+    )], quotaSessionId);
+    await pool.query(
+      `INSERT INTO knowledge_product_events
+        (id, user_id, event_name, event_version, subject_id)
+       SELECT $2 || ':' || ordinal::text, $1, 'knowledge_context_created', 1,
+         pg_catalog.encode(
+           pg_catalog.sha256(pg_catalog.convert_to($2 || ':' || ordinal::text, 'UTF8')),
+           'hex'
+         )
+       FROM generate_series(1, 118) AS fixture(ordinal)`,
+      [telemetryQuotaUserId, `quota-${fixtureId}`],
+    );
+    await assert.rejects(finalizeChatGptExportCompletionEventsForUser(
+      telemetryQuotaUserId,
+      {
+        importSessionId: quotaSessionId,
+        batchId: quotaResult.batchId,
+        selectionCount: 1,
+        created: true,
+        draftCount: 1,
+      },
+      { memoryBatchExists: () => true },
+    ), { name: 'KnowledgeProductEventLimitError' });
+    const quotaSessionHash = knowledgeProductEventSubjectHash(telemetryQuotaUserId, quotaSessionId);
+    const quotaBatchHash = knowledgeProductEventSubjectHash(telemetryQuotaUserId, quotaResult.batchId);
+    assert.deepEqual((await pool.query(
+      `SELECT
+         COUNT(*)::integer AS total,
+         COUNT(*) FILTER (WHERE subject_id = $2)::integer AS session_events,
+         COUNT(*) FILTER (WHERE subject_id = $3)::integer AS batch_events
+       FROM knowledge_product_events WHERE user_id = $1`,
+      [telemetryQuotaUserId, quotaSessionHash, quotaBatchHash],
+    )).rows[0], { total: 120, session_events: 0, batch_events: 2 });
+    assert.deepEqual(await deleteKnowledgeImportBatchForUser(
+      telemetryQuotaUserId,
+      quotaResult.batchId,
+    ), { deleted: true, approvedKnowledgePreserved: 0 });
+    assert.deepEqual((await pool.query(
+      `SELECT
+         COUNT(*)::integer AS total,
+         COUNT(*) FILTER (WHERE subject_id IN ($2, $3))::integer AS import_events
+       FROM knowledge_product_events WHERE user_id = $1`,
+      [telemetryQuotaUserId, quotaSessionHash, quotaBatchHash],
+    )).rows[0], { total: 118, import_events: 0 });
+
     const oldDeleteSessionId = crypto.randomUUID();
     await recordKnowledgeProductEventsForUser(mixedOldDeleteUserId, [{
       eventName: 'conversation_import_started', eventVersion: 1, subjectId: oldDeleteSessionId,
@@ -1347,6 +1572,12 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
          (SELECT COUNT(*)::integer FROM knowledge_product_events WHERE user_id = $1) AS events`,
       [accountPurgeUserId],
     )).rows[0], { batches: 3, events: 18 });
+    assert.equal((await pool.query(
+      `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (scope_key) DO NOTHING`,
+      [accountPurgeScopeKey],
+    )).rowCount, 1);
     const accountPurgeQuery = buildPrivateProductPurgeQuery(accountPurgeUserId);
     await executePgTransaction(
       pool,
@@ -1374,6 +1605,9 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     ));
     await collectCleanupFailure(cleanupFailures, 'delete isolated product events', () => (
       pool.query('DELETE FROM knowledge_product_events WHERE user_id = ANY($1::text[])', [fixtureUserIds])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete isolated account marker', () => (
+      pool.query('DELETE FROM mcp_deleted_account_markers WHERE scope_key = $1', [accountPurgeScopeKey])
     ));
     await collectCleanupFailure(cleanupFailures, 'verify isolated fixture removal', async () => {
       const remaining = (await pool.query(
