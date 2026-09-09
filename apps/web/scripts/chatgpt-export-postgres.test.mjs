@@ -315,12 +315,13 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       transaction: (buildQueries, options) => executePgTransaction(pool, buildQueries, options),
     });
   }
+  let migrationStatements = null;
   if (usesLocalPgAdapter) {
     const migrationSql = await readFile(
       new URL('../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql', import.meta.url),
       'utf8',
     );
-    const migrationStatements = parsePreviewMigration(migrationSql);
+    migrationStatements = parsePreviewMigration(migrationSql);
     for (const statement of migrationStatements) await pool.query(statement);
     const backfillUserId = `live-selected-export-marker-backfill-${crypto.randomUUID()}`;
     const backfillScopeKey = deriveMcpDeletedAccountScopeKey(backfillUserId);
@@ -378,6 +379,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
   const accountBatchDeleteFirstUserId = `live-selected-export-account-batch-first-${fixtureId}`;
   const accountMarkerFirstUserId = `live-selected-export-account-marker-first-${fixtureId}`;
   const accountBlockedUserId = `live-selected-export-account-blocked-${fixtureId}`;
+  const sourceBridgeUserId = `live-selected-export-source-bridge-${fixtureId}`;
   const accountBatchDeleteFirstScopeKey = deriveMcpDeletedAccountScopeKey(accountBatchDeleteFirstUserId);
   const accountMarkerFirstScopeKey = deriveMcpDeletedAccountScopeKey(accountMarkerFirstUserId);
   const triggerInsertFirstUserId = `live-selected-export-trigger-insert-first-${fixtureId}`;
@@ -390,7 +392,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     eventGuardUserId, mixedOldBatchGuardUserId, mixedOldDeletionGuardUserId,
     mixedOldDeleteFirstUserId, mixedOldInsertFirstUserId,
     accountPurgeUserId, accountBatchDeleteFirstUserId, accountMarkerFirstUserId,
-    accountBlockedUserId,
+    accountBlockedUserId, sourceBridgeUserId,
     triggerInsertFirstUserId, triggerDeleteFirstUserId,
   ];
   const selection = (suffix, question) => ({
@@ -423,6 +425,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
        ORDER BY trigger.tgname`,
       [[
         'knowledge_ingestion_batches_00_lock_selected_export_owner',
+        'knowledge_card_sources_preserve_selected_export_fingerprint',
         'knowledge_ingestion_batches_delete_product_events',
         'knowledge_ingestion_batches_guard_selected_export_insert',
         'knowledge_product_events_cleanup_import_batch_update',
@@ -436,6 +439,9 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       nspname: row.nspname,
       tgenabled: row.tgenabled,
     })), [{
+      tgname: 'knowledge_card_sources_preserve_selected_export_fingerprint',
+      relname: 'knowledge_card_sources', nspname: 'public', tgenabled: 'O',
+    }, {
       tgname: 'knowledge_ingestion_batches_00_lock_selected_export_owner',
       relname: 'knowledge_ingestion_batches', nspname: 'public', tgenabled: 'O',
     }, {
@@ -454,12 +460,13 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       tgname: 'mcp_deleted_account_markers_purge_ingestion_tombstones',
       relname: 'mcp_deleted_account_markers', nspname: 'public', tgenabled: 'O',
     }]);
-    assert.match(installedTriggers[0].definition, /BEFORE INSERT OR DELETE[\s\S]+FOR EACH ROW/);
-    assert.match(installedTriggers[1].definition, /AFTER DELETE[\s\S]+REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches[\s\S]+FOR EACH STATEMENT/);
-    assert.match(installedTriggers[2].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
-    assert.match(installedTriggers[3].definition, /AFTER UPDATE OF subject_id[\s\S]+FOR EACH ROW/);
-    assert.match(installedTriggers[4].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[0].definition, /BEFORE UPDATE OF batch_id, draft_id, source_locator[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[1].definition, /BEFORE INSERT OR DELETE[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[2].definition, /AFTER DELETE[\s\S]+REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches[\s\S]+FOR EACH STATEMENT/);
+    assert.match(installedTriggers[3].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[4].definition, /AFTER UPDATE OF subject_id[\s\S]+FOR EACH ROW/);
     assert.match(installedTriggers[5].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[6].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
 
     const accountScopeIndex = (await pool.query(
       `SELECT indexdef
@@ -526,6 +533,35 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
        RETURNING id`,
       [id, owner, requestId],
     );
+    const directOldKnowledgeImportDelete = async (owner, batchId) => (await pool.query(
+      `WITH owned_batch AS MATERIALIZED (
+         SELECT id FROM knowledge_ingestion_batches
+         WHERE id = $1 AND user_id = $2
+         FOR UPDATE
+       ), approved_items AS MATERIALIZED (
+         SELECT DISTINCT d.knowledge_item_id AS id
+         FROM knowledge_card_drafts d
+         JOIN owned_batch b ON b.id = d.batch_id
+         WHERE d.user_id = $2 AND d.status = 'approved' AND d.knowledge_item_id IS NOT NULL
+       ), detached_sources AS (
+         UPDATE knowledge_card_sources s SET
+           batch_id = NULL,
+           draft_id = NULL,
+           source_locator = CASE WHEN s.source_locator IS NULL THEN NULL
+             ELSE s.source_locator - 'batch_id' - 'draft_id' - 'client_card_id' END
+         WHERE s.user_id = $2 AND s.batch_id IN (SELECT id FROM owned_batch)
+         RETURNING s.id
+       ), deleted_batch AS (
+         DELETE FROM knowledge_ingestion_batches b
+         USING owned_batch owned
+         WHERE b.id = owned.id AND b.user_id = $2
+           AND (SELECT COUNT(*) FROM detached_sources) >= 0
+         RETURNING b.id
+       )
+       SELECT EXISTS (SELECT 1 FROM deleted_batch) AS deleted,
+         (SELECT COUNT(*)::integer FROM approved_items) AS approved_knowledge_preserved`,
+      [batchId, owner],
+    )).rows[0];
     assert.equal((await directOldBatchInsert(
       mixedOldBatchGuardUserId,
       mixedOldBatchGuardInput.importSessionId,
@@ -1088,6 +1124,92 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
        WHERE user_id = $1 ORDER BY event_name`,
       [userId],
     )).rows, [{ event_name: 'knowledge_context_created' }]);
+
+    const sourceBridge = await create(sourceBridgeUserId, [selectedA]);
+    assert.deepEqual({ created: sourceBridge.created, draftCount: sourceBridge.draftCount }, {
+      created: true,
+      draftCount: 1,
+    });
+    const sourceBridgeBatch = await getKnowledgeDraftBatchForUser(
+      sourceBridgeUserId,
+      sourceBridge.batchId,
+    );
+    const sourceBridgeDraft = sourceBridgeBatch?.drafts[0];
+    assert.ok(sourceBridgeDraft);
+    assert.equal((await resolveKnowledgeDraftForUser(sourceBridgeUserId, {
+      batchId: sourceBridge.batchId,
+      draftId: sourceBridgeDraft.id,
+      action: 'create',
+      expectedDraftVersion: sourceBridgeDraft.version,
+      reviewed: {
+        title: sourceBridgeDraft.title,
+        summary: sourceBridgeDraft.summary,
+        content: sourceBridgeDraft.explanation,
+        topic: sourceBridgeDraft.topic,
+        tags: sourceBridgeDraft.tags,
+        knowledgeType: sourceBridgeDraft.knowledge_type,
+        centralQuestion: sourceBridgeDraft.central_question,
+        structuredContent: sourceBridgeDraft.structured_content,
+        bundleSchemaVersion: sourceBridgeDraft.bundle_schema_version,
+        evidenceSelectors: [],
+        relations: [],
+      },
+    })).resolved, true);
+    assert.equal((await pool.query(
+      `UPDATE knowledge_card_sources
+       SET source_locator = source_locator - 'selected_export_fingerprint'
+       WHERE user_id = $1 AND batch_id = $2`,
+      [sourceBridgeUserId, sourceBridge.batchId],
+    )).rowCount, 1);
+    if (migrationStatements) {
+      for (const statement of migrationStatements) await pool.query(statement);
+      assert.equal((await pool.query(
+        `SELECT source_locator ->> 'selected_export_fingerprint' AS fingerprint
+         FROM knowledge_card_sources
+         WHERE user_id = $1 AND batch_id = $2`,
+        [sourceBridgeUserId, sourceBridge.batchId],
+      )).rows[0]?.fingerprint, sourceBridgeDraft.client_card_id,
+      'migration replay must backfill a still-linked pre-rollout selected-export source');
+      assert.equal((await pool.query(
+        `UPDATE knowledge_card_sources
+         SET source_locator = source_locator - 'selected_export_fingerprint'
+         WHERE user_id = $1 AND batch_id = $2`,
+        [sourceBridgeUserId, sourceBridge.batchId],
+      )).rowCount, 1);
+    }
+    assert.deepEqual(await directOldKnowledgeImportDelete(
+      sourceBridgeUserId,
+      sourceBridge.batchId,
+    ), { deleted: true, approved_knowledge_preserved: 1 });
+    assert.deepEqual((await pool.query(
+      `SELECT source.batch_id, source.draft_id,
+         source.source_locator ?| ARRAY['batch_id', 'draft_id', 'client_card_id'] AS has_import_locator,
+         source.source_locator ->> 'selected_export_fingerprint' AS source_fingerprint
+       FROM knowledge_card_sources source
+       WHERE source.user_id = $1 AND source.provider = 'chatgpt'`,
+      [sourceBridgeUserId],
+    )).rows, [{
+      batch_id: null,
+      draft_id: null,
+      has_import_locator: false,
+      source_fingerprint: sourceBridgeDraft.client_card_id,
+    }]);
+    assert.equal((await pool.query(
+      'SELECT COUNT(*)::integer AS count FROM knowledge_evidence_spans WHERE user_id = $1',
+      [sourceBridgeUserId],
+    )).rows[0]?.count, 0);
+    const sourceBridgeRetry = await create(sourceBridgeUserId, [selectedA], crypto.randomUUID());
+    assert.deepEqual({
+      batchId: sourceBridgeRetry.batchId,
+      created: sourceBridgeRetry.created,
+      draftCount: sourceBridgeRetry.draftCount,
+      reviewPath: sourceBridgeRetry.reviewPath,
+    }, {
+      batchId: null,
+      created: false,
+      draftCount: 0,
+      reviewPath: '/knowledge-inbox',
+    });
 
     const overlap = await create(userId, [selectedA, selectedB]);
     assert.deepEqual({ created: overlap.created, draftCount: overlap.draftCount }, {

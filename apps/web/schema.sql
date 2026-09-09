@@ -462,6 +462,61 @@ CREATE TABLE IF NOT EXISTS knowledge_card_sources (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_card_sources_id_user_item
 ON knowledge_card_sources(id, user_id, knowledge_item_id);
 
+CREATE OR REPLACE FUNCTION public.preserve_selected_export_source_fingerprint()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  source_fingerprint text;
+BEGIN
+  IF OLD.batch_id IS NULL
+    OR OLD.draft_id IS NULL
+    OR NEW.batch_id IS NOT NULL
+    OR NEW.draft_id IS NOT NULL
+    OR OLD.source_type <> 'conversation'
+    OR OLD.provider <> 'chatgpt'
+    OR OLD.source_locator IS NULL
+    OR COALESCE(NEW.source_locator ? 'client_card_id', FALSE)
+    OR COALESCE(NEW.source_locator ? 'selected_export_fingerprint', FALSE)
+    OR pg_catalog.jsonb_typeof(OLD.source_locator -> 'client_card_id') <> 'string' THEN
+    RETURN NEW;
+  END IF;
+
+  source_fingerprint := OLD.source_locator ->> 'client_card_id';
+  IF source_fingerprint !~ '^export-exchange:[0-9a-f]{48}$' THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM 1
+  FROM public.knowledge_ingestion_batches AS batch
+  JOIN public.knowledge_card_drafts AS draft
+    ON draft.batch_id = batch.id
+    AND draft.user_id = batch.user_id
+  WHERE batch.id = OLD.batch_id
+    AND batch.user_id = OLD.user_id
+    AND batch.provider = OLD.provider
+    AND batch.scope = 'selected_export'
+    AND draft.id = OLD.draft_id
+    AND draft.status = 'approved'
+    AND draft.knowledge_item_id = OLD.knowledge_item_id
+    AND draft.client_card_id = source_fingerprint;
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  NEW.source_locator := COALESCE(NEW.source_locator, '{}'::jsonb)
+    || pg_catalog.jsonb_build_object('selected_export_fingerprint', source_fingerprint);
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER knowledge_card_sources_preserve_selected_export_fingerprint
+BEFORE UPDATE OF batch_id, draft_id, source_locator ON public.knowledge_card_sources
+FOR EACH ROW
+EXECUTE FUNCTION public.preserve_selected_export_source_fingerprint();
+
 CREATE TABLE IF NOT EXISTS knowledge_item_activity (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,

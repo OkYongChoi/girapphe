@@ -25,7 +25,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0020_knowledge_intelligence_events.sql', 3, parsePreviewMigration],
     ['0021_billing_v1_domain.sql', 63, parsePreviewMigration],
     ['0022_recall_ping_persistence.sql', 15, parsePreviewMigration],
-    ['0023_knowledge_ingestion_request_tombstones.sql', 18, parsePreviewMigration],
+    ['0023_knowledge_ingestion_request_tombstones.sql', 21, parsePreviewMigration],
   ];
   for (const [name, expectedCount, parse] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -274,10 +274,15 @@ test('selected export deletion tombstones are content-free and owner scoped', as
   const sql = await readFile(new URL('../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql', import.meta.url), 'utf8');
   const statements = parsePreviewMigration(sql);
   const dataMutations = statements.filter((statement) => /^\s*(?:UPDATE|DELETE|INSERT)\b/i.test(statement));
-  assert.equal(dataMutations.length, 1);
+  assert.equal(dataMutations.length, 2);
+  const [deletedAccountCleanup, sourceFingerprintBackfill] = dataMutations;
   assert.match(
-    dataMutations[0],
+    deletedAccountCleanup,
     /^DELETE FROM public\.knowledge_ingestion_request_tombstones AS tombstone[\s\S]+USING public\.mcp_deleted_account_markers AS marker[\s\S]+derive_account_lifecycle_scope_key\(tombstone\.user_id\) = marker\.scope_key;$/,
+  );
+  assert.match(
+    sourceFingerprintBackfill,
+    /^UPDATE public\.knowledge_card_sources AS source[\s\S]+source\.batch_id = batch\.id[\s\S]+batch\.scope = 'selected_export'[\s\S]+draft\.status = 'approved'[\s\S]+\^export-exchange:\[0-9a-f\]\{48\}\$[\s\S]+NOT \(source\.source_locator \? 'selected_export_fingerprint'\);$/,
   );
   assert.match(sql, /PRIMARY KEY\("user_id", "provider", "request_id"\)/);
   assert.match(sql, /"created_at" timestamp with time zone DEFAULT now\(\) NOT NULL/);
@@ -293,6 +298,11 @@ test('selected export deletion tombstones are content-free and owner scoped', as
   assert.match(sql, /DROP CONSTRAINT IF EXISTS "knowledge_ingestion_batches_user_id_provider_request_id_key"/);
   assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS "idx_knowledge_ingestion_batches_user_provider_scope_request"/);
   assert.match(sql, /\("user_id", "provider", "scope", "request_id"\)/);
+  assert.match(sql, /CREATE OR REPLACE FUNCTION public\.preserve_selected_export_source_fingerprint\(\)/);
+  assert.match(sql, /BEFORE UPDATE OF batch_id, draft_id, source_locator ON public\.knowledge_card_sources/);
+  assert.match(sql, /draft\.knowledge_item_id = OLD\.knowledge_item_id/);
+  assert.match(sql, /draft\.client_card_id = source_fingerprint/);
+  assert.match(sql, /jsonb_build_object\('selected_export_fingerprint', source_fingerprint\)/);
   assert.match(sql, /CREATE INDEX IF NOT EXISTS "idx_knowledge_product_events_user_subject"/);
   assert.match(sql, /CREATE OR REPLACE FUNCTION public\.lock_selected_export_batch_owner\(\)/);
   assert.match(sql, /BEFORE INSERT OR DELETE ON public\.knowledge_ingestion_batches/);

@@ -65,6 +65,84 @@ ALTER TABLE "knowledge_ingestion_batches"
 	DROP CONSTRAINT IF EXISTS "knowledge_ingestion_batches_user_provider_request_key",
 	DROP CONSTRAINT IF EXISTS "knowledge_ingestion_batches_user_id_provider_request_id_key";
 --> statement-breakpoint
+CREATE OR REPLACE FUNCTION public.preserve_selected_export_source_fingerprint()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+	source_fingerprint text;
+BEGIN
+	IF OLD.batch_id IS NULL
+		OR OLD.draft_id IS NULL
+		OR NEW.batch_id IS NOT NULL
+		OR NEW.draft_id IS NOT NULL
+		OR OLD.source_type <> 'conversation'
+		OR OLD.provider <> 'chatgpt'
+		OR OLD.source_locator IS NULL
+		OR COALESCE(NEW.source_locator ? 'client_card_id', FALSE)
+		OR COALESCE(NEW.source_locator ? 'selected_export_fingerprint', FALSE)
+		OR pg_catalog.jsonb_typeof(OLD.source_locator -> 'client_card_id') <> 'string' THEN
+		RETURN NEW;
+	END IF;
+
+	source_fingerprint := OLD.source_locator ->> 'client_card_id';
+	IF source_fingerprint !~ '^export-exchange:[0-9a-f]{48}$' THEN
+		RETURN NEW;
+	END IF;
+
+	PERFORM 1
+	FROM public.knowledge_ingestion_batches AS batch
+	JOIN public.knowledge_card_drafts AS draft
+		ON draft.batch_id = batch.id
+		AND draft.user_id = batch.user_id
+	WHERE batch.id = OLD.batch_id
+		AND batch.user_id = OLD.user_id
+		AND batch.provider = OLD.provider
+		AND batch.scope = 'selected_export'
+		AND draft.id = OLD.draft_id
+		AND draft.status = 'approved'
+		AND draft.knowledge_item_id = OLD.knowledge_item_id
+		AND draft.client_card_id = source_fingerprint;
+	IF NOT FOUND THEN
+		RETURN NEW;
+	END IF;
+
+	NEW.source_locator := COALESCE(NEW.source_locator, '{}'::jsonb)
+		|| pg_catalog.jsonb_build_object('selected_export_fingerprint', source_fingerprint);
+	RETURN NEW;
+END;
+$$;
+--> statement-breakpoint
+CREATE OR REPLACE TRIGGER knowledge_card_sources_preserve_selected_export_fingerprint
+	BEFORE UPDATE OF batch_id, draft_id, source_locator ON public.knowledge_card_sources
+	FOR EACH ROW
+	EXECUTE FUNCTION public.preserve_selected_export_source_fingerprint();
+--> statement-breakpoint
+UPDATE public.knowledge_card_sources AS source
+SET source_locator = source.source_locator || pg_catalog.jsonb_build_object(
+	'selected_export_fingerprint', source.source_locator ->> 'client_card_id'
+)
+FROM public.knowledge_ingestion_batches AS batch
+JOIN public.knowledge_card_drafts AS draft
+	ON draft.batch_id = batch.id
+	AND draft.user_id = batch.user_id
+WHERE source.batch_id = batch.id
+	AND source.draft_id = draft.id
+	AND source.user_id = batch.user_id
+	AND source.user_id = draft.user_id
+	AND source.knowledge_item_id = draft.knowledge_item_id
+	AND source.source_type = 'conversation'
+	AND source.provider = 'chatgpt'
+	AND batch.provider = source.provider
+	AND batch.scope = 'selected_export'
+	AND draft.status = 'approved'
+	AND pg_catalog.jsonb_typeof(source.source_locator -> 'client_card_id') = 'string'
+	AND source.source_locator ->> 'client_card_id' = draft.client_card_id
+	AND source.source_locator ->> 'client_card_id' ~ '^export-exchange:[0-9a-f]{48}$'
+	AND NOT (source.source_locator ? 'selected_export_fingerprint');
+--> statement-breakpoint
 CREATE OR REPLACE FUNCTION public.lock_selected_export_batch_owner()
 RETURNS trigger
 LANGUAGE plpgsql

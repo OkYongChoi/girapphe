@@ -100,7 +100,10 @@ serialized ingestion transaction. Approval stores the opaque selected-source
 fingerprint on the owner-scoped source record independently of user-editable
 evidence. Import-job deletion promotes the previous hashed client ID for
 pre-deployment source rows before removing job/draft links, so clearing all
-evidence cannot accidentally enable a duplicate canonical item. Rows whose job
+evidence cannot accidentally enable a duplicate canonical item. Migration
+`0023` backfills that opaque fingerprint on still-linked approved rows and a
+source-detach trigger performs the same promotion when a draining pre-rollout
+Worker runs its older deletion query. Rows whose job
 and all evidence were already deleted before this release have no remaining
 identity to backfill. Ignore, discard, import-job deletion, and import creation
 take the same account and ingestion locks, making the active-candidate decision
@@ -170,7 +173,9 @@ rejects old-Worker retries covered by an owner-scoped request or session
 tombstone, a statement-level batch-delete trigger writes those tombstones for
 draining-Worker deletions and purges every batch-subject event, and event
 insert/reassignment triggers reject or remove late telemetry
-unless its owner-scoped batch is still live. A preceding insert/delete trigger
+unless its owner-scoped batch is still live. A source-detach trigger preserves
+the approved selection fingerprint before an older Worker removes its transient
+batch, draft, and client-card locator keys. A preceding insert/delete trigger
 serializes the bridge on the same account lifecycle lock used by every deployed
 Worker generation, closing both commit orders of the absent-tombstone race.
 Keep those triggers installed throughout any Worker rollback or old-request
