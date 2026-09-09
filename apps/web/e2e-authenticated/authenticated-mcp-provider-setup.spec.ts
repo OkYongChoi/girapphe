@@ -22,7 +22,10 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   await expect(page.getByRole('heading', { name: 'Use the PAT with OpenAI Responses API' })).toBeVisible();
   await expect(page.getByText('GIRAPPHE_MCP_TOKEN', { exact: false }).first()).toBeVisible();
 
-  const copySetup = page.getByRole('button', { name: 'Copy setup' });
+  const openAiTokenArticle = page.locator('article').filter({
+    has: page.getByRole('heading', { name: 'Use the PAT with OpenAI Responses API' }),
+  });
+  const copySetup = openAiTokenArticle.getByRole('button');
   await copySetup.click();
   await expect(copySetup).toHaveText('Copied');
   const openAiSnippet = await page.evaluate(() => navigator.clipboard.readText());
@@ -34,7 +37,10 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   await expect(claude).toBeChecked();
   await expect(page.getByRole('heading', { name: 'Claude web or Desktop' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Use the PAT with Claude Code' })).toBeVisible();
-  await page.getByRole('button', { name: 'Copy setup' }).click();
+  const claudeTokenArticle = page.locator('article').filter({
+    has: page.getByRole('heading', { name: 'Use the PAT with Claude Code' }),
+  });
+  await claudeTokenArticle.getByRole('button').click();
   const claudeSnippet = await page.evaluate(() => navigator.clipboard.readText());
   expect(claudeSnippet).toContain('claude mcp add-json girapphe');
   expect(claudeSnippet).toContain('${GIRAPPHE_MCP_TOKEN}');
