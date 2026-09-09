@@ -16,9 +16,13 @@ function sourceSection(source: string, start: string, end: string): string {
   return source.slice(startIndex, endIndex);
 }
 
-test('stale Recall cleanup is owner-scoped, invalidates active attempts, and preserves assessed Practice', () => {
+test('stale Recall cleanup invalidates every owner-item attempt generation and preserves assessed Practice', () => {
   const lock = buildRecallLifecycleLockQuery(USER_ID, ITEM_ID);
   const cleanup = buildStaleRecallEnrollmentCleanupQuery(USER_ID, ITEM_ID);
+  const attemptCleanup = cleanup.text.slice(
+    cleanup.text.indexOf('invalidated_attempts AS ('),
+    cleanup.text.indexOf('), deleted_unassessed_state AS ('),
+  );
 
   assert.deepEqual(lock.params, [`recall-schedule:${USER_ID}:${ITEM_ID}`]);
   assert.deepEqual(cleanup.params, [USER_ID, ITEM_ID]);
@@ -28,7 +32,10 @@ test('stale Recall cleanup is owner-scoped, invalidates active attempts, and pre
   assert.match(cleanup.text, /i\.archived_at IS NOT NULL/);
   assert.match(cleanup.text, /i\.deleted_at IS NOT NULL/);
   assert.match(cleanup.text, /knowledge_item_supersessions/);
-  assert.match(cleanup.text, /a\.lifecycle_state IN \('prepared', 'confidence_selected', 'revealed'\)/);
+  assert.match(attemptCleanup, /a\.user_id = stale\.user_id/);
+  assert.match(attemptCleanup, /a\.knowledge_item_id = stale\.knowledge_item_id/);
+  assert.match(attemptCleanup, /a\.lifecycle_state IN \('prepared', 'confidence_selected', 'revealed'\)/);
+  assert.doesNotMatch(attemptCleanup, /a\.(?:item_version|schedule_version|recall_enrolled_at)/);
   assert.match(cleanup.text, /invalidation_reason = 'stale_context'/);
   assert.match(cleanup.text, /DELETE FROM user_private_card_states s/);
   assert.match(cleanup.text, /AND stale\.is_unassessed/);

@@ -48,9 +48,6 @@ export const STALE_RECALL_ENROLLMENT_CLEANUP_QUERY = `WITH stale_schedule AS MAT
   FROM stale_schedule stale
   WHERE a.user_id = stale.user_id
     AND a.knowledge_item_id = stale.knowledge_item_id
-    AND a.item_version = stale.recall_item_version
-    AND a.schedule_version = stale.recall_schedule_version
-    AND a.recall_enrolled_at = stale.recall_enrolled_at
     AND a.lifecycle_state IN ('prepared', 'confidence_selected', 'revealed')
   RETURNING a.id
 ), deleted_unassessed_state AS (

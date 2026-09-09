@@ -2132,6 +2132,19 @@ test('knowledge revision and Trash cleanup remove stale Recall state and permit 
     const unassessedAttempt = await attempts.startOrResumeRecallAttemptForUser(userId, itemId);
     assert.equal(unassessedAttempt.kind, 'started');
     assert.ok(unassessedAttempt.attempt);
+    // Model a nonterminal attempt left on the earlier generation when schedule
+    // reconciliation advances the owner/item state before the item enters Trash.
+    const advancedSchedule = await repositoryAdapter.transaction([
+      firstLock,
+      {
+        text: `UPDATE user_private_card_states
+          SET recall_schedule_version = recall_schedule_version + 1
+          WHERE user_id = $1 AND knowledge_item_id = $2
+          RETURNING recall_schedule_version`,
+        params: [userId, itemId],
+      },
+    ]);
+    assert.deepEqual(advancedSchedule[1]?.rows, [{ recall_schedule_version: 2 }]);
 
     const knowledgeLock = {
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
