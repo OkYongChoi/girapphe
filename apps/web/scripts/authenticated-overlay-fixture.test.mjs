@@ -9,6 +9,10 @@ import {
 } from './authenticated-overlay-fixture.mjs';
 
 const SYNTHETIC_EMAIL = 'qa+clerk_test_girapphe_overlay_e2e@example.com';
+const SYNTHETIC_USER = {
+  id: 'user_synthetic',
+  publicMetadata: { girappheSyntheticPurpose: AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE },
+};
 
 test('synthetic email validation rejects an unmarked account', () => {
   assert.equal(normalizeSyntheticEmail(SYNTHETIC_EMAIL.toUpperCase()), SYNTHETIC_EMAIL);
@@ -29,10 +33,7 @@ test('fixture IDs are deterministic, owner-specific, and do not expose Clerk IDs
 });
 
 test('Clerk setup creates a marked synthetic user once and reuses only that user', async () => {
-  const createdUser = {
-    id: 'user_synthetic',
-    publicMetadata: { girappheSyntheticPurpose: AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE },
-  };
+  const createdUser = SYNTHETIC_USER;
   let users = [];
   let creates = 0;
   const clerkClient = {
@@ -77,13 +78,39 @@ test('database fixture is owner-bound and repeatable', async () => {
     },
   };
 
-  const first = await seedAuthenticatedOverlayFixtureWithClient(client, 'user_synthetic');
-  const second = await seedAuthenticatedOverlayFixtureWithClient(client, 'user_synthetic');
+  const first = await seedAuthenticatedOverlayFixtureWithClient(
+    client,
+    SYNTHETIC_USER,
+    { resetMcpAccessTokens: true },
+  );
+  const second = await seedAuthenticatedOverlayFixtureWithClient(
+    client,
+    SYNTHETIC_USER,
+    { resetMcpAccessTokens: true },
+  );
   assert.deepEqual(first, second);
   assert.deepEqual(first.counts, { privateNodes: 2, privateEdges: 1, publicLinks: 1 });
   assert.equal(calls.filter((call) => call.text === 'BEGIN').length, 2);
   assert.equal(calls.filter((call) => call.text === 'COMMIT').length, 2);
   assert.equal(calls.some((call) => call.text === 'ROLLBACK'), false);
+
+  const tokenResets = calls.filter((call) => (
+    call.text === 'DELETE FROM mcp_access_tokens WHERE user_id = $1'
+  ));
+  assert.equal(tokenResets.length, 2);
+  assert.ok(tokenResets.every((call) => (
+    call.values.length === 1 && call.values[0] === SYNTHETIC_USER.id
+  )));
+  for (const tokenReset of tokenResets) {
+    const resetIndex = calls.indexOf(tokenReset);
+    const precedingBegin = calls.findLastIndex((call, index) => (
+      index < resetIndex && call.text === 'BEGIN'
+    ));
+    const followingCommit = calls.findIndex((call, index) => (
+      index > resetIndex && call.text === 'COMMIT'
+    ));
+    assert.ok(precedingBegin >= 0 && followingCommit > resetIndex);
+  }
 
   const mutations = calls.filter((call) => call.text.startsWith('INSERT INTO'));
   assert.ok(mutations.length >= 8);
@@ -108,8 +135,31 @@ test('database fixture remains valid when a schema-only preview has no public no
     },
   };
 
-  const fixture = await seedAuthenticatedOverlayFixtureWithClient(client, 'user_synthetic');
+  const fixture = await seedAuthenticatedOverlayFixtureWithClient(client, SYNTHETIC_USER);
   assert.deepEqual(fixture.counts, { privateNodes: 2, privateEdges: 1, publicLinks: 0 });
+  assert.equal(
+    calls.some((call) => call.text === 'DELETE FROM mcp_access_tokens WHERE user_id = $1'),
+    false,
+  );
   assert.equal(calls.filter((call) => call.text.startsWith('INSERT INTO user_graph_edges')).length, 1);
   assert.equal(calls.some((call) => call.text === 'ROLLBACK'), false);
+});
+
+test('database fixture refuses to mutate an account without the synthetic purpose marker', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      return { rows: [] };
+    },
+  };
+
+  await assert.rejects(
+    () => seedAuthenticatedOverlayFixtureWithClient(client, {
+      id: 'user_real',
+      publicMetadata: {},
+    }),
+    /dedicated authenticated overlay synthetic user/,
+  );
+  assert.deepEqual(calls, []);
 });

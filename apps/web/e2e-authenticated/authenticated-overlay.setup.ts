@@ -26,7 +26,10 @@ setup('prepare Clerk testing token and owner-scoped fixture', async () => {
   if (clerkAuthMode === AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken) {
     await clerkSetup({ dotenv: false });
   }
-  const result = await ensureAuthenticatedOverlayFixture({ emailAddress: syntheticEmail });
+  const result = await ensureAuthenticatedOverlayFixture({
+    emailAddress: syntheticEmail,
+    resetMcpAccessTokens: clerkAuthMode === AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken,
+  });
   syntheticClerkUserId = result.user.id;
   console.log(JSON.stringify({
     authenticatedOverlayFixture: result.fixture.counts,
