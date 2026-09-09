@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
+import { ClerkProvider } from '@clerk/nextjs';
 import { AccountDeletionPanel } from '@/components/account-deletion-panel';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import { deleteKnowledgeImportBatch } from '@/actions/knowledge-ingestion-actions';
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
-import { requireCurrentUserProfile } from '@/lib/auth';
+import { requireCurrentUser } from '@/lib/auth';
 import { getKnowledgeDraftBatchesForUser } from '@/lib/knowledge-ingestion';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -19,7 +20,10 @@ type DeleteAccountPageProps = { searchParams: Promise<{ importPage?: string | st
 
 export default async function DeleteAccountPage({ searchParams }: DeleteAccountPageProps) {
   const [user, { t }, resolvedSearchParams] = await Promise.all([
-    requireCurrentUserProfile(),
+    // This critical owner-data route needs only the verified session subject.
+    // Avoid making it depend on a second Clerk Backend API profile lookup;
+    // the email is optional display copy with an existing localized fallback.
+    requireCurrentUser(),
     getServerI18n(),
     searchParams,
   ]);
@@ -91,7 +95,9 @@ export default async function DeleteAccountPage({ searchParams }: DeleteAccountP
           <h2 className="mt-7 text-3xl font-black tracking-tight text-red-950">{t('account.data.deleteAccountTitle')}</h2>
           <p className="mt-3 leading-7 text-slate-600">{t('account.data.deleteAccountBody')}</p>
         </div>
-        <AccountDeletionPanel email={user.email} />
+        <ClerkProvider>
+          <AccountDeletionPanel email={user.email} />
+        </ClerkProvider>
         <p className="mt-6 text-sm leading-6 text-slate-500">
           {t('account.data.privacyPrefix')} <LocalizedLink href="/privacy" className="font-semibold text-blue-700 underline underline-offset-4">{t('account.data.privacyPolicy')}</LocalizedLink>
           {' '}{t('account.data.privacySuffix')}

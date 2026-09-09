@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
   AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
   AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
+  deleteExactAuthenticatedOverlayImportWithClient,
   ensureSyntheticClerkUser,
+  findExistingAuthenticatedOverlaySyntheticUser,
   fixtureIdsForUser,
   normalizeSyntheticEmail,
   seedAuthenticatedOverlayFixtureWithClient,
@@ -14,6 +16,8 @@ const SYNTHETIC_USER = {
   id: 'user_synthetic',
   publicMetadata: { girappheSyntheticPurpose: AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE },
 };
+const SYNTHETIC_BATCH_ID = '123e4567-e89b-42d3-a456-426614174000';
+const SYNTHETIC_IMPORT_MARKER = 'E2E_SELECTED_QUESTION_A_0123456789abcdef0123456789abcdef';
 
 test('synthetic email validation rejects an unmarked account', () => {
   assert.equal(normalizeSyntheticEmail(SYNTHETIC_EMAIL.toUpperCase()), SYNTHETIC_EMAIL);
@@ -64,6 +68,223 @@ test('Clerk setup creates a marked synthetic user once and reuses only that user
     () => ensureSyntheticClerkUser({ clerkClient, emailAddress: SYNTHETIC_EMAIL }),
     /not marked as this synthetic fixture/,
   );
+});
+
+test('cleanup resolves one existing marked synthetic Clerk user without creating an account', async () => {
+  const requests = [];
+  const clerkClient = {
+    users: {
+      async getUserList(input) {
+        requests.push(input);
+        return { data: [SYNTHETIC_USER] };
+      },
+    },
+  };
+
+  assert.equal(
+    await findExistingAuthenticatedOverlaySyntheticUser({
+      clerkClient,
+      emailAddress: SYNTHETIC_EMAIL,
+    }),
+    SYNTHETIC_USER,
+  );
+  assert.deepEqual(requests, [{ emailAddress: [SYNTHETIC_EMAIL], limit: 2 }]);
+
+  clerkClient.users.getUserList = async () => ({ data: [] });
+  await assert.rejects(
+    () => findExistingAuthenticatedOverlaySyntheticUser({
+      clerkClient,
+      emailAddress: SYNTHETIC_EMAIL,
+    }),
+    /SYNTHETIC_CLEANUP_OWNER_NOT_UNIQUE/,
+  );
+});
+
+test('exact import fallback is owner, batch, marker, lifecycle, and pending-state scoped', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('AS marker_matches')) {
+        return { rows: [{
+          id: SYNTHETIC_BATCH_ID,
+          request_id: `chatgpt-export:test:session:${SYNTHETIC_BATCH_ID}`,
+          marker_matches: 1,
+          protected_drafts: 0,
+          foreign_drafts: 0,
+          linked_sources: 0,
+        }] };
+      }
+      if (text.trimStart().startsWith('DELETE FROM knowledge_ingestion_batches')) {
+        return { rows: [{ id: SYNTHETIC_BATCH_ID }] };
+      }
+      if (text.includes('AS remaining_batches')) {
+        return { rows: [{
+          remaining_batches: 0,
+          remaining_drafts: 0,
+          remaining_events: 0,
+        }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  assert.deepEqual(
+    await deleteExactAuthenticatedOverlayImportWithClient(
+      client,
+      SYNTHETIC_USER,
+      { batchId: SYNTHETIC_BATCH_ID, marker: SYNTHETIC_IMPORT_MARKER },
+    ),
+    {
+      deleted: true,
+      remainingBatches: 0,
+      remainingDrafts: 0,
+      remainingEvents: 0,
+    },
+  );
+
+  const eligibility = calls.find((call) => call.text.includes('AS marker_matches'));
+  assert.deepEqual(eligibility?.values, [
+    SYNTHETIC_BATCH_ID,
+    SYNTHETIC_USER.id,
+    SYNTHETIC_IMPORT_MARKER,
+  ]);
+  assert.match(eligibility?.text ?? '', /b\.id = \$1/);
+  assert.match(eligibility?.text ?? '', /b\.user_id = \$2/);
+  assert.match(eligibility?.text ?? '', /marker_draft\.central_question = \$3/);
+  assert.match(eligibility?.text ?? '', /b\.provider = 'chatgpt'/);
+  assert.match(eligibility?.text ?? '', /b\.scope = 'selected_export'/);
+  assert.match(eligibility?.text ?? '', /b\.status IN \('pending', 'partial', 'discarded'\)/);
+  assert.match(eligibility?.text ?? '', /protected_draft\.status = 'approved'/);
+  assert.match(eligibility?.text ?? '', /knowledge_card_sources source/);
+  assert.doesNotMatch(eligibility?.text ?? '', /source\.user_id = b\.user_id/);
+
+  const accountLock = calls.findIndex((call) => call.text.includes("'mcp-account-lifecycle:'"));
+  const activeAccountGuard = calls.findIndex((call) => call.text.startsWith('INSERT INTO mcp_deleted_account_markers'));
+  const ingestionLock = calls.findIndex((call) => call.values[0] === `knowledge-ingestion:${SYNTHETIC_USER.id}`);
+  const importLock = calls.findIndex((call) => call.values[0] === `knowledge-import:${SYNTHETIC_USER.id}:${SYNTHETIC_BATCH_ID}`);
+  const deleteIndex = calls.findIndex((call) => call.text.trimStart().startsWith('DELETE FROM knowledge_ingestion_batches'));
+  assert.ok(accountLock >= 0 && accountLock < activeAccountGuard);
+  assert.ok(activeAccountGuard < ingestionLock && ingestionLock < importLock && importLock < deleteIndex);
+  assert.equal(calls.at(-1)?.text, 'COMMIT');
+
+  const deletion = calls[deleteIndex];
+  assert.deepEqual(deletion.values, [SYNTHETIC_BATCH_ID, SYNTHETIC_USER.id]);
+  assert.match(deletion.text, /id = \$1[\s\S]*user_id = \$2[\s\S]*provider = 'chatgpt'[\s\S]*scope = 'selected_export'/);
+  const eventDeletion = calls.find((call) => call.text.trimStart().startsWith('DELETE FROM knowledge_product_events'));
+  assert.deepEqual(eventDeletion?.values[0], SYNTHETIC_USER.id);
+  assert.equal(eventDeletion?.values[1]?.length, 2);
+  assert.match(eventDeletion?.text ?? '', /subject_id = ANY\(\$2::text\[\]\)/);
+  assert.match(eventDeletion?.text ?? '', /conversation_import_started[\s\S]*conversation_import_candidates_ready/);
+  assert.equal(calls.some((call) => call.text.startsWith('DELETE FROM knowledge_ingestion_request_tombstones')), false);
+});
+
+test('exact import fallback refuses invalid identity and protected or mismatched batches', async () => {
+  const invalidCalls = [];
+  const invalidClient = {
+    async query(text, values = []) {
+      invalidCalls.push({ text, values });
+      return { rows: [] };
+    },
+  };
+  await assert.rejects(
+    () => deleteExactAuthenticatedOverlayImportWithClient(
+      invalidClient,
+      { id: 'user_real', publicMetadata: {} },
+      { batchId: SYNTHETIC_BATCH_ID, marker: SYNTHETIC_IMPORT_MARKER },
+    ),
+    /dedicated authenticated overlay synthetic user/,
+  );
+  await assert.rejects(
+    () => deleteExactAuthenticatedOverlayImportWithClient(
+      invalidClient,
+      SYNTHETIC_USER,
+      { batchId: 'not-a-batch', marker: SYNTHETIC_IMPORT_MARKER },
+    ),
+    /SYNTHETIC_CLEANUP_BATCH_INVALID/,
+  );
+  await assert.rejects(
+    () => deleteExactAuthenticatedOverlayImportWithClient(
+      invalidClient,
+      SYNTHETIC_USER,
+      { batchId: SYNTHETIC_BATCH_ID, marker: 'not-a-marker' },
+    ),
+    /SYNTHETIC_CLEANUP_MARKER_INVALID/,
+  );
+  assert.deepEqual(invalidCalls, []);
+
+  for (const protectedRow of [
+    { marker_matches: 0, protected_drafts: 0, foreign_drafts: 0, linked_sources: 0 },
+    { marker_matches: 1, protected_drafts: 1, foreign_drafts: 0, linked_sources: 0 },
+    { marker_matches: 1, protected_drafts: 0, foreign_drafts: 1, linked_sources: 0 },
+    { marker_matches: 1, protected_drafts: 0, foreign_drafts: 0, linked_sources: 1 },
+  ]) {
+    const calls = [];
+    const client = {
+      async query(text, values = []) {
+        calls.push({ text, values });
+        if (text.includes('AS marker_matches')) {
+          return { rows: [{
+            id: SYNTHETIC_BATCH_ID,
+            request_id: `chatgpt-export:test:session:${SYNTHETIC_BATCH_ID}`,
+            ...protectedRow,
+          }] };
+        }
+        return { rows: [] };
+      },
+    };
+    await assert.rejects(
+      () => deleteExactAuthenticatedOverlayImportWithClient(
+        client,
+        SYNTHETIC_USER,
+        { batchId: SYNTHETIC_BATCH_ID, marker: SYNTHETIC_IMPORT_MARKER },
+      ),
+      /SYNTHETIC_CLEANUP_TARGET_NOT_ELIGIBLE/,
+    );
+    assert.equal(calls.some((call) => call.text.trimStart().startsWith('DELETE FROM knowledge_ingestion_batches')), false);
+    assert.equal(calls.at(-1)?.text, 'ROLLBACK');
+  }
+});
+
+test('exact import fallback rolls back when exact event cleanup cannot be verified', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('AS marker_matches')) {
+        return { rows: [{
+          id: SYNTHETIC_BATCH_ID,
+          request_id: `chatgpt-export:test:session:${SYNTHETIC_BATCH_ID}`,
+          marker_matches: 1,
+          protected_drafts: 0,
+          foreign_drafts: 0,
+          linked_sources: 0,
+        }] };
+      }
+      if (text.trimStart().startsWith('DELETE FROM knowledge_ingestion_batches')) {
+        return { rows: [{ id: SYNTHETIC_BATCH_ID }] };
+      }
+      if (text.includes('AS remaining_batches')) {
+        return { rows: [{
+          remaining_batches: 0,
+          remaining_drafts: 0,
+          remaining_events: 1,
+        }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  await assert.rejects(
+    () => deleteExactAuthenticatedOverlayImportWithClient(
+      client,
+      SYNTHETIC_USER,
+      { batchId: SYNTHETIC_BATCH_ID, marker: SYNTHETIC_IMPORT_MARKER },
+    ),
+    /SYNTHETIC_CLEANUP_VERIFICATION_FAILED/,
+  );
+  assert.equal(calls.some((call) => call.text === 'COMMIT'), false);
+  assert.equal(calls.at(-1)?.text, 'ROLLBACK');
 });
 
 test('database fixture is owner-bound and repeatable', async () => {

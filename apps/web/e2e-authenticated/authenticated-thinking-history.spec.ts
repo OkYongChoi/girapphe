@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -46,6 +46,16 @@ const downloadExportCopy = EXTRA_EN_MESSAGES["account.data.downloadExport"];
 const deleteImportCopy = EXTRA_EN_MESSAGES["account.data.deleteImport"];
 
 type ContextFormat = "markdown" | "yaml" | "json";
+type BrowserErrorDigest = {
+  source: "console" | "page";
+  kind: string;
+  fingerprint: string;
+};
+type ReviewNavigationObservation = {
+  requestSeen: boolean;
+  responseStatus: number | null;
+  requestFailed: boolean;
+};
 const IMPORT_SUBMISSION_EVENT_NAMES = new Set([
   "conversation_import_started",
   "conversation_import_parsed",
@@ -155,7 +165,7 @@ async function deleteSubmittedImportThroughOwnerUi(page: Page, batchId: string):
   await gotoOwnerKnowledgeData(page);
   await expect(
     page.getByText(batchId, { exact: true }),
-    `submitted import ${batchId} reaches its owner deletion surface`,
+    "the submitted synthetic import reaches its owner deletion surface",
   ).toHaveCount(1);
 
   const batchRow = page.getByText(batchId, { exact: true }).locator("xpath=ancestor::li[1]");
@@ -177,12 +187,37 @@ function signalOperation(response: Response): string | null {
   return typeof operation === "string" ? operation : null;
 }
 
-function installBrowserErrorGuards(page: Page): string[] {
-  const errors: string[] = [];
+function failureFingerprint(value: unknown): string {
+  const material = value instanceof Error
+    ? `${value.name}\0${value.message}`
+    : String(value);
+  return createHash("sha256").update(material).digest("hex").slice(0, 12);
+}
+
+function safeErrorSummary(error: unknown): string {
+  const unsafeName = error instanceof Error ? error.name : "UnknownError";
+  const name = /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(unsafeName)
+    ? unsafeName
+    : "UnknownError";
+  return `${name}:${failureFingerprint(error)}`;
+}
+
+function installBrowserErrorGuards(page: Page): BrowserErrorDigest[] {
+  const errors: BrowserErrorDigest[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(`console: ${message.text()}`);
+    if (message.type() === "error") {
+      errors.push({
+        source: "console",
+        kind: "error",
+        fingerprint: failureFingerprint(message.text()),
+      });
+    }
   });
-  page.on("pageerror", (error) => errors.push(`page: ${error.message}`));
+  page.on("pageerror", (error) => errors.push({
+    source: "page",
+    kind: /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name) ? error.name : "Error",
+    fingerprint: failureFingerprint(error),
+  }));
   return errors;
 }
 
@@ -197,14 +232,44 @@ function requestMaterial(request: Request): string {
   return `${request.url()}\n${request.postData() ?? ""}`;
 }
 
-function errorSummary(error: unknown): string {
-  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+function sameReviewDestination(requestUrl: string, targetUrl: URL): boolean {
+  const candidate = new URL(requestUrl);
+  return candidate.origin === targetUrl.origin
+    && candidate.pathname === targetUrl.pathname;
 }
 
-async function clickActionableLinkBelowStickyChrome(page: Page, link: Locator): Promise<string> {
-  let clickTarget: { x: number; y: number; href: string } | null = null;
+async function activateExactReviewLink(
+  page: Page,
+  link: Locator,
+  batchId: string,
+  hasTouch: boolean,
+): Promise<void> {
+  const currentUrl = new URL(page.url());
+  const rawHref = await link.getAttribute("href");
+  if (!rawHref) throw new Error("REVIEW_TARGET_MISSING");
+  const targetUrl = new URL(rawHref, currentUrl);
+  const currentBatchSuffix = `/knowledge-inbox/${encodeURIComponent(batchId)}`;
+  const targetPrefix = `${currentUrl.pathname}/`;
+  const targetSuffix = "/resolve";
+  const targetDraftId = targetUrl.pathname.slice(targetPrefix.length, -targetSuffix.length);
+  if (
+    currentUrl.origin !== targetUrl.origin
+    || !currentUrl.pathname.endsWith(currentBatchSuffix)
+    || !targetUrl.pathname.startsWith(targetPrefix)
+    || !targetUrl.pathname.endsWith(targetSuffix)
+    || !IMPORT_BATCH_ID_PATTERN.test(targetDraftId)
+    || targetUrl.search !== ""
+    || targetUrl.hash !== ""
+  ) {
+    throw new Error("REVIEW_TARGET_INVALID");
+  }
+
+  const smoothScrollOverride = await page.addStyleTag({
+    content: "html { scroll-behavior: auto !important; }",
+  });
+  let clickTargetReady = false;
   await expect.poll(async () => {
-    clickTarget = await link.evaluate(async (element) => {
+    clickTargetReady = await link.evaluate(async (element) => {
       element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
       await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
       const firstBounds = element.getBoundingClientRect();
@@ -221,26 +286,100 @@ async function clickActionableLinkBelowStickyChrome(page: Page, link: Locator): 
       const hitTarget = document.elementFromPoint(point.x, point.y);
       return boundsAreStable
         && element instanceof HTMLAnchorElement
+        && bounds.width > 0
+        && bounds.height > 0
         && hitTarget !== null
         && (hitTarget === element || element.contains(hitTarget))
-        ? { ...point, href: element.href }
-        : null;
+        && element.href.length > 0;
     });
-    return clickTarget !== null;
+    return clickTargetReady;
   }, {
-    message: "the stable centered review link receives the next pointer action",
+    message: "the stable centered review link is the next pointer target",
     timeout: 10_000,
     intervals: [100, 250, 500],
   }).toBe(true);
-  const hasTouch = await page.evaluate(() => navigator.maxTouchPoints > 0);
-  if (hasTouch) await page.touchscreen.tap(clickTarget!.x, clickTarget!.y);
-  else await page.mouse.click(clickTarget!.x, clickTarget!.y);
-  return clickTarget!.href;
+
+  const activate = async (trial: boolean) => {
+    if (hasTouch) await link.tap({ trial, timeout: 10_000 });
+    else await link.click({ trial, timeout: 10_000 });
+  };
+  try {
+    await activate(true);
+  } catch (error) {
+    throw new Error(`REVIEW_LOCATOR_NOT_ACTIONABLE:${failureFingerprint(error)}`);
+  }
+
+  const observation: ReviewNavigationObservation = {
+    requestSeen: false,
+    responseStatus: null,
+    requestFailed: false,
+  };
+  const onRequest = (request: Request) => {
+    if (request.method() === "GET" && sameReviewDestination(request.url(), targetUrl)) {
+      observation.requestSeen = true;
+    }
+  };
+  const onResponse = (response: Response) => {
+    if (response.request().method() === "GET" && sameReviewDestination(response.url(), targetUrl)) {
+      observation.requestSeen = true;
+      if (observation.responseStatus === null || response.status() >= 400) {
+        observation.responseStatus = response.status();
+      }
+    }
+  };
+  const onRequestFailed = (request: Request) => {
+    if (request.method() === "GET" && sameReviewDestination(request.url(), targetUrl)) {
+      observation.requestSeen = true;
+      observation.requestFailed = true;
+    }
+  };
+  page.on("request", onRequest);
+  page.on("response", onResponse);
+  page.on("requestfailed", onRequestFailed);
+
+  let activationError: unknown;
+  try {
+    await activate(false);
+  } catch (error) {
+    activationError = error;
+  }
+  await expect.poll(() => {
+    if (observation.requestFailed) return true;
+    if (observation.responseStatus !== null && observation.responseStatus >= 400) return true;
+    if (page.url() !== targetUrl.href) return false;
+    return !observation.requestSeen || observation.responseStatus !== null;
+  }, {
+    message: "the exact review activation reaches a terminal browser outcome",
+    timeout: 10_000,
+    intervals: [100, 250, 500],
+  }).toBe(true).catch(() => undefined);
+
+  page.off("request", onRequest);
+  page.off("response", onResponse);
+  page.off("requestfailed", onRequestFailed);
+  await smoothScrollOverride.evaluate((element) => {
+    element.parentNode?.removeChild(element);
+  }).catch(() => undefined);
+
+  const committed = page.url() === targetUrl.href;
+  if (committed && (observation.responseStatus === null || observation.responseStatus < 400)) return;
+  if (activationError && !observation.requestSeen) {
+    throw new Error(`REVIEW_LOCATOR_ACTIVATION_FAILED:${failureFingerprint(activationError)}`);
+  }
+  if (observation.responseStatus !== null && observation.responseStatus >= 400) {
+    throw new Error(`REVIEW_DESTINATION_HTTP_ERROR:${observation.responseStatus}`);
+  }
+  if (observation.requestFailed) throw new Error("REVIEW_TARGET_REQUEST_FAILED");
+  if (!observation.requestSeen) throw new Error("REVIEW_ACTIVATION_NO_REQUEST");
+  if (observation.responseStatus === null) throw new Error("REVIEW_TARGET_REQUEST_NO_RESPONSE");
+  if (observation.responseStatus >= 300) {
+    throw new Error(`REVIEW_TARGET_REDIRECT_NO_COMMIT:${observation.responseStatus}`);
+  }
+  throw new Error(`REVIEW_TARGET_SUCCESS_NO_COMMIT:${observation.responseStatus}`);
 }
 
 async function gotoOwnerKnowledgeData(page: Page): Promise<void> {
   let lastStatus: number | null = null;
-  let lastHeading = "";
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const response = await page.goto("/account/delete#knowledge-data", {
       waitUntil: "domcontentloaded",
@@ -251,12 +390,10 @@ async function gotoOwnerKnowledgeData(page: Page): Promise<void> {
         timeout: 5_000,
       });
       return;
-    } catch {
-      lastHeading = await page.locator("main h1").first().textContent().catch(() => "") ?? "";
-    }
+    } catch {}
   }
   throw new Error(
-    `Owner data controls did not render after 2 bounded attempts (status ${lastStatus ?? "none"}, heading ${JSON.stringify(lastHeading)}).`,
+    `OWNER_DATA_CONTROLS_UNAVAILABLE:${lastStatus ?? "none"}`,
   );
 }
 
@@ -461,7 +598,10 @@ test("proves selected import, private evidence, portable context, dismissal, and
   ] as const) {
     await expect(row).toHaveCount(1);
     await expect(row).toBeVisible();
-    await expect(row).toContainText(question);
+    expect(
+      (await row.textContent())?.includes(question) === true,
+      "the synthetic exchange row contains its generated question marker",
+    ).toBe(true);
   }
   await page.waitForTimeout(500);
   const privateMarkers = [
@@ -481,14 +621,14 @@ test("proves selected import, private evidence, portable context, dismissal, and
     ).toBe(false);
   }
   expect(
-    postBodies.slice(importRequestStart),
+    postBodies.slice(importRequestStart).length,
     "local parsing must not invoke a same-origin Server Action before consent",
-  ).toHaveLength(0);
+  ).toBe(0);
   const preConsentImportEvents = await importSubmissionEvents(page);
   expect(
-    preConsentImportEvents,
+    preConsentImportEvents.length,
     "local parsing must not create product-event rows before consent",
-  ).toEqual([]);
+  ).toBe(0);
 
   for (const row of [selectedExchangeARow, selectedExchangeBRow]) {
     await row.getByRole("checkbox").check();
@@ -505,34 +645,56 @@ test("proves selected import, private evidence, portable context, dismissal, and
     ).toBe(false);
   }
   expect(
-    postBodies.slice(importRequestStart),
+    postBodies.slice(importRequestStart).length,
     "selection and consent controls stay local until the submit action",
-  ).toHaveLength(0);
+  ).toBe(0);
   const preSubmitImportEvents = await importSubmissionEvents(page);
   expect(
-    preSubmitImportEvents,
+    preSubmitImportEvents.length,
     "selection and consent without submission must not create product-event rows",
-  ).toEqual([]);
+  ).toBe(0);
   const submitRequestStart = postBodies.length;
   const submitOutboundRequestStart = outboundRequestMaterial.length;
   let batchId = "";
   let postConsentImportEvents: Record<string, unknown>[] = [];
   let evidenceError: unknown;
+  let uiCleanupError: unknown;
+  let databaseFallbackStatus = "not-needed";
+  let databaseFallbackError: unknown;
   try {
     await page.getByRole("button", { name: /Create 2 review candidates/i }).click();
     await expect(page).toHaveURL(IMPORT_BATCH_URL_PATTERN, { timeout: 30_000 });
     batchId = decodeURIComponent(new URL(page.url()).pathname.split("/").at(-1) ?? "");
     expect(batchId).toMatch(IMPORT_BATCH_ID_PATTERN);
     const submittedBodies = postBodies.slice(submitRequestStart).join("\n");
-    expect(submittedBodies).toContain(selectedQuestionA);
-    expect(submittedBodies).toContain(selectedAnswerA);
-    expect(submittedBodies).toContain(selectedQuestionB);
-    expect(submittedBodies).toContain(selectedAnswerB);
-    expect(submittedBodies).not.toContain(unselectedMarker);
-    expect(submittedBodies).not.toContain(filenameMarker);
+    for (const selectedMarker of [
+      selectedQuestionA,
+      selectedAnswerA,
+      selectedQuestionB,
+      selectedAnswerB,
+    ]) {
+      expect(
+        submittedBodies.includes(selectedMarker),
+        "the submitted payload contains each explicitly selected synthetic marker",
+      ).toBe(true);
+    }
+    expect(
+      submittedBodies.includes(unselectedMarker),
+      "the submitted payload omits the unselected synthetic marker",
+    ).toBe(false);
+    expect(
+      submittedBodies.includes(filenameMarker),
+      "the submitted payload omits the local filename marker",
+    ).toBe(false);
     const submittedRequestMaterial = outboundRequestMaterial.slice(submitOutboundRequestStart).join("\n");
-    expect(submittedRequestMaterial).not.toContain(unselectedMarker);
-    expect(submittedRequestMaterial).not.toContain(filenameMarker);
+    expect(
+      submittedRequestMaterial.includes(unselectedMarker),
+      "no unselected synthetic marker leaves the browser on submission",
+    ).toBe(false);
+    expect(
+      submittedRequestMaterial.includes(filenameMarker),
+      "no local filename marker leaves the browser on submission",
+    ).toBe(false);
     postConsentImportEvents = await waitForImportSubmissionEventCount(
       page,
       IMPORT_SUBMISSION_EVENT_NAMES.size,
@@ -568,8 +730,12 @@ test("proves selected import, private evidence, portable context, dismissal, and
       await expect(reviewLinks.nth(index).locator("xpath=ancestor::article[1]"))
         .toContainText("Candidate · not confirmed");
     }
-    const resolutionUrl = await clickActionableLinkBelowStickyChrome(page, reviewLinks.first());
-    await expect(page).toHaveURL(resolutionUrl);
+    await activateExactReviewLink(
+      page,
+      reviewLinks.first(),
+      batchId,
+      testInfo.project.use.hasTouch === true,
+    );
     const evidenceGroup = page.getByRole("group", { name: "Evidence selectors to retain" });
     await expect(evidenceGroup).toContainText(/chatgpt-message:[0-9a-f]{48}/);
     await expect(evidenceGroup).not.toContainText(conversationId);
@@ -585,17 +751,16 @@ test("proves selected import, private evidence, portable context, dismissal, and
 
     await gotoOwnerKnowledgeData(page);
     const exportBeforeDelete = await downloadText(page, downloadExportCopy);
-    expect(exportBeforeDelete).toContain(batchId);
-    expect(exportBeforeDelete).toContain(selectedQuestionA);
-    expect(exportBeforeDelete).toContain(selectedAnswerB);
-    expect(exportBeforeDelete).not.toContain(unselectedMarker);
-    expect(exportBeforeDelete).not.toContain(filenameMarker);
+    expect(exportBeforeDelete.includes(batchId), "the owner export contains the exact synthetic batch").toBe(true);
+    expect(exportBeforeDelete.includes(selectedQuestionA), "the owner export contains selected synthetic evidence").toBe(true);
+    expect(exportBeforeDelete.includes(selectedAnswerB), "the owner export contains the second selected answer").toBe(true);
+    expect(exportBeforeDelete.includes(unselectedMarker), "the owner export omits unselected synthetic content").toBe(false);
+    expect(exportBeforeDelete.includes(filenameMarker), "the owner export omits the local filename marker").toBe(false);
 
     const batchRow = page.getByText(batchId, { exact: true }).locator("xpath=ancestor::li[1]");
     await expect(batchRow).toContainText(/0 pending · 0 approved/);
   } catch (error) {
     evidenceError = error;
-    throw error;
   } finally {
     try {
       await test.step("delete submitted import and await telemetry cleanup", async () => {
@@ -605,14 +770,43 @@ test("proves selected import, private evidence, portable context, dismissal, and
         await deleteSubmittedImportThroughOwnerUi(page, batchId);
       });
     } catch (cleanupError) {
-      if (evidenceError) {
-        throw new AggregateError(
-          [evidenceError, cleanupError],
-          `Thinking History evidence and owner-scoped import cleanup both failed. Primary: ${errorSummary(evidenceError)} Cleanup: ${errorSummary(cleanupError)}`,
-        );
+      uiCleanupError = cleanupError;
+      if (IMPORT_BATCH_ID_PATTERN.test(batchId)) {
+        try {
+          const { deleteExactAuthenticatedOverlayImport } = await import(
+            "../scripts/authenticated-overlay-fixture.mjs"
+          );
+          const fallback = await deleteExactAuthenticatedOverlayImport({
+            batchId,
+            marker: selectedQuestionA,
+          });
+          if (
+            fallback.deleted !== true
+            || fallback.remainingBatches !== 0
+            || fallback.remainingDrafts !== 0
+            || fallback.remainingEvents !== 0
+          ) {
+            throw new Error("EXACT_DATABASE_FALLBACK_NOT_VERIFIED");
+          }
+          databaseFallbackStatus = "verified";
+        } catch (fallbackError) {
+          databaseFallbackStatus = "failed";
+          databaseFallbackError = fallbackError;
+        }
+      } else {
+        databaseFallbackStatus = "unavailable";
       }
-      throw cleanupError;
     }
+  }
+  if (evidenceError || uiCleanupError) {
+    const evidenceStatus = evidenceError ? safeErrorSummary(evidenceError) : "passed";
+    const cleanupStatus = uiCleanupError ? safeErrorSummary(uiCleanupError) : "passed";
+    const fallbackStatus = databaseFallbackError
+      ? `${databaseFallbackStatus}:${safeErrorSummary(databaseFallbackError)}`
+      : databaseFallbackStatus;
+    throw new Error(
+      `THINKING_HISTORY_EVIDENCE_FAILED evidence=${evidenceStatus} ui_cleanup=${cleanupStatus} db_fallback=${fallbackStatus}`,
+    );
   }
   const exportAfterDelete = await downloadText(page, downloadExportCopy);
   for (const rawMarker of [
@@ -623,7 +817,10 @@ test("proves selected import, private evidence, portable context, dismissal, and
     unselectedMarker,
     filenameMarker,
   ]) {
-    expect(exportAfterDelete).not.toContain(rawMarker);
+    expect(
+      exportAfterDelete.includes(rawMarker),
+      "the owner export omits every deleted synthetic import marker",
+    ).toBe(false);
   }
 
   const signalOperations = signalEventResponses.map(signalOperation).filter(Boolean);
@@ -633,7 +830,12 @@ test("proves selected import, private evidence, portable context, dismissal, and
   expect(signalEventResponses.every((response) => response.status() === 204)).toBe(true);
   expect(contextResponses).toHaveLength(formats.length * 2);
   expect(contextResponses.every((response) => response.status() === 200)).toBe(true);
-  expect(browserErrors).toEqual([]);
+  if (browserErrors.length > 0) {
+    const digests = browserErrors
+      .map((error) => `${error.source}:${error.kind}:${error.fingerprint}`)
+      .join(",");
+    throw new Error(`BROWSER_ERROR_DIGESTS:${digests}`);
+  }
 
   const messageBytes = Buffer.byteLength(await messageResponses[0]!.body());
   const metrics = {

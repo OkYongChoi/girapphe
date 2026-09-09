@@ -17,6 +17,21 @@ export {
 } from './authenticated-overlay-constants.mjs';
 
 const { Pool } = pg;
+const IMPORT_BATCH_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const THINKING_HISTORY_IMPORT_MARKER_PATTERN = /^E2E_SELECTED_QUESTION_A_[0-9a-f]{32}$/;
+const SELECTED_EXPORT_SESSION_SUFFIX = /:session:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+
+function authenticatedOverlayFixtureError(code, cause) {
+  const suffix = cause === undefined
+    ? ''
+    : `:${createHash('sha256')
+      .update(cause instanceof Error ? `${cause.name}\0${cause.message}` : String(cause))
+      .digest('hex')
+      .slice(0, 12)}`;
+  const error = new Error(`${code}${suffix}`);
+  error.name = 'AuthenticatedOverlayFixtureError';
+  return error;
+}
 
 function requireValue(value, name) {
   const normalized = String(value ?? '').trim();
@@ -94,6 +109,224 @@ export async function ensureSyntheticClerkUser({ clerkClient, emailAddress }) {
     },
   });
   return { user, created: true };
+}
+
+export async function findExistingAuthenticatedOverlaySyntheticUser({
+  clerkClient,
+  emailAddress,
+}) {
+  const email = normalizeSyntheticEmail(emailAddress);
+  const { data: users } = await clerkClient.users.getUserList({ emailAddress: [email], limit: 2 });
+  if (users.length !== 1) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_OWNER_NOT_UNIQUE');
+  }
+  requireSyntheticFixtureUser(users[0]);
+  return users[0];
+}
+
+export async function deleteExactAuthenticatedOverlayImportWithClient(
+  client,
+  syntheticUser,
+  { batchId: batchIdInput, marker: markerInput },
+) {
+  const userId = requireSyntheticFixtureUser(syntheticUser);
+  const batchId = String(batchIdInput ?? '').trim();
+  const marker = String(markerInput ?? '').trim();
+  if (!IMPORT_BATCH_ID_PATTERN.test(batchId)) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_BATCH_INVALID');
+  }
+  if (!THINKING_HISTORY_IMPORT_MARKER_PATTERN.test(marker)) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_MARKER_INVALID');
+  }
+
+  let transactionStarted = false;
+  try {
+    await client.query('BEGIN');
+    transactionStarted = true;
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext(
+         'mcp-account-lifecycle:' || public.derive_account_lifecycle_scope_key($1)
+       ))`,
+      [userId],
+    );
+    await client.query(
+      `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
+       SELECT scope_key, deleted_at
+       FROM mcp_deleted_account_markers
+       WHERE scope_key = public.derive_account_lifecycle_scope_key($1)`,
+      [userId],
+    );
+    await client.query(
+      'SELECT pg_advisory_xact_lock(hashtext($1))',
+      [`knowledge-ingestion:${userId}`],
+    );
+    await client.query(
+      'SELECT pg_advisory_xact_lock(hashtext($1))',
+      [`knowledge-import:${userId}:${batchId}`],
+    );
+
+    const eligible = await client.query(
+      `SELECT b.id, b.request_id,
+         (SELECT COUNT(*)::integer
+          FROM knowledge_card_drafts marker_draft
+          WHERE marker_draft.batch_id = b.id
+            AND marker_draft.user_id = b.user_id
+            AND marker_draft.central_question = $3) AS marker_matches,
+         (SELECT COUNT(*)::integer
+          FROM knowledge_card_drafts protected_draft
+          WHERE protected_draft.batch_id = b.id
+            AND protected_draft.user_id = b.user_id
+            AND (protected_draft.status = 'approved'
+              OR protected_draft.knowledge_item_id IS NOT NULL)) AS protected_drafts,
+         (SELECT COUNT(*)::integer
+          FROM knowledge_card_drafts foreign_draft
+          WHERE foreign_draft.batch_id = b.id
+            AND foreign_draft.user_id <> b.user_id) AS foreign_drafts,
+         (SELECT COUNT(*)::integer
+          FROM knowledge_card_sources source
+          WHERE source.batch_id = b.id OR source.draft_id IN (
+            SELECT linked_draft.id
+            FROM knowledge_card_drafts linked_draft
+            WHERE linked_draft.batch_id = b.id
+          )) AS linked_sources
+       FROM knowledge_ingestion_batches b
+       WHERE b.id = $1
+         AND b.user_id = $2
+         AND b.provider = 'chatgpt'
+         AND b.scope = 'selected_export'
+         AND b.status IN ('pending', 'partial', 'discarded')
+       FOR UPDATE`,
+      [batchId, userId, marker],
+    );
+    const target = eligible.rows[0];
+    if (
+      eligible.rows.length !== 1
+      || Number(target?.marker_matches) !== 1
+      || Number(target?.protected_drafts) !== 0
+      || Number(target?.foreign_drafts) !== 0
+      || Number(target?.linked_sources) !== 0
+    ) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_TARGET_NOT_ELIGIBLE');
+    }
+
+    const importSessionId = String(target.request_id ?? '')
+      .match(SELECTED_EXPORT_SESSION_SUFFIX)?.[1];
+    if (!importSessionId) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_SESSION_INVALID');
+    }
+    const batchSubjectHash = createHash('sha256')
+      .update(`${userId}\0${batchId}`)
+      .digest('hex');
+    const sessionSubjectHash = createHash('sha256')
+      .update(`${userId}\0${importSessionId}`)
+      .digest('hex');
+    await client.query(
+      `DELETE FROM knowledge_product_events
+       WHERE user_id = $1
+         AND subject_id = ANY($2::text[])
+         AND event_name IN (
+           'conversation_import_started', 'conversation_import_parsed',
+           'conversation_import_confirmed', 'conversation_import_candidates_ready'
+         )`,
+      [userId, [batchSubjectHash, sessionSubjectHash]],
+    );
+
+    const deletion = await client.query(
+      `DELETE FROM knowledge_ingestion_batches
+       WHERE id = $1
+         AND user_id = $2
+         AND provider = 'chatgpt'
+         AND scope = 'selected_export'
+       RETURNING id`,
+      [batchId, userId],
+    );
+    if (deletion.rows.length !== 1) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_DELETE_MISSED');
+    }
+
+    const verification = await client.query(
+      `SELECT
+         (SELECT COUNT(*)::integer
+          FROM knowledge_ingestion_batches
+          WHERE id = $1 AND user_id = $2) AS remaining_batches,
+         (SELECT COUNT(*)::integer
+          FROM knowledge_card_drafts
+          WHERE batch_id = $1) AS remaining_drafts,
+         (SELECT COUNT(*)::integer
+          FROM knowledge_product_events
+          WHERE user_id = $2 AND subject_id = ANY($3::text[])) AS remaining_events`,
+      [batchId, userId, [batchSubjectHash, sessionSubjectHash]],
+    );
+    const remaining = verification.rows[0] ?? {};
+    const result = {
+      deleted: true,
+      remainingBatches: Number(remaining.remaining_batches),
+      remainingDrafts: Number(remaining.remaining_drafts),
+      remainingEvents: Number(remaining.remaining_events),
+    };
+    if (
+      result.remainingBatches !== 0
+      || result.remainingDrafts !== 0
+      || result.remainingEvents !== 0
+    ) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_VERIFICATION_FAILED');
+    }
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK').catch(() => undefined);
+    if (error instanceof Error && error.name === 'AuthenticatedOverlayFixtureError') throw error;
+    throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_DATABASE_FAILED', error);
+  }
+}
+
+/**
+ * @param {{
+ *   batchId: string,
+ *   marker: string,
+ *   emailAddress?: string,
+ *   secretKey?: string,
+ *   databaseUrl?: string,
+ * }} options
+ */
+export async function deleteExactAuthenticatedOverlayImport({
+  batchId,
+  marker,
+  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
+  secretKey = process.env.CLERK_SECRET_KEY,
+  databaseUrl = process.env.DATABASE_URL,
+}) {
+  try {
+    const email = normalizeSyntheticEmail(emailAddress);
+    const clerkClient = createClerkClient({
+      secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY'),
+    });
+    const user = await findExistingAuthenticatedOverlaySyntheticUser({
+      clerkClient,
+      emailAddress: email,
+    });
+    const pool = new Pool({
+      connectionString: requireValue(databaseUrl, 'DATABASE_URL'),
+      max: 1,
+    });
+    try {
+      const client = await pool.connect();
+      try {
+        return await deleteExactAuthenticatedOverlayImportWithClient(
+          client,
+          user,
+          { batchId, marker },
+        );
+      } finally {
+        client.release();
+      }
+    } finally {
+      await pool.end();
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AuthenticatedOverlayFixtureError') throw error;
+    throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_FAILED', error);
+  }
 }
 
 export async function seedAuthenticatedOverlayFixtureWithClient(

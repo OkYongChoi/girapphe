@@ -401,9 +401,12 @@ function DraftCardEditor({
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-amber-50/60 px-4 py-3 md:px-5">
         <p className="max-w-2xl text-xs leading-relaxed text-amber-950">{t('inbox.resolutionBody')}</p>
-        <LocalizedLink href={`/knowledge-inbox/${encodeURIComponent(batchId)}/${encodeURIComponent(id)}/resolve`} className="inline-flex min-h-10 items-center rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2">
+        {/* Resolution is a critical review boundary. Use a full document
+            navigation so locale rewriting and an RSC transition cannot leave
+            a confirmed user activation on the batch page. */}
+        <a href={String(localizeHref(`/knowledge-inbox/${encodeURIComponent(batchId)}/${encodeURIComponent(id)}/resolve`, locale))} className="inline-flex min-h-10 items-center rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2">
           {t('inbox.reviewResolution')} →
-        </LocalizedLink>
+        </a>
       </div>
 
       <details className="group">

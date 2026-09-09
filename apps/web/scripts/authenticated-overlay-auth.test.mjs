@@ -97,7 +97,7 @@ test('Thinking History local import evidence targets unique visible exchange row
 
   assert.match(source, /const exchangeRow = \(question: string\) => page\.getByRole\("listitem"\)\.filter\(\{/);
   assert.match(source, /has: page\.getByRole\("checkbox", \{ name: question \}\)/);
-  assert.match(source, /await expect\(row\)\.toHaveCount\(1\)[\s\S]{0,160}await expect\(row\)\.toBeVisible\(\)[\s\S]{0,160}await expect\(row\)\.toContainText\(question\)/);
+  assert.match(source, /await expect\(row\)\.toHaveCount\(1\)[\s\S]{0,160}await expect\(row\)\.toBeVisible\(\)[\s\S]{0,240}row\.textContent\(\)[\s\S]{0,120}includes\(question\)/);
   assert.match(source, /for \(const row of \[selectedExchangeARow, selectedExchangeBRow\]\)[\s\S]{0,100}await row\.getByRole\("checkbox"\)\.check\(\)/);
   assert.doesNotMatch(source, /getByText\(selectedQuestionA, \{ exact: true \}\)/);
   assert.doesNotMatch(source, /getByText\(question, \{ exact: true \}\)/);
@@ -116,14 +116,22 @@ test('Thinking History import-event evidence waits for commit visibility and cle
     'the import route itself must not satisfy the submitted-batch redirect',
   );
   assert.match(source, /async function waitForSubmittedImportBatchId\([\s\S]{0,1400}submittedImportBatchIdsContainingMarker\([\s\S]{0,700}\.toBe\(1\)/);
-  assert.match(source, /async function clickActionableLinkBelowStickyChrome\(page: Page, link: Locator\): Promise<string>/);
+  assert.match(source, /async function activateExactReviewLink\([\s\S]{0,180}batchId: string,[\s\S]{0,80}hasTouch: boolean,[\s\S]{0,40}Promise<void>/);
+  assert.match(source, /html \{ scroll-behavior: auto !important; \}/);
   assert.match(source, /scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)/);
   assert.match(source, /const firstBounds = element\.getBoundingClientRect\(\)[\s\S]{0,220}const bounds = element\.getBoundingClientRect\(\)[\s\S]{0,500}const boundsAreStable/);
-  assert.match(source, /document\.elementFromPoint\(point\.x, point\.y\)[\s\S]{0,500}\? \{ \.\.\.point, href: element\.href \}/);
-  assert.match(source, /page\.touchscreen\.tap\(clickTarget!\.x, clickTarget!\.y\)[\s\S]{0,120}page\.mouse\.click\(clickTarget!\.x, clickTarget!\.y\)[\s\S]{0,100}return clickTarget!\.href/);
-  assert.match(source, /const resolutionUrl = await clickActionableLinkBelowStickyChrome\(page, reviewLinks\.first\(\)\)[\s\S]{0,120}toHaveURL\(resolutionUrl\)/);
+  assert.match(source, /document\.elementFromPoint\(point\.x, point\.y\)/);
+  assert.match(source, /if \(hasTouch\) await link\.tap\(\{ trial, timeout: 10_000 \}\)[\s\S]{0,100}link\.click\(\{ trial, timeout: 10_000 \}\)/);
+  assert.match(source, /await activate\(true\)[\s\S]{0,1800}page\.on\("request", onRequest\)[\s\S]{0,300}await activate\(false\)/);
+  assert.match(source, /REVIEW_ACTIVATION_NO_REQUEST/);
+  assert.match(source, /REVIEW_DESTINATION_HTTP_ERROR/);
+  assert.match(source, /REVIEW_TARGET_REQUEST_NO_RESPONSE/);
+  assert.match(source, /REVIEW_TARGET_REDIRECT_NO_COMMIT/);
+  assert.match(source, /REVIEW_TARGET_SUCCESS_NO_COMMIT/);
+  assert.match(source, /await activateExactReviewLink\([\s\S]{0,180}reviewLinks\.first\(\)[\s\S]{0,100}batchId,[\s\S]{0,100}testInfo\.project\.use\.hasTouch === true/);
+  assert.doesNotMatch(source, /page\.touchscreen\.tap|page\.mouse\.click/);
   assert.doesNotMatch(source, /click\(\{ force: true \}\)/);
-  assert.match(source, /async function gotoOwnerKnowledgeData\([\s\S]{0,1200}attempt <= 2[\s\S]{0,500}\/account\/delete#knowledge-data[\s\S]{0,700}Owner data controls did not render after 2 bounded attempts/);
+  assert.match(source, /async function gotoOwnerKnowledgeData\([\s\S]{0,1200}attempt <= 2[\s\S]{0,500}\/account\/delete#knowledge-data[\s\S]{0,700}OWNER_DATA_CONTROLS_UNAVAILABLE/);
   assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await batchRow\.getByRole\("button", \{ name: deleteImportCopy \}\)\.click\(\)[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
   const submissionClick = source.indexOf('await page.getByRole("button", { name: /Create 2 review candidates/i }).click()');
   const exactRedirect = source.indexOf('await expect(page).toHaveURL(IMPORT_BATCH_URL_PATTERN', submissionClick);
@@ -134,12 +142,36 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   const finallyBlock = source.indexOf('} finally {', visibilityPoll);
   const recoveryCall = source.indexOf('await waitForSubmittedImportBatchId(page, selectedQuestionA)', finallyBlock);
   const cleanupCall = source.indexOf('await deleteSubmittedImportThroughOwnerUi(page, batchId)', finallyBlock);
+  const fallbackImport = source.indexOf('"../scripts/authenticated-overlay-fixture.mjs"', cleanupCall);
+  const fallbackCall = source.indexOf('await deleteExactAuthenticatedOverlayImport({', fallbackImport);
+  const safeFailure = source.indexOf('THINKING_HISTORY_EVIDENCE_FAILED', fallbackCall);
   assert.ok(evidenceTry >= 0 && evidenceTry < submissionClick, 'submission must start inside the cleanup boundary');
   assert.ok(submissionClick < exactRedirect && exactRedirect < batchCapture, 'the UUID redirect must resolve before batch capture');
   assert.ok(batchCapture < batchAssertion && batchAssertion < visibilityPoll, 'batch validation must precede telemetry polling');
   assert.ok(finallyBlock > visibilityPoll && recoveryCall > finallyBlock && cleanupCall > recoveryCall, 'finally must recover and delete the exact owner batch');
-  assert.match(source, /Primary: \$\{errorSummary\(evidenceError\)\} Cleanup: \$\{errorSummary\(cleanupError\)\}/);
+  assert.ok(cleanupCall < fallbackImport && fallbackImport < fallbackCall && fallbackCall < safeFailure, 'UI cleanup must precede exact DB fallback and the fallback must not suppress test failure');
+  assert.match(source, /fallback\.deleted !== true[\s\S]{0,300}fallback\.remainingEvents !== 0[\s\S]{0,300}databaseFallbackStatus = "verified"/);
+  assert.match(source, /if \(evidenceError \|\| uiCleanupError\)[\s\S]{0,800}THINKING_HISTORY_EVIDENCE_FAILED/);
+  assert.match(source, /failureFingerprint\(message\.text\(\)\)/);
+  assert.doesNotMatch(source, /console: \$\{message\.text\(\)\}|page: \$\{error\.message\}|heading \$\{JSON\.stringify/);
   assert.doesNotMatch(source, /const postConsentImportEvents = await importSubmissionEvents\(page\)/);
+});
+
+test('owner data controls depend only on the verified Clerk session subject', async () => {
+  const pageUrl = new URL(
+    '../src/app/account/delete/page.tsx',
+    import.meta.url,
+  );
+  const source = await fs.readFile(pageUrl, 'utf8');
+
+  assert.match(source, /import \{ requireCurrentUser \} from '@\/lib\/auth'/);
+  assert.match(source, /requireCurrentUser\(\)/);
+  assert.doesNotMatch(source, /requireCurrentUserProfile|currentUser\(/);
+  assert.match(source, /getKnowledgeDraftBatchesForUser\(user\.id, true/);
+  assert.match(
+    source,
+    /<ClerkProvider>[\s\S]*<AccountDeletionPanel email=\{user\.email\} \/>[\s\S]*<\/ClerkProvider>/,
+  );
 });
 
 test('production-compatible sign-in ticket is short lived and owner scoped', async () => {

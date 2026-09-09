@@ -1,9 +1,11 @@
 # Authenticated Thinking History Evidence
 
 Status: The earlier authenticated Preview path passed in run `34038249111`.
-The expanded import, three-format reuse, dismissal, and deletion path is
-implemented in the harness but still requires a credentialed Preview run on
-the exact new commit.
+Run `34411158164` then exposed two distinct harness failures: the mobile review
+link did not commit its target URL, and the owner-data cleanup route returned
+`500`, leaving import telemetry that contaminated the following desktop test.
+The isolated recovery and diagnostic changes still require a credentialed
+Preview run on the exact new commit.
 
 ## Scope
 
@@ -64,16 +66,42 @@ recovers the batch ID from the owner export first. One project therefore cannot
 satisfy or contaminate the other's privacy evidence.
 
 On the mobile long-form review page, the resolution link is centered below the
-sticky navigation with instant scrolling, its bounds must stay unchanged across
-two animation frames, and its midpoint is verified as the browser's actual
-pointer target immediately before a real touch (or desktop mouse) input at that
-point. The resulting URL must equal that exact link's target. This avoids a
-second locator-driven auto-scroll moving the already actionable link back
-underneath sticky chrome or an unrelated review link satisfying the assertion.
-The hit-test has a bounded timeout, so an actionability regression cannot
-consume the whole test budget and prevent the owner-scoped cleanup from running.
-Owner-data navigation also permits exactly one retry after a transient Preview
-error page; it never enters an unbounded reload loop.
+sticky navigation with smooth scrolling temporarily disabled. Its bounds must
+stay unchanged across two animation frames, and its midpoint must be the
+browser's actual pointer target. Playwright then performs a trial actionability
+check followed by a real locator `tap` on mobile or locator `click` on desktop;
+coordinate-level page input, forced clicks, and DOM-dispatched clicks are not
+accepted as evidence. The href must be the same-origin, exact batch and draft
+resolution route. Request observers start only after the trial check so a
+prefetch cannot masquerade as the real activation. A committed exact URL is a
+success even when the client router already cached the route; otherwise the
+harness separately reports no request, a request without a response, failed
+request, destination HTTP error, redirect without a commit, or a successful
+target response that never committed navigation. The hit-test and navigation
+observation are bounded, so an actionability regression cannot consume the
+whole test budget and prevent cleanup from running.
+
+Owner-data navigation permits exactly one retry after a transient Preview error
+page; it never enters an unbounded reload loop. If that UI cleanup still fails,
+the test dynamically loads a database fallback that first revalidates the one
+existing Clerk fixture account's synthetic-purpose marker. The transaction is
+restricted to the exact owner, UUID batch, ChatGPT selected-export scope, and
+unique generated central-question marker. It refuses approved drafts, foreign
+draft ownership, or linked knowledge sources, follows the account-lifecycle and
+ingestion lock order, and verifies that the exact batch, drafts, and both the
+session and batch event hashes are gone. A verified fallback prevents the next
+serial browser project from inheriting residue, but never converts the failed
+UI evidence into a pass.
+
+Authenticated traces remain disabled because they can retain session headers.
+The structured fallback and browser-error summary records only stable
+route/outcome codes, HTTP status, counts, and short error fingerprints; it does
+not include request or response bodies, headers, or Clerk identity. Browser
+console and page errors are fingerprinted before assertion output. Playwright's
+failure HTML and synthetic-only screenshots may still show test-authored marker
+strings or opaque route IDs needed to diagnose a failed locator. Those artifacts
+contain no real user content, use only the dedicated synthetic account, and are
+retained by the protected workflow for 14 days.
 
 The importer assertion is deliberately about one extracted
 `conversations.json`. It is not evidence for ZIP archives, numbered/split

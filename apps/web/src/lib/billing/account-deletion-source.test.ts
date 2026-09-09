@@ -236,10 +236,16 @@ test('MCP route maps a deleted OAuth account to the same non-leaky unauthorized 
 
 test('account deletion requires strict Clerk reverification on server and client', () => {
   const route = readFileSync(new URL('../../app/api/account/route.ts', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../../app/account/delete/page.tsx', import.meta.url), 'utf8');
   const panel = readFileSync(new URL('../../components/account-deletion-panel.tsx', import.meta.url), 'utf8');
 
   assert.match(route, /has\(\{ reverification: 'strict' \}\)/);
   assert.match(route, /reverificationErrorResponse\('strict'\)/);
+  assert.match(page, /import \{ ClerkProvider \} from '@clerk\/nextjs'/);
+  assert.match(
+    page,
+    /<ClerkProvider>[\s\S]*<AccountDeletionPanel email=\{user\.email\} \/>[\s\S]*<\/ClerkProvider>/,
+  );
   assert.match(panel, /useReverification\(requestAccountDeletion\)/);
   assert.match(panel, /isReverificationCancelledError/);
 });
