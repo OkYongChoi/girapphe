@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
@@ -78,6 +79,11 @@ const RECALL_STATE_CONSTRAINTS = new Set([
 function normalizedSql(statement) {
   return statement.replace(/\s+/g, ' ').trim().replace(/;$/, '');
 }
+
+const SAFE_LEGACY_BILLING_UPGRADE_DIGESTS = new Set([
+  '8cdb4bad3f2d1ef15239a85c835dd2d73d69a2a8e5fd8b837276cc92945c9867',
+  '22278ea8a554c29ad3fa0bfd9d03ad728adf2108e44205011567b29efe370ed4',
+]);
 
 const SAFE_LEGACY_BILLING_UPGRADE_STATEMENTS = new Set([
   `ALTER TABLE "billing_customers"
@@ -444,8 +450,12 @@ export function parseLegacyAdditiveMigration(sql) {
 }
 
 export function parseLegacyBillingUpgradeMigration(sql) {
+  const digest = createHash('sha256').update(sql).digest('hex');
+  if (!SAFE_LEGACY_BILLING_UPGRADE_DIGESTS.has(digest)) {
+    throw new Error('Legacy billing Preview upgrades must exactly match a checked-in migration');
+  }
   if (sql.includes('--> statement-breakpoint') || sql.includes('/*') || sql.includes('--')) {
-    throw new Error('Legacy billing Preview upgrades must use auditable delimiter-free SQL');
+    throw new Error('Legacy billing Preview upgrades must use auditable comment-free SQL');
   }
 
   const statements = [];

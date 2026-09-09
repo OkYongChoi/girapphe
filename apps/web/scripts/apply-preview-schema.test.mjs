@@ -42,17 +42,22 @@ test('legacy preview bootstrap cannot hide procedural SQL inside a multi-stateme
   );
 });
 
-test('legacy billing upgrades split procedural blocks and reject unknown data changes', () => {
-  const statements = parseLegacyBillingUpgradeMigration(
-    `ALTER TABLE "billing_customers" ADD COLUMN IF NOT EXISTS "safe" text;
-     DO $$ BEGIN DELETE FROM "billing_customers"; END $$;`,
+test('legacy billing upgrades accept only the exact checked-in migration files', async () => {
+  const sql = await readFile(
+    new URL('../drizzle/migrations/0011_toss_billing_key_intents.sql', import.meta.url),
+    'utf8',
   );
-  assert.equal(statements.length, 2);
-  assert.throws(() => assertSafePreviewStatement(statements[0]), /Refusing non-idempotent/);
-  assert.throws(() => assertSafePreviewStatement(statements[1]), /Refusing non-idempotent/);
+  assert.equal(parseLegacyBillingUpgradeMigration(sql).length, 7);
   assert.throws(
-    () => parseLegacyBillingUpgradeMigration('SELECT 1; -- hidden statement'),
-    /delimiter-free SQL/,
+    () => parseLegacyBillingUpgradeMigration(sql.replace('CREATE TABLE', 'CREATE TABLE /* changed */')),
+    /exactly match a checked-in migration/,
+  );
+  assert.throws(
+    () => parseLegacyBillingUpgradeMigration(`CREATE TABLE IF NOT EXISTS safe (
+      value text DEFAULT $hidden$'$hidden$);
+      DELETE FROM "billing_customers";
+      CREATE TABLE IF NOT EXISTS decoy (value text DEFAULT $hidden$'$hidden$);`),
+    /exactly match a checked-in migration/,
   );
 });
 
