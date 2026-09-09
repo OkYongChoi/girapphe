@@ -38,7 +38,9 @@ see the [August 2026 architecture consulting review](./consulting-review-2026-08
 
 - `GET /api/graph`: returns graph nodes/links and user-aware stats.
 - `POST /api/quiz_result`: accepts assessment result, updates state, propagates, and diffuses.
-- `GET /api/mobile`: serves authenticated mobile graph, notes, progress, ranking, and admin payloads.
+- `GET|POST /api/mobile`: serves authenticated mobile graph, notes, bounded
+  stateless Practice keyset traversal, progress, ranking, candidate review,
+  lifecycle, and admin contracts.
 - `POST /api/mcp`: exposes pending-only structured bundle creation plus the compatible card-draft adapter.
 - Billing, webhook, and health routes live in the same Next.js application and deploy as one Cloudflare Worker.
 - Serializes graph data into force-graph-friendly response format.
@@ -78,6 +80,9 @@ see the [August 2026 architecture consulting review](./consulting-review-2026-08
 - Preview and production use PostgreSQL on Neon via `@neondatabase/serverless`.
 - Local development can intentionally omit `DATABASE_URL`; public graph/practice routes fall back to in-memory mode.
 - Admin, billing, private notes, MCP draft ingestion, and mobile account sync require database mode.
+- Authenticated Practice alternates deterministic public and owner-private
+  keyset lanes, each capped at `LIMIT 1`; neither the client nor Worker retains
+  a growing round list or request-global cursor state.
 - Static graph taxonomy remains source-controlled in `packages/graph-engine`, while user state and private data persist in PostgreSQL.
 
 ### 8. Runtime Topology

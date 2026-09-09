@@ -52,3 +52,21 @@ export function classifyCandidateBatchScope(scope: unknown): CandidateBatchScope
   }
   return 'unsupported';
 }
+
+export function buildCandidateWebReviewUrl(
+  appBaseUrl: string | undefined,
+  batchId: string,
+  draftId: string,
+): string | null {
+  if (!appBaseUrl || !batchId || !draftId) return null;
+  try {
+    const base = new URL(appBaseUrl);
+    if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password) return null;
+    return new URL(
+      `/knowledge-inbox/${encodeURIComponent(batchId)}/${encodeURIComponent(draftId)}/resolve`,
+      base,
+    ).toString();
+  } catch {
+    return null;
+  }
+}

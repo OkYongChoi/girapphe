@@ -263,11 +263,8 @@ function mapPrivatePracticeCard(
   };
 }
 
-export async function getEligiblePrivatePracticeCards(
-  userId: string,
-  mode: PrivatePracticeMode,
-): Promise<PrivatePracticeCard[]> {
-  const modePredicate = mode === 'review'
+function privatePracticeModePredicate(mode: PrivatePracticeMode): string {
+  return mode === 'review'
     ? `AND (
          s.recall_schedule_state IS NULL
          OR s.recall_schedule_state = 'ordinary_practice'
@@ -285,7 +282,8 @@ export async function getEligiblePrivatePracticeCards(
             AND s.due_at <= NOW()
           )
        )`
-    : `AND (
+    : `AND s.status IS NULL
+       AND (
          s.recall_schedule_state IS NULL
          OR (
            s.recall_schedule_state = 'ordinary_practice'
@@ -293,6 +291,21 @@ export async function getEligiblePrivatePracticeCards(
            AND s.due_at <= NOW()
          )
        )`;
+}
+
+async function queryEligiblePrivatePracticeCards(
+  userId: string,
+  mode: PrivatePracticeMode,
+  options?: { afterCardId?: string; limitOne?: boolean },
+): Promise<PrivatePracticeCard[]> {
+  const modePredicate = privatePracticeModePredicate(mode);
+  const cursorPredicate = options?.afterCardId === undefined
+    ? ''
+    : `AND ('${PERSONAL_CARD_ID_PREFIX}' || i.id) > $2`;
+  const limit = options?.limitOne ? 'LIMIT 1' : '';
+  const params = options?.afterCardId === undefined
+    ? [userId]
+    : [userId, options.afterCardId];
   const result = await db.query<PrivatePracticeCardRow>(`
     SELECT DISTINCT ON (i.id)
       i.id AS knowledge_item_id,
@@ -328,14 +341,35 @@ export async function getEligiblePrivatePracticeCards(
      AND s.user_id = i.user_id
     WHERE ${ACTIVE_OWNER_PREDICATE}
       AND ${PRIVATE_PRACTICE_ELIGIBILITY_PREDICATE}
+      ${cursorPredicate}
       ${modePredicate}
     ORDER BY i.id, s.last_seen NULLS FIRST, i.created_at ASC
-  `, [userId]);
+    ${limit}
+  `, params);
 
   return result.rows
     .filter((row) => isEligiblePrivatePracticeRecord(row, userId))
     .map((row) => mapPrivatePracticeCard(row, userId))
     .filter((card): card is PrivatePracticeCard => card !== null);
+}
+
+export async function getEligiblePrivatePracticeCards(
+  userId: string,
+  mode: PrivatePracticeMode,
+): Promise<PrivatePracticeCard[]> {
+  return queryEligiblePrivatePracticeCards(userId, mode);
+}
+
+export async function getNextEligiblePrivatePracticeCard(
+  userId: string,
+  mode: PrivatePracticeMode,
+  afterCardId: string | null,
+): Promise<PrivatePracticeCard | null> {
+  const [card] = await queryEligiblePrivatePracticeCards(userId, mode, {
+    afterCardId: afterCardId ?? '',
+    limitOne: true,
+  });
+  return card ?? null;
 }
 
 export async function savePrivatePracticeCardState(

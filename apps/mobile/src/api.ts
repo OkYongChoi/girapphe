@@ -1,13 +1,27 @@
 import { getClerkInstance } from '@clerk/expo';
-import type { KnowledgeBundleContent, KnowledgeBundleType, Locale } from '@stem-brain/shared';
+import type {
+  KnowledgeBundleContent,
+  KnowledgeBundleType,
+  Locale,
+  MobilePracticeMode,
+  MobilePracticeRequest,
+  MobilePracticeResponse,
+  MobilePracticeStats as SharedMobilePracticeStats,
+} from '@stem-brain/shared';
 import { getActiveLocale, translate } from '@/i18n';
+import {
+  MobileApiNetworkError,
+  MobileApiRequestError,
+} from './mobile-api-errors';
+
+export { MobileApiNetworkError, MobileApiRequestError, isTransientMobileApiError } from './mobile-api-errors';
 
 const apiBaseUrl = (process.env.EXPO_PUBLIC_APP_BASE_URL ?? '').replace(/\/$/, '');
 export const MOBILE_KNOWLEDGE_CAPABILITIES = 'expression-v1,event-chronology-v1,causal-relations-v1';
 
 export type CardStatus = 'known' | 'saved';
 export type TranslationStatus = 'source' | 'machine' | 'reviewed' | 'human' | 'failed' | 'partial' | 'fallback';
-export type MobilePracticeStats = { explainable: number; unclear: number; reviewable?: number };
+export type MobilePracticeStats = SharedMobilePracticeStats;
 
 export type MobileCard = {
   id: string;
@@ -191,16 +205,6 @@ export type MobileCandidateResolutionResult = {
   skippedEdges?: number;
 };
 
-export class MobileApiRequestError extends Error {
-  readonly code: string | null;
-
-  constructor(message: string, code: string | null) {
-    super(message);
-    this.name = 'MobileApiRequestError';
-    this.code = code;
-  }
-}
-
 function readApiErrorCode(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object' || !('code' in payload)) return null;
   const code = (payload as { code?: unknown }).code;
@@ -218,7 +222,7 @@ async function authenticatedFetch(path: string, init?: RequestInit): Promise<Res
   try {
     token = await getClerkInstance().session?.getToken();
   } catch {
-    throw new Error(translate(locale, 'api.networkFailed'));
+    throw new MobileApiNetworkError(translate(locale, 'api.networkFailed'));
   }
   if (!token) throw new Error(translate(locale, 'api.signInRequired'));
 
@@ -237,7 +241,7 @@ async function authenticatedFetch(path: string, init?: RequestInit): Promise<Res
       },
     });
   } catch {
-    throw new Error(translate(locale, 'api.networkFailed'));
+    throw new MobileApiNetworkError(translate(locale, 'api.networkFailed'));
   }
   return response;
 }
@@ -250,6 +254,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new MobileApiRequestError(
       translate(locale, 'api.requestFailed', { status: new Intl.NumberFormat(locale).format(response.status) }),
       readApiErrorCode(payload),
+      response.status,
     );
   }
   return payload as T;
@@ -268,7 +273,7 @@ async function publicRequest<T>(path: string): Promise<T> {
       },
     });
   } catch {
-    throw new Error(translate(locale, 'api.networkFailed'));
+    throw new MobileApiNetworkError(translate(locale, 'api.networkFailed'));
   }
   const payload = await response.json().catch(() => ({})) as T;
   if (!response.ok) throw new Error(translate(locale, 'api.requestFailed', { status: new Intl.NumberFormat(locale).format(response.status) }));
@@ -292,8 +297,14 @@ export const mobileApi = {
   candidateInbox: () => request<{ batches: MobileCandidateBatch[] }>(withLocale('/api/mobile?resource=candidate-inbox')),
   candidateBatch: (batchId: string) => request<{ batch: MobileCandidateBatch; drafts: MobileCandidateDraft[] }>(withLocale(`/api/mobile?resource=candidate-batch&batchId=${encodeURIComponent(batchId)}`)),
   graph: () => request<{ cards: GraphCardSummary[]; personalItems: PersonalNoteSummary[] }>(withLocale('/api/mobile?resource=graph')),
-  practice: (mode: 'new' | 'review', exclude: string[] = []) => request<{ card: MobileCard | null; stats: MobilePracticeStats }>(withLocale(`/api/mobile?resource=practice&mode=${mode}${exclude.map((id) => `&exclude=${encodeURIComponent(id)}`).join('')}`)),
-  saved: () => request<{ cards: MobileCard[] }>(withLocale('/api/mobile?resource=saved')),
+  practice: (mode: MobilePracticeMode, cursor: string | null = null, cycleOnEmpty = false) => {
+    const body: MobilePracticeRequest = { mode, cursor, cycleOnEmpty };
+    return request<MobilePracticeResponse<MobileCard>>(withLocale('/api/mobile?resource=practice'), {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  saved: () => request<{ cards: MobileCard[]; stats: MobilePracticeStats }>(withLocale('/api/mobile?resource=saved')),
   dashboard: () => request<{ stats: MobilePracticeStats; domains: Array<{ domain: string; domain_label?: string; reviewed: number; explainable: number; unclear: number }> }>(withLocale('/api/mobile?resource=dashboard')),
   ranking: () => request<{ rows: Array<{ rank: number; label: string; explainable: number; avgScore: number }> }>(withLocale('/api/mobile?resource=ranking')),
   adminNodes: () => request<{ nodes: Array<{ id: string; label: string; domain: string; level: number; difficulty: number; type: string }> }>(withLocale('/api/mobile?resource=admin-nodes')),

@@ -4,7 +4,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'rea
 import { getDomainColor } from '@stem-brain/graph-engine';
 import { NativeSponsoredCard } from '@/components/native-sponsored-card';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
-import { mobileApi, type MobileCard, type MobilePracticeStats } from '@/api';
+import { isTransientMobileApiError, mobileApi, type MobileCard, type MobilePracticeStats } from '@/api';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
 import { expressionHasReverseRecallCue, expressionRecallCue, expressionRecallDirectionLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, type ExpressionRecallDirection } from '@/knowledge-bundle-ui';
@@ -19,13 +19,14 @@ import {
 } from '@/knowledge';
 import { useLocalizedContent } from '@/localized-content';
 import {
-  appendPracticeSeenCard,
   createPracticeHistoryState,
+  loadPracticeWithRetry,
   prerequisiteKnowledgeState,
   recordCompletedPracticeAction,
   recoverPreviousPracticeCard,
   resolvePracticeFocusMode,
   reviewQueueCount,
+  reviewedPracticeCardCount,
   type PracticeMode,
 } from '@/practice-parity';
 import { useSubscription } from '@/subscriptions';
@@ -50,7 +51,6 @@ function LocalPracticeScreen() {
   const { isAdFree, isReady: subscriptionReady } = useSubscription();
   const practiceNodes = useMemo(() => getPracticeNodes(), []);
   const [cardIndex, setCardIndex] = useState(0);
-  const [cardAdvanceCount, setCardAdvanceCount] = useState(0);
   const cardAdvanceCountRef = useRef(0);
   const [showSponsoredCard, setShowSponsoredCard] = useState(false);
   const [isRevealed, setIsRevealed] = useState(false);
@@ -63,7 +63,8 @@ function LocalPracticeScreen() {
   const localized = useLocalizedContent(practiceNodes.map((node) => node.id), currentNode?.id);
   const content = currentNode ? localized.get(currentNode.id) : undefined;
   const knownCount = Object.values(ratings).filter((rating) => rating === 'known').length;
-  const progressRatio = practiceNodes.length > 0 ? (cardAdvanceCount / practiceNodes.length) * 100 : 0;
+  const reviewedCount = Object.keys(ratings).length;
+  const progressRatio = practiceNodes.length > 0 ? (reviewedCount / practiceNodes.length) * 100 : 0;
 
   function labelFor(node: (typeof practiceNodes)[number]) {
     return localized.get(node.id)?.label ?? localized.get(node.id)?.title ?? node.label;
@@ -108,7 +109,6 @@ function LocalPracticeScreen() {
     cardAdvanceCountRef.current = nextAdvanceCount;
     setIsRevealed(false);
     setCardIndex((index) => (index + 1) % practiceNodes.length);
-    setCardAdvanceCount(nextAdvanceCount);
     if (subscriptionReady && !isAdFree && nextAdvanceCount % 5 === 0) setShowSponsoredCard(true);
   }
 
@@ -126,7 +126,7 @@ function LocalPracticeScreen() {
 
         <View style={styles.progressPanel}>
           <View>
-            <Text style={styles.progressValue}>{formatNumber(cardAdvanceCount)}</Text>
+            <Text style={styles.progressValue}>{formatNumber(reviewedCount)}</Text>
             <Text style={styles.progressLabel}>{t('practice.reviewed')}</Text>
           </View>
           <View>
@@ -251,16 +251,20 @@ function SyncedPracticeScreen() {
   const [mode, setMode] = useState<PracticeMode>('new');
   const [card, setCard] = useState<MobileCard | null>(null);
   const [stats, setStats] = useState<MobilePracticeStats>({ explainable: 0, unclear: 0, reviewable: 0 });
-  const [seen, setSeen] = useState<string[]>([]);
   const [historyState, setHistoryState] = useState(() => createPracticeHistoryState<MobileCard>());
   const [previousAction, setPreviousAction] = useState<'known' | 'saved' | 'skip' | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showSponsoredCard, setShowSponsoredCard] = useState(false);
+  const [reviewedThisRound, setReviewedThisRound] = useState(0);
+  const [reviewRoundCompleted, setReviewRoundCompleted] = useState(false);
   const [expressionDirection, setExpressionDirection] = useState<ExpressionRecallDirection>('forward');
   const routeModeRef = useRef(params.mode);
   const modeRef = useRef<PracticeMode>('new');
+  const cursorRef = useRef<string | null>(null);
+  const initialReviewPoolRef = useRef(0);
+  const roundRatedIdsRef = useRef(new Set<string>());
   const sessionGenerationRef = useRef(0);
   const requestSequenceRef = useRef(0);
   const busyRef = useRef(false);
@@ -268,10 +272,12 @@ function SyncedPracticeScreen() {
 
   const load = useCallback(async (
     nextMode: PracticeMode,
-    exclude: string[],
+    cursor: string | null,
     sessionGeneration: number,
-  ): Promise<boolean> => {
-    if (sessionGeneration !== sessionGenerationRef.current) return false;
+    cycleOnEmpty = false,
+    captureReviewPool = false,
+  ): Promise<{ ok: boolean; cycled: boolean }> => {
+    if (sessionGeneration !== sessionGenerationRef.current) return { ok: false, cycled: false };
     const requestSequence = ++requestSequenceRef.current;
     const isCurrentRequest = () => (
       sessionGeneration === sessionGenerationRef.current
@@ -284,16 +290,27 @@ function SyncedPracticeScreen() {
     setPreviousAction(null);
     setExpressionDirection('forward');
     try {
-      const result = await mobileApi.practice(nextMode, exclude);
-      if (!isCurrentRequest()) return false;
+      const result = await loadPracticeWithRetry(
+        () => mobileApi.practice(nextMode, cursor, cycleOnEmpty),
+        undefined,
+        isTransientMobileApiError,
+      );
+      if (!isCurrentRequest()) return { ok: false, cycled: false };
+      cursorRef.current = result.nextCursor;
       setCard(result.card);
       setStats(result.stats);
-      return true;
+      if (captureReviewPool) {
+        initialReviewPoolRef.current = reviewQueueCount(result.stats);
+        roundRatedIdsRef.current.clear();
+        setReviewedThisRound(0);
+        setReviewRoundCompleted(false);
+      }
+      return { ok: true, cycled: result.cycled };
     } catch (cause) {
       if (isCurrentRequest()) {
         setError(cause instanceof Error ? cause.message : t('practice.loadError'));
       }
-      return false;
+      return { ok: false, cycled: false };
     } finally {
       if (isCurrentRequest()) {
         busyRef.current = false;
@@ -306,13 +323,17 @@ function SyncedPracticeScreen() {
     const focusMode = resolvePracticeFocusMode(routeModeRef.current, modeRef.current);
     const sessionGeneration = ++sessionGenerationRef.current;
     modeRef.current = focusMode.mode;
+    cursorRef.current = null;
     setMode(focusMode.mode);
     setCard(null);
-    setSeen([]);
     setHistoryState((current) => ({ ...current, history: [] }));
     setPreviousAction(null);
+    setShowSponsoredCard(false);
+    roundRatedIdsRef.current.clear();
+    setReviewedThisRound(0);
+    setReviewRoundCompleted(false);
     if (focusMode.consumeRouteIntent) router.setParams({ mode: undefined });
-    void load(focusMode.mode, [], sessionGeneration);
+    void load(focusMode.mode, null, sessionGeneration, false, true);
     return () => {
       requestSequenceRef.current += 1;
       sessionGenerationRef.current += 1;
@@ -338,17 +359,27 @@ function SyncedPracticeScreen() {
     if (!card || busyRef.current) return;
     const completedCard = card;
     const actionMode = modeRef.current;
+    const cursor = cursorRef.current;
     const sessionGeneration = sessionGenerationRef.current;
     busyRef.current = true;
     setLoading(true);
     setError(null);
+    setReviewRoundCompleted(false);
     try {
       await mobileApi.mutate({ action: 'rate-card', cardId: completedCard.id, status });
       if (sessionGeneration !== sessionGenerationRef.current) return;
-      const nextSeen = appendPracticeSeenCard(seen, completedCard.id);
-      const advanced = await load(actionMode, nextSeen, sessionGeneration);
-      if (!advanced || sessionGeneration !== sessionGenerationRef.current) return;
-      setSeen(nextSeen);
+      const advanced = await load(actionMode, cursor, sessionGeneration, true);
+      if (!advanced.ok || sessionGeneration !== sessionGenerationRef.current) return;
+      if (actionMode === 'review') {
+        if (advanced.cycled) {
+          roundRatedIdsRef.current.clear();
+          setReviewedThisRound(initialReviewPoolRef.current);
+          setReviewRoundCompleted(initialReviewPoolRef.current > 0);
+        } else {
+          roundRatedIdsRef.current.add(completedCard.id);
+          setReviewedThisRound(roundRatedIdsRef.current.size);
+        }
+      }
       recordAdvance(completedCard, status);
     } catch (cause) {
       if (sessionGeneration === sessionGenerationRef.current) {
@@ -366,13 +397,21 @@ function SyncedPracticeScreen() {
     if (!card || busyRef.current) return;
     const completedCard = card;
     const actionMode = modeRef.current;
+    const cursor = cursorRef.current;
     const sessionGeneration = sessionGenerationRef.current;
-    const nextSeen = appendPracticeSeenCard(seen, completedCard.id);
     busyRef.current = true;
+    setReviewRoundCompleted(false);
     try {
-      const advanced = await load(actionMode, nextSeen, sessionGeneration);
-      if (!advanced || sessionGeneration !== sessionGenerationRef.current) return;
-      setSeen(nextSeen);
+      const advanced = await load(actionMode, cursor, sessionGeneration, true);
+      if (!advanced.ok || sessionGeneration !== sessionGenerationRef.current) return;
+      if (actionMode === 'review') {
+        if (advanced.cycled) {
+          roundRatedIdsRef.current.clear();
+          setReviewRoundCompleted(initialReviewPoolRef.current > 0);
+        } else {
+          setReviewedThisRound(roundRatedIdsRef.current.size);
+        }
+      }
       recordAdvance(completedCard, 'skip');
     } finally {
       if (sessionGeneration === sessionGenerationRef.current) {
@@ -398,19 +437,25 @@ function SyncedPracticeScreen() {
     if (busyRef.current || nextMode === modeRef.current) return;
     const sessionGeneration = ++sessionGenerationRef.current;
     modeRef.current = nextMode;
+    cursorRef.current = null;
     setMode(nextMode);
     setCard(null);
-    setSeen([]);
     setHistoryState((current) => ({ ...current, history: [] }));
     setPreviousAction(null);
     setShowSponsoredCard(false);
-    void load(nextMode, [], sessionGeneration);
+    roundRatedIdsRef.current.clear();
+    setReviewedThisRound(0);
+    setReviewRoundCompleted(false);
+    void load(nextMode, null, sessionGeneration, false, true);
   }
 
   const expressionContent = card?.structured_content?.type === 'expression' ? card.structured_content : null;
   const expressionCue = expressionContent ? expressionRecallCue(expressionContent, locale, expressionDirection) : '';
   const hasExpressionReverseCue = expressionContent ? expressionHasReverseRecallCue(expressionContent) : false;
   const reviewable = reviewQueueCount(stats);
+  const reviewedCount = reviewedPracticeCardCount(historyState);
+  const reviewPool = initialReviewPoolRef.current;
+  const reviewProgress = Math.min(reviewedThisRound, reviewPool);
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
@@ -423,7 +468,7 @@ function SyncedPracticeScreen() {
         <View style={styles.progressPanel}>
           <View><Text style={styles.progressValue}>{formatNumber(stats.explainable)}</Text><Text style={styles.progressLabel}>{t('progress.explainable')}</Text></View>
           <View><Text style={styles.progressValue}>{formatNumber(stats.unclear)}</Text><Text style={styles.progressLabel}>{t('progress.unclear')}</Text></View>
-          <View><Text style={styles.progressValue}>{formatNumber(historyState.completedCardActions)}</Text><Text style={styles.progressLabel}>{t('practice.reviewed')}</Text></View>
+          <View><Text style={styles.progressValue}>{formatNumber(reviewedCount)}</Text><Text style={styles.progressLabel}>{t('practice.reviewed')}</Text></View>
         </View>
 
         <View style={styles.modeRow}>
@@ -447,6 +492,32 @@ function SyncedPracticeScreen() {
           </Pressable>
         </View>
 
+        {mode === 'review' ? (
+          <View style={styles.reviewRoundPanel}>
+            <View style={styles.reviewRoundHeader}>
+              <Text style={styles.reviewRoundTitle}>{t('practice.reviewingQueue')}</Text>
+              <Text accessibilityLiveRegion="polite" style={styles.reviewRoundCount}>
+                {t('practice.reviewProgress', {
+                  done: formatNumber(reviewProgress),
+                  total: formatNumber(reviewPool),
+                })}
+              </Text>
+            </View>
+            <View
+              accessible
+              accessibilityLabel={t('practice.reviewProgress', {
+                done: formatNumber(reviewProgress),
+                total: formatNumber(reviewPool),
+              })}
+              accessibilityRole="progressbar"
+              accessibilityValue={{ min: 0, max: Math.max(reviewPool, 1), now: reviewProgress }}
+              style={styles.reviewRoundTrack}
+            >
+              <View style={[styles.reviewRoundFill, { width: reviewPool > 0 ? `${Math.min(100, Math.round((reviewProgress / reviewPool) * 100))}%` : '0%' }]} />
+            </View>
+            {reviewRoundCompleted ? <Text accessibilityLiveRegion="polite" style={styles.reviewRoundComplete}>{t('practice.roundComplete', { count: formatNumber(reviewPool) })}</Text> : null}
+          </View>
+        ) : null}
         {error ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{error}</Text> : null}
         {loading ? <Text style={styles.emptyText}>{t('common.loading')}</Text> : null}
 
@@ -698,6 +769,54 @@ const styles = StyleSheet.create({
   modeText: {
     color: '#111827',
     fontWeight: '800',
+  },
+  reviewRoundPanel: {
+    borderColor: '#dbeafe',
+    borderWidth: 1,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    padding: 12,
+    marginBottom: 14,
+    gap: 8,
+  },
+  reviewRoundHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  reviewRoundTitle: {
+    flex: 1,
+    color: '#1d4ed8',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  reviewRoundCount: {
+    color: '#607080',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  reviewRoundTrack: {
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: '#eef2f7',
+    overflow: 'hidden',
+  },
+  reviewRoundFill: {
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: '#3b82f6',
+  },
+  reviewRoundComplete: {
+    color: '#047857',
+    borderColor: '#a7f3d0',
+    borderWidth: 1,
+    borderRadius: 8,
+    backgroundColor: '#ecfdf5',
+    padding: 10,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 18,
   },
   errorText: {
     color: '#b42318',

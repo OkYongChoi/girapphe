@@ -4,6 +4,7 @@ import {
   getAllCardsWithStatus,
   getCardLeaderboard,
   getNextCard,
+  getNextMobilePracticeCard,
   getSavedCards,
   getUserCardDomainProgress,
   getUserStats,
@@ -63,6 +64,10 @@ import {
   withMobileRelationCompatibility,
   type MobileKnowledgeCapabilities,
 } from '@/lib/mobile-knowledge-capabilities';
+import {
+  parseLegacyMobilePracticeExcludeIds,
+} from '@/lib/mobile-practice-contract';
+import { handleMobilePracticePost } from '@/lib/mobile-practice-handler';
 
 const MAX_JSON_BYTES = 16_384;
 async function requireMobileUser() {
@@ -263,13 +268,30 @@ export async function GET(request: NextRequest) {
     }
     case 'practice': {
       const mode = request.nextUrl.searchParams.get('mode') === 'review' ? 'review' : 'new';
-      const exclude = request.nextUrl.searchParams.getAll('exclude').filter((id) => id.length <= 160).slice(0, 100);
-      const [card, stats] = await Promise.all([getNextCard(mode, exclude, locale), getUserStats()]);
-      return NextResponse.json({ card: card ? withMobileKnowledgeCompatibility(card, capabilities) : null, stats });
+      const legacyExcludeIds = request.nextUrl.searchParams.getAll('exclude');
+      const parsed = parseLegacyMobilePracticeExcludeIds(legacyExcludeIds);
+      if (!parsed.ok && parsed.reason === 'too_many') {
+        return invalid('Use the mobile Practice POST resource for larger rounds.', 'PRACTICE_EXCLUSIONS_TOO_LARGE');
+      }
+      if (!parsed.ok) {
+        return invalid('Every excluded card id must be valid.', 'INVALID_PRACTICE_EXCLUSIONS');
+      }
+      const [card, stats] = await Promise.all([
+        getNextCard(mode, parsed.excludeIds, locale),
+        getUserStats(),
+      ]);
+      return privateJson({
+        card: card ? withMobileKnowledgeCompatibility(card, capabilities) : null,
+        stats,
+        cycled: false,
+      });
     }
     case 'saved': {
-      const cards = await getSavedCards(locale);
-      return NextResponse.json({ cards: withMobileKnowledgeListCompatibility(cards, capabilities) });
+      const [cards, stats] = await Promise.all([
+        getSavedCards(locale),
+        getUserStats(),
+      ]);
+      return privateJson({ cards: withMobileKnowledgeListCompatibility(cards, capabilities), stats });
     }
     case 'dashboard': {
       const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress(locale)]);
@@ -294,6 +316,23 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const mobileUser = await requireMobileUser();
   if (!mobileUser) return unauthorized();
+
+  if (request.nextUrl.searchParams.get('resource') === 'practice') {
+    const explicitLocale = request.nextUrl.searchParams.get('locale');
+    const localeInput = explicitLocale
+      ?? request.headers.get('x-girapphe-locale')
+      ?? parseAcceptLanguage(request.headers.get('accept-language'));
+    const locale = parseContentLocale(localeInput);
+    if (!locale) return invalid('The requested locale is not supported.', 'UNSUPPORTED_LOCALE');
+
+    const capabilities = readMobileKnowledgeCapabilities(request.headers.get('x-girapphe-knowledge-capabilities'));
+    return handleMobilePracticePost(request, {
+      loadCard: (mode, cursor) => getNextMobilePracticeCard(mode, cursor, locale),
+      loadStats: getUserStats,
+      mapCard: (card) => withMobileKnowledgeCompatibility(card, capabilities),
+    });
+  }
+
   const parsedBody = await readBody(request);
   if (!parsedBody.ok) {
     return NextResponse.json(

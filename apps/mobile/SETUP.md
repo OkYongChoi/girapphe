@@ -40,7 +40,7 @@ is enabled.
 
 | Name | Required for | Notes |
 |---|---|---|
-| `EXPO_PUBLIC_APP_BASE_URL` | Authenticated entitlement API and account links | Production is pinned to `https://www.girapphe.com` because the app sends its Clerk bearer token only to this origin. |
+| `EXPO_PUBLIC_APP_BASE_URL` | Authenticated API, account links, and candidate review handoff | Production is pinned to `https://www.girapphe.com` because the app sends its Clerk bearer token only to this origin. |
 | `EXPO_PUBLIC_TERMS_URL` | Girapphe subscription screen | Public, final Terms of Use HTTPS URL; required for production builds. |
 | `EXPO_PUBLIC_PRIVACY_URL` | Girapphe subscription screen | Public, final Privacy Policy HTTPS URL; required for production builds. |
 | `EXPO_PUBLIC_SUPPORT_URL` | Account support | Canonical public support page; production is pinned to `https://www.girapphe.com/support`. |
@@ -79,6 +79,14 @@ Purchases are intentionally unavailable before sign-in. The app passes the Clerk
 as Superwall's App User ID; it never uses an email address or a hard-coded shared identifier.
 On logout or account switch it resets Superwall before identifying the next Clerk account and
 clears all account-specific subscription UI state.
+
+Authenticated Practice reads use the deployed mobile API's stateless keyset
+contract. Each request body is capped at 2 KiB and sends only `mode`, a null or
+bounded opaque `cursor`, and `cycleOnEmpty`; each successful response supplies
+`nextCursor`. The app does not grow an in-memory card-ID array, and the Worker
+does not keep request-global traversal state. Deploy that POST endpoint before
+shipping a binary that calls it. The legacy GET remains available for installed
+builds while the new binary rolls out.
 
 ## Superwall and stores
 
@@ -145,6 +153,8 @@ and clicks. `Sponsored` attribution is always visible.
 - Rate or skip exactly five cards: one sponsored/house card appears after advance 5, 10, 15,
   and so on. Revealing an answer or opening a topic does not increment the counter.
 - Continue from the sponsored card without losing the next learning card.
+- Traverse authenticated Practice through deterministic alternating public and
+  owner-private keyset lanes without repeats before the single requested wrap.
 - Activate `ad_free`: any visible ad card unmounts and later advances issue no NativeAd request.
 - Switch Clerk accounts and verify Superwall resets the old identity before using the newly
   signed-in Clerk user ID; the previous account's Plus state must never render.

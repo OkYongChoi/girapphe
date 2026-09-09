@@ -52,7 +52,13 @@ Mobile feature code should be organized around user flows, not platform names:
 
 - Home: high-level map and featured topic entry points.
 - Browse: searchable and filterable topic discovery.
-- Practice: guest/local fallback plus authenticated, server-synced review using tri-state ratings.
+- Practice: guest/local fallback plus authenticated, server-synced review using
+  tri-state ratings. Authenticated Review entry follows the server-owned
+  `reviewable` count. Synced traversal carries one bounded opaque cursor
+  across deterministic public/private keyset lanes instead of growing rated or
+  skipped ID arrays. Skips advance the frontier and advertising cadence but not
+  Reviewed, may reappear after a requested wrap, and only transient reads retry
+  once.
 - My Notes: quick notes plus full-field version-one concept, procedure,
   comparison, mechanism, structure, claim/evidence, question, decision, and
   event and expression bundles. Active, Archive, and Trash are distinct views;
@@ -60,7 +66,8 @@ Mobile feature code should be organized around user flows, not platform names:
   controls.
 - Candidate Inbox: quick save-as-new or ignore for explicitly submitted
   current-conversation and selected-export candidates, with their source scope
-  labeled separately.
+  labeled separately. A possible duplicate links to the exact detailed web
+  review when the configured app base URL is safe.
 - Topic Hub: compact approved knowledge, open questions, relations, timeline,
   and source-position views.
 - Topic detail: explanation plus prerequisite/dependent/related navigation.
@@ -107,6 +114,21 @@ Shared request/response types should move into `@stem-brain/shared` only when th
 more than one app target. Keep the guest/local fallback explicit; never silently present it as
 account-synced state.
 
+New clients read Practice through `POST /api/mobile?resource=practice`, with
+`mode`, a null or opaque `cursor` of at most 1,024 characters, and
+`cycleOnEmpty` in a JSON body capped at 2 KiB. The server alternates public and
+owner-private lanes while traversing IDs deterministically within each lane;
+database branches fetch at most one candidate per lane with `LIMIT 1`. A
+non-null cursor may wrap to a fresh round exactly once only when
+`cycleOnEmpty` is true. The response supplies `card`, `stats`, `nextCursor`,
+and `cycled` under `private, no-store`. The client keeps only `nextCursor`; it
+does not grow a round array or rewind the frontier when reopening the previous
+card, and the server keeps no request-global traversal state. Saved-card reads
+also return authoritative stats so Review navigation never infers due work
+from list length. Review and Practice use latest-request guards so stale focus
+or mutation loads cannot overwrite current state. The bounded legacy GET
+remains only for already-installed clients.
+
 Typed personal items retain the flat note fields for compatibility. Mobile
 renders their type badge and central question, supports full-field create/edit
 and explicit legacy-note conversion, filters personal graph nodes by type, and
@@ -122,6 +144,11 @@ export. Basic archive, restore, and trash organization is available in mobile
 My Notes. Mobile Topic Hub views remain compact while consuming the same
 owner-scoped canonical data. Neither app retains raw conversation text:
 provenance is selector-only.
+
+The web Settings connection guide and Context Pack format are browser-local
+presentation preferences, so they do not create a mobile API contract or a new
+mobile navigation destination. Mobile retains its existing Account adapter;
+MCP connection management and those reusable-context defaults remain web-owned.
 
 ## Platform Rules
 

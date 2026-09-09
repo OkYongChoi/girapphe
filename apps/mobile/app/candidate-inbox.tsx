@@ -16,6 +16,7 @@ import {
 import { useI18n } from '@/i18n';
 import {
   addPendingCandidate,
+  buildCandidateWebReviewUrl,
   classifyCandidateBatchScope,
   createCandidateInboxRequestGuard,
   removePendingCandidate,
@@ -24,6 +25,8 @@ import {
 } from '@/candidate-inbox-requests';
 import { knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
 import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
+
+const appBaseUrl = process.env.EXPO_PUBLIC_APP_BASE_URL?.trim();
 
 type InboxCopy = {
   back: string; eyebrow: string; title: string; boundary: string; batches: string; candidates: string;
@@ -38,6 +41,15 @@ const COPY: Record<Locale, InboxCopy> = {
   es: { back: 'Volver', eyebrow: 'Cola privada', title: 'Bandeja de candidatos', boundary: 'Solo se muestra este lote enviado explícitamente. En móvil puedes guardar como nuevo o ignorar; usa la web para comparar, fusionar o actualizar.', batches: 'Lotes pendientes', candidates: 'Candidatos', empty: 'No hay candidatos pendientes.', openSource: 'Abrir fuente elegida', save: 'Guardar como nuevo', ignore: 'Ignorar', saving: 'Guardando…', duplicate: 'posible duplicado', webMerge: 'Hay un posible duplicado. Usa la revisión web para comparar, fusionar o actualizar.', retry: 'Reintentar', candidate: 'Candidato', batchCount: '{count} candidatos', ignoreConfirm: '¿Ignorar «{title}»?', saveConfirm: '¿Guardar «{title}» como un nuevo elemento confirmado?', pendingDependency: 'Aprueba primero el candidato relacionado pendiente o aprueba ambos juntos desde la revisión web del lote.', edgesSkipped: 'No se guardaron {count} relaciones porque sus destinos no estaban disponibles, estaban duplicados o crearían un ciclo no válido.' },
   ar: { back: 'رجوع', eyebrow: 'قائمة مراجعة خاصة', title: 'صندوق المرشحات', boundary: 'تظهر هذه الدفعة المرسلة صراحة فقط. على الهاتف يمكنك الحفظ كعنصر جديد أو التجاهل؛ استخدم الويب للمقارنة أو الدمج أو التحديث.', batches: 'دفعات معلقة', candidates: 'مرشحات', empty: 'لا توجد مرشحات معلقة.', openSource: 'فتح المصدر المختار', save: 'حفظ كجديد', ignore: 'تجاهل', saving: 'جارٍ الحفظ…', duplicate: 'تكرار محتمل', webMerge: 'يوجد تكرار محتمل. استخدم مراجعة الويب للمقارنة أو الدمج أو التحديث.', retry: 'إعادة المحاولة', candidate: 'مرشح', batchCount: '{count} مرشحات', ignoreConfirm: 'هل تريد تجاهل «{title}»؟', saveConfirm: 'هل تريد حفظ «{title}» كعنصر مؤكد جديد؟', pendingDependency: 'وافق أولاً على المرشح المرتبط المعلّق، أو وافق عليهما معًا من مراجعة الدفعة على الويب.', edgesSkipped: 'لم تُحفظ {count} علاقة لأن أهدافها غير متاحة أو مكررة أو تنشئ دورة غير صالحة.' },
   hi: { back: 'वापस', eyebrow: 'निजी समीक्षा कतार', title: 'उम्मीदवार इनबॉक्स', boundary: 'केवल स्पष्ट रूप से भेजा गया यह बैच दिखता है। मोबाइल पर नया सहेजें या अनदेखा करें; तुलना, मर्ज या अपडेट के लिए वेब समीक्षा उपयोग करें।', batches: 'लंबित बैच', candidates: 'उम्मीदवार', empty: 'कोई उम्मीदवार प्रतीक्षा में नहीं है।', openSource: 'चुना स्रोत खोलें', save: 'नया सहेजें', ignore: 'अनदेखा करें', saving: 'सहेज रहे हैं…', duplicate: 'संभावित डुप्लिकेट', webMerge: 'संभावित डुप्लिकेट मिला। तुलना, मर्ज या अपडेट के लिए वेब समीक्षा उपयोग करें।', retry: 'फिर प्रयास करें', candidate: 'उम्मीदवार', batchCount: '{count} उम्मीदवार', ignoreConfirm: '“{title}” को अनदेखा करें?', saveConfirm: '“{title}” को नए पुष्ट आइटम के रूप में सहेजें?', pendingDependency: 'संबंधित लंबित उम्मीदवार को पहले स्वीकृत करें, या वेब बैच समीक्षा से दोनों को एक साथ स्वीकृत करें।', edgesSkipped: 'लक्ष्य अनुपलब्ध, दोहराव या अमान्य चक्र के कारण {count} संबंध सुझाव सहेजे नहीं गए।' },
+};
+
+const WEB_REVIEW_COPY: Record<Locale, string> = {
+  en: 'Open detailed web review',
+  ja: 'Webの詳細レビューを開く',
+  'zh-CN': '打开网页版详细审核',
+  es: 'Abrir la revisión web detallada',
+  ar: 'فتح المراجعة التفصيلية على الويب',
+  hi: 'वेब पर विस्तृत समीक्षा खोलें',
 };
 
 type ScopeCopy = { subtitle: string; current: string; selectedExport: string; unsupported: string };
@@ -220,6 +232,10 @@ function CandidateInboxContent() {
           const duplicateSuggestionValues = draft.duplicate_suggestions
             .slice(0, 3)
             .map((item) => `${item.title} · ${Math.round(item.score * 100)}%`);
+          const webReviewUrl = draft.duplicate_suggestions.length > 0
+            ? buildCandidateWebReviewUrl(appBaseUrl, draft.batch_id, draft.id)
+            : null;
+
           const notationBlocks = [
             ...buildKnowledgeNotationGroupBlocks([
             { source: draft.title, tone: 'title' },
@@ -241,8 +257,30 @@ function CandidateInboxContent() {
                 {draft.central_question ? <KnowledgeText value={draft.central_question} direction={direction} style={styles.centralQuestion} /> : null}
                 {draft.summary ? <KnowledgeText value={draft.summary} direction={direction} style={styles.body} /> : null}
                 {draft.structured_content ? <View style={styles.bundle}><MobileKnowledgeBundleView content={draft.structured_content} locale={locale} /></View> : draft.explanation ? <KnowledgeText value={draft.explanation} direction={direction} legacyDollarMath style={styles.body} /> : null}
-                {draft.duplicate_suggestions.length > 0 ? <View style={styles.duplicateWarning}><Text style={styles.duplicateTitle}>{draft.duplicate_suggestions.length} {copy.duplicate}</Text><Text style={styles.duplicateBody}>{copy.webMerge}</Text>{draft.duplicate_suggestions.slice(0, 3).map((item) => <KnowledgeText key={item.id} value={`• ${item.title} · ${Math.round(item.score * 100)}%`} direction={direction} style={styles.duplicateItem} />)}</View> : null}
+                {draft.duplicate_suggestions.length > 0 ? (
+                  <View style={styles.duplicateWarning}>
+                    <Text style={styles.duplicateTitle}>{draft.duplicate_suggestions.length} {copy.duplicate}</Text>
+                    <Text style={styles.duplicateBody}>{copy.webMerge}</Text>
+                    {draft.duplicate_suggestions.slice(0, 3).map((item) => (
+                      <KnowledgeText key={item.id}
+                        value={`• ${item.title} · ${Math.round(item.score * 100)}%`}
+                        direction={direction}
+                        style={styles.duplicateItem}
+                      />
+                    ))}
+                  </View>
+                ) : null}
               </KnowledgeNotationGroup>
+              {webReviewUrl ? (
+                <Pressable
+                  accessibilityLabel={WEB_REVIEW_COPY[locale]}
+                  accessibilityRole="link"
+                  onPress={() => void Linking.openURL(webReviewUrl).catch(() => setError(t('api.networkFailed')))}
+                  style={styles.webReviewLink}
+                >
+                  <Text style={styles.webReviewLinkText}>{WEB_REVIEW_COPY[locale]} ↗</Text>
+                </Pressable>
+              ) : null}
               <View style={styles.actions}>
                 <Pressable accessibilityRole="button" disabled={mutatingIds.has(draft.id)} onPress={() => resolve(draft, 'approve-candidate')} style={[styles.saveButton, mutatingIds.has(draft.id) && styles.disabled]}><Text style={styles.saveText}>{mutatingIds.has(draft.id) ? copy.saving : copy.save}</Text></Pressable>
                 <Pressable accessibilityRole="button" disabled={mutatingIds.has(draft.id)} onPress={() => resolve(draft, 'ignore-candidate')} style={[styles.ignoreButton, mutatingIds.has(draft.id) && styles.disabled]}><Text style={styles.ignoreText}>{copy.ignore}</Text></Pressable>
@@ -296,6 +334,8 @@ const styles = StyleSheet.create({
   duplicateTitle: { color: '#92400e', fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
   duplicateBody: { color: '#78350f', fontSize: 12, lineHeight: 18 },
   duplicateItem: { color: '#854d0e', fontSize: 12, fontWeight: '700' },
+  webReviewLink: { minHeight: 44, alignSelf: 'stretch', justifyContent: 'center', borderColor: '#f59e0b', borderWidth: 1, borderRadius: 9, backgroundColor: '#fff', paddingHorizontal: 12, marginTop: 6 },
+  webReviewLinkText: { color: '#92400e', fontSize: 13, fontWeight: '900', textAlign: 'center' },
   actions: { flexDirection: 'row', gap: 8, marginTop: 3 },
   saveButton: { flex: 1, borderRadius: 10, backgroundColor: '#2563eb', padding: 12 },
   saveText: { color: '#fff', textAlign: 'center', fontWeight: '900' },

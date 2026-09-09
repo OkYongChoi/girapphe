@@ -3,6 +3,7 @@ import test from 'node:test';
 import db from '@/lib/db';
 import {
   getEligiblePrivatePracticeCards,
+  getNextEligiblePrivatePracticeCard,
   getPrivatePracticeDomainProgress,
   getPrivatePracticeStats,
   getSavedPrivatePracticeCards,
@@ -147,6 +148,28 @@ test('practice selection filters pending, deleted, manual, and cross-owner rows 
   assert.match(calls[0].text, /s\.due_at <= NOW\(\)/);
   assert.doesNotMatch(calls[0].text, /\bknowledge_cards\b/);
   assert.doesNotMatch(calls[0].text, /\buser_card_states\b/);
+});
+
+test('private mobile cursor selection is owner-scoped and fetches one keyset row', async (context) => {
+  const originalQuery = db.query;
+  const calls: Array<{ text: string; params?: unknown[] }> = [];
+  context.after(() => { db.query = originalQuery; });
+  db.query = (async (text: string, params?: unknown[]) => {
+    calls.push({ text, params });
+    return { rows: [cardRow()] };
+  }) as typeof db.query;
+
+  const afterCardId = 'personal:11111111-1111-4111-8111-111111111111';
+  const card = await getNextEligiblePrivatePracticeCard(ACTOR_ID, 'new', afterCardId);
+
+  assert.equal(card?.id, 'personal:449fdaf0-1754-45e9-9c43-50d8a4d578f8');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].params, [ACTOR_ID, afterCardId]);
+  assert.match(calls[0].text, /i\.user_id = \$1/);
+  assert.match(calls[0].text, /\('personal:' \|\| i\.id\) > \$2/);
+  assert.match(calls[0].text, /ORDER BY i\.id,[\s\S]*?LIMIT 1/);
+  assert.match(calls[0].text, /i\.archived_at IS NULL/);
+  assert.match(calls[0].text, /NOT EXISTS \([\s\S]*?knowledge_item_supersessions/);
 });
 
 test('private review SQL admits due known/review rows through the shared due queue', async (context) => {

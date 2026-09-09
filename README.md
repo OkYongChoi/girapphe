@@ -320,9 +320,12 @@ EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
 EXPO_PUBLIC_APP_BASE_URL
 ```
 
-Enable Clerk's Native API before producing a native build. `EXPO_PUBLIC_APP_BASE_URL` must point to the
-deployed HTTPS Worker that serves `/api/mobile`; it is where authenticated mobile notes, progress,
-knowledge-map state, and admin requests are processed.
+Enable Clerk's Native API before producing a native build.
+`EXPO_PUBLIC_APP_BASE_URL` must point to the deployed HTTPS Worker that serves
+`/api/mobile` and anchors first-party candidate review links. Authenticated
+Practice reads use a bounded `{ mode, cursor, cycleOnEmpty }` POST and
+server-side alternating keyset lanes instead of growing card-ID arrays; notes,
+progress, knowledge-map state, and admin requests use the same origin.
 
 ## Environments & Deployment
 

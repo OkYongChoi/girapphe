@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Alert, FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AuthRequired } from '@/components/auth-required';
@@ -9,7 +9,7 @@ import { KnowledgeText } from '@/components/knowledge-text';
 import { KnowledgeNotationGroup } from '@/components/knowledge-notation-group';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
-import { formatReviewLastSeen } from '@/practice-parity';
+import { formatReviewLastSeen, reviewQueueCount } from '@/practice-parity';
 
 export default function ReviewScreen() {
   return <AuthRequired><ReviewContent /></AuthRequired>;
@@ -23,15 +23,32 @@ function ReviewContent() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [domain, setDomain] = useState('all');
+  const [reviewable, setReviewable] = useState<number | null>(null);
+  const requestSequenceRef = useRef(0);
   const load = useCallback(async () => {
+    const requestSequence = ++requestSequenceRef.current;
+    const isLatestRequest = () => requestSequence === requestSequenceRef.current;
     setLoading(true);
     setError(null);
-    try { setCards((await mobileApi.saved()).cards); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : t('review.loadError')); }
-    finally { setLoading(false); }
+    setReviewable(null);
+    try {
+      const result = await mobileApi.saved();
+      if (!isLatestRequest()) return;
+      setCards(result.cards);
+      setReviewable(reviewQueueCount(result.stats));
+    } catch (reason) {
+      if (isLatestRequest()) {
+        setError(reason instanceof Error ? reason.message : t('review.loadError'));
+      }
+    } finally {
+      if (isLatestRequest()) setLoading(false);
+    }
   }, [t]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load, locale]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    return () => { requestSequenceRef.current += 1; };
+  }, [load, locale]));
 
   function remove(card: MobileCard) {
     Alert.alert(t('review.removeTitle'), t('review.removeBody', { title: card.title }), [
@@ -74,11 +91,14 @@ function ReviewContent() {
               ))}
             </ScrollView>
             <Pressable accessibilityRole="button" accessibilityLabel={t('review.resetAll')} onPress={reset} style={styles.reset}><Text style={styles.resetText}>{t('review.resetAll')}</Text></Pressable>
-            {cards.length > 0 ? (
+            {reviewable !== null ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t('review.start')}
-                onPress={() => router.push({ pathname: '/(tabs)/practice', params: { mode: 'review' } })}
+                onPress={() => router.push({
+                  pathname: '/(tabs)/practice',
+                  params: { mode: reviewable > 0 ? 'review' : 'new' },
+                })}
                 style={styles.primary}
               >
                 <Text style={styles.primaryText}>{t('review.start')}</Text>
@@ -92,16 +112,6 @@ function ReviewContent() {
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>{t('review.empty')}</Text>
             <Text style={styles.sub}>{t('review.emptyCopy')}</Text>
-            {cards.length === 0 ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t('review.start')}
-                onPress={() => router.push({ pathname: '/(tabs)/practice', params: { mode: 'new' } })}
-                style={styles.primary}
-              >
-                <Text style={styles.primaryText}>{t('review.start')}</Text>
-              </Pressable>
-            ) : null}
           </View>
         ) : null}
         renderItem={({ item }) => {

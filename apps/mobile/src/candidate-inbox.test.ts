@@ -5,6 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   addPendingCandidate,
+  buildCandidateWebReviewUrl,
   classifyCandidateBatchScope,
   createCandidateInboxRequestGuard,
   removePendingCandidate,
@@ -116,9 +117,11 @@ test('candidate inbox guards the list response before automatic batch selection'
 test('mobile candidate resolution preserves structured error codes and event lifecycle metadata', () => {
   const sourceDir = dirname(fileURLToPath(import.meta.url));
   const mobileApi = readFileSync(join(sourceDir, 'api.ts'), 'utf8');
+  const mobileApiErrors = readFileSync(join(sourceDir, 'mobile-api-errors.ts'), 'utf8');
   const mobileRoute = readFileSync(join(sourceDir, '../../web/src/app/api/mobile/route.ts'), 'utf8');
 
-  assert.match(mobileApi, /class MobileApiRequestError extends Error[\s\S]*?readApiErrorCode\(payload\)/);
+  assert.match(mobileApiErrors, /export class MobileApiRequestError extends Error/);
+  assert.match(mobileApi, /throw new MobileApiRequestError\([\s\S]*?readApiErrorCode\(payload\)/);
   assert.match(mobileRoute, /lifecycle_patch_semantics[\s\S]*?tri_state_v1/);
   assert.match(
     mobileRoute,
@@ -164,4 +167,41 @@ test('candidate batch provenance recognizes selected exports and fails closed on
   assert.equal(classifyCandidateBatchScope('selected_export'), 'selected_export');
   assert.equal(classifyCandidateBatchScope('future_scope'), 'unsupported');
   assert.equal(classifyCandidateBatchScope(null), 'unsupported');
+});
+
+test('builds an encoded first-party detailed review handoff and rejects unsafe bases', () => {
+  assert.equal(
+    buildCandidateWebReviewUrl(
+      'https://www.girapphe.com/',
+      'batch/selected',
+      'draft with spaces',
+    ),
+    'https://www.girapphe.com/knowledge-inbox/batch%2Fselected/draft%20with%20spaces/resolve',
+  );
+  assert.equal(buildCandidateWebReviewUrl('javascript:alert(1)', 'batch', 'draft'), null);
+  assert.equal(buildCandidateWebReviewUrl('https://user:pass@example.com', 'batch', 'draft'), null);
+  assert.equal(buildCandidateWebReviewUrl(undefined, 'batch', 'draft'), null);
+});
+
+test('renders an actionable detailed web review link for duplicate candidates', () => {
+  const sourceDir = dirname(fileURLToPath(import.meta.url));
+  const candidateInbox = readFileSync(join(sourceDir, '../app/candidate-inbox.tsx'), 'utf8');
+  assert.match(candidateInbox, /buildCandidateWebReviewUrl\(appBaseUrl, draft\.batch_id, draft\.id\)/);
+
+  const groupStart = candidateInbox.indexOf('<KnowledgeNotationGroup');
+  const groupEnd = candidateInbox.indexOf('</KnowledgeNotationGroup>', groupStart);
+  const reviewLinkStart = candidateInbox.indexOf('{webReviewUrl ? (', groupStart);
+
+  assert.notEqual(groupStart, -1);
+  assert.notEqual(groupEnd, -1);
+  assert.notEqual(reviewLinkStart, -1);
+  assert.ok(
+    reviewLinkStart > groupEnd,
+    'the native web review action must remain outside the notation-rendered group',
+  );
+  assert.doesNotMatch(candidateInbox.slice(groupStart, groupEnd), /webReviewUrl/);
+  assert.match(
+    candidateInbox.slice(reviewLinkStart),
+    /accessibilityLabel=\{WEB_REVIEW_COPY\[locale\]\}\s*accessibilityRole="link"[\s\S]*?Linking\.openURL\(webReviewUrl\)/,
+  );
 });

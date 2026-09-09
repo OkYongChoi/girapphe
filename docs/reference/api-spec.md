@@ -141,6 +141,35 @@ client must reload before retrying. Moving an item to Trash continues to use
 `delete-note`, and `restore-note` restores a trashed item to the lifecycle
 state it held before deletion.
 
+`GET /api/mobile?resource=saved` returns owner-scoped `cards` plus authoritative
+`stats` (`explainable`, `unclear`, and `reviewable`). New clients select the
+Review or new-card intent from `reviewable`, not from saved-card list length.
+
+`POST /api/mobile?resource=practice` accepts JSON `{ mode, cursor,
+cycleOnEmpty }`, where `mode` is `new` or `review` and `cursor` is null or a
+versioned opaque string of at most 1,024 characters. The request body is capped
+at 2 KiB. The cursor is an untrusted seek hint, not authorization: every
+request derives the actor from server authentication and reapplies owner
+scoping. The server alternates public and owner-private lanes, traverses IDs in
+deterministic ascending order within each lane, and uses `LIMIT 1` for each
+database candidate query. The response is `{ card, stats, nextCursor, cycled }`;
+the client sends `nextCursor` on the next read. Neither side retains a growing
+card-ID array or request-global traversal state.
+
+Only a non-null cursor with `cycleOnEmpty: true` may wrap to a fresh round, and
+that request resets at most once. An initial null cursor does not perform a
+second empty lookup. Responses use `Cache-Control: private, no-store` after
+authentication. Invalid request shapes return `400 INVALID_PRACTICE_REQUEST`,
+an invalid or mode-mismatched cursor returns `400 INVALID_PRACTICE_CURSOR`, an
+unsupported locale returns `400 UNSUPPORTED_LOCALE`, and an oversized body
+returns `413 PRACTICE_REQUEST_TOO_LARGE`.
+
+`GET /api/mobile?resource=practice&mode=new|review&exclude=...` remains a
+backward-compatible read for installed clients. It accepts at most 100
+`exclude` values and returns private card and stats data with `cycled: false`;
+a larger list returns `400 PRACTICE_EXCLUSIONS_TOO_LARGE` instead of silently
+truncating the caller's round.
+
 New mobile clients send
 `X-Girapphe-Knowledge-Capabilities: expression-v1,event-chronology-v1,causal-relations-v1`.
 When the header is absent, expression bundles are projected to legacy flat
