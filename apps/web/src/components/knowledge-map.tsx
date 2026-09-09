@@ -502,7 +502,7 @@ export default function KnowledgeMap({
                 type="button"
                 onClick={openGraphView}
                 disabled={isOpeningGraph}
-                className="min-h-11 shrink-0 whitespace-nowrap rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
+                className="min-h-11 shrink-0 whitespace-nowrap rounded-md border border-blue-200 bg-white px-2 py-2 text-xs font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-70 sm:px-3 sm:text-sm"
               >
                 {isOpeningGraph ? t('knowledge.loadingGraph') : t('knowledge.graphView')}
               </button>
