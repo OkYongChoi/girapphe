@@ -33,9 +33,19 @@ function cancellationExpectation(schedule) {
   };
 }
 
+async function assertRejectsInSavepoint(client, operation, expected) {
+  await client.query('SAVEPOINT expected_constraint_failure');
+  try {
+    await assert.rejects(operation(), expected);
+  } finally {
+    await client.query('ROLLBACK TO SAVEPOINT expected_constraint_failure');
+    await client.query('RELEASE SAVEPOINT expected_constraint_failure');
+  }
+}
+
 test('Recall migration bootstraps an absent Practice table, preserves rows, and enforces honest snapshots', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
-}, async (context) => {
+}, async () => {
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });
   const client = await pool.connect();
   const bootstrapSchemaName = `recall_bootstrap_${crypto.randomUUID().replaceAll('-', '_')}`;
@@ -44,6 +54,7 @@ test('Recall migration bootstraps an absent Practice table, preserves rows, and 
   const schema = quoteIdentifier(schemaName);
   const enrolledAt = '2026-09-03T00:00:00.000Z';
   let bodyCompleted = false;
+  let transactionOpen = false;
 
   try {
     const migrationSql = await readFile(
@@ -52,7 +63,9 @@ test('Recall migration bootstraps an absent Practice table, preserves rows, and 
     );
     const statements = parsePreviewMigration(migrationSql);
     await client.query(`CREATE SCHEMA ${bootstrapSchema}`);
-    await client.query(`SET search_path TO ${bootstrapSchema}, public`);
+    await client.query('BEGIN');
+    transactionOpen = true;
+    await client.query(`SET LOCAL search_path TO ${bootstrapSchema}, public`);
     await client.query(`
       CREATE TABLE user_knowledge_items (
         id text PRIMARY KEY,
@@ -111,10 +124,13 @@ test('Recall migration bootstraps an absent Practice table, preserves rows, and 
       WHERE n.nspname = $1 AND t.relname = 'user_private_card_states'
         AND c.conname = 'user_private_card_states_recall_schedule_check'
     `, [bootstrapSchemaName])).rows[0]?.count, 1);
-    await client.query('RESET search_path');
+    await client.query('COMMIT');
+    transactionOpen = false;
 
     await client.query(`CREATE SCHEMA ${schema}`);
-    await client.query(`SET search_path TO ${schema}, public`);
+    await client.query('BEGIN');
+    transactionOpen = true;
+    await client.query(`SET LOCAL search_path TO ${schema}, public`);
     await client.query(`
       CREATE TABLE user_private_card_states (
         user_id text NOT NULL,
@@ -180,18 +196,7 @@ test('Recall migration bootstraps an absent Practice table, preserves rows, and 
     `)).rows;
 
     for (let run = 0; run < 2; run += 1) {
-      await client.query('BEGIN');
-      try {
-        for (const statement of statements) await client.query(statement);
-        await client.query('COMMIT');
-      } catch (error) {
-        try {
-          await client.query('ROLLBACK');
-        } catch {
-          context.diagnostic('ROLLBACK cleanup also failed; preserving the primary migration error.');
-        }
-        throw error;
-      }
+      for (const statement of statements) await client.query(statement);
     }
 
     const after = (await client.query(`
@@ -235,7 +240,7 @@ test('Recall migration bootstraps an absent Practice table, preserves rows, and 
         mask & 4 ? 'learning' : null,
         mask & 8 ? enrolledAt : null,
       ];
-      await assert.rejects(client.query(`
+      await assertRejectsInSavepoint(client, () => client.query(`
         INSERT INTO user_private_card_states (
           user_id, knowledge_item_id, status, knowledge_state, progress_state,
           due_at, last_seen, recall_enrolled_at, recall_item_version,
@@ -262,7 +267,7 @@ test('Recall migration bootstraps an absent Practice table, preserves rows, and 
       { name: 'ordinary-outcome', state: 'ordinary_practice', dueHours: 192, itemVersion: 1, flag: true, outcome: null, version: 1 },
     ];
     for (const invalid of invalidSchedules) {
-      await assert.rejects(client.query(`
+      await assertRejectsInSavepoint(client, () => client.query(`
         INSERT INTO user_private_card_states (
           user_id, knowledge_item_id, status, knowledge_state, progress_state,
           due_at, last_seen, recall_enrolled_at, recall_item_version,
@@ -293,13 +298,21 @@ test('Recall migration bootstraps an absent Practice table, preserves rows, and 
       INSERT INTO knowledge_card_sources (id, knowledge_item_id, supported_item_version)
       VALUES ('bound-source', 'historical-item', 1)
     `);
-    await assert.rejects(client.query(`
+    await assertRejectsInSavepoint(client, () => client.query(`
       INSERT INTO knowledge_card_sources (id, knowledge_item_id, supported_item_version)
       VALUES ('false-source', 'historical-item', 2)
     `), /knowledge_card_sources_supported_revision_fk/);
+    await client.query('COMMIT');
+    transactionOpen = false;
     bodyCompleted = true;
   } finally {
     const cleanupFailures = [];
+    if (transactionOpen) {
+      await collectCleanupFailure(cleanupFailures, 'rollback isolated transaction', async () => {
+        await client.query('ROLLBACK');
+        transactionOpen = false;
+      });
+    }
     await collectCleanupFailure(cleanupFailures, 'reset isolated search path', () => (
       client.query('RESET search_path')
     ));

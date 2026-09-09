@@ -15,6 +15,7 @@ import {
 
 test('account deletion covers every owner-scoped private product table', () => {
   const source = readFileSync(new URL('../account-deletion.ts', import.meta.url), 'utf8');
+  const purgeSource = readFileSync(new URL('../account-private-purge.ts', import.meta.url), 'utf8');
   const privateTables = [
     'knowledge_evidence_spans',
     'knowledge_item_revisions',
@@ -26,6 +27,7 @@ test('account deletion covers every owner-scoped private product table', () => {
     'user_graph_nodes',
     'user_knowledge_items',
     'user_knowledge_create_requests',
+    'knowledge_ingestion_request_tombstones',
     'knowledge_card_drafts',
     'knowledge_ingestion_batches',
     'mcp_access_tokens',
@@ -38,7 +40,7 @@ test('account deletion covers every owner-scoped private product table', () => {
   ];
 
   for (const table of privateTables) {
-    assert.match(source, new RegExp(`DELETE FROM ${table}\\b[\\s\\S]{0,120}user_id = \\$1`), `${table} must be owner-deleted`);
+    assert.match(purgeSource, new RegExp(`DELETE FROM ${table}\\b[\\s\\S]{0,120}user_id = \\$1`), `${table} must be owner-deleted`);
   }
   assert.match(source, /cancelCreemRenewalForAccountDeletion/);
   assert.match(source, /cancelStripeSubscriptionsForAccountDeletion/);
@@ -55,7 +57,7 @@ test('account deletion covers every owner-scoped private product table', () => {
 });
 
 test('account deletion clears reversible MCP rate-limit identities before deleting tokens', () => {
-  const source = readFileSync(new URL('../account-deletion.ts', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../account-private-purge.ts', import.meta.url), 'utf8');
   const selectedTokens = source.indexOf('selected_mcp_tokens AS MATERIALIZED');
   const deletedRateLimits = source.indexOf('deleted_mcp_rate_limits AS');
   const deletedTokens = source.indexOf('deleted_tokens AS');
@@ -80,7 +82,7 @@ test('account deletion clears reversible MCP rate-limit identities before deleti
 });
 
 test('account deletion removes revision-bound sources before their referenced revisions', () => {
-  const source = readFileSync(new URL('../account-deletion.ts', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../account-private-purge.ts', import.meta.url), 'utf8');
   const deletedEvidenceSpans = source.indexOf('deleted_evidence_spans AS');
   const deletedSources = source.indexOf('deleted_sources AS');
   const deletedRevisions = source.indexOf('deleted_revisions AS');
@@ -97,18 +99,37 @@ test('account deletion removes revision-bound sources before their referenced re
   );
 });
 
+test('account deletion removes product events before batch deletion triggers run', () => {
+  const source = readFileSync(new URL('../account-private-purge.ts', import.meta.url), 'utf8');
+  const deletedBatches = source.indexOf('deleted_batches AS');
+  const deletedTombstones = source.indexOf('deleted_ingestion_request_tombstones AS');
+
+  assert.ok(deletedBatches >= 0 && deletedBatches < deletedTombstones);
+  assert.match(
+    source,
+    /deleted_batches AS \([\s\S]{0,240}DELETE FROM knowledge_ingestion_batches[\s\S]{0,240}COUNT\(\*\) FROM deleted_knowledge_product_events/,
+  );
+  assert.match(
+    source,
+    /deleted_ingestion_request_tombstones AS \([\s\S]{0,240}DELETE FROM knowledge_ingestion_request_tombstones[\s\S]{0,240}COUNT\(\*\) FROM deleted_batches/,
+  );
+});
+
 test('account deletion commits its permanent fence before provider cleanup without exposing owner identifiers', () => {
   const source = readFileSync(new URL('../account-deletion.ts', import.meta.url), 'utf8');
   const fence = source.indexOf('async function beginAccountDeletionFence');
   const deleteEntry = source.indexOf('export async function deleteGirappheAccount');
   const fenceCall = source.indexOf('await beginAccountDeletionFence(userId)', deleteEntry);
   const billingCleanup = source.indexOf('cancelRenewingWebBilling(userId)', fenceCall);
-  const purge = source.indexOf('purgePrivateProductData(userId)', billingCleanup);
+  const purge = source.indexOf('purgePrivateProductDataForUser(userId)', billingCleanup);
 
   assert.ok(fence >= 0 && fence < deleteEntry);
   assert.match(source.slice(fence, deleteEntry), /buildAccountDeletionFenceQueries\(userId\)/);
   assert.ok(fenceCall < billingCleanup && billingCleanup < purge);
-  assert.match(source, /\], \{ isolationLevel: 'ReadCommitted' \}\)/);
+  assert.match(
+    source,
+    /db\.transaction\(\s*\[buildPrivateProductPurgeQuery\(userId\)\],\s*\{ isolationLevel: 'ReadCommitted' \},\s*\)/,
+  );
   assert.doesNotMatch(source, /DELETE FROM mcp_deleted_account_markers/);
 
   const userId = 'user_sensitive_clerk_identifier';

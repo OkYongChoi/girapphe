@@ -345,7 +345,8 @@ export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", 
   committedAt: timestamp("committed_at", { withTimezone: true }),
   discardedAt: timestamp("discarded_at", { withTimezone: true }),
 }, (t) => [
-  unique("knowledge_ingestion_batches_user_provider_request_key").on(t.userId, t.provider, t.requestId),
+  uniqueIndex("idx_knowledge_ingestion_batches_user_provider_scope_request")
+    .on(t.userId, t.provider, t.scope, t.requestId),
   index("idx_knowledge_ingestion_batches_user_created").on(t.userId, t.createdAt),
   index("idx_knowledge_ingestion_batches_token_created").on(t.mcpTokenId, t.createdAt).where(sql`${t.mcpTokenId} IS NOT NULL`),
   check("knowledge_ingestion_batches_source_type_check", sql`${t.sourceType} IN ('conversation')`),
@@ -363,6 +364,22 @@ export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", 
     char_length(${t.conversationRef}) BETWEEN 1 AND 240
     AND ${t.conversationRef} !~* '^[a-z][a-z0-9+.-]*://'
   )`),
+]);
+
+export const knowledgeIngestionRequestTombstones = pgTable("knowledge_ingestion_request_tombstones", {
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(),
+  requestId: text("request_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({
+    columns: [t.userId, t.provider, t.requestId],
+    name: "knowledge_ingestion_request_tombstones_user_provider_request_pk",
+  }),
+  index("idx_knowledge_ingestion_request_tombstones_account_scope").on(sql`
+    public.derive_account_lifecycle_scope_key(${t.userId})
+  `),
+  check("knowledge_ingestion_request_tombstones_provider_check", sql`${t.provider} IN ('chatgpt', 'claude', 'gemini', 'other')`),
 ]);
 
 export const knowledgeCardDrafts = pgTable("knowledge_card_drafts", {
@@ -611,6 +628,7 @@ export const knowledgeProductEvents = pgTable("knowledge_product_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("idx_knowledge_product_events_user_created").on(t.userId, t.createdAt),
+  index("idx_knowledge_product_events_user_subject").on(t.userId, t.subjectId),
   index("idx_knowledge_product_events_user_dismissed").on(t.userId, t.subjectId)
     .where(sql`${t.eventName} = 'knowledge_signal_dismissed'`),
   check("knowledge_product_events_name_check", sql`${t.eventName} IN (

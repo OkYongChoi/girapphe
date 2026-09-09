@@ -23,6 +23,9 @@ import {
   getMemoryKnowledgeSourcesForUser,
   getMemoryKnowledgeItemsForUser,
   getPrivateKnowledgeGraphForUser,
+  hasSelectedExportIdempotencyCapacity,
+  MAX_KNOWLEDGE_BATCHES_PER_USER,
+  MAX_SELECTED_EXPORT_IDEMPOTENCY_SLOTS_PER_USER,
   MCP_CONTEXT_READ_SCOPE,
   MCP_CREDENTIAL_RATE_LIMIT_CLEANUP_BATCH_SIZE,
   MCP_CREDENTIAL_RATE_LIMIT_RETENTION_MS,
@@ -189,6 +192,22 @@ test('creates scope-aware idempotent memory draft batches and preserves normaliz
   assert.deepEqual(selectedRetry, { ...selected, created: false });
   const loaded = await getKnowledgeDraftBatchForUser(userId, current.batchId);
   assert.deepEqual(loaded?.drafts[0].tags, ['확률-이론', 'bayes']);
+});
+
+test('reserves a bounded pair of durable identities for every selected-export batch', () => {
+  assert.equal(
+    MAX_SELECTED_EXPORT_IDEMPOTENCY_SLOTS_PER_USER,
+    MAX_KNOWLEDGE_BATCHES_PER_USER * 2,
+  );
+  assert.equal(hasSelectedExportIdempotencyCapacity(0, MAX_KNOWLEDGE_BATCHES_PER_USER - 1), true);
+  assert.equal(hasSelectedExportIdempotencyCapacity(2, MAX_KNOWLEDGE_BATCHES_PER_USER - 2), true);
+  assert.equal(hasSelectedExportIdempotencyCapacity(1, MAX_KNOWLEDGE_BATCHES_PER_USER - 1), false);
+  assert.equal(hasSelectedExportIdempotencyCapacity(
+    MAX_SELECTED_EXPORT_IDEMPOTENCY_SLOTS_PER_USER - 1,
+    0,
+  ), false);
+  assert.equal(hasSelectedExportIdempotencyCapacity(-1, 0), false);
+  assert.equal(hasSelectedExportIdempotencyCapacity(0, Number.NaN), false);
 });
 
 test('loads an owner-scoped batch by its exact id outside the 100-row list window', async (context) => {
@@ -1862,17 +1881,41 @@ test('database MCP draft, token, and reuse writers lock then reject post-delete 
   assert.equal(await recordKnowledgeReuseForUser(userId, ['deleted-item']), 0);
 
   assert.equal(neonTransactions.length, 2);
-  for (const [index, transaction] of neonTransactions.entries()) {
-    assert.deepEqual(transaction.options, { isolationLevel: 'ReadCommitted' });
-    assert.equal(transaction.calls.length, 3);
-    assert.deepEqual(transaction.calls[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
-    assert.deepEqual(
-      transaction.calls[1]!.params,
-      [index === 0 ? `knowledge-ingestion:${userId}` : `mcp-token:${userId}`],
-    );
-    assert.match(transaction.calls[2]!.text, /mcp_deleted_account_markers/);
-    assert.equal(transaction.calls[2]!.params.at(-1), scopeKey);
-  }
+  const [draftTransaction, tokenTransaction] = neonTransactions;
+  assert.deepEqual(draftTransaction!.options, { isolationLevel: 'ReadCommitted' });
+  assert.equal(draftTransaction!.calls.length, 4);
+  assert.deepEqual(draftTransaction!.calls[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
+  assert.match(draftTransaction!.calls[1]!.text, /mcp_deleted_account_markers/);
+  assert.deepEqual(draftTransaction!.calls[1]!.params, [scopeKey]);
+  assert.deepEqual(draftTransaction!.calls[2]!.params, [`knowledge-ingestion:${userId}`]);
+  assert.match(draftTransaction!.calls[3]!.text, /mcp_deleted_account_markers/);
+  assert.match(
+    draftTransaction!.calls[3]!.text,
+    /COUNT\(\*\) FROM knowledge_ingestion_request_tombstones tombstone WHERE tombstone\.user_id = \$2/,
+  );
+  assert.match(
+    draftTransaction!.calls[3]!.text,
+    /b\.user_id = \$2 AND b\.scope = 'selected_export'/,
+  );
+  assert.match(draftTransaction!.calls[3]!.text, /\+ 2 <= \$21::bigint/);
+  assert.match(draftTransaction!.calls[3]!.text, /legacy_session_batch AS MATERIALIZED/);
+  assert.match(draftTransaction!.calls[3]!.text, /jsonb_agg\(existing\.client_card_id/);
+  assert.match(draftTransaction!.calls[3]!.text, /alias\.value <> requested\.client_card_id/);
+  assert.equal(draftTransaction!.calls[3]!.params.at(-5), scopeKey);
+  assert.equal(draftTransaction!.calls[3]!.params.at(-4), null);
+  assert.equal(draftTransaction!.calls[3]!.params.at(-3), null);
+  assert.equal(draftTransaction!.calls[3]!.params.at(-2), null);
+  assert.equal(
+    draftTransaction!.calls[3]!.params.at(-1),
+    MAX_SELECTED_EXPORT_IDEMPOTENCY_SLOTS_PER_USER,
+  );
+
+  assert.deepEqual(tokenTransaction!.options, { isolationLevel: 'ReadCommitted' });
+  assert.equal(tokenTransaction!.calls.length, 3);
+  assert.deepEqual(tokenTransaction!.calls[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
+  assert.deepEqual(tokenTransaction!.calls[1]!.params, [`mcp-token:${userId}`]);
+  assert.match(tokenTransaction!.calls[2]!.text, /mcp_deleted_account_markers/);
+  assert.equal(tokenTransaction!.calls[2]!.params.at(-1), scopeKey);
   assert.equal(poolTransactions.length, 1);
   assert.deepEqual(poolTransactions[0]!.options, { isolationLevel: 'ReadCommitted' });
   assert.deepEqual(poolTransactions[0]!.queries[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);

@@ -242,8 +242,40 @@ CREATE TABLE IF NOT EXISTS knowledge_ingestion_batches (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   committed_at TIMESTAMP WITH TIME ZONE,
-  discarded_at TIMESTAMP WITH TIME ZONE,
-  UNIQUE (user_id, provider, request_id)
+  discarded_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_ingestion_request_tombstones (
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL CHECK (provider IN ('chatgpt', 'claude', 'gemini', 'other')),
+  request_id TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  CONSTRAINT knowledge_ingestion_request_tombstones_user_provider_request_pk
+    PRIMARY KEY (user_id, provider, request_id)
+);
+
+CREATE OR REPLACE FUNCTION public.derive_account_lifecycle_scope_key(account_user_id text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+STRICT
+PARALLEL SAFE
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+  SELECT pg_catalog.encode(
+    pg_catalog.sha256(
+      pg_catalog.convert_to('girapphe:mcp-account-lifecycle:v1', 'UTF8')
+      || pg_catalog.decode('00', 'hex')
+      || pg_catalog.convert_to(account_user_id, 'UTF8')
+    ),
+    'hex'
+  )
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_ingestion_request_tombstones_account_scope
+ON knowledge_ingestion_request_tombstones (
+  public.derive_account_lifecycle_scope_key(user_id)
 );
 
 CREATE TABLE IF NOT EXISTS knowledge_card_drafts (
@@ -429,6 +461,61 @@ CREATE TABLE IF NOT EXISTS knowledge_card_sources (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_card_sources_id_user_item
 ON knowledge_card_sources(id, user_id, knowledge_item_id);
+
+CREATE OR REPLACE FUNCTION public.preserve_selected_export_source_fingerprint()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  source_fingerprint text;
+BEGIN
+  IF OLD.batch_id IS NULL
+    OR OLD.draft_id IS NULL
+    OR NEW.batch_id IS NOT NULL
+    OR NEW.draft_id IS NOT NULL
+    OR OLD.source_type <> 'conversation'
+    OR OLD.provider <> 'chatgpt'
+    OR OLD.source_locator IS NULL
+    OR COALESCE(NEW.source_locator ? 'client_card_id', FALSE)
+    OR COALESCE(NEW.source_locator ? 'selected_export_fingerprint', FALSE)
+    OR pg_catalog.jsonb_typeof(OLD.source_locator -> 'client_card_id') <> 'string' THEN
+    RETURN NEW;
+  END IF;
+
+  source_fingerprint := OLD.source_locator ->> 'client_card_id';
+  IF source_fingerprint !~ '^export-exchange:[0-9a-f]{48}$' THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM 1
+  FROM public.knowledge_ingestion_batches AS batch
+  JOIN public.knowledge_card_drafts AS draft
+    ON draft.batch_id = batch.id
+    AND draft.user_id = batch.user_id
+  WHERE batch.id = OLD.batch_id
+    AND batch.user_id = OLD.user_id
+    AND batch.provider = OLD.provider
+    AND batch.scope = 'selected_export'
+    AND draft.id = OLD.draft_id
+    AND draft.status = 'approved'
+    AND draft.knowledge_item_id = OLD.knowledge_item_id
+    AND draft.client_card_id = source_fingerprint;
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  NEW.source_locator := COALESCE(NEW.source_locator, '{}'::jsonb)
+    || pg_catalog.jsonb_build_object('selected_export_fingerprint', source_fingerprint);
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER knowledge_card_sources_preserve_selected_export_fingerprint
+BEFORE UPDATE OF batch_id, draft_id, source_locator ON public.knowledge_card_sources
+FOR EACH ROW
+EXECUTE FUNCTION public.preserve_selected_export_source_fingerprint();
 
 CREATE TABLE IF NOT EXISTS knowledge_item_activity (
   id TEXT PRIMARY KEY,
@@ -678,6 +765,8 @@ CREATE TABLE IF NOT EXISTS mcp_deleted_account_markers (
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_ingestion_batches_user_created
 ON knowledge_ingestion_batches(user_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_ingestion_batches_user_provider_scope_request
+ON knowledge_ingestion_batches(user_id, provider, scope, request_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_ingestion_batches_token_created
 ON knowledge_ingestion_batches(mcp_token_id, created_at DESC) WHERE mcp_token_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_knowledge_card_drafts_user_status
@@ -1164,3 +1253,287 @@ ON knowledge_product_events(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_product_events_user_dismissed
 ON knowledge_product_events(user_id, subject_id)
 WHERE event_name = 'knowledge_signal_dismissed';
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_product_events_user_subject
+ON knowledge_product_events(user_id, subject_id);
+
+-- Keep deleted selected exports deleted and their telemetry attached to a
+-- live, deletable batch even while an old Worker version overlaps a deployment.
+-- These triggers are the database-level expand/contract bridge for the
+-- application transaction changes.
+CREATE OR REPLACE FUNCTION public.purge_deleted_account_ingestion_tombstones()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('mcp-account-lifecycle:' || NEW.scope_key)
+  );
+  DELETE FROM public.knowledge_ingestion_request_tombstones AS tombstone
+  WHERE public.derive_account_lifecycle_scope_key(tombstone.user_id) = NEW.scope_key;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER mcp_deleted_account_markers_purge_ingestion_tombstones
+  BEFORE INSERT ON public.mcp_deleted_account_markers
+  FOR EACH ROW
+  EXECUTE FUNCTION public.purge_deleted_account_ingestion_tombstones();
+
+DELETE FROM public.knowledge_ingestion_request_tombstones AS tombstone
+USING public.mcp_deleted_account_markers AS marker
+WHERE public.derive_account_lifecycle_scope_key(tombstone.user_id) = marker.scope_key;
+
+CREATE OR REPLACE FUNCTION public.lock_selected_export_batch_owner()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  batch_user_id text;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.scope <> 'selected_export' THEN
+      RETURN OLD;
+    END IF;
+    batch_user_id := OLD.user_id;
+  ELSE
+    IF NEW.scope <> 'selected_export' THEN
+      RETURN NEW;
+    END IF;
+    batch_user_id := NEW.user_id;
+  END IF;
+
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(
+    'mcp-account-lifecycle:' || pg_catalog.encode(
+      pg_catalog.sha256(
+        pg_catalog.convert_to('girapphe:mcp-account-lifecycle:v1', 'UTF8')
+        || pg_catalog.decode('00', 'hex')
+        || pg_catalog.convert_to(batch_user_id, 'UTF8')
+      ),
+      'hex'
+    )
+  ));
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER knowledge_ingestion_batches_00_lock_selected_export_owner
+  BEFORE INSERT OR DELETE ON public.knowledge_ingestion_batches
+  FOR EACH ROW
+  EXECUTE FUNCTION public.lock_selected_export_batch_owner();
+
+CREATE OR REPLACE FUNCTION public.guard_deleted_selected_export_batch_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  session_tombstone_id text := NULL;
+BEGIN
+  IF NEW.scope <> 'selected_export' THEN
+    RETURN NEW;
+  END IF;
+
+  IF pg_catalog.lower(NEW.request_id) ~ ':session:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN
+    session_tombstone_id := 'selected-export-session:v1:'
+      || pg_catalog.substring(
+        pg_catalog.lower(NEW.request_id),
+        ':session:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$'
+      );
+  ELSIF NEW.provider = 'chatgpt'
+    AND pg_catalog.lower(NEW.request_id) ~ '^chatgpt-export:[0-9a-f]{48}$'
+    AND pg_catalog.lower(NEW.id) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN
+    session_tombstone_id := 'selected-export-session:v1:' || pg_catalog.lower(NEW.id);
+  END IF;
+
+  PERFORM 1
+  FROM public.mcp_deleted_account_markers AS marker
+  WHERE marker.scope_key = pg_catalog.encode(
+    pg_catalog.sha256(
+      pg_catalog.convert_to('girapphe:mcp-account-lifecycle:v1', 'UTF8')
+      || pg_catalog.decode('00', 'hex')
+      || pg_catalog.convert_to(NEW.user_id, 'UTF8')
+    ),
+    'hex'
+  )
+  FOR KEY SHARE;
+  IF FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  PERFORM 1
+  FROM public.knowledge_ingestion_request_tombstones AS tombstone
+  WHERE tombstone.user_id = NEW.user_id
+    AND tombstone.provider = NEW.provider
+    AND (
+      tombstone.request_id = NEW.request_id
+      OR (
+        session_tombstone_id IS NOT NULL
+        AND tombstone.request_id = session_tombstone_id
+      )
+    )
+  FOR KEY SHARE;
+  IF FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  IF (
+    SELECT COUNT(*)
+    FROM public.knowledge_ingestion_request_tombstones AS tombstone
+    WHERE tombstone.user_id = NEW.user_id
+  ) + (2 * (
+    SELECT COUNT(*)
+    FROM public.knowledge_ingestion_batches AS batch
+    WHERE batch.user_id = NEW.user_id
+      AND batch.scope = 'selected_export'
+  )) + 2 > 40000 THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER knowledge_ingestion_batches_guard_selected_export_insert
+  BEFORE INSERT ON public.knowledge_ingestion_batches
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_deleted_selected_export_batch_insert();
+
+CREATE OR REPLACE FUNCTION public.delete_knowledge_import_batch_product_events()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  INSERT INTO public.knowledge_ingestion_request_tombstones
+    (user_id, provider, request_id)
+  SELECT batch.user_id, batch.provider, candidate.request_id
+  FROM deleted_knowledge_ingestion_batches AS batch
+  CROSS JOIN LATERAL (
+    VALUES
+      (batch.request_id),
+      (CASE
+        WHEN pg_catalog.lower(batch.request_id) ~ ':session:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          THEN 'selected-export-session:v1:' || pg_catalog.substring(
+            pg_catalog.lower(batch.request_id),
+            ':session:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$'
+          )
+        WHEN batch.provider = 'chatgpt'
+          AND pg_catalog.lower(batch.request_id) ~ '^chatgpt-export:[0-9a-f]{48}$'
+          AND pg_catalog.lower(batch.id) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          THEN 'selected-export-session:v1:' || pg_catalog.lower(batch.id)
+        ELSE NULL
+      END)
+  ) AS candidate(request_id)
+  WHERE batch.scope = 'selected_export'
+    AND candidate.request_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.mcp_deleted_account_markers AS marker
+      WHERE marker.scope_key = pg_catalog.encode(
+        pg_catalog.sha256(
+          pg_catalog.convert_to('girapphe:mcp-account-lifecycle:v1', 'UTF8')
+          || pg_catalog.decode('00', 'hex')
+          || pg_catalog.convert_to(batch.user_id, 'UTF8')
+        ),
+        'hex'
+      )
+    )
+  ON CONFLICT (user_id, provider, request_id) DO NOTHING;
+
+  DELETE FROM public.knowledge_product_events AS event
+  USING deleted_knowledge_ingestion_batches AS batch
+  WHERE event.user_id = batch.user_id
+    AND event.subject_id = pg_catalog.encode(
+      pg_catalog.sha256(
+        pg_catalog.convert_to(batch.user_id, 'UTF8')
+        || pg_catalog.decode('00', 'hex')
+        || pg_catalog.convert_to(batch.id, 'UTF8')
+      ),
+      'hex'
+    );
+  RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER knowledge_ingestion_batches_delete_product_events
+  AFTER DELETE ON public.knowledge_ingestion_batches
+  REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches
+  FOR EACH STATEMENT
+  EXECUTE FUNCTION public.delete_knowledge_import_batch_product_events();
+
+CREATE OR REPLACE FUNCTION public.guard_knowledge_import_batch_event()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  requires_live_batch boolean := FALSE;
+  requires_selected_export_batch boolean := FALSE;
+BEGIN
+  IF NEW.event_name = 'knowledge_candidate_resolved' THEN
+    requires_live_batch := TRUE;
+  ELSIF NEW.event_name IN (
+    'conversation_import_confirmed',
+    'conversation_import_candidates_ready',
+    'conversation_import_first_value_viewed'
+  ) OR (
+    TG_OP = 'UPDATE'
+    AND NEW.event_name IN ('conversation_import_started', 'conversation_import_parsed')
+  ) THEN
+    requires_live_batch := TRUE;
+    requires_selected_export_batch := TRUE;
+  END IF;
+
+  IF NOT requires_live_batch THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM 1
+  FROM public.knowledge_ingestion_batches AS batch
+  WHERE batch.user_id = NEW.user_id
+    AND (
+      NOT requires_selected_export_batch
+      OR (batch.provider = 'chatgpt' AND batch.scope = 'selected_export')
+    )
+    AND NEW.subject_id = pg_catalog.encode(
+      pg_catalog.sha256(
+        pg_catalog.convert_to(batch.user_id, 'UTF8')
+        || pg_catalog.decode('00', 'hex')
+        || pg_catalog.convert_to(batch.id, 'UTF8')
+      ),
+      'hex'
+    )
+  FOR KEY SHARE;
+  IF FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    DELETE FROM public.knowledge_product_events AS event
+    WHERE event.id = NEW.id;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER knowledge_product_events_guard_import_batch_insert
+  BEFORE INSERT ON public.knowledge_product_events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_knowledge_import_batch_event();
+
+CREATE OR REPLACE TRIGGER knowledge_product_events_cleanup_import_batch_update
+  AFTER UPDATE OF subject_id ON public.knowledge_product_events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_knowledge_import_batch_event();

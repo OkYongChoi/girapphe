@@ -48,20 +48,46 @@ test('dismissed signal lookup is owner scoped', async () => {
 
 test('confirmed import lifecycle events share one deletable batch subject', async () => {
   const userId = 'import-event-owner';
+  const sessionId = 'import-session-1';
   const batchId = 'batch-confirmed-1';
   events.clearMemoryKnowledgeProductEventsForTesting(userId);
   await events.recordKnowledgeProductEventsForUser(userId, [{
-    eventName: 'conversation_import_started', eventVersion: 1, subjectId: batchId,
+    eventName: 'conversation_import_started', eventVersion: 1, subjectId: sessionId,
   }, {
-    eventName: 'conversation_import_parsed', eventVersion: 1, subjectId: batchId, selectionCount: 4,
+    eventName: 'conversation_import_parsed', eventVersion: 1, subjectId: sessionId, selectionCount: 4,
+  }, {
+    eventName: 'knowledge_context_created', eventVersion: 1, subjectId: sessionId, selectionCount: 1,
   }]);
+  assert.equal(await events.reassignKnowledgeProductEventsSubjectForUser(userId, sessionId, batchId), 2);
   await events.recordKnowledgeProductEventForUser(userId, {
     eventName: 'conversation_import_confirmed', eventVersion: 1, subjectId: batchId, selectionCount: 2,
   });
   const stored = events.getMemoryKnowledgeProductEventsForTesting(userId);
-  assert.equal(new Set(stored.map((event) => event.subjectId)).size, 1);
+  assert.equal(new Set(stored.map((event) => event.subjectId)).size, 2);
+  assert.equal(await events.deleteKnowledgeProductEventsForSubjectForUser(userId, sessionId), 1);
   assert.equal(await events.deleteKnowledgeProductEventsForSubjectForUser(userId, batchId), 3);
   assert.deepEqual(events.getMemoryKnowledgeProductEventsForTesting(userId), []);
+});
+
+test('no-batch cleanup removes only pre-confirmation import events', async () => {
+  const userId = 'detached-import-event-owner';
+  const sessionId = 'detached-import-session-1';
+  events.clearMemoryKnowledgeProductEventsForTesting(userId);
+  await events.recordKnowledgeProductEventsForUser(userId, [{
+    eventName: 'conversation_import_started', eventVersion: 1, subjectId: sessionId,
+  }, {
+    eventName: 'conversation_import_parsed', eventVersion: 1, subjectId: sessionId, selectionCount: 2,
+  }, {
+    eventName: 'knowledge_context_created', eventVersion: 1, subjectId: sessionId, selectionCount: 1,
+  }]);
+  assert.equal(
+    await events.deletePreConfirmationImportEventsForSubjectForUser(userId, sessionId),
+    2,
+  );
+  assert.deepEqual(
+    events.getMemoryKnowledgeProductEventsForTesting(userId).map((event) => event.eventName),
+    ['knowledge_context_created'],
+  );
 });
 
 test('event persistence rejects content-bearing and unbounded payloads', async () => {

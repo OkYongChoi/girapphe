@@ -94,16 +94,37 @@ function parseMessages(mapping: Record<string, unknown>, counter: { value: numbe
   counter.value += nodeValues.length;
   if (counter.value > MAX_CHATGPT_EXPORT_MESSAGES) throw new ChatGptExportError('too_large');
 
-  const branch: unknown[] = [];
-  let nodeId = typeof currentNode === 'string' ? currentNode : null;
-  while (nodeId && branch.length < nodeValues.length) {
-    const nodeValue = mapping[nodeId];
-    if (nodeValue === undefined) break;
-    branch.push(nodeValue);
-    const parent = asRecord(nodeValue)?.parent;
-    nodeId = typeof parent === 'string' && parent ? parent : null;
+  const hasCurrentNode = currentNode !== undefined;
+  if (hasCurrentNode) {
+    if (typeof currentNode !== 'string' || !currentNode.trim()) {
+      throw new ChatGptExportError('invalid');
+    }
+    const branch: unknown[] = [];
+    const visited = new Set<string>();
+    let nodeId: string | null = currentNode;
+    while (nodeId) {
+      if (visited.has(nodeId)) throw new ChatGptExportError('invalid');
+      visited.add(nodeId);
+      const nodeValue = mapping[nodeId];
+      const node = asRecord(nodeValue);
+      if (!node) throw new ChatGptExportError('invalid');
+      branch.push(nodeValue);
+      const parent = node.parent;
+      if (parent === null) {
+        nodeId = null;
+      } else if (typeof parent === 'string' && parent) {
+        nodeId = parent;
+      } else {
+        throw new ChatGptExportError('invalid');
+      }
+    }
+    nodeValues = branch.reverse();
+  } else if (nodeValues.some((nodeValue) => {
+    const node = asRecord(nodeValue);
+    return node && Object.hasOwn(node, 'parent');
+  })) {
+    throw new ChatGptExportError('invalid');
   }
-  if (branch.length && !nodeId) nodeValues = branch.reverse();
 
   const messages: ParsedMessage[] = [];
   let order = 0;
@@ -127,7 +148,7 @@ function parseMessages(mapping: Record<string, unknown>, counter: { value: numbe
     });
     order += 1;
   }
-  if (nodeValues === branch) return messages;
+  if (hasCurrentNode) return messages;
   return messages.toSorted((left, right) => {
     const byTime = (left.createdAt ?? '').localeCompare(right.createdAt ?? '');
     return byTime || left.order - right.order;
@@ -139,6 +160,7 @@ export function parseChatGptExport(value: unknown): ParsedChatGptExport {
   if (value.length > MAX_CHATGPT_EXPORT_CONVERSATIONS) throw new ChatGptExportError('too_large');
 
   const exchanges: ChatGptExportExchange[] = [];
+  const exchangeIds = new Set<string>();
   const conversationsWithExchanges = new Set<string>();
   const messageCounter = { value: 0 };
 
@@ -160,8 +182,11 @@ export function parseChatGptExport(value: unknown): ParsedChatGptExport {
       if (!pendingQuestion) continue;
       const question = pendingQuestion.text.slice(0, MAX_CHATGPT_SELECTED_TEXT_LENGTH);
       const answer = message.text.slice(0, MAX_CHATGPT_SELECTED_TEXT_LENGTH);
+      const exchangeId = JSON.stringify(['girapphe:chatgpt-exchange:v2', conversationId, message.id]);
+      if (exchangeIds.has(exchangeId)) throw new ChatGptExportError('invalid');
+      exchangeIds.add(exchangeId);
       exchanges.push({
-        id: `${conversationId}:${message.id}`,
+        id: exchangeId,
         conversationId,
         messageId: message.id,
         title,
