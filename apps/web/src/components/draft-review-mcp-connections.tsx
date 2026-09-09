@@ -8,6 +8,7 @@ import {
   type McpAccessToken,
 } from '@/actions/knowledge-ingestion-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
+import McpProviderSetupGuide from '@/components/mcp-provider-setup-guide';
 import SubmitButton from '@/components/submit-button';
 import { useI18n } from '@/i18n/client';
 
@@ -106,6 +107,8 @@ export default function DraftReviewMcpConnections({ tokens }: { tokens: McpAcces
       ) : null}
 
       {error ? <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
+
+      <McpProviderSetupGuide endpointUrl={endpointUrl} tokenReady={Boolean(rawToken)} />
 
       <div className="mt-6">
         <div className="flex items-center justify-between gap-3">
