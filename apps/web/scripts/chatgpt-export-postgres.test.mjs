@@ -833,41 +833,81 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       [triggerDeleteFirstUserId],
     )).rows[0].count, 0);
 
-    await pool.query(
-      `INSERT INTO knowledge_ingestion_request_tombstones (user_id, provider, request_id)
-       SELECT $1, 'chatgpt', 'selected-export-capacity-fixture:' || fixture_id::text
-       FROM generate_series(1, $2::integer) AS fixture_id`,
-      [capacityUserId, MAX_SELECTED_EXPORT_IDEMPOTENCY_SLOTS_PER_USER - 2],
-    );
-    const lastReservedSelectedExport = await createKnowledgeDraftBatchForUser(capacityUserId, {
-      provider: 'chatgpt', scope: 'selected_export', requestId: 'last-reserved-selected-export',
-      cards: [{ clientCardId: 'last-reserved-card', title: 'Last reserved selected export' }],
-    });
-    assert.equal(lastReservedSelectedExport.created, true);
-    await assert.rejects(
-      createKnowledgeDraftBatchForUser(capacityUserId, {
-        provider: 'chatgpt', scope: 'selected_export', requestId: 'over-cap-selected-export',
-        cards: [{ clientCardId: 'over-cap-card', title: 'Must not exceed durable identity capacity' }],
-      }),
-      /ingestion quota is unavailable/,
-    );
-    assert.equal((await directOldBatchInsert(
-      capacityUserId,
-      crypto.randomUUID(),
-      'over-cap-draining-worker',
-    )).rowCount, 0, 'the database bridge must reject an old Worker insert at capacity');
-    const currentConversationAtSelectedExportCapacity = await createKnowledgeDraftBatchForUser(capacityUserId, {
-      provider: 'chatgpt', scope: 'current_conversation', requestId: 'current-conversation-at-selected-export-capacity',
-      cards: [{ clientCardId: 'current-at-cap-card', title: 'Current conversation remains independent' }],
-    });
-    assert.equal(currentConversationAtSelectedExportCapacity.created, true);
-    assert.deepEqual((await pool.query(
-      `SELECT
-         COUNT(*) FILTER (WHERE scope = 'selected_export')::integer AS selected_batches,
-         COUNT(*) FILTER (WHERE scope = 'current_conversation')::integer AS current_batches
-       FROM knowledge_ingestion_batches WHERE user_id = $1`,
-      [capacityUserId],
-    )).rows[0], { selected_batches: 1, current_batches: 1 });
+    const capacityGuardClient = await pool.connect();
+    let capacityGuardTransactionOpen = false;
+    try {
+      await capacityGuardClient.query('BEGIN');
+      capacityGuardTransactionOpen = true;
+      await capacityGuardClient.query(
+        `SELECT pg_catalog.pg_advisory_xact_lock(
+           pg_catalog.hashtextextended('girapphe:selected-export-capacity-fixture', 0)
+         )`,
+      );
+      await capacityGuardClient.query(
+        `DELETE FROM knowledge_ingestion_batches
+         WHERE user_id LIKE 'live-selected-export-capacity-%'`,
+      );
+      await capacityGuardClient.query(
+        `DELETE FROM knowledge_ingestion_request_tombstones
+         WHERE user_id LIKE 'live-selected-export-capacity-%'`,
+      );
+
+      await pool.query(
+        `INSERT INTO knowledge_ingestion_request_tombstones (user_id, provider, request_id)
+         SELECT $1, 'chatgpt', 'selected-export-capacity-fixture:' || fixture_id::text
+         FROM generate_series(1, $2::integer) AS fixture_id`,
+        [capacityUserId, MAX_SELECTED_EXPORT_IDEMPOTENCY_SLOTS_PER_USER - 2],
+      );
+      const lastReservedSelectedExport = await createKnowledgeDraftBatchForUser(capacityUserId, {
+        provider: 'chatgpt', scope: 'selected_export', requestId: 'last-reserved-selected-export',
+        cards: [{ clientCardId: 'last-reserved-card', title: 'Last reserved selected export' }],
+      });
+      assert.equal(lastReservedSelectedExport.created, true);
+      await assert.rejects(
+        createKnowledgeDraftBatchForUser(capacityUserId, {
+          provider: 'chatgpt', scope: 'selected_export', requestId: 'over-cap-selected-export',
+          cards: [{ clientCardId: 'over-cap-card', title: 'Must not exceed durable identity capacity' }],
+        }),
+        /ingestion quota is unavailable/,
+      );
+      assert.equal((await directOldBatchInsert(
+        capacityUserId,
+        crypto.randomUUID(),
+        'over-cap-draining-worker',
+      )).rowCount, 0, 'the database bridge must reject an old Worker insert at capacity');
+      const currentConversationAtSelectedExportCapacity = await createKnowledgeDraftBatchForUser(capacityUserId, {
+        provider: 'chatgpt', scope: 'current_conversation', requestId: 'current-conversation-at-selected-export-capacity',
+        cards: [{ clientCardId: 'current-at-cap-card', title: 'Current conversation remains independent' }],
+      });
+      assert.equal(currentConversationAtSelectedExportCapacity.created, true);
+      assert.deepEqual((await pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE scope = 'selected_export')::integer AS selected_batches,
+           COUNT(*) FILTER (WHERE scope = 'current_conversation')::integer AS current_batches
+         FROM knowledge_ingestion_batches WHERE user_id = $1`,
+        [capacityUserId],
+      )).rows[0], { selected_batches: 1, current_batches: 1 });
+    } finally {
+      try {
+        if (capacityGuardTransactionOpen) {
+          await capacityGuardClient.query(
+            `DELETE FROM knowledge_ingestion_batches
+             WHERE user_id LIKE 'live-selected-export-capacity-%'`,
+          );
+          await capacityGuardClient.query(
+            `DELETE FROM knowledge_ingestion_request_tombstones
+             WHERE user_id LIKE 'live-selected-export-capacity-%'`,
+          );
+          await capacityGuardClient.query('COMMIT');
+          capacityGuardTransactionOpen = false;
+        }
+      } finally {
+        if (capacityGuardTransactionOpen) {
+          await capacityGuardClient.query('ROLLBACK').catch(() => undefined);
+        }
+        capacityGuardClient.release();
+      }
+    }
 
     const concurrent = await Promise.all([
       create(userId, [selectedA]),
