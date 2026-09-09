@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getDomainColor } from '@stem-brain/graph-engine';
 import { NativeSponsoredCard } from '@/components/native-sponsored-card';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
@@ -20,9 +20,11 @@ import {
 import { useLocalizedContent } from '@/localized-content';
 import {
   createPracticeHistoryState,
+  createReviewRoundProgress,
   loadPracticeWithRetry,
   prerequisiteKnowledgeState,
   recordCompletedPracticeAction,
+  recordReviewRoundAdvance,
   recoverPreviousPracticeCard,
   resolvePracticeFocusMode,
   reviewQueueCount,
@@ -257,14 +259,12 @@ function SyncedPracticeScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showSponsoredCard, setShowSponsoredCard] = useState(false);
-  const [reviewedThisRound, setReviewedThisRound] = useState(0);
-  const [reviewRoundCompleted, setReviewRoundCompleted] = useState(false);
+  const [reviewRoundProgress, setReviewRoundProgress] = useState(createReviewRoundProgress);
   const [expressionDirection, setExpressionDirection] = useState<ExpressionRecallDirection>('forward');
   const routeModeRef = useRef(params.mode);
   const modeRef = useRef<PracticeMode>('new');
   const cursorRef = useRef<string | null>(null);
   const initialReviewPoolRef = useRef(0);
-  const roundRatedIdsRef = useRef(new Set<string>());
   const sessionGenerationRef = useRef(0);
   const requestSequenceRef = useRef(0);
   const busyRef = useRef(false);
@@ -301,9 +301,7 @@ function SyncedPracticeScreen() {
       setStats(result.stats);
       if (captureReviewPool) {
         initialReviewPoolRef.current = reviewQueueCount(result.stats);
-        roundRatedIdsRef.current.clear();
-        setReviewedThisRound(0);
-        setReviewRoundCompleted(false);
+        setReviewRoundProgress(createReviewRoundProgress());
       }
       return { ok: true, cycled: result.cycled };
     } catch (cause) {
@@ -329,9 +327,7 @@ function SyncedPracticeScreen() {
     setHistoryState((current) => ({ ...current, history: [] }));
     setPreviousAction(null);
     setShowSponsoredCard(false);
-    roundRatedIdsRef.current.clear();
-    setReviewedThisRound(0);
-    setReviewRoundCompleted(false);
+    setReviewRoundProgress(createReviewRoundProgress());
     if (focusMode.consumeRouteIntent) router.setParams({ mode: undefined });
     void load(focusMode.mode, null, sessionGeneration, false, true);
     return () => {
@@ -361,24 +357,23 @@ function SyncedPracticeScreen() {
     const actionMode = modeRef.current;
     const cursor = cursorRef.current;
     const sessionGeneration = sessionGenerationRef.current;
+    const replacesRatedAction = previousAction === 'known' || previousAction === 'saved';
     busyRef.current = true;
     setLoading(true);
     setError(null);
-    setReviewRoundCompleted(false);
+    setReviewRoundProgress((current) => ({ ...current, completed: false }));
     try {
       await mobileApi.mutate({ action: 'rate-card', cardId: completedCard.id, status });
       if (sessionGeneration !== sessionGenerationRef.current) return;
       const advanced = await load(actionMode, cursor, sessionGeneration, true);
       if (!advanced.ok || sessionGeneration !== sessionGenerationRef.current) return;
       if (actionMode === 'review') {
-        if (advanced.cycled) {
-          roundRatedIdsRef.current.clear();
-          setReviewedThisRound(initialReviewPoolRef.current);
-          setReviewRoundCompleted(initialReviewPoolRef.current > 0);
-        } else {
-          roundRatedIdsRef.current.add(completedCard.id);
-          setReviewedThisRound(roundRatedIdsRef.current.size);
-        }
+        setReviewRoundProgress((current) => recordReviewRoundAdvance(current, {
+          pool: initialReviewPoolRef.current,
+          action: status,
+          replacesRatedAction,
+          cycled: advanced.cycled,
+        }));
       }
       recordAdvance(completedCard, status);
     } catch (cause) {
@@ -400,17 +395,17 @@ function SyncedPracticeScreen() {
     const cursor = cursorRef.current;
     const sessionGeneration = sessionGenerationRef.current;
     busyRef.current = true;
-    setReviewRoundCompleted(false);
+    setReviewRoundProgress((current) => ({ ...current, completed: false }));
     try {
       const advanced = await load(actionMode, cursor, sessionGeneration, true);
       if (!advanced.ok || sessionGeneration !== sessionGenerationRef.current) return;
       if (actionMode === 'review') {
-        if (advanced.cycled) {
-          roundRatedIdsRef.current.clear();
-          setReviewRoundCompleted(initialReviewPoolRef.current > 0);
-        } else {
-          setReviewedThisRound(roundRatedIdsRef.current.size);
-        }
+        setReviewRoundProgress((current) => recordReviewRoundAdvance(current, {
+          pool: initialReviewPoolRef.current,
+          action: 'skip',
+          replacesRatedAction: false,
+          cycled: advanced.cycled,
+        }));
       }
       recordAdvance(completedCard, 'skip');
     } finally {
@@ -443,9 +438,7 @@ function SyncedPracticeScreen() {
     setHistoryState((current) => ({ ...current, history: [] }));
     setPreviousAction(null);
     setShowSponsoredCard(false);
-    roundRatedIdsRef.current.clear();
-    setReviewedThisRound(0);
-    setReviewRoundCompleted(false);
+    setReviewRoundProgress(createReviewRoundProgress());
     void load(nextMode, null, sessionGeneration, false, true);
   }
 
@@ -455,7 +448,15 @@ function SyncedPracticeScreen() {
   const reviewable = reviewQueueCount(stats);
   const reviewedCount = reviewedPracticeCardCount(historyState);
   const reviewPool = initialReviewPoolRef.current;
-  const reviewProgress = Math.min(reviewedThisRound, reviewPool);
+  const reviewProgress = Math.min(reviewRoundProgress.reviewed, reviewPool);
+
+  useEffect(() => {
+    if (Platform.OS === 'ios' && reviewRoundProgress.completed) {
+      AccessibilityInfo.announceForAccessibility(
+        t('practice.roundComplete', { count: formatNumber(reviewPool) }),
+      );
+    }
+  }, [formatNumber, reviewPool, reviewRoundProgress.completed, t]);
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
@@ -468,7 +469,7 @@ function SyncedPracticeScreen() {
         <View style={styles.progressPanel}>
           <View><Text style={styles.progressValue}>{formatNumber(stats.explainable)}</Text><Text style={styles.progressLabel}>{t('progress.explainable')}</Text></View>
           <View><Text style={styles.progressValue}>{formatNumber(stats.unclear)}</Text><Text style={styles.progressLabel}>{t('progress.unclear')}</Text></View>
-          <View><Text style={styles.progressValue}>{formatNumber(reviewedCount)}</Text><Text style={styles.progressLabel}>{t('practice.reviewed')}</Text></View>
+          <View><Text style={styles.progressValue}>{formatNumber(reviewedCount)}</Text><Text style={styles.progressLabel}>{t('practice.recentlyReviewed')}</Text></View>
         </View>
 
         <View style={styles.modeRow}>
@@ -515,7 +516,7 @@ function SyncedPracticeScreen() {
             >
               <View style={[styles.reviewRoundFill, { width: reviewPool > 0 ? `${Math.min(100, Math.round((reviewProgress / reviewPool) * 100))}%` : '0%' }]} />
             </View>
-            {reviewRoundCompleted ? <Text accessibilityLiveRegion="polite" style={styles.reviewRoundComplete}>{t('practice.roundComplete', { count: formatNumber(reviewPool) })}</Text> : null}
+            {reviewRoundProgress.completed ? <Text accessibilityLiveRegion="polite" style={styles.reviewRoundComplete}>{t('practice.roundComplete', { count: formatNumber(reviewPool) })}</Text> : null}
           </View>
         ) : null}
         {error ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{error}</Text> : null}

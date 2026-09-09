@@ -44,12 +44,12 @@ const COPY: Record<Locale, InboxCopy> = {
 };
 
 const WEB_REVIEW_COPY: Record<Locale, string> = {
-  en: 'Open detailed web review',
-  ja: 'Webの詳細レビューを開く',
-  'zh-CN': '打开网页版详细审核',
-  es: 'Abrir la revisión web detallada',
-  ar: 'فتح المراجعة التفصيلية على الويب',
-  hi: 'वेब पर विस्तृत समीक्षा खोलें',
+  en: 'Open detailed web review for {title}',
+  ja: '「{title}」のWeb詳細レビューを開く',
+  'zh-CN': '打开“{title}”的网页版详细审核',
+  es: 'Abrir la revisión web detallada de {title}',
+  ar: 'فتح المراجعة التفصيلية على الويب لـ {title}',
+  hi: '{title} की विस्तृत वेब समीक्षा खोलें',
 };
 
 type ScopeCopy = { subtitle: string; current: string; selectedExport: string; unsupported: string };
@@ -235,6 +235,7 @@ function CandidateInboxContent() {
           const webReviewUrl = draft.duplicate_suggestions.length > 0
             ? buildCandidateWebReviewUrl(appBaseUrl, draft.batch_id, draft.id)
             : null;
+          const webReviewLabel = interpolate(WEB_REVIEW_COPY[locale], { title: draft.title });
 
           const notationBlocks = [
             ...buildKnowledgeNotationGroupBlocks([
@@ -273,12 +274,12 @@ function CandidateInboxContent() {
               </KnowledgeNotationGroup>
               {webReviewUrl ? (
                 <Pressable
-                  accessibilityLabel={WEB_REVIEW_COPY[locale]}
+                  accessibilityLabel={webReviewLabel}
                   accessibilityRole="link"
                   onPress={() => void Linking.openURL(webReviewUrl).catch(() => setError(t('api.networkFailed')))}
                   style={styles.webReviewLink}
                 >
-                  <Text style={styles.webReviewLinkText}>{WEB_REVIEW_COPY[locale]} ↗</Text>
+                  <Text style={styles.webReviewLinkText}>{webReviewLabel} ↗</Text>
                 </Pressable>
               ) : null}
               <View style={styles.actions}>

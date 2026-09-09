@@ -121,13 +121,19 @@ owner-private lanes while traversing IDs deterministically within each lane;
 database branches fetch at most one candidate per lane with `LIMIT 1`. A
 non-null cursor may wrap to a fresh round exactly once only when
 `cycleOnEmpty` is true. The response supplies `card`, `stats`, `nextCursor`,
-and `cycled` under `private, no-store`. The client keeps only `nextCursor`; it
-does not grow a round array or rewind the frontier when reopening the previous
-card, and the server keeps no request-global traversal state. Saved-card reads
+and `cycled` under `private, no-store`. The client keeps `nextCursor`, a capped
+100-entry previous-card history, and constant-size round counters; it does not
+grow a card-ID collection or rewind the frontier when reopening the previous
+card. The synced Reviewed tile counts distinct rated IDs inside that recent
+history window, while advertising cadence uses a separate monotonic
+successful-advance counter. The server keeps no request-global traversal
+state. Saved-card reads
 also return authoritative stats so Review navigation never infers due work
-from list length. Review and Practice use latest-request guards so stale focus
-or mutation loads cannot overwrite current state. The bounded legacy GET
-remains only for already-installed clients.
+from list length. When a database is configured, failures propagate instead
+of being presented as empty or mock account state. Review and Practice use
+latest-request guards so stale focus or mutation loads cannot overwrite
+current state. The bounded legacy GET remains only for already-installed
+clients.
 
 Typed personal items retain the flat note fields for compatibility. Mobile
 renders their type badge and central question, supports full-field create/edit

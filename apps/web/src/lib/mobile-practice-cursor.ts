@@ -25,16 +25,28 @@ const CURSOR_KEYS = [
   'publicDone',
   'v',
 ];
+const CURSOR_ID_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
+const PRIVATE_CURSOR_ID_PATTERN = /^personal:[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isCursorId(value: unknown): value is string | null {
+function isPublicCursorId(value: unknown): value is string | null {
   return value === null || (
     typeof value === 'string'
     && value.length > 0
     && value.length <= MAX_MOBILE_PRACTICE_CARD_ID_LENGTH
+    && !value.startsWith('personal:')
+    && !CURSOR_ID_CONTROL_PATTERN.test(value)
+  );
+}
+
+function isPrivateCursorId(value: unknown): value is string | null {
+  return value === null || (
+    typeof value === 'string'
+    && value.length <= MAX_MOBILE_PRACTICE_CARD_ID_LENGTH
+    && PRIVATE_CURSOR_ID_PATTERN.test(value)
   );
 }
 
@@ -49,10 +61,8 @@ function parseCursorState(
     || (value.mode !== 'new' && value.mode !== 'review')
     || value.mode !== expectedMode
     || (value.nextSource !== 'public' && value.nextSource !== 'private')
-    || !isCursorId(value.publicAfter)
-    || !isCursorId(value.privateAfter)
-    || (typeof value.publicAfter === 'string' && value.publicAfter.startsWith('personal:'))
-    || (typeof value.privateAfter === 'string' && !value.privateAfter.startsWith('personal:'))
+    || !isPublicCursorId(value.publicAfter)
+    || !isPrivateCursorId(value.privateAfter)
     || typeof value.publicDone !== 'boolean'
     || typeof value.privateDone !== 'boolean'
   ) {

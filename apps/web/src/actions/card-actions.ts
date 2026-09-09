@@ -1650,7 +1650,7 @@ async function getSavedCardsSource() {
       });
   } catch (error) {
     console.error('Error in getSavedCards:', error);
-    return [];
+    throw error;
   }
 }
 
@@ -1770,8 +1770,7 @@ export async function getUserStats() {
     };
   } catch (error) {
     console.error('Error in getUserStats:', error);
-    const stats = getMockPracticeStats((await getMockCards()).length);
-    return { ...stats, reviewable: stats.unclear };
+    throw error;
   }
 }
 type RateCardAndAdvanceInput = {

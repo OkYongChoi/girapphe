@@ -10,7 +10,19 @@ export type PracticeHistoryEntry<Card> = {
 export type PracticeHistoryState<Card extends { id: string }> = {
   history: PracticeHistoryEntry<Card>[];
   completedCardActions: number;
-  ratedCardActionCounts: ReadonlyMap<string, number>;
+};
+
+export type ReviewRoundProgress = {
+  reviewed: number;
+  completed: boolean;
+  resetOnNextAdvance: boolean;
+};
+
+export type ReviewRoundAdvance = {
+  pool: number;
+  action: SyncedPracticeAction;
+  replacesRatedAction: boolean;
+  cycled: boolean;
 };
 
 export type PrerequisiteKnowledgeState = 'explainable' | 'unclear' | 'unseen';
@@ -38,7 +50,7 @@ export function reviewQueueCount(stats: { reviewable?: number; unclear: number }
 }
 
 export function createPracticeHistoryState<Card extends { id: string }>(): PracticeHistoryState<Card> {
-  return { history: [], completedCardActions: 0, ratedCardActionCounts: new Map() };
+  return { history: [], completedCardActions: 0 };
 }
 
 export function recordCompletedPracticeAction<Card extends { id: string }>(
@@ -46,21 +58,18 @@ export function recordCompletedPracticeAction<Card extends { id: string }>(
   card: Card,
   action: SyncedPracticeAction,
 ): PracticeHistoryState<Card> {
-  const ratedCardActionCounts = new Map(state.ratedCardActionCounts);
-  if (action !== 'skip') {
-    ratedCardActionCounts.set(card.id, (ratedCardActionCounts.get(card.id) ?? 0) + 1);
-  }
   return {
     history: [...state.history, { card, action }].slice(-PRACTICE_HISTORY_LIMIT),
     completedCardActions: state.completedCardActions + 1,
-    ratedCardActionCounts,
   };
 }
 
 export function reviewedPracticeCardCount<Card extends { id: string }>(
   state: PracticeHistoryState<Card>,
 ): number {
-  return state.ratedCardActionCounts.size;
+  return new Set(state.history
+    .filter((entry) => entry.action !== 'skip')
+    .map((entry) => entry.card.id)).size;
 }
 
 export function recoverPreviousPracticeCard<Card extends { id: string }>(state: PracticeHistoryState<Card>): {
@@ -69,19 +78,32 @@ export function recoverPreviousPracticeCard<Card extends { id: string }>(state: 
 } {
   const entry = state.history[state.history.length - 1] ?? null;
   if (!entry) return { entry: null, state };
-  const ratedCardActionCounts = new Map(state.ratedCardActionCounts);
-  if (entry.action !== 'skip') {
-    const remaining = (ratedCardActionCounts.get(entry.card.id) ?? 1) - 1;
-    if (remaining > 0) ratedCardActionCounts.set(entry.card.id, remaining);
-    else ratedCardActionCounts.delete(entry.card.id);
-  }
   return {
     entry,
     state: {
       history: state.history.slice(0, -1),
       completedCardActions: state.completedCardActions,
-      ratedCardActionCounts,
     },
+  };
+}
+
+export function createReviewRoundProgress(): ReviewRoundProgress {
+  return { reviewed: 0, completed: false, resetOnNextAdvance: false };
+}
+
+export function recordReviewRoundAdvance(
+  state: ReviewRoundProgress,
+  advance: ReviewRoundAdvance,
+): ReviewRoundProgress {
+  const pool = Number.isFinite(advance.pool) ? Math.max(0, Math.trunc(advance.pool)) : 0;
+  const reviewedBeforeAction = state.resetOnNextAdvance ? 0 : state.reviewed;
+  const reviewed = advance.action !== 'skip' && !advance.replacesRatedAction
+    ? Math.min(pool, reviewedBeforeAction + 1)
+    : Math.min(pool, reviewedBeforeAction);
+  return {
+    reviewed,
+    completed: advance.cycled && pool > 0,
+    resetOnNextAdvance: advance.cycled,
   };
 }
 

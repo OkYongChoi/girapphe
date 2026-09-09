@@ -153,6 +153,28 @@ test('authoritative reviewable stats reuse the selectable public-card predicate'
   assert.match(mobilePublicSelector, /ORDER BY kc\.id ASC\s*LIMIT 1/);
 });
 
+test('configured-database mobile reads fail closed instead of returning mock account state', () => {
+  const cardActions = readFileSync(
+    new URL('../actions/card-actions.ts', import.meta.url),
+    'utf8',
+  );
+  const savedSource = cardActions.slice(
+    cardActions.indexOf('async function getSavedCardsSource()'),
+    cardActions.indexOf('export async function getSavedCards('),
+  );
+  const statsSource = cardActions.slice(
+    cardActions.indexOf('export async function getUserStats()'),
+    cardActions.indexOf('type RateCardAndAdvanceInput'),
+  );
+
+  assert.match(savedSource, /if \(!process\.env\.DATABASE_URL\)[\s\S]*?getMockCardsForActor/);
+  assert.match(savedSource, /catch \(error\) \{[\s\S]*?throw error;/);
+  assert.doesNotMatch(savedSource, /catch \(error\) \{[\s\S]*?return \[\];/);
+  assert.match(statsSource, /if \(user\.isGuest \|\| !process\.env\.DATABASE_URL\)[\s\S]*?getMockPracticeStats/);
+  assert.match(statsSource, /catch \(error\) \{[\s\S]*?throw error;/);
+  assert.doesNotMatch(statsSource, /catch \(error\) \{[\s\S]*?getMockPracticeStats/);
+});
+
 test('web Practice clears both round sets before either kind of cycle reset', () => {
   const cardViewer = readFileSync(
     new URL('../components/card-viewer.tsx', import.meta.url),

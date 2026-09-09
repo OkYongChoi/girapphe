@@ -5,12 +5,14 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   createPracticeHistoryState,
+  createReviewRoundProgress,
   formatReviewLastSeen,
   loadPracticeWithRetry,
   PRACTICE_HISTORY_LIMIT,
   PRACTICE_RETRY_DELAY_MS,
   prerequisiteKnowledgeState,
   recordCompletedPracticeAction,
+  recordReviewRoundAdvance,
   recoverPreviousPracticeCard,
   resolvePracticeMode,
   resolvePracticeFocusMode,
@@ -58,19 +60,34 @@ test('recovers bounded previous-card history without decrementing completed acti
   assert.equal(state.history.length, PRACTICE_HISTORY_LIMIT);
   assert.equal(state.history[0]?.card.id, 'card-2');
   assert.equal(state.completedCardActions, PRACTICE_HISTORY_LIMIT + 2);
-  assert.equal(reviewedPracticeCardCount(state), PRACTICE_HISTORY_LIMIT + 2);
+  assert.equal(reviewedPracticeCardCount(state), PRACTICE_HISTORY_LIMIT);
+  assert.equal('ratedCardActionCounts' in state, false);
+  assert.equal('reviewedCardActions' in state, false);
 
   const recovered = recoverPreviousPracticeCard(state);
   assert.equal(recovered.entry?.card.id, `card-${PRACTICE_HISTORY_LIMIT + 1}`);
   assert.equal(recovered.entry?.action, 'known');
   assert.equal(recovered.state.history.length, PRACTICE_HISTORY_LIMIT - 1);
   assert.equal(recovered.state.completedCardActions, state.completedCardActions);
-  assert.equal(reviewedPracticeCardCount(recovered.state), PRACTICE_HISTORY_LIMIT + 1);
+  assert.equal(reviewedPracticeCardCount(recovered.state), PRACTICE_HISTORY_LIMIT - 1);
 
   const empty = recoverPreviousPracticeCard(createPracticeHistoryState());
   assert.equal(empty.entry, null);
   assert.equal(empty.state.completedCardActions, 0);
   assert.equal(reviewedPracticeCardCount(empty.state), 0);
+});
+
+test('counts distinct ratings only within bounded recent history', () => {
+  let state = createPracticeHistoryState<{ id: string }>();
+  state = recordCompletedPracticeAction(state, { id: 'repeated' }, 'known');
+  state = recordCompletedPracticeAction(state, { id: 'repeated' }, 'saved');
+  state = recordCompletedPracticeAction(state, { id: 'skipped' }, 'skip');
+
+  assert.equal(reviewedPracticeCardCount(state), 1);
+  const recoveredSkip = recoverPreviousPracticeCard(state);
+  assert.equal(reviewedPracticeCardCount(recoveredSkip.state), 1);
+  const recoveredReplacement = recoverPreviousPracticeCard(recoveredSkip.state);
+  assert.equal(reviewedPracticeCardCount(recoveredReplacement.state), 1);
 });
 
 test('counts skips for ad cadence but not as reviewed cards', () => {
@@ -90,6 +107,49 @@ test('counts skips for ad cadence but not as reviewed cards', () => {
   assert.equal(recoveredRating.entry?.action, 'known');
   assert.equal(recoveredRating.state.completedCardActions, 2);
   assert.equal(reviewedPracticeCardCount(recoveredRating.state), 0);
+});
+
+test('tracks mixed review rounds with constant-size counters and separate completion', () => {
+  let progress = createReviewRoundProgress();
+  progress = recordReviewRoundAdvance(progress, {
+    pool: 2,
+    action: 'known',
+    replacesRatedAction: false,
+    cycled: false,
+  });
+  assert.deepEqual(progress, { reviewed: 1, completed: false, resetOnNextAdvance: false });
+
+  progress = recordReviewRoundAdvance(progress, {
+    pool: 2,
+    action: 'skip',
+    replacesRatedAction: false,
+    cycled: true,
+  });
+  assert.deepEqual(progress, { reviewed: 1, completed: true, resetOnNextAdvance: true });
+
+  progress = recordReviewRoundAdvance(progress, {
+    pool: 2,
+    action: 'skip',
+    replacesRatedAction: false,
+    cycled: false,
+  });
+  assert.deepEqual(progress, { reviewed: 0, completed: false, resetOnNextAdvance: false });
+
+  progress = recordReviewRoundAdvance(progress, {
+    pool: 2,
+    action: 'saved',
+    replacesRatedAction: false,
+    cycled: true,
+  });
+  assert.deepEqual(progress, { reviewed: 1, completed: true, resetOnNextAdvance: true });
+
+  progress = recordReviewRoundAdvance(progress, {
+    pool: 2,
+    action: 'known',
+    replacesRatedAction: true,
+    cycled: false,
+  });
+  assert.deepEqual(progress, { reviewed: 0, completed: false, resetOnNextAdvance: false });
 });
 
 test('retries a failed Practice read once without hiding a second failure', async () => {
@@ -166,6 +226,7 @@ test('wires review intent and server learning context into the mobile screens', 
   assert.match(practiceScreen, /cursorRef\.current = result\.nextCursor/);
   assert.equal(practiceScreen.match(/cursorRef\.current = null/g)?.length, 2);
   assert.doesNotMatch(practiceScreen, /ratedCardIds|skippedCardIds|excludeIds/);
+  assert.doesNotMatch(practiceScreen, /roundRatedIdsRef|ratedCardActionCounts/);
   assert.equal(
     practiceScreen.match(/setHistoryState\(\(current\) => \(\{ \.\.\.current, history: \[\] \}\)\)/g)?.length,
     2,
@@ -189,15 +250,16 @@ test('wires review intent and server learning context into the mobile screens', 
   assert.match(rateHandler, /const actionMode = modeRef\.current/);
   assert.match(rateHandler, /const cursor = cursorRef\.current/);
   assert.match(rateHandler, /const advanced = await load\(actionMode, cursor, sessionGeneration, true\)/);
-  assert.match(rateHandler, /if \(advanced\.cycled\) \{[\s\S]*?roundRatedIdsRef\.current\.clear\(\)/);
+  assert.match(rateHandler, /recordReviewRoundAdvance\(current, \{[\s\S]*?action: status,[\s\S]*?cycled: advanced\.cycled/);
   assert.ok(rateHandler.indexOf('recordAdvance') > rateHandler.indexOf('if (!advanced.ok'));
 
   const skipHandler = practiceScreen.match(/async function skip\(\) \{([\s\S]*?)\n {2}\}/)?.[1] ?? '';
   assert.match(skipHandler, /const cursor = cursorRef\.current/);
   assert.match(skipHandler, /const advanced = await load\(actionMode, cursor, sessionGeneration, true\)/);
-  assert.match(skipHandler, /if \(advanced\.cycled\) \{[\s\S]*?roundRatedIdsRef\.current\.clear\(\)/);
+  assert.match(skipHandler, /recordReviewRoundAdvance\(current, \{[\s\S]*?action: 'skip',[\s\S]*?cycled: advanced\.cycled/);
   assert.ok(skipHandler.indexOf('recordAdvance') > skipHandler.indexOf('if (!advanced.ok'));
   assert.match(practiceScreen, /loadPracticeWithRetry\([\s\S]*?isTransientMobileApiError/);
   assert.match(practiceScreen, /reviewedPracticeCardCount\(historyState\)/);
   assert.match(practiceScreen, /accessibilityRole="progressbar"[\s\S]*?practice\.roundComplete/);
+  assert.match(practiceScreen, /Platform\.OS === 'ios'[\s\S]*?AccessibilityInfo\.announceForAccessibility/);
 });

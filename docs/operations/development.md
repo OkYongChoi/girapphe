@@ -79,7 +79,17 @@ pnpm harness:deploy
 ```
 
 The deployment harness runs the local harness, builds the Cloudflare/OpenNext
-Worker, and checks its compressed upload against the guarded release-size budget.
+Worker, and checks its uncompressed upload against the guarded release-size budget.
+
+Mobile Practice private keyset reads depend on migration
+`0025_mobile_practice_owner_cursor.sql`, which adds the owner-first
+`(user_id, id)` seek index plus the approved-draft item/owner lookup index. The
+protected `main` workflow runs checked-in Drizzle
+migrations before activating the production Worker. To validate the index or
+query plan manually, use an isolated Neon branch and a direct, non-pooler
+connection for the migration, then capture `EXPLAIN` evidence there. Local
+`harness:deploy` validates code, the Worker build, and size only; it does not
+execute migrations or prove a live Postgres query plan.
 
 Browser smoke checks use Playwright and start the web dev server automatically:
 

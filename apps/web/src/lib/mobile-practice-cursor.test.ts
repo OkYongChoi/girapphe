@@ -23,9 +23,7 @@ test('round-trips a maximum normal cursor within the shared bound', () => {
     ...createMobilePracticeCursorState('review'),
     nextSource: 'private',
     publicAfter: 'p'.repeat(MAX_MOBILE_PRACTICE_CARD_ID_LENGTH),
-    privateAfter: 'personal:' + 'q'.repeat(
-      MAX_MOBILE_PRACTICE_CARD_ID_LENGTH - 'personal:'.length,
-    ),
+    privateAfter: 'personal:' + 'q'.repeat(128),
   };
   const encoded = encodeMobilePracticeCursor(state);
 
@@ -76,6 +74,20 @@ test('rejects malformed, oversized, wrong-mode, and noncanonical cursor states',
   assert.deepEqual(decodeMobilePracticeCursor(encodeJson({
     ...valid,
     privateAfter: 'public-card',
+  }), 'new'), {
+    ok: false,
+    reason: 'invalid',
+  });
+  assert.deepEqual(decodeMobilePracticeCursor(encodeJson({
+    ...valid,
+    publicAfter: 'public\u0000card',
+  }), 'new'), {
+    ok: false,
+    reason: 'invalid',
+  });
+  assert.deepEqual(decodeMobilePracticeCursor(encodeJson({
+    ...valid,
+    privateAfter: 'personal:private/card',
   }), 'new'), {
     ok: false,
     reason: 'invalid',

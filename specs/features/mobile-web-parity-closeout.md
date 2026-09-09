@@ -23,8 +23,10 @@ In scope:
 - carry one bounded opaque cursor through alternating deterministic public and
   owner-private keyset lanes, retry a failed read once, and let the server reset
   an exhausted traversal exactly once;
-- count distinct rated cards as Reviewed while keeping all successful forward
-  actions, including skips, in the existing advertising cadence;
+- count distinct rated cards inside the capped recent-history window as
+  Reviewed, count an immediate previous-card replacement once, and keep all
+  successful forward actions, including skips, in the existing advertising
+  cadence;
 - let a user reopen the previous synced card for re-evaluation without
   pretending to undo the already-persisted rating or successful-advance count;
 - show the prerequisite state already returned by the mobile API and the last
@@ -37,7 +39,9 @@ In scope:
   lifecycle in My Notes with optimistic-version archive/restore requests;
 - match web organization basics with tag-aware search plus knowledge-type and
   local-calendar date filters; and
-- keep the current Expo navigation and architecture documentation accurate.
+- keep the current Expo navigation and architecture documentation accurate;
+- add the owner-first private-card cursor index used by the mobile server
+  adapter without changing stored user data.
 
 Out of scope:
 
@@ -60,7 +64,9 @@ Out of scope:
   An explicit supported route value is consumed once; initial missing or explicit
   invalid input defaults to `new`, and absent intent thereafter preserves the
   manual mode. Failed focus or mode-transition requests never render a card
-  from the previous mode.
+  from the previous mode. When a database is configured, saved-card or stats
+  failures surface as request failures rather than fabricated mock account
+  state.
 - [x] `AC-02`: Mobile displays the server-owned `reviewable` count for due
   review work instead of treating every `unclear` card as immediately due.
 - [x] `AC-03`: After advancing a synced Practice card, the user can reopen the
@@ -87,29 +93,37 @@ Out of scope:
   opaque string of at most 1,024 characters, and the response supplies
   `nextCursor`. The server returns private no-store data, alternates public and
   owner-private lanes, traverses IDs deterministically within each lane with
-  database candidate queries capped at `LIMIT 1`, and wraps at most once only
-  for a non-null cursor with `cycleOnEmpty: true`. Neither client nor server
-  keeps a growing card-ID array or request-global traversal state. Legacy GET
-  reads reject more than 100 exclusions explicitly instead of silently
-  dropping IDs.
+  database candidate queries capped at `LIMIT 1`; the private lane applies
+  canonical eligibility before that limit, distinguishes no approved ingestion
+  draft from one complete eligible conversation chain, seeks by raw item ID,
+  and has a checked-in `(user_id, id)` index. It wraps at most once only for a
+  non-null cursor with `cycleOnEmpty: true`. Neither client nor server keeps a
+  growing card-ID array or request-global traversal state. Legacy GET reads
+  reject invalid IDs and more than 100 exclusions explicitly instead of
+  silently dropping IDs.
 - [x] `AC-09`: A skip remains a successful forward action for advertising
-  cadence and history but does not increase the distinct Reviewed count in
-  synced or guest/local Practice. A synced skip advances the frontier cursor;
-  the card may reappear only after a requested wrap. Exhausting both lanes
-  starts at most one reset. Previous-card recovery does not rewind the frontier.
-  Review progress exposes an accessible progress value and traversal-complete
-  announcement. Transient reads retry once, while permanent client errors do
-  not retry.
+  cadence and history but does not increase the Reviewed count in synced or
+  guest/local Practice. Synced Practice derives a distinct-card count from its
+  capped 100-action recent history, while reopening then replacing the
+  immediately previous rating contributes only one. A synced skip advances the
+  frontier cursor; the card may reappear only after a requested wrap. Exhausting
+  both lanes starts at most one reset. Previous-card recovery does not rewind
+  the frontier. Review progress counts only actual ratings in the current
+  round, keeps traversal completion separate, and exposes an accessible
+  progress value plus an iOS and Android traversal-complete announcement.
+  Transient reads retry once, while permanent client errors do not retry.
 - [x] `AC-10`: A candidate with duplicate suggestions offers a 44-point,
   localized link to its encoded detailed web-review route when the validated
-  app base URL is available; a missing or unsafe base fails closed.
+  app base URL is available. Its visible and accessibility label identifies the
+  specific candidate title; a missing or unsafe base fails closed.
 
 ## Privacy and data boundaries
 
-This change adds no persistence, schema, retention rule, public write, or new
-content collection. Ratings continue through the existing owner-scoped mobile
-API. Previous-card recovery keeps only the bounded in-memory card object needed
-for the current screen session. The transient opaque cursor contains bounded
+This change adds no persisted user field, retention rule, public write, or new
+content collection. Migration 0025 adds only an owner-first read index and does
+not rewrite user data. Ratings continue through the existing owner-scoped mobile
+API. Previous-card recovery keeps only a capped 100-entry in-memory history for
+the current screen session. The transient opaque cursor contains bounded
 traversal metadata, never an actor identity, card content, or rating list; the
 server always derives the owner from authentication. The cursor is sent only to
 the authenticated no-store Practice endpoint and is not persisted by this
@@ -123,16 +137,16 @@ app. Signed-out users retain the existing local public Practice fallback.
 
 | Criterion | Evidence |
 | --- | --- |
-| `AC-01` | `apps/mobile/src/practice-parity.test.ts` and `apps/mobile/src/mobile-practice-api-contract.test.ts` cover authoritative Review entry, route intent, and stale-response rejection. |
+| `AC-01` | `apps/mobile/src/practice-parity.test.ts`, `apps/mobile/src/mobile-practice-api-contract.test.ts`, and `apps/web/src/lib/mobile-practice-contract.test.ts` cover authoritative Review entry, configured-database failure propagation, route intent, and stale-response rejection. |
 | `AC-02` | `apps/mobile/src/practice-parity.test.ts` proves `reviewable` is preferred independently of `unclear`; `apps/web/src/lib/mobile-practice-contract.test.ts` proves that count reuses the selectable-card predicate. |
 | `AC-03` | Focused synced-history state test and source inspection prove bounded previous-card recovery without decrementing successful advances. |
 | `AC-04` | Mobile source-contract tests cover prerequisite statuses and localized `last_seen` rendering. |
 | `AC-05` | `apps/mobile/src/candidate-inbox.test.ts` covers both scope values and scope-aware mobile copy. |
 | `AC-06` | `apps/mobile/src/my-notes-view.test.ts` and a mobile API source-contract test cover lifecycle views, optimistic versions, tags, types, and local date boundaries. |
 | `AC-07` | `pnpm check:docs`, `pnpm --filter @stem-brain/mobile check`, `pnpm --filter @stem-brain/mobile build`, `pnpm harness`, and `git diff --check`. |
-| `AC-08` | `packages/shared/src/mobile-practice.test.mjs`, the focused web cursor/contract/handler/selector tests, `apps/mobile/src/mobile-practice-api-contract.test.ts`, the unauthenticated Practice POST browser smoke, and `pnpm harness:deploy` cover bounds, deterministic alternating keyset lanes, `LIMIT 1`, one-wrap behavior, legacy rejection, authentication ordering, private POST wiring, and the Cloudflare build. |
-| `AC-09` | `packages/shared/src/mobile-practice.test.mjs`, `apps/mobile/src/practice-parity.test.ts`, and focused desktop Practice browser smoke distinguish ratings from skips and cover frontier advancement, cadence preservation, previous-card behavior, retry classification, progress, cycle wiring, and rendered controls. |
-| `AC-10` | `apps/mobile/src/candidate-inbox.test.ts` covers encoded URL construction, unsafe-base rejection, the 44-point accessible link source contract, and `pnpm --filter @stem-brain/mobile build` exports that source into both platform bundles. |
+| `AC-08` | `packages/shared/src/mobile-practice.test.mjs`, focused web cursor/contract/handler/selector/private-card tests, the checked-in migration/schema assertions, `apps/mobile/src/mobile-practice-api-contract.test.ts`, and the unauthenticated Practice POST browser smoke cover request bounds, alternating keyset lanes, pre-limit eligibility, raw-ID seek/index wiring, one-wrap behavior, legacy rejection, authentication ordering, and private POST wiring. `pnpm harness:deploy` covers the Cloudflare build and size, not live Postgres execution; Preview migration and `EXPLAIN` evidence remains a release-time gate. |
+| `AC-09` | `packages/shared/src/mobile-practice.test.mjs`, executable mixed rating/skip round tests in `apps/mobile/src/practice-parity.test.ts`, and focused desktop Practice browser smoke cover bounded history, frontier advancement, cadence preservation, previous-card behavior, retry classification, progress, cycle wiring, iOS announcement wiring, and rendered controls. |
+| `AC-10` | `apps/mobile/src/candidate-inbox.test.ts` covers encoded URL construction, unsafe-base rejection, candidate-specific localized labels, the 44-point accessible link source contract, and `pnpm --filter @stem-brain/mobile build` exports that source into both platform bundles. |
 
 ## Rollout
 
@@ -140,9 +154,14 @@ The response fields, batch scope values, and owner-scoped archive lifecycle
 already exist on the web. The mobile API adds a backward-compatible adapter for
 that lifecycle plus an additive `stats` field on saved-card responses. The
 Practice POST endpoint must deploy before a binary that calls it. Legacy
-Practice GET remains available for older builds and fails explicitly only if a
-caller exceeds its historical 100-ID bound. There is no migration or provider
-activation. Rollback must keep the server adapter until updated binaries are no
-longer in use. Static Expo export proves that both platform bundles contain the
-change; interaction, accessibility, signing, and store availability still
-require separate physical-device and EAS evidence.
+Practice GET remains available for older builds and fails explicitly for an
+invalid exclusion ID or when a caller exceeds its historical 100-ID bound.
+Migration 0025 adds the private Practice `(user_id, id)` cursor and
+approved-draft lookup indexes and must run through the protected main Drizzle
+step before the production Worker is activated; test it on an isolated Neon
+branch with a direct connection and retain live `EXPLAIN` evidence. It is
+additive and safe to retain during rollback. No provider activation is needed.
+Rollback must keep the server adapter until updated binaries are no longer in
+use. Static Expo export proves that both platform bundles contain the change;
+interaction, accessibility, signing, and store availability still require
+separate physical-device and EAS evidence.

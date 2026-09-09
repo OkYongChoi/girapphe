@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import db from '@/lib/db';
 import {
@@ -23,14 +24,8 @@ function eligibilityRecord(
 ): PrivatePracticeEligibilityRecord {
   return {
     item_user_id: ACTOR_ID,
-    draft_user_id: ACTOR_ID,
-    batch_user_id: ACTOR_ID,
-    source_user_id: ACTOR_ID,
-    draft_status: 'approved',
-    approved_at: new Date('2026-08-16T00:00:00.000Z'),
-    batch_status: 'approved',
-    batch_source_type: 'conversation',
-    source_type: 'conversation',
+    has_approved_ingestion_draft: true,
+    has_eligible_conversation_source: true,
     archived_at: null,
     deleted_at: null,
     purge_at: null,
@@ -72,20 +67,13 @@ test('admits only active owner-approved conversation records', () => {
   assert.equal(isEligiblePrivatePracticeRecord(eligibilityRecord(), ACTOR_ID), true);
 
   const ineligible: PrivatePracticeEligibilityRecord[] = [
-    eligibilityRecord({ draft_status: 'pending', approved_at: null }),
-    eligibilityRecord({ approved_at: null }),
-    eligibilityRecord({ batch_status: 'pending' }),
-    eligibilityRecord({ batch_status: 'discarded' }),
-    eligibilityRecord({ batch_source_type: 'manual' }),
-    eligibilityRecord({ source_type: 'manual' }),
+    eligibilityRecord({ has_eligible_conversation_source: false }),
+    eligibilityRecord({ has_approved_ingestion_draft: false }),
     eligibilityRecord({ archived_at: new Date() }),
     eligibilityRecord({ deleted_at: new Date() }),
     eligibilityRecord({ purge_at: new Date() }),
     eligibilityRecord({ is_superseded: true }),
     eligibilityRecord({ item_user_id: 'user_other' }),
-    eligibilityRecord({ draft_user_id: 'user_other' }),
-    eligibilityRecord({ batch_user_id: 'user_other' }),
-    eligibilityRecord({ source_user_id: 'user_other' }),
   ];
 
   for (const record of ineligible) {
@@ -95,18 +83,32 @@ test('admits only active owner-approved conversation records', () => {
 
 test('admits a valid owner-authored typed bundle without an ingestion source chain', () => {
   const typedManual = eligibilityRecord({
-    draft_user_id: null, batch_user_id: null, source_user_id: null,
-    draft_status: null, approved_at: null, batch_status: null,
-    batch_source_type: null, source_type: null,
+    has_approved_ingestion_draft: false,
+    has_eligible_conversation_source: false,
     knowledge_type: 'concept', central_question: 'What is a bounded context?', bundle_schema_version: 1,
     structured_content: { type: 'concept', definition: 'A model boundary.', key_points: [], examples: [], non_examples: [], misconceptions: [] },
   });
   assert.equal(isEligiblePrivatePracticeRecord(typedManual, ACTOR_ID), true);
   assert.equal(isEligiblePrivatePracticeRecord({ ...typedManual, item_user_id: 'user_other' }, ACTOR_ID), false);
   assert.equal(isEligiblePrivatePracticeRecord({ ...typedManual, central_question: null }, ACTOR_ID), false);
+  assert.equal(isEligiblePrivatePracticeRecord({
+    ...typedManual,
+    structured_content: { type: 'concept', unexpected_legacy_field: true },
+  }, ACTOR_ID), true);
+  assert.equal(isEligiblePrivatePracticeRecord({ ...typedManual, central_question: '\t' }, ACTOR_ID), true);
+  assert.equal(isEligiblePrivatePracticeRecord({ ...typedManual, central_question: '   ' }, ACTOR_ID), false);
+  assert.equal(isEligiblePrivatePracticeRecord({
+    ...typedManual,
+    has_approved_ingestion_draft: true,
+  }, ACTOR_ID), false);
+  assert.equal(isEligiblePrivatePracticeRecord({
+    ...typedManual,
+    has_approved_ingestion_draft: true,
+    has_eligible_conversation_source: true,
+  }, ACTOR_ID), true);
 });
 
-test('practice selection filters pending, deleted, manual, and cross-owner rows again in application code', async (context) => {
+test('practice selection filters ineligible provenance, deleted, cross-owner, and invalid-id rows again in application code', async (context) => {
   const originalQuery = db.query;
   const calls: Array<{ text: string; params?: unknown[] }> = [];
   context.after(() => { db.query = originalQuery; });
@@ -115,8 +117,7 @@ test('practice selection filters pending, deleted, manual, and cross-owner rows 
     return {
       rows: [
         cardRow(),
-        cardRow({ knowledge_item_id: 'pending-item', draft_status: 'pending', approved_at: null }),
-        cardRow({ knowledge_item_id: 'manual-item', source_type: 'manual' }),
+        cardRow({ knowledge_item_id: 'discarded-item', has_eligible_conversation_source: false }),
         cardRow({ knowledge_item_id: 'deleted-item', deleted_at: new Date() }),
         cardRow({ knowledge_item_id: 'other-item', item_user_id: 'user_other' }),
         cardRow({ knowledge_item_id: 'invalid:item-id' }),
@@ -132,6 +133,7 @@ test('practice selection filters pending, deleted, manual, and cross-owner rows 
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].params, [ACTOR_ID]);
   assert.match(calls[0].text, /i\.user_id = \$1/);
+  assert.match(calls[0].text, /approved_draft\.user_id = i\.user_id/);
   assert.match(calls[0].text, /d\.user_id = i\.user_id/);
   assert.match(calls[0].text, /b\.user_id = i\.user_id/);
   assert.match(calls[0].text, /src\.user_id = i\.user_id/);
@@ -150,7 +152,7 @@ test('practice selection filters pending, deleted, manual, and cross-owner rows 
   assert.doesNotMatch(calls[0].text, /\buser_card_states\b/);
 });
 
-test('private mobile cursor selection is owner-scoped and fetches one keyset row', async (context) => {
+test('private mobile cursor selection is owner-scoped and fetches one raw-id keyset row', async (context) => {
   const originalQuery = db.query;
   const calls: Array<{ text: string; params?: unknown[] }> = [];
   context.after(() => { db.query = originalQuery; });
@@ -164,12 +166,67 @@ test('private mobile cursor selection is owner-scoped and fetches one keyset row
 
   assert.equal(card?.id, 'personal:449fdaf0-1754-45e9-9c43-50d8a4d578f8');
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].params, [ACTOR_ID, afterCardId]);
+  assert.deepEqual(calls[0].params, [ACTOR_ID, '11111111-1111-4111-8111-111111111111']);
   assert.match(calls[0].text, /i\.user_id = \$1/);
-  assert.match(calls[0].text, /\('personal:' \|\| i\.id\) > \$2/);
-  assert.match(calls[0].text, /ORDER BY i\.id,[\s\S]*?LIMIT 1/);
+  assert.match(calls[0].text, /i\.id > \$2/);
+  assert.doesNotMatch(calls[0].text, /'personal:' \|\| i\.id/);
+  assert.match(calls[0].text, /char_length\(i\.id\) BETWEEN 1 AND 128/);
+  assert.match(calls[0].text, /i\.id ~ '\^\[A-Za-z0-9\]/);
+  assert.match(calls[0].text, /NOT EXISTS \([\s\S]*?FROM knowledge_card_drafts approved_draft/);
+  assert.match(calls[0].text, /approved_draft\.status = 'approved'/);
+  assert.match(calls[0].text, /b\.status IN \('partial', 'approved'\)/);
+  assert.match(calls[0].text, /src\.knowledge_item_id = i\.id/);
+  assert.match(calls[0].text, /ORDER BY i\.id ASC[\s\S]*?LIMIT 1/);
+  assert.doesNotMatch(calls[0].text, /LEFT JOIN knowledge_card_drafts/);
   assert.match(calls[0].text, /i\.archived_at IS NULL/);
   assert.match(calls[0].text, /NOT EXISTS \([\s\S]*?knowledge_item_supersessions/);
+});
+
+test('private cursor degrades a DB-valid legacy typed payload without ending the lane', async (context) => {
+  const originalQuery = db.query;
+  context.after(() => { db.query = originalQuery; });
+  db.query = (async () => ({ rows: [cardRow({
+    knowledge_item_id: '22222222-2222-4222-8222-222222222222',
+    has_approved_ingestion_draft: false,
+    has_eligible_conversation_source: false,
+    knowledge_type: 'concept',
+    central_question: 'What remains readable?',
+    structured_content: { type: 'concept', unexpected_legacy_field: true },
+    bundle_schema_version: 1,
+  })] })) as typeof db.query;
+
+  const card = await getNextEligiblePrivatePracticeCard(ACTOR_ID, 'new', null);
+  assert.equal(card?.id, 'personal:22222222-2222-4222-8222-222222222222');
+  assert.equal(card?.structured_content, null);
+  assert.equal(card?.title, 'Owner-approved concept');
+});
+
+test('private cursor rejects a noncanonical seek id before querying PostgreSQL', async (context) => {
+  const originalQuery = db.query;
+  let queried = false;
+  context.after(() => { db.query = originalQuery; });
+  db.query = (async () => {
+    queried = true;
+    return { rows: [] };
+  }) as typeof db.query;
+
+  await assert.rejects(
+    () => getNextEligiblePrivatePracticeCard(ACTOR_ID, 'new', 'personal:bad/id'),
+    /Invalid private Practice cursor card id/,
+  );
+  assert.equal(queried, false);
+});
+
+test('private Practice raw-id seek has a checked-in owner cursor index', () => {
+  const schema = readFileSync(new URL('../../drizzle/schema.ts', import.meta.url), 'utf8');
+  const migration = readFileSync(
+    new URL('../../drizzle/migrations/0025_mobile_practice_owner_cursor.sql', import.meta.url),
+    'utf8',
+  );
+  assert.match(schema, /idx_user_knowledge_items_user_id_cursor[\s\S]*?t\.userId, t\.id/);
+  assert.match(schema, /idx_knowledge_card_drafts_approved_item_owner[\s\S]*?t\.userId, t\.knowledgeItemId/);
+  assert.match(migration, /CREATE INDEX IF NOT EXISTS "idx_user_knowledge_items_user_id_cursor"[\s\S]*?"user_id", "id"/);
+  assert.match(migration, /CREATE INDEX IF NOT EXISTS "idx_knowledge_card_drafts_approved_item_owner"[\s\S]*?"user_id", "knowledge_item_id"[\s\S]*?WHERE "status" = 'approved'/);
 });
 
 test('private review SQL admits due known/review rows through the shared due queue', async (context) => {
@@ -212,6 +269,7 @@ test('private stats reports the exact due review pool separately from mastery to
   assert.match(calls[0]!.text, /s\.recall_schedule_state = 'ordinary_practice'/);
   assert.match(calls[0]!.text, /s\.progress_state = 'review'/);
   assert.match(calls[0]!.text, /s\.due_at <= NOW\(\)/);
+  assert.match(calls[0]!.text, /char_length\(i\.id\) BETWEEN 1 AND 128/);
 });
 
 test('private ratings use one owner-gated insert and never write shared cards or graph state', async (context) => {
@@ -353,5 +411,7 @@ test('every private-practice query excludes archived and superseded knowledge', 
     assert.match(call.text, /NOT EXISTS \(\s*SELECT 1\s*FROM knowledge_item_supersessions supersession/);
     assert.match(call.text, /supersession\.user_id = i\.user_id/);
     assert.match(call.text, /supersession\.superseded_item_id = i\.id/);
+    assert.match(call.text, /char_length\(i\.id\) BETWEEN 1 AND 128/);
+    assert.match(call.text, /i\.id ~ '\^\[A-Za-z0-9\]/);
   }
 });

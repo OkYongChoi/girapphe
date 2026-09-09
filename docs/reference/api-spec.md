@@ -144,6 +144,8 @@ state it held before deletion.
 `GET /api/mobile?resource=saved` returns owner-scoped `cards` plus authoritative
 `stats` (`explainable`, `unclear`, and `reviewable`). New clients select the
 Review or new-card intent from `reviewable`, not from saved-card list length.
+With a configured database, a failed cards or stats query fails the request;
+mock state is available only in explicit guest/no-database mode.
 
 `POST /api/mobile?resource=practice` accepts JSON `{ mode, cursor,
 cycleOnEmpty }`, where `mode` is `new` or `review` and `cursor` is null or a
@@ -152,9 +154,13 @@ at 2 KiB. The cursor is an untrusted seek hint, not authorization: every
 request derives the actor from server authentication and reapplies owner
 scoping. The server alternates public and owner-private lanes, traverses IDs in
 deterministic ascending order within each lane, and uses `LIMIT 1` for each
-database candidate query. The response is `{ card, stats, nextCursor, cycled }`;
+database candidate query. Private cursors are decoded to the raw knowledge-item
+ID for the `(user_id, id)` owner index; record eligibility and canonical ID
+shape are applied before `LIMIT 1`. The response is
+`{ card, stats, nextCursor, cycled }`;
 the client sends `nextCursor` on the next read. Neither side retains a growing
-card-ID array or request-global traversal state.
+card-ID array or request-global traversal state; the app keeps only bounded
+previous-card history and constant-size progress counters alongside the cursor.
 
 Only a non-null cursor with `cycleOnEmpty: true` may wrap to a fresh round, and
 that request resets at most once. An initial null cursor does not perform a
@@ -168,7 +174,8 @@ returns `413 PRACTICE_REQUEST_TOO_LARGE`.
 backward-compatible read for installed clients. It accepts at most 100
 `exclude` values and returns private card and stats data with `cycled: false`;
 a larger list returns `400 PRACTICE_EXCLUSIONS_TOO_LARGE` instead of silently
-truncating the caller's round.
+truncating the caller's round, while an empty or oversized ID returns
+`400 INVALID_PRACTICE_EXCLUSIONS`.
 
 New mobile clients send
 `X-Girapphe-Knowledge-Capabilities: expression-v1,event-chronology-v1,causal-relations-v1`.

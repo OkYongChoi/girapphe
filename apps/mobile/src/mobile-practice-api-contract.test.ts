@@ -14,6 +14,10 @@ const practiceHandler = readFileSync(
   join(sourceDir, '../../web/src/lib/mobile-practice-handler.ts'),
   'utf8',
 );
+const practiceContract = readFileSync(
+  join(sourceDir, '../../web/src/lib/mobile-practice-contract.ts'),
+  'utf8',
+);
 
 test('native Practice sends its opaque cursor in a bounded POST body, not the URL', () => {
   const practiceClient = mobileApi.match(
@@ -43,9 +47,11 @@ test('server authenticates before delegating Practice POST to the bounded handle
 
 test('legacy Practice GET fails explicitly instead of silently truncating exclusions', () => {
   assert.match(mobileRoute, /parseLegacyMobilePracticeExcludeIds\(legacyExcludeIds\)/);
-  assert.match(mobileRoute, /MAX_LEGACY_MOBILE_PRACTICE_EXCLUDE_IDS/);
   assert.match(mobileRoute, /PRACTICE_EXCLUSIONS_TOO_LARGE/);
+  assert.match(mobileRoute, /INVALID_PRACTICE_EXCLUSIONS/);
   assert.doesNotMatch(mobileRoute, /slice\(0, 100\)/);
+  assert.match(practiceContract, /MAX_LEGACY_MOBILE_PRACTICE_EXCLUDE_IDS = 100/);
+  assert.match(practiceContract, /values\.length > MAX_LEGACY_MOBILE_PRACTICE_EXCLUDE_IDS/);
 });
 
 test('saved cards carry authoritative reviewable stats in the same response', () => {

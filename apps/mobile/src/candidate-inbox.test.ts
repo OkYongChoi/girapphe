@@ -201,7 +201,15 @@ test('renders an actionable detailed web review link for duplicate candidates', 
   );
   assert.doesNotMatch(candidateInbox.slice(groupStart, groupEnd), /webReviewUrl/);
   assert.match(
-    candidateInbox.slice(reviewLinkStart),
-    /accessibilityLabel=\{WEB_REVIEW_COPY\[locale\]\}\s*accessibilityRole="link"[\s\S]*?Linking\.openURL\(webReviewUrl\)/,
+    candidateInbox,
+    /const webReviewLabel = interpolate\(WEB_REVIEW_COPY\[locale\], \{ title: draft\.title \}\)/,
   );
+  assert.match(
+    candidateInbox.slice(reviewLinkStart),
+    /accessibilityLabel=\{webReviewLabel\}\s*accessibilityRole="link"[\s\S]*?Linking\.openURL\(webReviewUrl\)[\s\S]*?>\{webReviewLabel\} ↗/,
+  );
+  const reviewTemplates = candidateInbox.match(
+    /(?:en|ja|'zh-CN'|es|ar|hi): '[^']*\{title\}[^']*'/g,
+  ) ?? [];
+  assert.equal(reviewTemplates.length, 6);
 });
