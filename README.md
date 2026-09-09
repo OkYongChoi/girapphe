@@ -180,7 +180,9 @@ pnpm db:studio
 - `/knowledge` opens in **3D Graph View** by default.
 - Navbar highlights the active route for signed-in users.
 - Home page shows quick progress summary for signed-in users.
-- Saved/My Notes filters include a `Clear` action.
+- Saved/My Notes filters include a `Clear` action. My Notes keeps secondary
+  filters collapsed, shows custom dates only for a custom range, and omits the
+  filter panel when the current collection is empty.
 
 ## Harness
 

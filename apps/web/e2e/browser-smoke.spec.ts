@@ -697,14 +697,39 @@ test.describe('browser smoke', () => {
   test('My Notes keeps filter controls contained and preserves the legacy route', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
+    await page.goto('/my-notes');
+    await expect(page.getByRole('heading', { name: 'My Notes' })).toBeVisible();
+    await expect(page.getByRole('search', { name: 'Filter knowledge items' })).toHaveCount(0);
+    const addHeading = page.getByRole('heading', { name: 'Add knowledge item' });
+    await expect(addHeading).toBeVisible();
+    const addHeadingBox = await addHeading.boundingBox();
+    expect(addHeadingBox).not.toBeNull();
+    expect(addHeadingBox!.y).toBeLessThan(page.viewportSize()!.height);
+
+    await page.goto('/my-notes?q=note');
+    const compactFilterForm = page.getByRole('search', { name: 'Filter knowledge items' });
+    const compactFilterBox = await compactFilterForm.boundingBox();
+    expect(compactFilterBox).not.toBeNull();
+    expect(compactFilterBox!.height).toBeLessThan(180);
+    await expect(page.getByRole('combobox', { name: 'Added date range' })).toBeHidden();
+    await expect(page.getByRole('combobox', { name: 'Group cards by date' })).toBeHidden();
+
     await page.goto('/my-knowledge?group=week');
     await expect(page).toHaveURL(/\/(?:en\/)?my-notes\?group=week$/);
     await expect(page.getByRole('heading', { name: 'My Notes' })).toBeVisible();
-    await expect(page.getByRole('combobox', { name: 'Added date range' })).toBeVisible();
     const filterForm = page.getByRole('search', { name: 'Filter knowledge items' });
     const groupSelect = page.getByRole('combobox', { name: 'Group cards by date' });
     const searchButton = filterForm.getByRole('button', { name: 'Search' });
     await expect(groupSelect).toHaveValue('week');
+    await expect(page.getByRole('combobox', { name: 'Added date range' })).toBeHidden();
+
+    const facetDisclosure = filterForm.locator('details').filter({ hasText: 'Filter' });
+    const viewDisclosure = filterForm.locator('details').filter({ hasText: 'Sort' });
+    await facetDisclosure.locator('summary').click();
+    const periodSelect = page.getByRole('combobox', { name: 'Added date range' });
+    await periodSelect.selectOption('custom');
+    await expect(filterForm.getByRole('textbox', { name: 'From', exact: true })).toBeVisible();
+    await expect(filterForm.getByRole('textbox', { name: 'To', exact: true })).toBeVisible();
 
     const filterBox = await filterForm.boundingBox();
     expect(filterBox).not.toBeNull();
@@ -722,8 +747,13 @@ test.describe('browser smoke', () => {
     }
 
     await groupSelect.selectOption('month');
+    await facetDisclosure.locator('summary').click();
+    await viewDisclosure.locator('summary').click();
+    await expect(periodSelect).toBeHidden();
+    await expect(groupSelect).toBeHidden();
     await searchButton.click();
     await expect.poll(() => new URL(page.url()).searchParams.get('group')).toBe('month');
+    await expect.poll(() => new URL(page.url()).searchParams.get('period')).toBe('custom');
     await expect(page).toHaveURL(/\/(?:en\/)?my-notes\?/);
     await expect(page.getByRole('link', { name: 'Trash' })).toBeVisible();
 
@@ -781,9 +811,46 @@ test.describe('browser smoke', () => {
     await expect(structuredView.getByText('Use the protected release flow.', { exact: true })).toBeVisible();
 
     const filters = page.getByRole('search');
+    const facetDisclosure = filters.locator('details').filter({ hasText: 'Filter' });
+    await facetDisclosure.locator('summary').click();
     await filters.getByRole('combobox', { name: 'Format' }).selectOption('procedure');
+    await filters.getByRole('combobox', { name: 'Added date range' }).selectOption('custom');
+    await expect(filters.getByRole('textbox', { name: 'From', exact: true })).toBeVisible();
+    await facetDisclosure.locator('summary').click();
+    await expect(filters.getByRole('combobox', { name: 'Format' })).toBeHidden();
     await filters.getByRole('button', { name: 'Search' }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get('type')).toBe('procedure');
+    await expect.poll(() => new URL(page.url()).searchParams.get('period')).toBe('custom');
     await expect(page.locator('details').filter({ hasText: title })).toHaveCount(1);
+
+    const filteredForm = page.getByRole('search');
+    await filteredForm.locator('input[name="q"]').fill('release');
+    await filteredForm.getByRole('button', { name: 'Search' }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('release');
+
+    await page.getByRole('search').getByRole('link', { name: 'Clear' }).click();
+    await expect(page).toHaveURL(/\/(?:en\/)?my-notes$/);
+    const resetFilters = page.getByRole('search');
+    await expect(resetFilters.locator('input[name="q"]')).toHaveValue('');
+    const resetFilterDetails = resetFilters.locator('details').filter({ hasText: 'Filter' });
+    await expect(resetFilterDetails).not.toHaveAttribute('open', '');
+    await resetFilterDetails.locator('summary').click();
+    await expect(resetFilters.getByRole('combobox', { name: 'Added date range' })).toHaveValue('all');
+    await expect(resetFilters.getByRole('textbox', { name: 'From', exact: true })).toHaveCount(0);
+
+    await page.goto('/my-notes?view=archive&q=release&type=procedure&period=custom');
+    const archiveFilters = page.getByRole('search');
+    await expect(archiveFilters.locator('input[name="q"]')).toHaveValue('release');
+    await expect(archiveFilters.getByRole('combobox', { name: 'Format' })).toHaveValue('procedure');
+    await page.getByRole('link', { name: 'My Notes', exact: true }).last().click();
+    await expect(page).toHaveURL(/\/(?:en\/)?my-notes$/);
+    const switchedFilters = page.getByRole('search');
+    await expect(switchedFilters.locator('input[name="q"]')).toHaveValue('');
+    const switchedFacetDetails = switchedFilters.locator('details').filter({ hasText: 'Filter' });
+    await expect(switchedFacetDetails).not.toHaveAttribute('open', '');
+    await switchedFacetDetails.locator('summary').click();
+    await expect(switchedFilters.getByRole('combobox', { name: 'Format' })).toHaveValue('all');
+    await expect(switchedFilters.getByRole('combobox', { name: 'Added date range' })).toHaveValue('all');
 
     item = page.locator('details').filter({ hasText: title });
     await item.locator('summary').click();
