@@ -307,6 +307,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                   </select>
 
                   <KnowledgeDateRangeFilter
+                    key={`${period}:${params.start ?? ''}:${params.end ?? ''}`}
                     defaultPeriod={period}
                     defaultStart={params.start ?? ''}
                     defaultEnd={params.end ?? ''}

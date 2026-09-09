@@ -807,8 +807,17 @@ test.describe('browser smoke', () => {
     const filters = page.getByRole('search');
     await filters.locator('summary').filter({ hasText: 'Filter' }).click();
     await filters.getByRole('combobox', { name: 'Format' }).selectOption('procedure');
+    await filters.getByRole('combobox', { name: 'Added date range' }).selectOption('custom');
+    await expect(filters.getByRole('textbox', { name: 'From', exact: true })).toBeVisible();
     await filters.getByRole('button', { name: 'Search' }).click();
     await expect(page.locator('details').filter({ hasText: title })).toHaveCount(1);
+
+    await page.getByRole('search').getByRole('link', { name: 'Clear' }).click();
+    await expect(page).toHaveURL(/\/(?:en\/)?my-notes$/);
+    const resetFilters = page.getByRole('search');
+    await resetFilters.locator('summary').filter({ hasText: 'Filter' }).click();
+    await expect(resetFilters.getByRole('combobox', { name: 'Added date range' })).toHaveValue('all');
+    await expect(resetFilters.getByRole('textbox', { name: 'From', exact: true })).toHaveCount(0);
 
     item = page.locator('details').filter({ hasText: title });
     await item.locator('summary').click();
