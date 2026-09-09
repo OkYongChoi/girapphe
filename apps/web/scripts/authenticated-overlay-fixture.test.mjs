@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
   AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
   ensureSyntheticClerkUser,
   fixtureIdsForUser,
@@ -72,7 +73,7 @@ test('database fixture is owner-bound and repeatable', async () => {
       calls.push({ text, values });
       if (text.startsWith('SELECT id FROM graph_nodes')) return { rows: [{ id: 'public_node' }] };
       if (text.includes('AS private_nodes')) {
-        return { rows: [{ private_nodes: 2, private_edges: 1, public_links: 1 }] };
+        return { rows: [{ private_nodes: 2, private_edges: 1, public_links: 1, draft_probes: 0 }] };
       }
       return { rows: [] };
     },
@@ -93,6 +94,17 @@ test('database fixture is owner-bound and repeatable', async () => {
   assert.equal(calls.filter((call) => call.text === 'BEGIN').length, 2);
   assert.equal(calls.filter((call) => call.text === 'COMMIT').length, 2);
   assert.equal(calls.some((call) => call.text === 'ROLLBACK'), false);
+
+  const draftProbeCleanup = calls.filter((call) => (
+    call.text.startsWith('DELETE FROM user_graph_nodes')
+    || call.text.startsWith('DELETE FROM user_knowledge_items')
+  ));
+  assert.equal(draftProbeCleanup.length, 4);
+  assert.ok(draftProbeCleanup.every((call) => (
+    call.values[0] === SYNTHETIC_USER.id
+    && call.values[1] === 'Unsaved create draft'
+    && call.values[2] === `${AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX} %`
+  )));
 
   const tokenResets = calls.filter((call) => (
     call.text === 'DELETE FROM mcp_access_tokens WHERE user_id = $1'
@@ -129,7 +141,7 @@ test('database fixture remains valid when a schema-only preview has no public no
       calls.push({ text, values });
       if (text.startsWith('SELECT id FROM graph_nodes')) return { rows: [] };
       if (text.includes('AS private_nodes')) {
-        return { rows: [{ private_nodes: 2, private_edges: 1, public_links: 0 }] };
+        return { rows: [{ private_nodes: 2, private_edges: 1, public_links: 0, draft_probes: 0 }] };
       }
       return { rows: [] };
     },

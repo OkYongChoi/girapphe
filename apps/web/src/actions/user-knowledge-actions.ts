@@ -52,6 +52,7 @@ import {
 } from '@/lib/knowledge-ingestion';
 import { parseKnowledgeBundleFields, projectKnowledgeBundle, type KnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
 import { KNOWLEDGE_ITEM_UPDATE_QUERY } from '@/lib/knowledge-item-update-query';
+import { sanitizeKnowledgeTagFormValues } from '@/lib/knowledge-tag-normalization';
 import {
   readKnowledgeResolutionTimestampField,
   readOptionalTimestampPatchField,
@@ -504,7 +505,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   const summary = sanitizeKnowledgeContent(projection?.summary ?? requestedSummary, 500);
   const content = sanitizeKnowledgeContent(projection?.content ?? requestedContent);
   const topic = normalizeKnowledgeTopic(String(formData.get('topic') ?? ''));
-  const tags = sanitizeKnowledgeTags(String(formData.get('tags') ?? '').split(','));
+  const tags = sanitizeKnowledgeTagFormValues(formData.getAll('tags'));
   const dedupeKey = buildKnowledgeDedupeKey({
     title,
     topic,
@@ -694,8 +695,8 @@ export async function updateKnowledgeItem(formData: FormData): Promise<Knowledge
   const summary = projection?.summary ?? requestedSummary;
   const content = sanitizeKnowledgeContent(projection?.content ?? String(formData.get('content') ?? ''));
   const topic = normalizeKnowledgeTopic(String(formData.get('topic') ?? ''));
-  const tagsField = formData.get('tags');
-  const tags = tagsField === null ? undefined : sanitizeKnowledgeTags(String(tagsField).split(','));
+  const tagFields = formData.getAll('tags');
+  const tags = tagFields.length === 0 ? undefined : sanitizeKnowledgeTagFormValues(tagFields);
 
   if (!title) throw new Error('A title is required.');
 

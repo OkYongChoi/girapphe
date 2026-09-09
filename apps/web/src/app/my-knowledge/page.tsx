@@ -32,6 +32,9 @@ import KnowledgeIntelligencePanel from '@/components/knowledge-intelligence-load
 import { getKnowledgeIntelligenceForUser } from '@/lib/knowledge-intelligence';
 import { isAiThinkingHistoryEnabledForUser } from '@/lib/ai-thinking-history-rollout';
 import KnowledgeDateRangeFilter from '@/components/knowledge-date-range-filter';
+import KnowledgeTagInput, { KnowledgeTagSuggestionsProvider } from '@/components/knowledge-tag-input';
+import { MAX_KNOWLEDGE_TAG_CODE_POINTS, MAX_KNOWLEDGE_TAGS } from '@/lib/knowledge-tag-normalization';
+import { collectKnowledgeTagSuggestions } from '@/lib/knowledge-tag-suggestions';
 
 export const dynamic = 'force-dynamic';
 
@@ -164,6 +167,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
   ]);
   const linkTargetLabel = new Map(linkTargets.map((target) => [target.id, target.label]));
   const topics = Array.from(new Set(items.map((item) => item.topic))).sort();
+  const tagSuggestions = collectKnowledgeTagSuggestions(items.map((item) => item.tags), locale);
   const bounds = periodBounds(period, params.start, params.end);
   const filteredItems = items
     .filter((item) => {
@@ -198,6 +202,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
       <Navbar user={actor.isGuest ? null : actor} />
 
       <section className="mx-auto w-full max-w-4xl p-4 md:p-8">
+        <KnowledgeTagSuggestionsProvider suggestions={tagSuggestions}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{isTrash ? t('notes.trashTitle') : isArchive ? t('notes.archiveTitle') : t('notes.title')}</h1>
@@ -412,7 +417,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
-            <KnowledgeBundleEditor key={createRequestId} />
+            <KnowledgeBundleEditor resetOnFormReset />
             <div className="flex flex-col gap-1 md:col-span-2">
               <label htmlFor="new-summary" className="text-xs font-medium text-gray-700">
                 Summary
@@ -436,10 +441,25 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 className="min-h-28 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
-            <div className="flex flex-col gap-1 md:col-span-2">
-              <label htmlFor="new-tags" className="text-xs font-medium text-gray-700">Tags</label>
-              <input id="new-tags" name="tags" maxLength={599} placeholder="ml, optimization, gradient-descent" className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-              <span className="text-xs text-gray-500">Up to 12 comma-separated tags, 48 characters each.</span>
+            <div className="md:col-span-2">
+              <KnowledgeTagInput
+                id="new-tags"
+                name="tags"
+                resetOnFormReset
+                labels={{
+                  label: t('notes.tagsLabel'),
+                  placeholder: t('notes.tagsPlaceholder'),
+                  select: t('notes.tagsSelect'),
+                  search: t('notes.tagsSearch'),
+                  noMatches: t('notes.tagsNoMatches'),
+                  close: t('common.close'),
+                  help: t('notes.tagsHelp'),
+                  limit: t('notes.tagsLimit', { count: MAX_KNOWLEDGE_TAGS }),
+                  length: t('notes.tagsLength', { count: MAX_KNOWLEDGE_TAG_CODE_POINTS }),
+                  invalid: t('notes.tagsInvalid'),
+                  remove: t('common.remove'),
+                }}
+              />
             </div>
             {!actor.isGuest ? <fieldset className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:col-span-2 md:grid-cols-[minmax(0,1fr)_12rem_10rem]">
               <legend className="px-1 text-xs font-semibold text-slate-700">Optional graph relationship</legend>
@@ -575,7 +595,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                       </div>
                     ) : null}
 
-                    {isActive && <><form action={updateKnowledgeItemAction} className="mt-4 grid gap-3">
+                    {isActive && <><form key={`edit-${item.id}-${item.version}`} action={updateKnowledgeItemAction} className="mt-4 grid gap-3">
                       <input type="hidden" name="id" value={item.id} />
                       <input type="hidden" name="version" value={item.version} />
 
@@ -628,11 +648,24 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                         />
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label htmlFor={`tags-${item.id}`} className="text-xs font-medium text-gray-700">Tags</label>
-                        <input id={`tags-${item.id}`} name="tags" defaultValue={item.tags.join(', ')} maxLength={599} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                        <span className="text-xs text-gray-500">Up to 12 comma-separated tags, 48 characters each.</span>
-                      </div>
+                      <KnowledgeTagInput
+                        id={`tags-${item.id}`}
+                        name="tags"
+                        defaultTags={item.tags}
+                        labels={{
+                          label: t('notes.tagsLabel'),
+                          placeholder: t('notes.tagsPlaceholder'),
+                          select: t('notes.tagsSelect'),
+                          search: t('notes.tagsSearch'),
+                          noMatches: t('notes.tagsNoMatches'),
+                          close: t('common.close'),
+                          help: t('notes.tagsHelp'),
+                          limit: t('notes.tagsLimit', { count: MAX_KNOWLEDGE_TAGS }),
+                          length: t('notes.tagsLength', { count: MAX_KNOWLEDGE_TAG_CODE_POINTS }),
+                          invalid: t('notes.tagsInvalid'),
+                          remove: t('common.remove'),
+                        }}
+                      />
 
                       <div className="flex items-center gap-2">
                         <SubmitButton
@@ -738,6 +771,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
             </div>
           )}
         </div>
+        </KnowledgeTagSuggestionsProvider>
       </section>
     </main>
   );

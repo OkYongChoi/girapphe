@@ -6,6 +6,7 @@ import {
   createSyntheticSignInTicket,
   resolveAuthenticatedOverlayAuthMode,
 } from './authenticated-overlay-auth.mjs';
+import { AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX } from './authenticated-overlay-constants.mjs';
 
 test('Clerk auth mode keeps testing tokens away from production instances', () => {
   assert.equal(
@@ -40,6 +41,29 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   assert.doesNotMatch(
     source,
     /process\.env\.E2E_CLERK_AUTH_MODE !== ['"]testing-token['"]/,
+  );
+});
+
+test('My Notes mutation evidence gates on the same resolved Clerk auth mode as setup', async () => {
+  const testUrl = new URL(
+    '../e2e-authenticated/authenticated-my-notes-tags.spec.ts',
+    import.meta.url,
+  );
+  const source = await fs.readFile(testUrl, 'utf8');
+
+  assert.match(source, /resolveAuthenticatedOverlayAuthMode\(\)/);
+  assert.match(
+    source,
+    /AUTHENTICATED_OVERLAY_AUTH_MODES\.testingToken/,
+  );
+  assert.doesNotMatch(
+    source,
+    /process\.env\.E2E_CLERK_AUTH_MODE !== ['"]testing-token['"]/,
+  );
+  assert.match(source, new RegExp(AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX));
+  assert.doesNotMatch(
+    source,
+    /from ['"]\.\.\/scripts\/authenticated-overlay-(?:constants|fixture)\.mjs['"]/,
   );
 });
 
