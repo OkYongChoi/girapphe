@@ -8,6 +8,14 @@ const PREVIEW_MIGRATIONS = [
     url: new URL('../drizzle/migrations/0008_billing_entitlements.sql', import.meta.url),
     parse: parseLegacyAdditiveMigration,
   },
+  {
+    url: new URL('../drizzle/migrations/0010_stripe_portal_rate_limit.sql', import.meta.url),
+    parse: parseLegacyBillingUpgradeMigration,
+  },
+  {
+    url: new URL('../drizzle/migrations/0011_toss_billing_key_intents.sql', import.meta.url),
+    parse: parseLegacyBillingUpgradeMigration,
+  },
   { url: new URL('../drizzle/migrations/0014_guest_knowledge_limits.sql', import.meta.url) },
   { url: new URL('../drizzle/migrations/0015_typed_knowledge_bundles.sql', import.meta.url) },
   { url: new URL('../drizzle/migrations/0016_conversation_knowledge_hub.sql', import.meta.url) },
@@ -70,6 +78,59 @@ const RECALL_STATE_CONSTRAINTS = new Set([
 function normalizedSql(statement) {
   return statement.replace(/\s+/g, ' ').trim().replace(/;$/, '');
 }
+
+const SAFE_LEGACY_BILLING_UPGRADE_STATEMENTS = new Set([
+  `ALTER TABLE "billing_customers"
+    ADD COLUMN IF NOT EXISTS "stripe_portal_window_started_at"
+      timestamp with time zone NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS "stripe_portal_request_count"
+      integer NOT NULL DEFAULT 0`,
+  `DO $$
+   BEGIN
+     ALTER TABLE "billing_customers"
+       ADD CONSTRAINT "billing_customers_stripe_portal_request_count_check"
+       CHECK ("stripe_portal_request_count" >= 0);
+   EXCEPTION
+     WHEN duplicate_object THEN NULL;
+   END $$`,
+  `ALTER TABLE "toss_billing_agreements"
+    ADD COLUMN IF NOT EXISTS "billing_key_intent_id" text`,
+  `DO $$
+   BEGIN
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conname = 'toss_billing_agreements_intent_owner_fk'
+     ) THEN
+       ALTER TABLE "toss_billing_agreements"
+         ADD CONSTRAINT "toss_billing_agreements_intent_owner_fk"
+         FOREIGN KEY ("billing_key_intent_id", "id", "user_id")
+         REFERENCES "toss_billing_key_intents"("id", "agreement_id", "user_id")
+         ON DELETE RESTRICT;
+     END IF;
+   END $$`,
+  `INSERT INTO "toss_billing_key_intents" (
+     "id", "agreement_id", "user_id", "customer_key", "plan",
+     "billing_key_ciphertext", "status", "created_at", "updated_at"
+   )
+   SELECT
+     'toss_legacy_' || md5(a."id" || ':' || a."billing_key_ciphertext"),
+     a."id", a."user_id", c."toss_customer_key", a."plan",
+     a."billing_key_ciphertext", 'live', a."created_at", now()
+   FROM "toss_billing_agreements" a
+   JOIN "billing_customers" c ON c."user_id" = a."user_id"
+   WHERE a."billing_key_intent_id" IS NULL
+     AND c."toss_customer_key" IS NOT NULL
+   ON CONFLICT DO NOTHING`,
+  `UPDATE "toss_billing_agreements" a
+   SET "billing_key_intent_id" = i."id", "updated_at" = now()
+   FROM "toss_billing_key_intents" i
+   WHERE a."billing_key_intent_id" IS NULL
+     AND i."id" = 'toss_legacy_' || md5(a."id" || ':' || a."billing_key_ciphertext")
+     AND i."agreement_id" = a."id"
+     AND i."user_id" = a."user_id"
+     AND i."billing_key_ciphertext" = a."billing_key_ciphertext"
+     AND i."status" = 'live'`,
+].map(normalizedSql));
 
 const SAFE_KNOWLEDGE_IMPORT_BRIDGE_STATEMENTS = new Set([
   `CREATE OR REPLACE FUNCTION public.lock_selected_export_batch_owner()
@@ -382,6 +443,60 @@ export function parseLegacyAdditiveMigration(sql) {
     .filter(Boolean);
 }
 
+export function parseLegacyBillingUpgradeMigration(sql) {
+  if (sql.includes('--> statement-breakpoint') || sql.includes('/*') || sql.includes('--')) {
+    throw new Error('Legacy billing Preview upgrades must use auditable delimiter-free SQL');
+  }
+
+  const statements = [];
+  let statementStart = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inDollarQuote = false;
+
+  for (let index = 0; index < sql.length; index += 1) {
+    if (inDollarQuote) {
+      if (sql.startsWith('$$', index)) {
+        inDollarQuote = false;
+        index += 1;
+      }
+      continue;
+    }
+
+    const character = sql[index];
+    const next = sql[index + 1];
+    if (inSingleQuote) {
+      if (character === "'" && next === "'") index += 1;
+      else if (character === "'") inSingleQuote = false;
+      continue;
+    }
+    if (inDoubleQuote) {
+      if (character === '"' && next === '"') index += 1;
+      else if (character === '"') inDoubleQuote = false;
+      continue;
+    }
+    if (sql.startsWith('$$', index)) {
+      inDollarQuote = true;
+      index += 1;
+    } else if (character === "'") {
+      inSingleQuote = true;
+    } else if (character === '"') {
+      inDoubleQuote = true;
+    } else if (character === ';') {
+      const statement = sql.slice(statementStart, index).trim();
+      if (statement) statements.push(statement);
+      statementStart = index + 1;
+    }
+  }
+
+  if (inSingleQuote || inDoubleQuote || inDollarQuote) {
+    throw new Error('Legacy billing Preview upgrade contains an unterminated quoted value');
+  }
+  const tail = sql.slice(statementStart).trim();
+  if (tail) statements.push(tail);
+  return statements;
+}
+
 export function assertSafePreviewStatement(statement) {
   const isBoundedRetentionBackfill = /^UPDATE "user_knowledge_items"\s+SET "purge_at"\s*=/i.test(statement)
     && /AND "purge_at" IS NULL;?$/i.test(statement);
@@ -393,12 +508,15 @@ export function assertSafePreviewStatement(statement) {
     .includes(statement.replace(/;$/, ''));
   const isKnownKnowledgeImportBridgeStatement = SAFE_KNOWLEDGE_IMPORT_BRIDGE_STATEMENTS
     .has(normalizedSql(statement));
+  const isKnownLegacyBillingUpgradeStatement = SAFE_LEGACY_BILLING_UPGRADE_STATEMENTS
+    .has(normalizedSql(statement));
   if (!isBoundedRetentionBackfill
     && !isKnownRelationOriginDefault
     && !isKnownRecallStateStatement(statement)
     && !isKnownBillingNormalization
     && !isPreviewBillingEnvironmentStatement
     && !isKnownKnowledgeImportBridgeStatement
+    && !isKnownLegacyBillingUpgradeStatement
     && !SAFE_STATEMENT_PREFIXES.some((pattern) => pattern.test(statement))) {
     throw new Error(`Refusing non-idempotent preview migration statement: ${statement.slice(0, 80)}`);
   }

@@ -6,6 +6,7 @@ import {
   applyPreviewSchema,
   assertSafePreviewStatement,
   parseLegacyAdditiveMigration,
+  parseLegacyBillingUpgradeMigration,
   parsePreviewMigration,
 } from './apply-preview-schema.mjs';
 
@@ -13,6 +14,8 @@ test('preview schema update contains only bounded idempotent statements', async 
   const migrations = [
     ['0005_add_quiz_rate_limits.sql', 1, parsePreviewMigration],
     ['0008_billing_entitlements.sql', 18, parseLegacyAdditiveMigration],
+    ['0010_stripe_portal_rate_limit.sql', 2, parseLegacyBillingUpgradeMigration],
+    ['0011_toss_billing_key_intents.sql', 7, parseLegacyBillingUpgradeMigration],
     ['0014_guest_knowledge_limits.sql', 5, parsePreviewMigration],
     ['0015_typed_knowledge_bundles.sql', 4, parsePreviewMigration],
     ['0016_conversation_knowledge_hub.sql', 39, parsePreviewMigration],
@@ -36,6 +39,20 @@ test('legacy preview bootstrap cannot hide procedural SQL inside a multi-stateme
   assert.throws(
     () => parseLegacyAdditiveMigration('CREATE TABLE IF NOT EXISTS safe (id text); DO $$ BEGIN END $$;'),
     /semicolon-delimited SQL/,
+  );
+});
+
+test('legacy billing upgrades split procedural blocks and reject unknown data changes', () => {
+  const statements = parseLegacyBillingUpgradeMigration(
+    `ALTER TABLE "billing_customers" ADD COLUMN IF NOT EXISTS "safe" text;
+     DO $$ BEGIN DELETE FROM "billing_customers"; END $$;`,
+  );
+  assert.equal(statements.length, 2);
+  assert.throws(() => assertSafePreviewStatement(statements[0]), /Refusing non-idempotent/);
+  assert.throws(() => assertSafePreviewStatement(statements[1]), /Refusing non-idempotent/);
+  assert.throws(
+    () => parseLegacyBillingUpgradeMigration('SELECT 1; -- hidden statement'),
+    /delimiter-free SQL/,
   );
 });
 
