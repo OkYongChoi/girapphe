@@ -111,16 +111,26 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   const source = await fs.readFile(testUrl, 'utf8');
 
   assert.match(source, /async function waitForImportSubmissionEventCount\([\s\S]{0,700}expect\.poll\([\s\S]{0,500}timeout: 30_000[\s\S]{0,300}\.toBe\(expectedCount\)/);
+  assert.ok(
+    source.includes('const IMPORT_BATCH_URL_PATTERN = /\\/knowledge-inbox\\/[0-9a-f]{8}-'),
+    'the import route itself must not satisfy the submitted-batch redirect',
+  );
+  assert.match(source, /async function waitForSubmittedImportBatchId\([\s\S]{0,1400}submittedImportBatchIdsContainingMarker\([\s\S]{0,700}\.toBe\(1\)/);
   assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await batchRow\.getByRole\("button", \{ name: deleteImportCopy \}\)\.click\(\)[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
-  const batchCapture = source.indexOf('const batchId = decodeURIComponent');
-  const evidenceTry = source.indexOf('  try {', batchCapture);
+  const submissionClick = source.indexOf('await page.getByRole("button", { name: /Create 2 review candidates/i }).click()');
+  const exactRedirect = source.indexOf('await expect(page).toHaveURL(IMPORT_BATCH_URL_PATTERN', submissionClick);
+  const batchCapture = source.indexOf('batchId = decodeURIComponent');
+  const evidenceTry = source.lastIndexOf('  try {', submissionClick);
   const batchAssertion = source.indexOf('expect(batchId).toMatch', batchCapture);
   const visibilityPoll = source.indexOf('postConsentImportEvents = await waitForImportSubmissionEventCount');
   const finallyBlock = source.indexOf('} finally {', visibilityPoll);
+  const recoveryCall = source.indexOf('await waitForSubmittedImportBatchId(page, selectedQuestionA)', finallyBlock);
   const cleanupCall = source.indexOf('await deleteSubmittedImportThroughOwnerUi(page, batchId)', finallyBlock);
-  assert.ok(batchCapture >= 0 && batchCapture < visibilityPoll, 'batch ID must be captured before telemetry polling');
-  assert.ok(evidenceTry > batchCapture && batchAssertion > evidenceTry, 'batch validation must stay inside the cleanup boundary');
-  assert.ok(finallyBlock > visibilityPoll && cleanupCall > finallyBlock, 'owner cleanup must run from finally');
+  assert.ok(evidenceTry >= 0 && evidenceTry < submissionClick, 'submission must start inside the cleanup boundary');
+  assert.ok(submissionClick < exactRedirect && exactRedirect < batchCapture, 'the UUID redirect must resolve before batch capture');
+  assert.ok(batchCapture < batchAssertion && batchAssertion < visibilityPoll, 'batch validation must precede telemetry polling');
+  assert.ok(finallyBlock > visibilityPoll && recoveryCall > finallyBlock && cleanupCall > recoveryCall, 'finally must recover and delete the exact owner batch');
+  assert.match(source, /Primary: \$\{errorSummary\(evidenceError\)\} Cleanup: \$\{errorSummary\(cleanupError\)\}/);
   assert.doesNotMatch(source, /const postConsentImportEvents = await importSubmissionEvents\(page\)/);
 });
 

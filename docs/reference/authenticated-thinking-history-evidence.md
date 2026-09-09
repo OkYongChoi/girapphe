@@ -56,9 +56,12 @@ Because the owner export can briefly lag the completed Server Action across
 separate Worker database connections, the test polls for exactly four committed
 import events with a 30-second bound. Import deletion must then return that count
 to zero before the next desktop or mobile project can begin. The submitted batch
-ID is captured before that poll, and the same owner-scoped deletion UI runs from
-a `finally` block even when a later evidence assertion fails, so one project
-cannot satisfy or contaminate the other's privacy evidence.
+ID is captured only after an exact UUID detail route replaces the local `/import`
+route and before that poll. The same owner-scoped deletion UI runs from a
+`finally` block even when a later evidence assertion fails; if the client
+redirect itself fails after the server commit, the unique synthetic marker
+recovers the batch ID from the owner export first. One project therefore cannot
+satisfy or contaminate the other's privacy evidence.
 
 The importer assertion is deliberately about one extracted
 `conversations.json`. It is not evidence for ZIP archives, numbered/split

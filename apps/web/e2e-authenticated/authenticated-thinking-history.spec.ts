@@ -52,6 +52,8 @@ const IMPORT_SUBMISSION_EVENT_NAMES = new Set([
   "conversation_import_confirmed",
   "conversation_import_candidates_ready",
 ]);
+const IMPORT_BATCH_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const IMPORT_BATCH_URL_PATTERN = /\/knowledge-inbox\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isContextPackResponse(response: Response): boolean {
   return (
@@ -68,8 +70,8 @@ function responseBody(response: Response): Record<string, unknown> | null {
   }
 }
 
-async function importSubmissionEvents(page: Page): Promise<Record<string, unknown>[]> {
-  const exportData = await page.evaluate(async () => {
+async function ownerKnowledgeExport(page: Page): Promise<Record<string, unknown>> {
+  return page.evaluate(async () => {
     const response = await fetch("/api/knowledge/export?scope=all", {
       cache: "no-store",
       credentials: "same-origin",
@@ -77,6 +79,11 @@ async function importSubmissionEvents(page: Page): Promise<Record<string, unknow
     if (!response.ok) throw new Error(`Knowledge export failed with ${response.status}.`);
     return response.json() as Promise<Record<string, unknown>>;
   });
+}
+
+function importSubmissionEventsFromExport(
+  exportData: Record<string, unknown>,
+): Record<string, unknown>[] {
   const events = exportData.intelligence_feedback_and_metrics;
   if (!Array.isArray(events)) throw new Error("Knowledge export omitted product events.");
   return events.filter((event): event is Record<string, unknown> => (
@@ -85,6 +92,44 @@ async function importSubmissionEvents(page: Page): Promise<Record<string, unknow
     && typeof event.event_name === "string"
     && IMPORT_SUBMISSION_EVENT_NAMES.has(event.event_name)
   ));
+}
+
+async function importSubmissionEvents(page: Page): Promise<Record<string, unknown>[]> {
+  return importSubmissionEventsFromExport(await ownerKnowledgeExport(page));
+}
+
+function submittedImportBatchIdsContainingMarker(
+  exportData: Record<string, unknown>,
+  marker: string,
+): string[] {
+  const candidates = exportData.pending_and_resolved_candidates;
+  if (!Array.isArray(candidates)) throw new Error("Knowledge export omitted import candidates.");
+  return Array.from(new Set(candidates.flatMap((candidate) => {
+    if (typeof candidate !== "object" || candidate === null) return [];
+    const row = candidate as Record<string, unknown>;
+    const batchId = row.batch_id;
+    return typeof batchId === "string"
+      && IMPORT_BATCH_ID_PATTERN.test(batchId)
+      && row.central_question === marker
+      ? [batchId]
+      : [];
+  })));
+}
+
+async function waitForSubmittedImportBatchId(page: Page, marker: string): Promise<string> {
+  let observed: string[] = [];
+  await expect.poll(async () => {
+    observed = submittedImportBatchIdsContainingMarker(
+      await ownerKnowledgeExport(page),
+      marker,
+    );
+    return observed.length;
+  }, {
+    message: "the exact synthetic import reaches its owner export",
+    timeout: 30_000,
+    intervals: [250, 500, 1_000],
+  }).toBe(1);
+  return observed[0]!;
 }
 
 async function waitForImportSubmissionEventCount(
@@ -107,20 +152,12 @@ async function deleteSubmittedImportThroughOwnerUi(page: Page, batchId: string):
   // A failed confirm-driven assertion can leave a one-shot dialog listener
   // behind. Cleanup owns the next dialog and must not race that stale handler.
   page.removeAllListeners("dialog");
-  let firstAttempt = true;
-  await expect.poll(async () => {
-    if (firstAttempt) {
-      firstAttempt = false;
-      await page.goto("/account/delete#knowledge-data", { waitUntil: "domcontentloaded" });
-    } else {
-      await page.reload({ waitUntil: "domcontentloaded" });
-    }
-    return page.getByText(batchId, { exact: true }).count();
-  }, {
-    message: `submitted import ${batchId} reaches its owner deletion surface`,
-    timeout: 30_000,
-    intervals: [250, 500, 1_000],
-  }).toBe(1);
+  await page.goto("/account/delete#knowledge-data", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: accountDataTitleCopy })).toBeVisible();
+  await expect(
+    page.getByText(batchId, { exact: true }),
+    `submitted import ${batchId} reaches its owner deletion surface`,
+  ).toHaveCount(1);
 
   const batchRow = page.getByText(batchId, { exact: true }).locator("xpath=ancestor::li[1]");
   page.once("dialog", (dialog) => dialog.accept());
@@ -159,6 +196,10 @@ function sameOriginPostBody(request: Request): string | null {
 
 function requestMaterial(request: Request): string {
   return `${request.url()}\n${request.postData() ?? ""}`;
+}
+
+function errorSummary(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
 function assertPortableContext(format: ContextFormat, content: string) {
@@ -416,13 +457,14 @@ test("proves selected import, private evidence, portable context, dismissal, and
   ).toEqual([]);
   const submitRequestStart = postBodies.length;
   const submitOutboundRequestStart = outboundRequestMaterial.length;
-  await page.getByRole("button", { name: /Create 2 review candidates/i }).click();
-  await expect(page).toHaveURL(/\/knowledge-inbox\/[^/?#]+$/, { timeout: 30_000 });
-  const batchId = decodeURIComponent(new URL(page.url()).pathname.split("/").at(-1) ?? "");
+  let batchId = "";
   let postConsentImportEvents: Record<string, unknown>[] = [];
   let evidenceError: unknown;
   try {
-    expect(batchId).toMatch(/^[0-9a-f-]{36}$/i);
+    await page.getByRole("button", { name: /Create 2 review candidates/i }).click();
+    await expect(page).toHaveURL(IMPORT_BATCH_URL_PATTERN, { timeout: 30_000 });
+    batchId = decodeURIComponent(new URL(page.url()).pathname.split("/").at(-1) ?? "");
+    expect(batchId).toMatch(IMPORT_BATCH_ID_PATTERN);
     const submittedBodies = postBodies.slice(submitRequestStart).join("\n");
     expect(submittedBodies).toContain(selectedQuestionA);
     expect(submittedBodies).toContain(selectedAnswerA);
@@ -500,13 +542,16 @@ test("proves selected import, private evidence, portable context, dismissal, and
   } finally {
     try {
       await test.step("delete submitted import and await telemetry cleanup", async () => {
+        batchId = IMPORT_BATCH_ID_PATTERN.test(batchId)
+          ? batchId
+          : await waitForSubmittedImportBatchId(page, selectedQuestionA);
         await deleteSubmittedImportThroughOwnerUi(page, batchId);
       });
     } catch (cleanupError) {
       if (evidenceError) {
         throw new AggregateError(
           [evidenceError, cleanupError],
-          "Thinking History evidence and owner-scoped import cleanup both failed.",
+          `Thinking History evidence and owner-scoped import cleanup both failed. Primary: ${errorSummary(evidenceError)} Cleanup: ${errorSummary(cleanupError)}`,
         );
       }
       throw cleanupError;
