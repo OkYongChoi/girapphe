@@ -267,7 +267,10 @@ export async function finalizeChatGptExportCompletionEventsForUser(
     eventVersion: 1,
     subjectId: completion.batchId,
     selectionCount: completion.selectionCount,
-  }, ...(completion.created ? [{
+  // An exact canonical-request retry returns the existing batch's positive
+  // draft count. A new duplicate-only session returns zero, so this restores a
+  // failed first finalization without claiming that duplicate sources are new.
+  }, ...(completion.draftCount > 0 ? [{
     eventName: 'conversation_import_candidates_ready',
     eventVersion: 1,
     subjectId: completion.batchId,

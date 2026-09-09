@@ -1502,18 +1502,36 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       importSessionId: telemetrySessionId, selections: [telemetrySelection],
     });
     assert.equal(telemetryCreated.created, true);
-    await recordChatGptExportCompletionTelemetry(telemetryUserId, {
+    await assert.doesNotReject(() => recordChatGptExportCompletionTelemetry(telemetryUserId, {
       importSessionId: telemetrySessionId,
       parsedExchangeCount: 7,
-      selectionCount: 2,
+      selectionCount: 1,
       result: telemetryCreated,
+    }, {
+      deletePreConfirmationEvents: async () => 0,
+      finalizeEvents: async () => { throw new Error('simulated post-commit telemetry failure'); },
+    }));
+    const telemetryRetry = await createChatGptExportDraftBatchForUser(telemetryUserId, {
+      source: 'chatgpt_export', consent: true,
+      importSessionId: telemetrySessionId, selections: [telemetrySelection],
     });
-    await recordChatGptExportCompletionTelemetry(telemetryUserId, {
-      importSessionId: telemetrySessionId,
-      parsedExchangeCount: 7,
-      selectionCount: 2,
-      result: { ...telemetryCreated, created: false, draftCount: 0 },
+    assert.deepEqual({
+      batchId: telemetryRetry.batchId,
+      created: telemetryRetry.created,
+      draftCount: telemetryRetry.draftCount,
+    }, {
+      batchId: telemetryCreated.batchId,
+      created: false,
+      draftCount: 1,
     });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await recordChatGptExportCompletionTelemetry(telemetryUserId, {
+        importSessionId: telemetrySessionId,
+        parsedExchangeCount: 7,
+        selectionCount: 1,
+        result: telemetryRetry,
+      });
+    }
 
     const duplicateTelemetrySessionId = crypto.randomUUID();
     await recordKnowledgeProductEventsForUser(telemetryUserId, [{
@@ -1631,7 +1649,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
         parsedExchangeCount: 2,
         selectionCount: 2,
         created: false,
-        draftCount: 0,
+        draftCount: expandedTelemetrySecond.draftCount,
       },
       { memoryBatchExists: () => true },
     ), 0);

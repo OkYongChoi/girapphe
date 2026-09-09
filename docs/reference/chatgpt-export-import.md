@@ -153,9 +153,12 @@ account-to-ingestion-to-import lock order, verifies the exact owner/provider/
 selected-export batch, and performs legacy started/parsed reassignment plus
 current session-event insertion in one transaction. Legacy reassignment happens even
 when the owner event quota has no room for new completion events, so every event
-already associated with the import remains deletable with the batch. Current
-submissions insert all four session events directly under that same batch
-subject in the locked transaction. Import-job deletion takes the same locks and
+already associated with the import remains deletable with the batch. An initial
+creation and an exact canonical-request retry that resolves its live prepared
+candidates both converge on all four session events directly under that same
+batch subject in the locked transaction. If the first best-effort finalization
+fails after the batch commit, the retry's positive existing-draft count restores
+the missing `candidates_ready` event. Import-job deletion takes the same locks and
 purges that batch subject inside its deletion transaction. Completion therefore
 either precedes deletion and is purged, or follows deletion and writes nothing;
 it cannot recreate orphan telemetry for a deleted job. When ingestion resolves
@@ -168,17 +171,21 @@ parsing, selecting candidates, or checking consent. The selected-content Server
 Action records them only after it validates the consented selection and creates
 or resolves the import. All four session-funnel event IDs are deterministic for
 one owner, local import session, resolved batch, and event name. A transport
-retry for that same batch cannot insert duplicates, while an expanded selection
-that legitimately creates a second batch keeps its own independently deletable
-funnel.
+retry for that same canonical request fills any missing event and then inserts
+zero duplicates. A different, new import session that only maps to an already
+active source returns no prepared draft count, so it records no false
+`candidates_ready` event. An expanded selection that legitimately creates a
+second batch keeps its own independently deletable funnel.
 If deduplication resolves to a deleted-job tombstone or an approved source whose
 import job is already detached, the result explicitly has no persisted batch.
 Only started/parsed events for that local session are then removed and no
 confirmation event is written; unrelated events sharing the opaque session
 subject remain untouched.
-`conversation_import_candidates_ready` is emitted only when the ingestion
-transaction creates a batch, not for an idempotent retry. A failed or cancelled
-local parse or a user exit before confirmation creates no server record. After
+`conversation_import_candidates_ready` is emitted when the ingestion
+transaction creates a batch or when the exact canonical-request retry resolves
+that batch's existing prepared candidates. A fresh duplicate-only session does
+not emit it. A failed or cancelled local parse or a user exit before confirmation
+creates no server record. After
 confirmation, ignoring a candidate marks it rejected, and discarding an import
 does the same for every remaining pending candidate. Those actions remove the
 candidates from active review but retain their owner-scoped structured content

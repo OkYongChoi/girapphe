@@ -193,10 +193,10 @@ test("proves selected import, private evidence, portable context, dismissal, and
   expect(messageResponses[0]?.status()).toBe(200);
   expect(contextResponses).toHaveLength(0);
 
-  const inspectButton = page.getByRole("button", { name: inspectCopy }).first();
+  const signalRoot = page.locator(".thinking-card").first();
+  const inspectButton = signalRoot.getByRole("button", { name: inspectCopy });
   await expect(inspectButton).toBeVisible();
   await inspectButton.click();
-  const signalRoot = inspectButton.locator("xpath=ancestor::article[1]");
   const evidenceCheckboxes = signalRoot.getByRole("checkbox");
   await expect(evidenceCheckboxes.first()).toBeVisible();
   expect(await evidenceCheckboxes.count()).toBeGreaterThanOrEqual(2);
@@ -251,16 +251,17 @@ test("proves selected import, private evidence, portable context, dismissal, and
   // Desktop and mobile may run sequentially. The fixture provides two
   // independent signals so each project still has at least one to dismiss.
   expect(signalCountBeforeDismiss).toBeGreaterThanOrEqual(1);
-  const dismissInspectButton = page.getByRole("button", { name: inspectCopy }).first();
+  const dismissedSignal = page.locator(".thinking-card").first();
+  const dismissInspectButton = dismissedSignal.getByRole("button", { name: inspectCopy });
   await dismissInspectButton.click();
-  const dismissedSignal = dismissInspectButton.locator("xpath=ancestor::article[1]");
   page.once("dialog", (dialog) => dialog.accept());
   const dismissResponsePromise = page.waitForResponse(
     (response) => signalOperation(response) === "dismissed" && response.status() === 204,
   );
   await dismissedSignal.getByRole("button", { name: dismissCopy }).click();
   await dismissResponsePromise;
-  await expect(dismissedSignal).toBeHidden();
+  // A `.first()` locator would retarget the next signal after dismissal, so
+  // assert the observable removal without reusing that live locator.
   await expect(page.locator(".thinking-card")).toHaveCount(signalCountBeforeDismiss - 1);
 
   const marker = randomUUID().replaceAll("-", "");

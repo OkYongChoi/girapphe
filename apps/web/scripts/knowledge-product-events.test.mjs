@@ -52,7 +52,7 @@ test('consented import submission atomically records one deletable funnel across
     parsedExchangeCount: 4,
     selectionCount: 2,
     created: false,
-    draftCount: 0,
+    draftCount: 2,
   }, {
     memoryBatchExists: () => true,
   }), 0, 'the full same-session Server Action retry is idempotent');
@@ -118,7 +118,7 @@ test('one local session keeps expanded-selection batches independently retryable
     parsedExchangeCount: 4,
     selectionCount: 2,
     created: false,
-    draftCount: 0,
+    draftCount: 2,
   }, {
     memoryBatchExists: () => true,
   }), 0);

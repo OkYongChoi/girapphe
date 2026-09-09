@@ -237,7 +237,9 @@ Out of scope:
 - [x] `AC-10`: Product events measure the defined funnel and reuse outcomes
   using opaque user/job/item identifiers and aggregate counts only. Event
   payloads contain no message text, knowledge content, title, topic, source URL,
-  exported context, or archive filename.
+  exported context, or archive filename. After a failed best-effort finalization,
+  the exact canonical-request retry converges on the same four deterministic
+  import events; a new duplicate-only session does not claim candidates ready.
 - [ ] `AC-11`: A user can export all approved Girapphe knowledge and delete the
   import job, pending candidates, intelligence feedback, reuse records, and
   approved private knowledge they own; deletion behavior and any recovery
@@ -351,7 +353,7 @@ provider credentials, raw archive names, and content never enter analytics.
 | `AC-07` | Source and event tests validate owner-scoped evidence and opaque feedback. Authenticated Preview run `34038249111` established the prior private evidence surface; the expanded test adds underlying-knowledge navigation and dismiss/removal assertions and still needs a new credentialed run. |
 | `AC-08` | The context endpoint revalidates explicit selection, signal and active Topic Hub membership, payload size, and per-item reuse recording. Run `34038249111` established Markdown download; the expanded test asserts JSON, YAML, and Markdown copy plus download content, and still needs a new credentialed run. |
 | `AC-09` | `SelectedConversationImportResult` is consumed by the provider-neutral batch builder; shared tests pass a synthetic provider through the same contract and reject raw archive fields. No second provider is claimed or enabled. |
-| `AC-10` | Event-schema, migration, memory-store, and metric tests reject content fields, keep opaque owner-scoped subjects, and recompute activation, meaningful return, and reuse metrics. |
+| `AC-10` | Event-schema, migration, memory-store, and metric tests reject content fields, keep opaque owner-scoped subjects, recompute activation, meaningful return, and reuse metrics, and exercise failed-finalization recovery through actual memory and live-PostgreSQL ingestion retries without a false duplicate-only `candidates_ready` event. |
 | `AC-11` | The account surface exports owner-scoped data and separates immediate import deletion, 14-day knowledge Trash, and irreversible account deletion. Live PostgreSQL run `34305134986` established selected-export lifecycle coverage; the expanded authenticated test adds pre/post deletion export assertions and still needs a new credentialed run. |
 | `AC-12` | Parser and ingestion tests cover hard limits, collision-free identities, idempotent retries, owner isolation, active-source deduplication, durable tombstones, mixed-version races, and bounded retry guards. The first release makes no model call, and selected-export creation is one serialized transaction, so model cost is zero and there is no partial background job or unbounded retry loop. Preview PostgreSQL run `34305134986` passed the live concurrency/deletion fixture. |
 

@@ -120,7 +120,11 @@ The Thinking History project begins from a fixture-verified zero import-event
 baseline. Local file parsing, candidate selection, and the consent checkbox must
 produce neither a same-origin POST nor a server event row. The selected-content
 submission then records started, parsed, confirmed, and candidates-ready once;
-the complete session funnel remains idempotent across submission retries.
+the complete session funnel remains idempotent across submission retries. The
+memory and live-PostgreSQL regressions simulate a failed first best-effort
+finalization, require the exact canonical request retry to restore all four
+events, and separately prove that a new duplicate-only session cannot claim
+candidates ready.
 
 Runtime inputs are injected temporarily; do not copy their values into tracked
 files:

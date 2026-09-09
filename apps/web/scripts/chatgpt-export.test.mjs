@@ -933,7 +933,7 @@ test('tombstones a pre-rollout import session before switching request identitie
   }
 });
 
-test('keeps completion telemetry best-effort, rehomes every resolved import, and emits candidates-ready only for creation', async () => {
+test('keeps completion telemetry best-effort and routes every resolved import through finalization', async () => {
   const calls = [];
   const dependencies = {
     deletePreConfirmationEvents: async (userId, subjectId) => {
@@ -996,6 +996,114 @@ test('keeps completion telemetry best-effort, rehomes every resolved import, and
     deletePreConfirmationEvents: async () => { throw new Error('telemetry cleanup unavailable'); },
     finalizeEvents: async () => { throw new Error('finalize should not run'); },
   }));
+});
+
+test('memory retry after a best-effort finalization failure completes one funnel without false duplicate-only readiness', async () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  const userId = `telemetry-retry-owner-${crypto.randomUUID()}`;
+  const importSessionId = crypto.randomUUID();
+  const duplicateOnlySessionId = crypto.randomUUID();
+  const input = {
+    source: 'chatgpt_export',
+    consent: true,
+    importSessionId,
+    selections: [{
+      conversationId: `telemetry-retry-conversation-${crypto.randomUUID()}`,
+      messageId: `telemetry-retry-message-${crypto.randomUUID()}`,
+      title: 'Retry-safe telemetry finalization',
+      question: 'Can a canonical retry finish telemetry after the first finalization fails?',
+      answer: 'Yes. It restores the missing deterministic event without creating duplicates.',
+      createdAt: null,
+    }],
+  };
+  let batchId = null;
+  try {
+    clearMemoryKnowledgeProductEventsForTesting(userId);
+    const created = await createChatGptExportDraftBatchForUser(userId, input);
+    batchId = created.batchId;
+    assert.deepEqual({ created: created.created, draftCount: created.draftCount }, {
+      created: true,
+      draftCount: 1,
+    });
+    await assert.doesNotReject(() => recordChatGptExportCompletionTelemetry(userId, {
+      importSessionId,
+      parsedExchangeCount: 1,
+      selectionCount: 1,
+      result: created,
+    }, {
+      deletePreConfirmationEvents: async () => 0,
+      finalizeEvents: async () => { throw new Error('simulated post-commit telemetry failure'); },
+    }));
+    assert.deepEqual(getMemoryKnowledgeProductEventsForTesting(userId), []);
+
+    const retry = await createChatGptExportDraftBatchForUser(userId, input);
+    assert.deepEqual({
+      batchId: retry.batchId,
+      created: retry.created,
+      draftCount: retry.draftCount,
+    }, {
+      batchId: created.batchId,
+      created: false,
+      draftCount: 1,
+    });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await recordChatGptExportCompletionTelemetry(userId, {
+        importSessionId,
+        parsedExchangeCount: 1,
+        selectionCount: 1,
+        result: retry,
+      });
+    }
+    assert.deepEqual(
+      getMemoryKnowledgeProductEventsForTesting(userId)
+        .map((event) => event.eventName)
+        .toSorted(),
+      [
+        'conversation_import_candidates_ready',
+        'conversation_import_confirmed',
+        'conversation_import_parsed',
+        'conversation_import_started',
+      ],
+    );
+
+    const duplicateOnly = await createChatGptExportDraftBatchForUser(userId, {
+      ...input,
+      importSessionId: duplicateOnlySessionId,
+    });
+    assert.deepEqual({
+      batchId: duplicateOnly.batchId,
+      created: duplicateOnly.created,
+      draftCount: duplicateOnly.draftCount,
+      reviewPath: duplicateOnly.reviewPath,
+    }, {
+      batchId: created.batchId,
+      created: false,
+      draftCount: 0,
+      reviewPath: '/knowledge-inbox',
+    });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await recordChatGptExportCompletionTelemetry(userId, {
+        importSessionId: duplicateOnlySessionId,
+        parsedExchangeCount: 1,
+        selectionCount: 1,
+        result: duplicateOnly,
+      });
+    }
+    const importEvents = getMemoryKnowledgeProductEventsForTesting(userId)
+      .filter((event) => event.eventName.startsWith('conversation_import_'));
+    assert.equal(importEvents.length, 7);
+    assert.equal(
+      importEvents.filter((event) => event.eventName === 'conversation_import_candidates_ready').length,
+      1,
+    );
+    assert.equal(new Set(importEvents.map((event) => event.subjectId)).size, 1);
+  } finally {
+    if (batchId) await deleteKnowledgeImportBatchForUser(userId, batchId);
+    clearMemoryKnowledgeProductEventsForTesting(userId);
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  }
 });
 
 test('memory import deletion and a stale completion cannot leave orphan batch telemetry', async () => {
