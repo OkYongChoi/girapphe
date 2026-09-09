@@ -694,16 +694,41 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
-  test('personal knowledge exposes date controls and a trash view', async ({ page }) => {
+  test('My Notes keeps filter controls contained and preserves the legacy route', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
-    await page.goto('/my-knowledge');
+    await page.goto('/my-knowledge?group=week');
+    await expect(page).toHaveURL(/\/(?:en\/)?my-notes\?group=week$/);
     await expect(page.getByRole('heading', { name: 'My Notes' })).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Added date range' })).toBeVisible();
-    await expect(page.getByRole('combobox', { name: 'Group cards by date' })).toBeVisible();
+    const filterForm = page.getByRole('search', { name: 'Filter knowledge items' });
+    const groupSelect = page.getByRole('combobox', { name: 'Group cards by date' });
+    const searchButton = filterForm.getByRole('button', { name: 'Search' });
+    await expect(groupSelect).toHaveValue('week');
+
+    const filterBox = await filterForm.boundingBox();
+    expect(filterBox).not.toBeNull();
+    for (const [label, control] of [
+      ['group selector', groupSelect],
+      ['search button', searchButton],
+    ] as const) {
+      const controlBox = await control.boundingBox();
+      expect(controlBox, `${label} has layout geometry`).not.toBeNull();
+      expect(controlBox!.x, `${label} stays inside the left border`).toBeGreaterThanOrEqual(filterBox!.x);
+      expect(
+        controlBox!.x + controlBox!.width,
+        `${label} stays inside the right border`,
+      ).toBeLessThanOrEqual(filterBox!.x + filterBox!.width);
+    }
+
+    await groupSelect.selectOption('month');
+    await searchButton.click();
+    await expect.poll(() => new URL(page.url()).searchParams.get('group')).toBe('month');
+    await expect(page).toHaveURL(/\/(?:en\/)?my-notes\?/);
     await expect(page.getByRole('link', { name: 'Trash' })).toBeVisible();
 
     await page.getByRole('link', { name: 'Trash' }).click();
+    await expect(page).toHaveURL(/\/(?:en\/)?my-notes\?view=trash$/);
     await expect(page.getByRole('heading', { name: 'Knowledge Trash' })).toBeVisible();
 
     await assertNoBrowserFailures();
@@ -714,7 +739,7 @@ test.describe('browser smoke', () => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
     const title = `Typed release procedure ${Date.now()}`;
 
-    await page.goto('/my-knowledge');
+    await page.goto('/my-notes');
     const createForm = page.getByRole('heading', { name: 'Add knowledge item' }).locator('..');
     const format = createForm.getByRole('combobox', { name: 'Format' });
     const typeFields = [
@@ -834,7 +859,7 @@ test.describe('browser smoke', () => {
       ).toBeLessThanOrEqual(geometry.viewportWidth + 1);
     };
 
-    await page.goto('/my-knowledge');
+    await page.goto('/my-notes');
     const createForm = page.getByRole('heading', { name: 'Add knowledge item' }).locator('..');
     const format = createForm.getByRole('combobox', { name: 'Format' });
     await format.selectOption('concept');
@@ -923,7 +948,7 @@ test.describe('browser smoke', () => {
     expect(reopenedContent).toMatchObject({ type: 'concept', definition });
     expect(await item.textContent(), 'reloaded invalid block stays literal').toContain(invalidSource);
 
-    await page.goto('/ar/my-knowledge');
+    await page.goto('/ar/my-notes');
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
     item = page.locator('details').filter({ hasText: title });
     await expect(item).toHaveCount(1);
@@ -942,7 +967,7 @@ test.describe('browser smoke', () => {
     const title = `Legacy conversion ${Date.now()}`;
     const legacyBody = 'Keep this user-authored body during conversion.';
 
-    await page.goto('/my-knowledge');
+    await page.goto('/my-notes');
     const createForm = page.getByRole('heading', { name: 'Add knowledge item' }).locator('..');
     await page.locator('#new-title').fill(title);
     await page.locator('#new-content').fill(legacyBody);

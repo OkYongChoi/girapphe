@@ -101,21 +101,21 @@ function getItemSourceProvider(item: unknown) {
 async function createPrivateKnowledgeEdgeAction(formData: FormData) {
   'use server';
   const result = await createPrivateKnowledgeEdge(formData);
-  redirect(`/my-knowledge?linkStatus=${result.created ? 'created' : result.reason ?? 'invalid'}`);
+  redirect(`/my-notes?linkStatus=${result.created ? 'created' : result.reason ?? 'invalid'}`);
 }
 
 async function restoreArchivedKnowledgeItemAction(formData: FormData) {
   'use server';
   const result = await restoreArchivedKnowledgeItem(formData);
   if (result.stale || result.version === null) {
-    redirect('/my-knowledge?view=archive&archiveStatus=stale');
+    redirect('/my-notes?view=archive&archiveStatus=stale');
   }
 }
 
 async function updateKnowledgeItemAction(formData: FormData) {
   'use server';
   const result = await updateKnowledgeItem(formData);
-  if (!result.updated) redirect(`/my-knowledge?editStatus=${'stale' in result ? 'stale' : 'missing'}`);
+  if (!result.updated) redirect(`/my-notes?editStatus=${'stale' in result ? 'stale' : 'missing'}`);
 }
 
 export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageProps) {
@@ -153,7 +153,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
     );
   }
 
-  const clearFiltersHref = view === 'active' ? '/my-knowledge' : `/my-knowledge?view=${view}`;
+  const clearFiltersHref = view === 'active' ? '/my-notes' : `/my-notes?view=${view}`;
 
   const [items, linkTargets, privateGraph] = await Promise.all([
     isTrash ? getDeletedKnowledgeItems() : isArchive ? getArchivedKnowledgeItems() : getUserKnowledgeItems(),
@@ -245,8 +245,8 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
         {/* Filter form */}
         <form role="search" aria-label={t('notes.filterAria')} className="mt-4 rounded-xl border bg-white p-3">
           <input type="hidden" name="view" value={view} />
-          <div className="grid gap-2 lg:grid-cols-[minmax(12rem,1fr)_auto_auto_auto_auto_auto_auto]">
-            <div className="flex flex-col gap-1">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
               <label htmlFor="knowledge-search" className="sr-only">
                 {t('notes.search')}
               </label>
@@ -256,17 +256,17 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 name="q"
                 defaultValue={params.q ?? ''}
                 placeholder={t('notes.searchPlaceholder')}
-                className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
 
-            <select name="type" defaultValue={typeFilter} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('bundle.format')}>
+            <select name="type" defaultValue={typeFilter} className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('bundle.format')}>
               <option value="all">{t('common.allStatus')}</option>
               <option value="legacy">{t('bundle.quickNote')}</option>
               {KNOWLEDGE_BUNDLE_TYPES.map((value) => <option key={value} value={value}>{t(`bundle.type.${value}`)}</option>)}
             </select>
 
-            <div className="flex flex-col gap-1">
+            <div className="flex min-w-0 flex-col gap-1">
               <label htmlFor="knowledge-topic" className="sr-only">
                 {t('notes.topicFilter')}
               </label>
@@ -274,7 +274,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 id="knowledge-topic"
                 name="topic"
                 defaultValue={topicFilter}
-                className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="all">{t('notes.allTopics')}</option>
                 {topics.map((topic) => (
@@ -285,7 +285,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
               </select>
             </div>
 
-            <div className="flex flex-col gap-1">
+            <div className="flex min-w-0 flex-col gap-1">
               <label htmlFor="knowledge-sort" className="sr-only">
                 {t('notes.sort')}
               </label>
@@ -293,7 +293,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 id="knowledge-sort"
                 name="sort"
                 defaultValue={sortBy}
-                className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="created">{t('notes.recentAdded')}</option>
                 <option value="updated">{t('notes.recentUpdated')}</option>
@@ -301,7 +301,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
               </select>
             </div>
 
-            <select name="period" defaultValue={period} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('notes.dateRange')}>
+            <select name="period" defaultValue={period} className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('notes.dateRange')}>
               <option value="all">{t('notes.anyDate')}</option>
               <option value="today">{t('notes.today')}</option>
               <option value="week">{t('notes.thisWeek')}</option>
@@ -309,7 +309,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
               <option value="custom">{t('notes.customRange')}</option>
             </select>
 
-            <select name="group" defaultValue={groupBy} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('notes.groupByDate')}>
+            <select name="group" defaultValue={groupBy} className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('notes.groupByDate')}>
               <option value="none">{t('notes.noGrouping')}</option>
               <option value="week">{t('notes.byWeek')}</option>
               <option value="month">{t('notes.byMonth')}</option>
@@ -317,7 +317,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
 
             <button
               type="submit"
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500"
+              className="w-full min-w-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500"
             >
               {t('common.search')}
             </button>
@@ -325,7 +325,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
             {hasActiveFilter && (
               <LocalizedLink
                 href={clearFiltersHref}
-                className="rounded-lg border px-4 py-2 text-center text-sm text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full min-w-0 rounded-lg border px-4 py-2 text-center text-sm text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {t('common.clear')}
               </LocalizedLink>
@@ -338,9 +338,9 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
         </form>
 
         <div className="mt-3 flex items-center gap-2 text-sm">
-          <LocalizedLink href="/my-knowledge" className={`rounded-lg border px-3 py-1.5 ${isActive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.title')}</LocalizedLink>
-          {!actor.isGuest ? <LocalizedLink href="/my-knowledge?view=archive" className={`rounded-lg border px-3 py-1.5 ${isArchive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.archive')}</LocalizedLink> : null}
-          <LocalizedLink href="/my-knowledge?view=trash" className={`rounded-lg border px-3 py-1.5 ${isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.trash')}</LocalizedLink>
+          <LocalizedLink href="/my-notes" className={`rounded-lg border px-3 py-1.5 ${isActive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.title')}</LocalizedLink>
+          {!actor.isGuest ? <LocalizedLink href="/my-notes?view=archive" className={`rounded-lg border px-3 py-1.5 ${isArchive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.archive')}</LocalizedLink> : null}
+          <LocalizedLink href="/my-notes?view=trash" className={`rounded-lg border px-3 py-1.5 ${isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.trash')}</LocalizedLink>
         </div>
 
         {isActive && linkTargets.length > 0 ? (

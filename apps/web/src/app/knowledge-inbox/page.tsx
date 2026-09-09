@@ -101,7 +101,7 @@ export default async function KnowledgeInboxPage({ searchParams }: KnowledgeInbo
             <p className="mt-1 text-sm text-slate-500">{t('inbox.emptyBody')}</p>
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               <LocalizedLink href="/knowledge-inbox/import" className="inline-flex min-h-11 items-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-cyan-800">{t('import.open')}</LocalizedLink>
-              <LocalizedLink href="/my-knowledge" className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">{t('inbox.manualNote')}</LocalizedLink>
+              <LocalizedLink href="/my-notes" className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">{t('inbox.manualNote')}</LocalizedLink>
             </div>
           </section>
         ) : (

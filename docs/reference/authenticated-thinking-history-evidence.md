@@ -5,7 +5,7 @@ remote evidence.
 
 ## Scope
 
-The authenticated synthetic test opens `/my-knowledge?view=insights` with the
+The authenticated synthetic test opens `/my-notes?view=insights` with the
 dedicated Clerk fixture account and its owner-scoped PostgreSQL knowledge. It
 proves the private rendered path without placing real user content in fixtures
 or artifacts.

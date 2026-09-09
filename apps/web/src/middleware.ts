@@ -76,6 +76,14 @@ export default async function middleware(request: NextRequest, event: NextFetchE
   const pathLocale = localeIndependent ? null : getLocaleFromPathname(pathname);
   const locale = pathLocale ?? getRequestedLocale(request);
 
+  const internalPathname = pathLocale ? stripLocaleFromPathname(pathname) : pathname;
+  if (!localeIndependent && internalPathname === '/my-knowledge') {
+    const url = request.nextUrl.clone();
+    url.pathname = localizePathname('/my-notes', locale);
+    const response = ensureLocaleCookie(request, NextResponse.redirect(url, 308), locale);
+    return ensureGuestCookie(request, response);
+  }
+
   if (!localeIndependent && !pathLocale && !isInternalRewrite) {
     const url = request.nextUrl.clone();
     url.pathname = localizePathname(pathname, locale);
@@ -83,7 +91,6 @@ export default async function middleware(request: NextRequest, event: NextFetchE
     return ensureGuestCookie(request, response);
   }
 
-  const internalPathname = pathLocale ? stripLocaleFromPathname(pathname) : pathname;
   if (pathLocale) {
     const canonicalPathname = localizePathname(internalPathname, pathLocale);
     if (canonicalPathname !== pathname) {

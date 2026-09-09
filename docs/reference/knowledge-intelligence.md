@@ -5,7 +5,7 @@ small evidence-linked briefing. It does not read raw conversation archives,
 pending candidates, public graph content, or another owner's records.
 
 The authenticated surface is the `Thinking History` view at
-`/my-knowledge?view=insights`.
+`/my-notes?view=insights`.
 
 Its authenticated, client-only panel loads the selected locale's bounded UI
 copy from the cacheable static `thinking-history-messages.json` asset. The
