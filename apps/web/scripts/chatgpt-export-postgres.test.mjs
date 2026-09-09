@@ -838,6 +838,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     try {
       await capacityGuardClient.query('BEGIN');
       capacityGuardTransactionOpen = true;
+      await capacityGuardClient.query("SET LOCAL statement_timeout = '60s'");
       await capacityGuardClient.query(
         `SELECT pg_catalog.pg_advisory_xact_lock(
            pg_catalog.hashtextextended('girapphe:selected-export-capacity-fixture', 0)
