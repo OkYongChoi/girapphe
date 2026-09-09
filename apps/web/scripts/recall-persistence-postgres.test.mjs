@@ -710,6 +710,111 @@ test('Recall attempt migration enforces content-free lifecycle shapes and one ac
   }
 });
 
+test('Recall attempt retention purge deletes an expired row and preserves a current row', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = databaseUrl;
+  const importedAttempts = await import('../src/lib/recall-attempts.ts');
+  const attempts = importedAttempts.default ?? importedAttempts;
+  const importedDb = await import('../src/lib/db.ts');
+  const repositoryDb = importedDb.default ?? importedDb;
+  const originalQuery = repositoryDb.query;
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const client = await pool.connect();
+  const schemaName = `recall_retention_${crypto.randomUUID().replaceAll('-', '_')}`;
+  const schema = quoteIdentifier(schemaName);
+  const userId = `retention-owner-${crypto.randomUUID()}`;
+  const itemId = `retention-item-${crypto.randomUUID()}`;
+  const expiredAttemptId = crypto.randomUUID();
+  const currentAttemptId = crypto.randomUUID();
+  let bodyCompleted = false;
+  let transactionOpen = false;
+
+  try {
+    const migrationSql = await readFile(
+      new URL('../drizzle/migrations/0023_recall_prepared_attempts.sql', import.meta.url),
+      'utf8',
+    );
+    const statements = parsePreviewMigration(migrationSql);
+    await client.query(`CREATE SCHEMA ${schema}`);
+    await client.query('BEGIN');
+    transactionOpen = true;
+    await client.query(`SET LOCAL search_path TO ${schema}, public`);
+    await client.query(`
+      CREATE TABLE user_knowledge_items (
+        id text PRIMARY KEY,
+        user_id text NOT NULL,
+        UNIQUE (id, user_id)
+      )
+    `);
+    await client.query(
+      'INSERT INTO user_knowledge_items (id, user_id) VALUES ($1, $2)',
+      [itemId, userId],
+    );
+    for (const statement of statements) await client.query(statement);
+    await client.query(`
+      INSERT INTO recall_attempts (
+        id, user_id, knowledge_item_id, item_version, schedule_version,
+        recall_enrolled_at, milestone, exercise_type,
+        started_at, retention_expires_at
+      ) VALUES
+        (
+          $1, $3, $4, 1, 1, NOW() - INTERVAL '367 days', 'd1', 'concept',
+          NOW() - INTERVAL '366 days', NOW() - INTERVAL '1 day'
+        ),
+        (
+          $2, $3, $4, 1, 1, NOW() - INTERVAL '2 days', 'd7', 'concept',
+          NOW() - INTERVAL '1 day', NOW() + INTERVAL '1 day'
+        )
+    `, [expiredAttemptId, currentAttemptId, userId, itemId]);
+
+    repositoryDb.query = async (text, params) => {
+      const result = await client.query(text, params ?? []);
+      return { rows: result.rows };
+    };
+
+    assert.equal(await attempts.purgeExpiredRecallAttempts(), 1);
+    assert.deepEqual((await client.query(`
+      SELECT id, lifecycle_state
+      FROM recall_attempts
+      ORDER BY id
+    `)).rows, [{ id: currentAttemptId, lifecycle_state: 'prepared' }]);
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    repositoryDb.query = originalQuery;
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+    if (transactionOpen) {
+      await collectCleanupFailure(cleanupFailures, 'rollback retention transaction', async () => {
+        await client.query('ROLLBACK');
+        transactionOpen = false;
+      });
+    }
+    await collectCleanupFailure(cleanupFailures, 'reset retention search path', () => (
+      client.query('RESET search_path')
+    ));
+    await collectCleanupFailure(cleanupFailures, 'drop retention schema', () => (
+      client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify retention schema removal', async () => {
+      const remaining = (await client.query(
+        `SELECT COUNT(*)::integer AS count
+         FROM information_schema.schemata
+         WHERE schema_name = $1`,
+        [schemaName],
+      )).rows[0]?.count;
+      assert.equal(remaining, 0);
+    });
+    await collectCleanupFailure(cleanupFailures, 'release retention database client', async () => {
+      client.release();
+    });
+    await collectCleanupFailure(cleanupFailures, 'close retention database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});
+
 test('Recall prepared attempts start once, require confidence, reveal idempotently, and invalidate stale revisions', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
 }, async () => {
@@ -876,6 +981,31 @@ test('Recall prepared attempts start once, require confidence, reveal idempotent
       'UPDATE user_knowledge_items SET version = 1 WHERE id = $1 AND user_id = $2',
       [itemId, userId],
     );
+    const scheduleDriftAttempt = await attempts.startOrResumeRecallAttemptForUser(userId, itemId);
+    assert.equal(scheduleDriftAttempt.kind, 'started');
+    assert.ok(scheduleDriftAttempt.attempt);
+    assert.equal((await pool.query(
+      `UPDATE user_private_card_states
+       SET recall_schedule_version = recall_schedule_version + 1
+       WHERE user_id = $1 AND knowledge_item_id = $2
+       RETURNING recall_schedule_version`,
+      [userId, itemId],
+    )).rows[0]?.recall_schedule_version, scheduleDriftAttempt.attempt.scheduleVersion + 1);
+    assert.deepEqual(
+      await attempts.resumeRecallAttemptForUser(userId, scheduleDriftAttempt.attempt.id),
+      { kind: 'invalidated', attempt: null },
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT lifecycle_state, invalidation_reason,
+         invalidated_at IS NOT NULL AS invalidated_at_recorded
+       FROM recall_attempts WHERE id = $1 AND user_id = $2`,
+      [scheduleDriftAttempt.attempt.id, userId],
+    )).rows[0], {
+      lifecycle_state: 'invalidated',
+      invalidation_reason: 'stale_context',
+      invalidated_at_recorded: true,
+    });
+
     const removalAttempt = await attempts.startOrResumeRecallAttemptForUser(userId, itemId);
     assert.equal(removalAttempt.kind, 'started');
     assert.equal(await practice.removePrivatePracticeCardState(userId, itemId), true);
