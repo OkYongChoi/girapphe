@@ -9,6 +9,7 @@ import { KnowledgeText } from '@/components/knowledge-text';
 import { KnowledgeNotationGroup } from '@/components/knowledge-notation-group';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
+import { formatReviewLastSeen } from '@/practice-parity';
 
 export default function ReviewScreen() {
   return <AuthRequired><ReviewContent /></AuthRequired>;
@@ -16,7 +17,7 @@ export default function ReviewScreen() {
 
 function ReviewContent() {
   const router = useRouter();
-  const { direction, formatNumber, locale, t } = useI18n();
+  const { direction, formatDate, formatNumber, locale, t } = useI18n();
   const [cards, setCards] = useState<MobileCard[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,6 +74,16 @@ function ReviewContent() {
               ))}
             </ScrollView>
             <Pressable accessibilityRole="button" accessibilityLabel={t('review.resetAll')} onPress={reset} style={styles.reset}><Text style={styles.resetText}>{t('review.resetAll')}</Text></Pressable>
+            {cards.length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('review.start')}
+                onPress={() => router.push({ pathname: '/(tabs)/practice', params: { mode: 'review' } })}
+                style={styles.primary}
+              >
+                <Text style={styles.primaryText}>{t('review.start')}</Text>
+              </Pressable>
+            ) : null}
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {loading ? <Text style={styles.sub}>{t('common.loading')}</Text> : null}
           </View>
@@ -81,10 +92,23 @@ function ReviewContent() {
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>{t('review.empty')}</Text>
             <Text style={styles.sub}>{t('review.emptyCopy')}</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('review.start')} onPress={() => router.push('/(tabs)/practice')} style={styles.primary}><Text style={styles.primaryText}>{t('review.start')}</Text></Pressable>
+            {cards.length === 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('review.start')}
+                onPress={() => router.push({ pathname: '/(tabs)/practice', params: { mode: 'new' } })}
+                style={styles.primary}
+              >
+                <Text style={styles.primaryText}>{t('review.start')}</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
         renderItem={({ item }) => {
+          const lastSeen = formatReviewLastSeen(
+            item.last_seen,
+            (value) => formatDate(value, { dateStyle: 'medium' }),
+          );
           const notationBlocks = buildKnowledgeNotationGroupBlocks([
             { source: item.title, tone: 'title', numberOfLines: 2 },
             { source: item.domain_label ?? localizeDomain(locale, item.domain), tone: 'meta' },
@@ -98,6 +122,7 @@ function ReviewContent() {
                 <KnowledgeText value={item.summary} direction={direction} numberOfLines={3} style={styles.copy} />
               </KnowledgeNotationGroup>
               <TranslationFallbackNotice translation={item} />
+              {lastSeen ? <Text style={styles.sub}>{t('progress.reviewed')} · {lastSeen}</Text> : null}
               <Pressable accessibilityRole="button" accessibilityLabel={`${t('common.remove')} ${item.title}`} onPress={() => remove(item)}><Text style={styles.link}>{t('common.remove')}</Text></Pressable>
             </View>
           );

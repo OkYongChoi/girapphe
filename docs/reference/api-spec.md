@@ -132,6 +132,15 @@ legacy flat fields and may additionally include `knowledge_type`,
 create/update requests accept the same fields, reject invalid version-one
 bundles, and keep quick notes untyped.
 
+`GET /api/mobile?resource=notes&view=active|archive|trash` returns the
+owner-scoped My Notes lifecycle view requested by the client. Mobile clients
+archive or restore an archived item with `POST /api/mobile`, action
+`archive-note` or `restore-archived-note`, the item `id`, and its positive
+current `version`. A stale optimistic version returns `409 NOTE_STALE`; the
+client must reload before retrying. Moving an item to Trash continues to use
+`delete-note`, and `restore-note` restores a trashed item to the lifecycle
+state it held before deletion.
+
 New mobile clients send
 `X-Girapphe-Knowledge-Capabilities: expression-v1,event-chronology-v1,causal-relations-v1`.
 When the header is absent, expression bundles are projected to legacy flat

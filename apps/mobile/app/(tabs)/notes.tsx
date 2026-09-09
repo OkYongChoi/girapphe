@@ -1,14 +1,24 @@
-import { useCallback, useDeferredValue, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useMemo, useRef, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Alert, FlatList, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AuthRequired } from '@/components/auth-required';
-import { mobileApi, type PersonalNote } from '@/api';
+import { MobileApiRequestError, mobileApi, type PersonalNote } from '@/api';
 import { useI18n } from '@/i18n';
 import { buildMobileKnowledgeBundle, knowledgeBundleQuestionStatusLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, mobileKnowledgeBundleEditValues } from '@/knowledge-bundle-ui';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
 import { KnowledgeNotationGroup } from '@/components/knowledge-notation-group';
 import { KnowledgeText } from '@/components/knowledge-text';
 import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
+import {
+  buildMyNotesListRows,
+  createMyNotesPendingActionGuard,
+  createMyNotesViewRequestGuard,
+  filterAndSortMyNotes,
+  myNotesViewCapabilities,
+  type MyNotesDateRange,
+  type MyNotesTypeFilter,
+  type MyNotesView,
+} from '@/my-notes-view';
 import {
   KNOWLEDGE_BUNDLE_TYPES,
   type KnowledgeBundleType,
@@ -102,22 +112,35 @@ function NotesContent() {
   const [bundleFields, setBundleFields] = useState<string[]>(Array(11).fill(''));
   const [query, setQuery] = useState('');
   const [selectedTopic, setSelectedTopic] = useState('all');
+  const [typeFilter, setTypeFilter] = useState<MyNotesTypeFilter>('all');
+  const [dateRange, setDateRange] = useState<MyNotesDateRange>('all');
   const [sortBy, setSortBy] = useState<'created' | 'updated' | 'title'>('created');
   const [editing, setEditing] = useState<PersonalNote | null>(null);
-  const [isTrash, setIsTrash] = useState(false);
+  const [view, setView] = useState<MyNotesView>('active');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  const pendingActionGuard = useRef(createMyNotesPendingActionGuard());
+  const viewRequestGuard = useRef(createMyNotesViewRequestGuard());
   const [error, setError] = useState<string | null>(null);
   const deferredBundleFields = useDeferredValue(bundleFields);
   const deferredCentralQuestion = useDeferredValue(centralQuestion);
   const deferredSummary = useDeferredValue(summary);
 
-  const load = useCallback(async (view = isTrash) => {
+  const load = useCallback(async (targetView: MyNotesView = view) => {
+    const guard = viewRequestGuard.current;
+    if (!guard.isSelected(targetView)) return;
+    const requestId = guard.begin();
     setLoading(true); setError(null);
-    try { setItems((await mobileApi.notes(view ? 'trash' : 'active')).items); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : t('notes.loadError')); }
-    finally { setLoading(false); }
-  }, [isTrash, t]);
+    try {
+      const nextItems = (await mobileApi.notes(targetView)).items;
+      if (guard.isCurrent(targetView, requestId)) setItems(nextItems);
+    } catch (reason) {
+      if (guard.isCurrent(targetView, requestId)) setError(reason instanceof Error ? reason.message : t('notes.loadError'));
+    } finally {
+      if (guard.isCurrent(targetView, requestId)) setLoading(false);
+    }
+  }, [t, view]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
@@ -129,6 +152,7 @@ function NotesContent() {
 
   async function addNote() {
     if (!title.trim() || submitting || (knowledgeType && !centralQuestion.trim())) return;
+    const sourceView: MyNotesView = 'active';
     setSubmitting(true); setError(null);
     try {
       const typedFields = knowledgeType ? {
@@ -145,21 +169,69 @@ function NotesContent() {
       } else {
         await mobileApi.mutate({ action: 'create-note', title, topic, content, tags: tags.split(',').map((value) => value.trim()).filter(Boolean), requestId: `${Date.now()}-${Math.random()}`, ...typedFields });
       }
-      resetEditor(); await load(false);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : t('notes.saveError')); }
+      resetEditor(); await load(sourceView);
+    } catch (reason) {
+      if (viewRequestGuard.current.isSelected(sourceView)) setError(reason instanceof Error ? reason.message : t('notes.saveError'));
+    }
     finally { setSubmitting(false); }
   }
 
-  async function changeView(nextTrash: boolean) { setIsTrash(nextTrash); await load(nextTrash); }
+  function changeView(nextView: MyNotesView) {
+    const guard = viewRequestGuard.current;
+    if (nextView === guard.selected()) return;
+    guard.select(nextView);
+    resetEditor();
+    setItems([]);
+    setQuery('');
+    setSelectedTopic('all');
+    setTypeFilter('all');
+    setDateRange('all');
+    setSortBy('created');
+    setError(null);
+    setLoading(true);
+    setView(nextView);
+  }
+
+  async function updateNoteLifecycle(
+    note: PersonalNote,
+    action: 'archive-note' | 'restore-archived-note' | 'delete-note' | 'restore-note',
+    sourceView: MyNotesView,
+  ) {
+    if (!pendingActionGuard.current.begin(note.id)) return;
+    setPendingActionId(note.id); setError(null);
+    try {
+      const body = action === 'archive-note' || action === 'restore-archived-note'
+        ? { action, id: note.id, version: note.version }
+        : { action, id: note.id };
+      await mobileApi.mutate(body);
+      await load(viewRequestGuard.current.selected());
+    } catch (reason) {
+      const stale = reason instanceof MobileApiRequestError && reason.code === 'NOTE_STALE';
+      if (viewRequestGuard.current.isSelected(sourceView)) {
+        if (stale) await load(sourceView);
+        if (viewRequestGuard.current.isSelected(sourceView)) {
+          setError(stale
+            ? t('notes.staleError')
+            : reason instanceof Error
+              ? reason.message
+              : t(action === 'restore-note' ? 'notes.restoreError' : 'notes.organizeError'));
+        }
+      }
+    } finally {
+      pendingActionGuard.current.finish(note.id);
+      setPendingActionId((current) => current === note.id ? null : current);
+    }
+  }
+
   function deleteNote(note: PersonalNote) {
+    const sourceView = view;
     Alert.alert(t('notes.trashConfirmTitle'), t('notes.trashConfirmBody', { title: note.title, days: formatNumber(14) }), [
       { text: t('common.cancel'), style: 'cancel' },
-      { text: t('notes.moveToTrash'), style: 'destructive', onPress: () => void mobileApi.mutate({ action: 'delete-note', id: note.id }).then(() => load(false)).catch((reason) => setError(reason.message)) },
+      { text: t('notes.moveToTrash'), style: 'destructive', onPress: () => void updateNoteLifecycle(note, 'delete-note', sourceView) },
     ]);
   }
   async function restoreNote(note: PersonalNote) {
-    try { await mobileApi.mutate({ action: 'restore-note', id: note.id }); await load(true); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : t('notes.restoreError')); }
+    await updateNoteLifecycle(note, 'restore-note', 'trash');
   }
   function startEdit(note: PersonalNote) {
     setEditing(note); setTitle(note.title); setTopic(note.topic); setContent(note.content); setTags(note.tags.join(', ')); setSummary(note.summary);
@@ -181,23 +253,41 @@ function NotesContent() {
       return null;
     }
   }, [deferredBundleFields, knowledgeType]);
-  const topics = Array.from(new Set(items.map((item) => item.topic))).sort();
-  const visibleItems = items.filter((item) => {
-    const matchesQuery = !query.trim() || `${item.title} ${item.topic} ${item.summary} ${item.content} ${item.central_question ?? ''} ${item.knowledge_type ?? ''}`.toLowerCase().includes(query.trim().toLowerCase());
-    return matchesQuery && (selectedTopic === 'all' || item.topic === selectedTopic);
-  }).sort((a, b) => sortBy === 'title' ? a.title.localeCompare(b.title, locale) : +new Date(b[sortBy === 'updated' ? 'updated_at' : 'created_at']) - +new Date(a[sortBy === 'updated' ? 'updated_at' : 'created_at']));
+  const topics = Array.from(new Set(items.map((item) => item.topic).filter(Boolean))).sort();
+  const capabilities = myNotesViewCapabilities(view);
+  const visibleItems = filterAndSortMyNotes(items, {
+    query,
+    topic: selectedTopic,
+    knowledgeType: typeFilter,
+    dateRange,
+    sortBy,
+    locale,
+  });
+  const listRows = buildMyNotesListRows(visibleItems, sortBy);
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
-      <FlatList data={visibleItems} keyExtractor={(item) => item.id} contentContainerStyle={styles.content}
+      <FlatList data={listRows} keyExtractor={(row) => row.key} contentContainerStyle={styles.content}
         initialNumToRender={4} maxToRenderPerBatch={4} windowSize={5}
         ListHeaderComponent={<View>
           <Text style={styles.kicker}>{t('notes.private')}</Text><Text style={styles.title}>{t('notes.title')}</Text>
           <Pressable accessibilityRole="link" onPress={() => router.push('/candidate-inbox')} style={styles.candidateInboxLink}>
             <Text style={styles.candidateInboxLinkText}>{CANDIDATE_INBOX_COPY[locale]} →</Text>
           </Pressable>
-          <View style={styles.tabs}><Pressable accessibilityRole="tab" accessibilityState={{ selected: !isTrash }} onPress={() => void changeView(false)} style={[styles.tab, !isTrash && styles.activeTab]}><Text>{t('notes.myNotes')}</Text></Pressable><Pressable accessibilityRole="tab" accessibilityState={{ selected: isTrash }} onPress={() => void changeView(true)} style={[styles.tab, isTrash && styles.activeTab]}><Text>{t('notes.trash')}</Text></Pressable></View>
-          {!isTrash ? (
+          <View style={styles.tabs}>
+            {(['active', 'archive', 'trash'] as const).map((value) => (
+              <Pressable
+                key={value}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: view === value }}
+                onPress={() => changeView(value)}
+                style={[styles.tab, view === value && styles.activeTab]}
+              >
+                <Text>{value === 'active' ? t('notes.active') : value === 'archive' ? t('notes.archive') : t('notes.trash')}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {capabilities.showsEditor ? (
             <View style={styles.form}>
               <TextInput accessibilityLabel={t('notes.titlePlaceholder')} value={title} onChangeText={setTitle} placeholder={t('notes.titlePlaceholder')} style={styles.input} />
               <TextInput accessibilityLabel={t('notes.topicPlaceholder')} value={topic} onChangeText={setTopic} placeholder={t('notes.topicPlaceholder')} style={styles.input} />
@@ -272,17 +362,69 @@ function NotesContent() {
               <Pressable accessibilityRole="button" disabled={!title.trim() || submitting || Boolean(knowledgeType && !centralQuestion.trim())} onPress={() => void addNote()} style={[styles.addButton, (!title.trim() || submitting || Boolean(knowledgeType && !centralQuestion.trim())) && styles.disabled]}>
                 <Text style={styles.addButtonText}>{submitting ? t('notes.saving') : editing ? t('notes.saveChanges') : t('notes.add')}</Text>
               </Pressable>
-              {editing ? <Pressable accessibilityRole="button" onPress={resetEditor}><Text style={styles.action}>{t('notes.cancelEdit')}</Text></Pressable> : null}
+              {editing ? <Pressable accessibilityRole="button" onPress={resetEditor} style={styles.actionButton}><Text style={styles.action}>{t('notes.cancelEdit')}</Text></Pressable> : null}
             </View>
           ) : null}
           <TextInput accessibilityLabel={t('notes.search')} value={query} onChangeText={setQuery} placeholder={t('notes.search')} style={styles.input}/>
           <View style={styles.filterRow}><Pressable accessibilityRole="button" accessibilityState={{ selected: selectedTopic === 'all' }} onPress={() => setSelectedTopic('all')} style={[styles.filter, selectedTopic === 'all' && styles.activeTab]}><Text>{t('notes.allTopics')}</Text></Pressable>{topics.map((value) => <Pressable accessibilityRole="button" accessibilityState={{ selected: selectedTopic === value }} key={value} onPress={() => setSelectedTopic(value)} style={[styles.filter, selectedTopic === value && styles.activeTab]}><Text>{value}</Text></Pressable>)}</View>
+          <Text style={styles.filterLabel}>{t('notes.typeFilter')}</Text>
+          <View style={styles.typeGrid}>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: typeFilter === 'all' }} onPress={() => setTypeFilter('all')} style={[styles.typeButton, typeFilter === 'all' && styles.typeButtonActive]}>
+              <Text style={[styles.typeButtonText, typeFilter === 'all' && styles.typeButtonTextActive]}>{t('notes.allTypes')}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: typeFilter === 'legacy' }} onPress={() => setTypeFilter('legacy')} style={[styles.typeButton, typeFilter === 'legacy' && styles.typeButtonActive]}>
+              <Text style={[styles.typeButtonText, typeFilter === 'legacy' && styles.typeButtonTextActive]}>{t('notes.quickNote')}</Text>
+            </Pressable>
+            {KNOWLEDGE_BUNDLE_TYPES.map((value) => (
+              <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: typeFilter === value }} onPress={() => setTypeFilter(value)} style={[styles.typeButton, typeFilter === value && styles.typeButtonActive]}>
+                <Text style={[styles.typeButtonText, typeFilter === value && styles.typeButtonTextActive]}>{knowledgeBundleTypeLabel(locale, value)}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.filterLabel}>{t('notes.dateRange')}</Text>
+          <View style={styles.filterRow}>
+            {(['all', 'today', 'week', 'month'] as const).map((value) => (
+              <Pressable
+                key={value}
+                accessibilityRole="button"
+                accessibilityState={{ selected: dateRange === value }}
+                onPress={() => setDateRange(value)}
+                style={[styles.filter, dateRange === value && styles.activeTab]}
+              >
+                <Text>{value === 'all' ? t('notes.allDates') : value === 'today' ? t('notes.today') : value === 'week' ? t('notes.thisWeek') : t('notes.thisMonth')}</Text>
+              </Pressable>
+            ))}
+          </View>
           <View style={styles.filterRow}>{(['created', 'updated', 'title'] as const).map((value) => <Pressable accessibilityRole="button" accessibilityState={{ selected: sortBy === value }} key={value} onPress={() => setSortBy(value)} style={[styles.filter, sortBy === value && styles.activeTab]}><Text>{value === 'created' ? t('notes.recentlyAdded') : value === 'updated' ? t('notes.recentlyUpdated') : t('notes.alphabetical')}</Text></Pressable>)}</View>
-          {error && <Text style={styles.error}>{error}</Text>}
+          {error && <Text accessibilityLiveRegion="assertive" accessibilityRole="alert" style={styles.error}>{error}</Text>}
           {loading && <Text style={styles.meta}>{t('common.loading')}</Text>}
         </View>}
-        ListEmptyComponent={!loading ? <Text style={styles.meta}>{isTrash ? t('notes.emptyTrash') : t('notes.empty')}</Text> : null}
-        renderItem={({ item }) => {
+        ListEmptyComponent={!loading ? (
+          items.length > 0 ? (
+            <View style={styles.emptyResults}>
+              <Text style={styles.meta}>{t('notes.noMatches')}</Text>
+              <Text style={styles.meta}>{t('notes.noMatchesBody')}</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setQuery(''); setSelectedTopic('all'); setTypeFilter('all'); setDateRange('all'); setSortBy('created');
+                }}
+                style={styles.actionButton}
+              >
+                <Text style={styles.action}>{t('notes.clearFilters')}</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Text style={styles.meta}>{view === 'trash' ? t('notes.emptyTrash') : view === 'archive' ? t('notes.emptyArchive') : t('notes.empty')}</Text>
+          )
+        ) : null}
+        renderItem={({ item: row }) => {
+          if (row.kind === 'group') {
+            const groupLabel = row.period === 'today' ? t('notes.today') : row.period === 'this-week' ? t('notes.thisWeek') : row.period === 'this-month' ? t('notes.thisMonth') : t('notes.earlier');
+            return <Text accessibilityRole="header" style={styles.groupHeader}>{groupLabel}</Text>;
+          }
+          const item = row.note;
+          const actionDisabled = pendingActionId !== null;
           const notationBlocks = buildKnowledgeNotationGroupBlocks([
             { source: item.title, tone: 'title' },
             { source: item.central_question, tone: 'question' },
@@ -298,15 +440,21 @@ function NotesContent() {
                 {item.structured_content ? <View style={styles.bundleAnswer}><MobileKnowledgeBundleView content={item.structured_content} locale={locale} /></View> : null}
               </KnowledgeNotationGroup>
               <View style={styles.noteMetaRow}>
-                {item.topic && !isTrash ? (
+                {item.topic && view === 'active' ? (
                   <Pressable accessibilityRole="link" accessibilityLabel={`${OPEN_TOPIC_COPY[locale]}: ${item.topic}`} onPress={() => router.push(`/knowledge-topic/${encodeURIComponent(item.topic)}`)}>
                     <Text style={styles.topicLink}>{item.topic} ↗</Text>
                   </Pressable>
                 ) : item.topic ? <Text style={styles.meta}>{item.topic}</Text> : null}
                 <Text style={styles.meta}>{formatDate(item.updated_at)}</Text>
               </View>
-              {!isTrash ? <Pressable accessibilityRole="button" accessibilityLabel={`${t('notes.edit')} ${item.title}`} onPress={() => startEdit(item)}><Text style={styles.action}>{t('notes.edit')}</Text></Pressable> : null}
-              <Pressable accessibilityRole="button" accessibilityLabel={`${isTrash ? t('notes.restore') : t('notes.moveToTrash')} ${item.title}`} onPress={() => isTrash ? void restoreNote(item) : deleteNote(item)}><Text style={styles.action}>{isTrash ? t('notes.restore') : t('notes.moveToTrash')}</Text></Pressable>
+              {item.tags.length > 0 ? <View style={styles.tagRow}>{item.tags.map((tag) => <Text key={`${item.id}:${tag}`} style={styles.tag}>#{tag}</Text>)}</View> : null}
+              <View style={styles.actions}>
+                {capabilities.canEdit ? <Pressable accessibilityRole="button" accessibilityLabel={`${t('notes.edit')} ${item.title}`} accessibilityState={{ disabled: actionDisabled }} disabled={actionDisabled} style={[styles.actionButton, actionDisabled && styles.disabled]} onPress={() => startEdit(item)}><Text style={styles.action}>{t('notes.edit')}</Text></Pressable> : null}
+                {capabilities.canArchive ? <Pressable accessibilityRole="button" accessibilityLabel={`${t('notes.archive')} ${item.title}`} accessibilityState={{ disabled: actionDisabled }} disabled={actionDisabled} style={[styles.actionButton, actionDisabled && styles.disabled]} onPress={() => void updateNoteLifecycle(item, 'archive-note', 'active')}><Text style={styles.action}>{t('notes.archive')}</Text></Pressable> : null}
+                {capabilities.canRestoreArchived ? <Pressable accessibilityRole="button" accessibilityLabel={`${t('notes.restoreArchived')} ${item.title}`} accessibilityState={{ disabled: actionDisabled }} disabled={actionDisabled} style={[styles.actionButton, actionDisabled && styles.disabled]} onPress={() => void updateNoteLifecycle(item, 'restore-archived-note', 'archive')}><Text style={styles.action}>{t('notes.restoreArchived')}</Text></Pressable> : null}
+                {capabilities.canMoveToTrash ? <Pressable accessibilityRole="button" accessibilityLabel={`${t('notes.moveToTrash')} ${item.title}`} accessibilityState={{ disabled: actionDisabled }} disabled={actionDisabled} style={[styles.actionButton, actionDisabled && styles.disabled]} onPress={() => deleteNote(item)}><Text style={styles.action}>{t('notes.moveToTrash')}</Text></Pressable> : null}
+                {capabilities.canRestoreTrash ? <Pressable accessibilityRole="button" accessibilityLabel={`${t('notes.restore')} ${item.title}`} accessibilityState={{ disabled: actionDisabled }} disabled={actionDisabled} style={[styles.actionButton, actionDisabled && styles.disabled]} onPress={() => void restoreNote(item)}><Text style={styles.action}>{t('notes.restore')}</Text></Pressable> : null}
+              </View>
             </View>
           );
         }}
@@ -323,15 +471,16 @@ const styles = StyleSheet.create({
   candidateInboxLink: { alignSelf: 'flex-start', backgroundColor: '#eef2ff', borderColor: '#a5b4fc', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12 },
   candidateInboxLinkText: { color: '#3730a3', fontSize: 13, fontWeight: '800' },
   tabs: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  tab: { backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },
+  tab: { minHeight: 44, justifyContent: 'center', backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },
   activeTab: { backgroundColor: '#dbeafe', borderColor: '#2563eb' },
-  filterRow: { flexDirection: 'row', gap: 8, overflow: 'hidden' },
-  filter: { backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  filter: { minHeight: 44, justifyContent: 'center', backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
+  filterLabel: { color: '#374151', fontSize: 12, fontWeight: '800', marginTop: 10 },
   form: { backgroundColor: '#fff', borderRadius: 12, padding: 14, gap: 10, marginBottom: 14 },
   fieldLabel: { color: '#374151', fontSize: 13, fontWeight: '800' },
   statusEditor: { gap: 8 },
   typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  typeButton: { backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 8 },
+  typeButton: { minHeight: 44, justifyContent: 'center', backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 8 },
   typeButtonActive: { backgroundColor: '#111827', borderColor: '#111827' },
   typeButtonText: { color: '#445463', fontSize: 13, fontWeight: '700' },
   typeButtonTextActive: { color: '#fff' },
@@ -348,6 +497,10 @@ const styles = StyleSheet.create({
   addButton: { backgroundColor: '#111827', borderRadius: 8, padding: 13 },
   disabled: { opacity: .45 },
   addButtonText: { color: '#fff', fontWeight: '800', textAlign: 'center' },
+  groupHeader: { color: '#334155', fontSize: 14, fontWeight: '900', marginTop: 8 },
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tag: { color: '#475569', backgroundColor: '#f1f5f9', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
   note: { backgroundColor: '#fff', borderRadius: 12, padding: 16, gap: 6 },
   noteHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   noteMetaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
@@ -359,5 +512,7 @@ const styles = StyleSheet.create({
   bundleAnswer: { borderColor: '#e9d5ff', borderWidth: 1, backgroundColor: '#faf5ff', borderRadius: 8, padding: 10, gap: 5 },
   meta: { color: '#607080', fontSize: 13 },
   action: { color: '#2563eb', fontWeight: '800', marginTop: 4 },
+  actionButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 2 },
+  emptyResults: { gap: 6 },
   error: { color: '#b91c1c', marginBottom: 12 },
 });

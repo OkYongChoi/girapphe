@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getDomainColor } from '@stem-brain/graph-engine';
 import { NativeSponsoredCard } from '@/components/native-sponsored-card';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
-import { mobileApi, type MobileCard } from '@/api';
+import { mobileApi, type MobileCard, type MobilePracticeStats } from '@/api';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
 import { expressionHasReverseRecallCue, expressionRecallCue, expressionRecallDirectionLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, type ExpressionRecallDirection } from '@/knowledge-bundle-ui';
@@ -18,6 +18,16 @@ import {
   getRelatedNodes,
 } from '@/knowledge';
 import { useLocalizedContent } from '@/localized-content';
+import {
+  appendPracticeSeenCard,
+  createPracticeHistoryState,
+  prerequisiteKnowledgeState,
+  recordCompletedPracticeAction,
+  recoverPreviousPracticeCard,
+  resolvePracticeFocusMode,
+  reviewQueueCount,
+  type PracticeMode,
+} from '@/practice-parity';
 import { useSubscription } from '@/subscriptions';
 import { localizeDomain, localizeLevel, localizeType } from '@stem-brain/shared';
 
@@ -235,84 +245,172 @@ function LocalPracticeScreen() {
 
 function SyncedPracticeScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ mode?: string | string[] }>();
   const { direction, formatNumber, locale, t } = useI18n();
   const { isAdFree, isReady: subscriptionReady } = useSubscription();
-  const [mode, setMode] = useState<'new' | 'review'>('new');
+  const [mode, setMode] = useState<PracticeMode>('new');
   const [card, setCard] = useState<MobileCard | null>(null);
-  const [stats, setStats] = useState({ explainable: 0, unclear: 0 });
+  const [stats, setStats] = useState<MobilePracticeStats>({ explainable: 0, unclear: 0, reviewable: 0 });
   const [seen, setSeen] = useState<string[]>([]);
+  const [historyState, setHistoryState] = useState(() => createPracticeHistoryState<MobileCard>());
+  const [previousAction, setPreviousAction] = useState<'known' | 'saved' | 'skip' | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [cardAdvanceCount, setCardAdvanceCount] = useState(0);
   const [showSponsoredCard, setShowSponsoredCard] = useState(false);
   const [expressionDirection, setExpressionDirection] = useState<ExpressionRecallDirection>('forward');
+  const routeModeRef = useRef(params.mode);
+  const modeRef = useRef<PracticeMode>('new');
+  const sessionGenerationRef = useRef(0);
+  const requestSequenceRef = useRef(0);
+  const busyRef = useRef(false);
+  routeModeRef.current = params.mode;
 
-  const load = useCallback(async (nextMode: 'new' | 'review', exclude: string[]) => {
+  const load = useCallback(async (
+    nextMode: PracticeMode,
+    exclude: string[],
+    sessionGeneration: number,
+  ): Promise<boolean> => {
+    if (sessionGeneration !== sessionGenerationRef.current) return false;
+    const requestSequence = ++requestSequenceRef.current;
+    const isCurrentRequest = () => (
+      sessionGeneration === sessionGenerationRef.current
+      && requestSequence === requestSequenceRef.current
+    );
+    busyRef.current = true;
     setLoading(true);
     setError(null);
     setIsRevealed(false);
+    setPreviousAction(null);
     setExpressionDirection('forward');
     try {
       const result = await mobileApi.practice(nextMode, exclude);
+      if (!isCurrentRequest()) return false;
       setCard(result.card);
       setStats(result.stats);
+      return true;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('practice.loadError'));
+      if (isCurrentRequest()) {
+        setError(cause instanceof Error ? cause.message : t('practice.loadError'));
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) {
+        busyRef.current = false;
+        setLoading(false);
+      }
     }
   }, [t]);
 
   useFocusEffect(useCallback(() => {
-    setMode('new');
+    const focusMode = resolvePracticeFocusMode(routeModeRef.current, modeRef.current);
+    const sessionGeneration = ++sessionGenerationRef.current;
+    modeRef.current = focusMode.mode;
+    setMode(focusMode.mode);
+    setCard(null);
     setSeen([]);
-    void load('new', []);
-  }, [load]));
+    setHistoryState((current) => ({ ...current, history: [] }));
+    setPreviousAction(null);
+    if (focusMode.consumeRouteIntent) router.setParams({ mode: undefined });
+    void load(focusMode.mode, [], sessionGeneration);
+    return () => {
+      requestSequenceRef.current += 1;
+      sessionGenerationRef.current += 1;
+      busyRef.current = false;
+    };
+  }, [load, router]));
 
   useEffect(() => {
     if (isAdFree) setShowSponsoredCard(false);
   }, [isAdFree]);
 
-  function recordAdvance() {
-    setCardAdvanceCount((current) => {
-      const next = current + 1;
-      if (subscriptionReady && !isAdFree && next % 5 === 0) setShowSponsoredCard(true);
+  function recordAdvance(completedCard: MobileCard, action: 'known' | 'saved' | 'skip') {
+    setHistoryState((current) => {
+      const next = recordCompletedPracticeAction(current, completedCard, action);
+      if (subscriptionReady && !isAdFree && next.completedCardActions % 5 === 0) {
+        setShowSponsoredCard(true);
+      }
       return next;
     });
   }
 
   async function rate(status: 'known' | 'saved') {
-    if (!card) return;
+    if (!card || busyRef.current) return;
+    const completedCard = card;
+    const actionMode = modeRef.current;
+    const sessionGeneration = sessionGenerationRef.current;
+    busyRef.current = true;
+    setLoading(true);
+    setError(null);
     try {
-      await mobileApi.mutate({ action: 'rate-card', cardId: card.id, status });
-      const nextSeen = [...seen, card.id].slice(-100);
+      await mobileApi.mutate({ action: 'rate-card', cardId: completedCard.id, status });
+      if (sessionGeneration !== sessionGenerationRef.current) return;
+      const nextSeen = appendPracticeSeenCard(seen, completedCard.id);
+      const advanced = await load(actionMode, nextSeen, sessionGeneration);
+      if (!advanced || sessionGeneration !== sessionGenerationRef.current) return;
       setSeen(nextSeen);
-      recordAdvance();
-      await load(mode, nextSeen);
+      recordAdvance(completedCard, status);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('practice.saveError'));
+      if (sessionGeneration === sessionGenerationRef.current) {
+        setError(cause instanceof Error ? cause.message : t('practice.saveError'));
+      }
+    } finally {
+      if (sessionGeneration === sessionGenerationRef.current) {
+        busyRef.current = false;
+        setLoading(false);
+      }
     }
   }
 
-  function skip() {
-    if (!card) return;
-    const nextSeen = [...seen, card.id].slice(-100);
-    setSeen(nextSeen);
-    recordAdvance();
-    void load(mode, nextSeen);
+  async function skip() {
+    if (!card || busyRef.current) return;
+    const completedCard = card;
+    const actionMode = modeRef.current;
+    const sessionGeneration = sessionGenerationRef.current;
+    const nextSeen = appendPracticeSeenCard(seen, completedCard.id);
+    busyRef.current = true;
+    try {
+      const advanced = await load(actionMode, nextSeen, sessionGeneration);
+      if (!advanced || sessionGeneration !== sessionGenerationRef.current) return;
+      setSeen(nextSeen);
+      recordAdvance(completedCard, 'skip');
+    } finally {
+      if (sessionGeneration === sessionGenerationRef.current) {
+        busyRef.current = false;
+        setLoading(false);
+      }
+    }
   }
 
-  function changeMode(nextMode: 'new' | 'review') {
+  function showPrevious() {
+    if (busyRef.current) return;
+    const recovered = recoverPreviousPracticeCard(historyState);
+    if (!recovered.entry) return;
+    setHistoryState(recovered.state);
+    setCard(recovered.entry.card);
+    setPreviousAction(recovered.entry.action);
+    setError(null);
+    setIsRevealed(true);
+    setExpressionDirection('forward');
+  }
+
+  function changeMode(nextMode: PracticeMode) {
+    if (busyRef.current || nextMode === modeRef.current) return;
+    const sessionGeneration = ++sessionGenerationRef.current;
+    modeRef.current = nextMode;
     setMode(nextMode);
+    setCard(null);
     setSeen([]);
+    setHistoryState((current) => ({ ...current, history: [] }));
+    setPreviousAction(null);
     setShowSponsoredCard(false);
-    void load(nextMode, []);
+    void load(nextMode, [], sessionGeneration);
   }
 
   const expressionContent = card?.structured_content?.type === 'expression' ? card.structured_content : null;
   const expressionCue = expressionContent ? expressionRecallCue(expressionContent, locale, expressionDirection) : '';
   const hasExpressionReverseCue = expressionContent ? expressionHasReverseRecallCue(expressionContent) : false;
+  const reviewable = reviewQueueCount(stats);
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
@@ -325,12 +423,28 @@ function SyncedPracticeScreen() {
         <View style={styles.progressPanel}>
           <View><Text style={styles.progressValue}>{formatNumber(stats.explainable)}</Text><Text style={styles.progressLabel}>{t('progress.explainable')}</Text></View>
           <View><Text style={styles.progressValue}>{formatNumber(stats.unclear)}</Text><Text style={styles.progressLabel}>{t('progress.unclear')}</Text></View>
-          <View><Text style={styles.progressValue}>{formatNumber(cardAdvanceCount)}</Text><Text style={styles.progressLabel}>{t('practice.reviewed')}</Text></View>
+          <View><Text style={styles.progressValue}>{formatNumber(historyState.completedCardActions)}</Text><Text style={styles.progressLabel}>{t('practice.reviewed')}</Text></View>
         </View>
 
         <View style={styles.modeRow}>
-          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'new' }} onPress={() => changeMode('new')} style={[styles.modeButton, mode === 'new' && styles.modeButtonActive]}><Text style={styles.modeText}>{t('practice.learnNew')}</Text></Pressable>
-          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'review' }} onPress={() => changeMode('review')} style={[styles.modeButton, mode === 'review' && styles.modeButtonActive]}><Text style={styles.modeText}>{t('practice.review', { count: formatNumber(stats.unclear) })}</Text></Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: mode === 'new', disabled: loading }}
+            disabled={loading}
+            onPress={() => changeMode('new')}
+            style={[styles.modeButton, mode === 'new' && styles.modeButtonActive, loading && styles.modeButtonDisabled]}
+          >
+            <Text style={styles.modeText}>{t('practice.learnNew')}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: mode === 'review', disabled: loading }}
+            disabled={loading}
+            onPress={() => changeMode('review')}
+            style={[styles.modeButton, mode === 'review' && styles.modeButtonActive, loading && styles.modeButtonDisabled]}
+          >
+            <Text style={styles.modeText}>{t('practice.review', { count: formatNumber(reviewable) })}</Text>
+          </Pressable>
         </View>
 
         {error ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{error}</Text> : null}
@@ -340,6 +454,29 @@ function SyncedPracticeScreen() {
           <NativeSponsoredCard onContinue={() => setShowSponsoredCard(false)} onUpgrade={() => router.push('/subscription')} />
         ) : !loading && card ? (
           <>
+            <View style={styles.navigationRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('practice.previousAria')}
+                disabled={historyState.history.length === 0}
+                onPress={showPrevious}
+                style={({ pressed }) => [
+                  styles.navigationButton,
+                  historyState.history.length === 0 && styles.navigationButtonDisabled,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.navigationText}>{t('practice.previous')}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('practice.skip')}
+                onPress={skip}
+                style={({ pressed }) => [styles.navigationButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.navigationText}>{t('practice.skip')}</Text>
+              </Pressable>
+            </View>
             <View style={styles.card}>
               <View style={styles.cardHeader}>
                 <Text style={styles.domainText}>{card.domain_label ?? localizeDomain(locale, card.domain)}</Text>
@@ -362,13 +499,59 @@ function SyncedPracticeScreen() {
                 <Pressable accessibilityRole="button" accessibilityLabel={t('practice.reveal')} onPress={() => setIsRevealed(true)} style={styles.revealButton}><Text style={styles.revealButtonText}>{t('practice.reveal')}</Text></Pressable>
               )}
             </View>
-            {isRevealed ? (
-              <View style={styles.ratingRow}>
-                <Pressable accessibilityRole="button" accessibilityLabel={t('practice.stillUnclear')} onPress={() => void rate('saved')} style={styles.ratingButton}><Text style={styles.ratingText}>{t('practice.stillUnclear')}</Text></Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel={t('practice.canExplain')} onPress={() => void rate('known')} style={[styles.ratingButton, styles.ratingButtonPrimary]}><Text style={[styles.ratingText, styles.ratingTextPrimary]}>{t('practice.canExplain')}</Text></Pressable>
+            {card.prerequisites && card.prerequisites.length > 0 ? (
+              <View style={styles.prerequisitesPanel}>
+                <Text style={styles.prerequisitesTitle}>
+                  {t('home.prerequisites', { count: formatNumber(card.prerequisites.length) })}
+                </Text>
+                {card.prerequisites.map((prerequisite) => {
+                  const state = prerequisiteKnowledgeState(prerequisite.status);
+                  const stateLabel = state === 'explainable'
+                    ? t('practice.canExplain')
+                    : state === 'unclear'
+                      ? t('practice.stillUnclear')
+                      : t('practice.learnNew');
+                  return (
+                    <View
+                      key={prerequisite.id}
+                      accessible
+                      accessibilityLabel={`${prerequisite.label}: ${stateLabel}`}
+                      style={styles.prerequisiteRow}
+                    >
+                      <Text accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.prerequisiteSymbol}>
+                        {state === 'explainable' ? '✓' : state === 'unclear' ? '◐' : '○'}
+                      </Text>
+                      <KnowledgeText value={prerequisite.label} direction={direction} numberOfLines={2} style={styles.prerequisiteLabel} />
+                      <Text style={styles.prerequisiteStatus}>{stateLabel}</Text>
+                    </View>
+                  );
+                })}
               </View>
             ) : null}
-            <Pressable accessibilityRole="button" accessibilityLabel={t('practice.skip')} onPress={skip} style={styles.skipButton}><Text style={styles.skipText}>{t('practice.skip')}</Text></Pressable>
+            {isRevealed ? (
+              <View style={styles.ratingRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('practice.stillUnclear')}
+                  accessibilityState={{ selected: previousAction === 'saved' }}
+                  disabled={loading}
+                  onPress={() => void rate('saved')}
+                  style={[styles.ratingButton, previousAction === 'saved' && styles.ratingButtonSelected]}
+                >
+                  <Text style={styles.ratingText}>{t('practice.stillUnclear')}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('practice.canExplain')}
+                  accessibilityState={{ selected: previousAction === 'known' }}
+                  disabled={loading}
+                  onPress={() => void rate('known')}
+                  style={[styles.ratingButton, styles.ratingButtonPrimary, previousAction === 'known' && styles.ratingButtonPrimarySelected]}
+                >
+                  <Text style={[styles.ratingText, styles.ratingTextPrimary]}>{t('practice.canExplain')}</Text>
+                </Pressable>
+              </View>
+            ) : null}
           </>
         ) : !loading ? (
           <View style={styles.emptyState}>
@@ -509,6 +692,9 @@ const styles = StyleSheet.create({
     borderColor: '#2563eb',
     backgroundColor: '#dbeafe',
   },
+  modeButtonDisabled: {
+    opacity: 0.5,
+  },
   modeText: {
     color: '#111827',
     fontWeight: '800',
@@ -517,6 +703,28 @@ const styles = StyleSheet.create({
     color: '#b42318',
     fontWeight: '700',
     marginBottom: 12,
+  },
+  navigationRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 10,
+  },
+  navigationButton: {
+    minHeight: 44,
+    minWidth: 96,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  navigationButtonDisabled: {
+    opacity: 0.35,
+  },
+  navigationText: {
+    color: '#607080',
+    fontSize: 14,
+    fontWeight: '800',
   },
   card: {
     borderRadius: 8,
@@ -639,6 +847,43 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  prerequisitesPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e4e7ec',
+    backgroundColor: '#ffffff',
+    padding: 14,
+    gap: 8,
+    marginTop: 10,
+  },
+  prerequisitesTitle: {
+    color: '#607080',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  prerequisiteRow: {
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  prerequisiteSymbol: {
+    color: '#47606f',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  prerequisiteLabel: {
+    flex: 1,
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  prerequisiteStatus: {
+    color: '#607080',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   metaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -687,6 +932,15 @@ const styles = StyleSheet.create({
   ratingButtonPrimary: {
     backgroundColor: '#111827',
     borderColor: '#111827',
+  },
+  ratingButtonSelected: {
+    backgroundColor: '#fef3c7',
+    borderColor: '#d97706',
+    borderWidth: 2,
+  },
+  ratingButtonPrimarySelected: {
+    borderColor: '#34d399',
+    borderWidth: 2,
   },
   ratingText: {
     color: '#111827',

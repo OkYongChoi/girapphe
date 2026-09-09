@@ -26,7 +26,9 @@ see the [August 2026 architecture consulting review](./consulting-review-2026-08
 #### Mobile (Expo / React Native)
 
 - Uses one shared Expo app in `apps/mobile` for both iOS and Android.
-- Renders Home, Browse, Practice, and Topic Detail flows through Expo Router.
+- Renders Home, Browse, Practice, My Notes, and Account tabs plus Progress,
+  Review, Ranking, Topic Detail, private Topic Hub, Candidate Inbox,
+  Subscription, and Admin routes through Expo Router.
 - Reads graph nodes, graph edges, card content, and domain helpers from
   `@stem-brain/graph-engine`.
 - See `docs/apps/mobile.md` for mobile-specific architecture and platform

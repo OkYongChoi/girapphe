@@ -16,8 +16,12 @@ permissions, build, and device capability layers.
 - Entry point: `expo-router/entry`, configured in `apps/mobile/package.json`.
 - Route shell:
   - `app/_layout.tsx` defines the root stack.
-  - `app/(tabs)/_layout.tsx` defines Home, Browse, and Practice tabs.
-  - `app/topic/[id].tsx` renders topic detail pages.
+  - `app/(tabs)/_layout.tsx` exposes Home, Browse, Practice, My Notes, and
+    Account tabs.
+  - Progress, Review, and Ranking are hidden tab routes reached from the app's
+    signed-in surfaces.
+  - Topic detail, private Topic Hub, Candidate Inbox, Sign In, Subscription,
+    and Admin are root-stack routes.
 - iOS and Android are produced from the same source tree:
   - `pnpm --filter @stem-brain/mobile ios`
   - `pnpm --filter @stem-brain/mobile android`
@@ -49,11 +53,14 @@ Mobile feature code should be organized around user flows, not platform names:
 - Home: high-level map and featured topic entry points.
 - Browse: searchable and filterable topic discovery.
 - Practice: guest/local fallback plus authenticated, server-synced review using tri-state ratings.
-- My Knowledge: quick notes plus full-field version-one concept, procedure,
+- My Notes: quick notes plus full-field version-one concept, procedure,
   comparison, mechanism, structure, claim/evidence, question, decision, and
-  event bundles.
+  event and expression bundles. Active, Archive, and Trash are distinct views;
+  active knowledge supports tag-aware search plus topic, type, date, and sort
+  controls.
 - Candidate Inbox: quick save-as-new or ignore for explicitly submitted
-  current-conversation candidates.
+  current-conversation and selected-export candidates, with their source scope
+  labeled separately.
 - Topic Hub: compact approved knowledge, open questions, relations, timeline,
   and source-position views.
 - Topic detail: explanation plus prerequisite/dependent/related navigation.
@@ -109,16 +116,19 @@ prompt.
 Candidate review is intentionally split by interaction depth. Mobile supports
 quick save-as-new and ignore; a possible duplicate links to the web review
 surface. Web owns side-by-side comparison, full editing, merge/update, evidence
-selection, lifecycle actions, local graph/history, and context-pack export.
-Mobile Topic Hub views remain compact while consuming the same owner-scoped
-canonical data. Neither app retains raw conversation text: provenance is
-selector-only.
+selection, advanced canonical lifecycle actions, local graph/history, native
+ChatGPT archive parsing, Thinking History signal generation, and context-pack
+export. Basic archive, restore, and trash organization is available in mobile
+My Notes. Mobile Topic Hub views remain compact while consuming the same
+owner-scoped canonical data. Neither app retains raw conversation text:
+provenance is selector-only.
 
 ## Platform Rules
 
 - Keep product behavior shared between iOS and Android by default.
-- Use Expo configuration in `apps/mobile/app.json` for platform identifiers and
-  app-level capabilities.
+- Keep static identifiers and defaults in `apps/mobile/app.json`; production
+  environment validation and plugin composition live in
+  `apps/mobile/app.config.ts`.
 - Put platform branches behind narrow adapters, for example push notifications,
   deep links, secure storage, camera, or haptics.
 - Avoid importing web-only code from `apps/web` into mobile. Shared logic should

@@ -7,6 +7,7 @@ export const MOBILE_KNOWLEDGE_CAPABILITIES = 'expression-v1,event-chronology-v1,
 
 export type CardStatus = 'known' | 'saved';
 export type TranslationStatus = 'source' | 'machine' | 'reviewed' | 'human' | 'failed' | 'partial' | 'fallback';
+export type MobilePracticeStats = { explainable: number; unclear: number; reviewable?: number };
 
 export type MobileCard = {
   id: string;
@@ -23,7 +24,7 @@ export type MobileCard = {
   status: CardStatus | null;
   related_concepts?: string[];
   prerequisites?: Array<{ id: string; label: string; status: CardStatus | null }>;
-  last_seen?: string;
+  last_seen?: string | null;
   source_locale?: Locale;
   resolved_locale?: Locale;
   translation_status?: TranslationStatus;
@@ -73,6 +74,7 @@ export type PersonalNote = {
   version: number;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
   deleted_at: string | null;
   purge_at: string | null;
 };
@@ -141,7 +143,7 @@ export type MobileCandidateBatch = {
   id: string;
   source_type: 'conversation';
   provider: string;
-  scope: 'current_conversation';
+  scope: 'current_conversation' | 'selected_export';
   conversation_ref: string | null;
   source_url: string | null;
   discussed_at: string | null;
@@ -285,14 +287,14 @@ export const mobileApi = {
     const query = boundedIds.map((id) => encodeURIComponent(id)).join(',');
     return publicRequest<ContentResponse>(withLocale(`/api/mobile?resource=content&ids=${query}`));
   },
-  notes: (view: 'active' | 'trash' = 'active') => request<{ items: PersonalNote[] }>(withLocale(`/api/mobile?resource=notes&view=${view}`)),
+  notes: (view: 'active' | 'archive' | 'trash' = 'active') => request<{ items: PersonalNote[] }>(withLocale(`/api/mobile?resource=notes&view=${view}`)),
   topicHub: (topic: string) => request<{ hub: MobileTopicHub }>(withLocale(`/api/mobile?resource=topic-hub&topic=${encodeURIComponent(topic)}`)),
   candidateInbox: () => request<{ batches: MobileCandidateBatch[] }>(withLocale('/api/mobile?resource=candidate-inbox')),
   candidateBatch: (batchId: string) => request<{ batch: MobileCandidateBatch; drafts: MobileCandidateDraft[] }>(withLocale(`/api/mobile?resource=candidate-batch&batchId=${encodeURIComponent(batchId)}`)),
   graph: () => request<{ cards: GraphCardSummary[]; personalItems: PersonalNoteSummary[] }>(withLocale('/api/mobile?resource=graph')),
-  practice: (mode: 'new' | 'review', exclude: string[] = []) => request<{ card: MobileCard | null; stats: { explainable: number; unclear: number } }>(withLocale(`/api/mobile?resource=practice&mode=${mode}${exclude.map((id) => `&exclude=${encodeURIComponent(id)}`).join('')}`)),
+  practice: (mode: 'new' | 'review', exclude: string[] = []) => request<{ card: MobileCard | null; stats: MobilePracticeStats }>(withLocale(`/api/mobile?resource=practice&mode=${mode}${exclude.map((id) => `&exclude=${encodeURIComponent(id)}`).join('')}`)),
   saved: () => request<{ cards: MobileCard[] }>(withLocale('/api/mobile?resource=saved')),
-  dashboard: () => request<{ stats: { explainable: number; unclear: number }; domains: Array<{ domain: string; domain_label?: string; reviewed: number; explainable: number; unclear: number }> }>(withLocale('/api/mobile?resource=dashboard')),
+  dashboard: () => request<{ stats: MobilePracticeStats; domains: Array<{ domain: string; domain_label?: string; reviewed: number; explainable: number; unclear: number }> }>(withLocale('/api/mobile?resource=dashboard')),
   ranking: () => request<{ rows: Array<{ rank: number; label: string; explainable: number; avgScore: number }> }>(withLocale('/api/mobile?resource=ranking')),
   adminNodes: () => request<{ nodes: Array<{ id: string; label: string; domain: string; level: number; difficulty: number; type: string }> }>(withLocale('/api/mobile?resource=admin-nodes')),
   adminEdges: () => request<{ edges: Array<{ id: number; source: string; target: string; type: string; weight: number }>; nodes: Array<{ id: string; label: string }> }>(withLocale('/api/mobile?resource=admin-edges')),

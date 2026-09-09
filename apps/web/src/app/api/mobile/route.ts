@@ -13,12 +13,14 @@ import {
   type CardStatus,
 } from '@/actions/card-actions';
 import {
+  archiveKnowledgeItem,
   createKnowledgeItem,
   deleteKnowledgeItem,
   getArchivedKnowledgeItems,
   getDeletedKnowledgeItems,
   getUserKnowledgeItems,
   restoreKnowledgeItem,
+  restoreArchivedKnowledgeItem,
   updateKnowledgeItem,
   type UserKnowledgeItem,
 } from '@/actions/user-knowledge-actions';
@@ -103,6 +105,7 @@ function toMobileNote(item: UserKnowledgeItem, capabilities: MobileKnowledgeCapa
     version: item.version,
     created_at: item.created_at,
     updated_at: item.updated_at,
+    archived_at: item.archived_at,
     deleted_at: item.deleted_at,
     purge_at: item.purge_at,
   }, capabilities);
@@ -471,6 +474,22 @@ export async function POST(request: NextRequest) {
   if (action === 'delete-note') {
     await deleteKnowledgeItem(toFormData({ id }));
     return NextResponse.json({ success: true });
+  }
+  if (action === 'archive-note' || action === 'restore-archived-note') {
+    const version = body.version;
+    if (!Number.isSafeInteger(version) || (version as number) <= 0) {
+      return invalid('A valid note version is required.', 'INVALID_NOTE_VERSION');
+    }
+    const result = action === 'archive-note'
+      ? await archiveKnowledgeItem(toFormData({ id, version: String(version) }))
+      : await restoreArchivedKnowledgeItem(toFormData({ id, version: String(version) }));
+    if (result.stale || result.version === null) {
+      return NextResponse.json(
+        { ...result, error: 'The note changed before its archive state was updated.', code: 'NOTE_STALE' },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ success: true, archived: result.archived, version: result.version });
   }
   if (action === 'restore-note') {
     await restoreKnowledgeItem(toFormData({ id }));

@@ -5,6 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   addPendingCandidate,
+  classifyCandidateBatchScope,
   createCandidateInboxRequestGuard,
   removePendingCandidate,
   selectCandidateBatch,
@@ -106,6 +107,10 @@ test('candidate inbox guards the list response before automatic batch selection'
     candidateInbox,
     /setMutatingIds\(\(current\) => removePendingCandidate\(current, draft\.id\)\)/,
   );
+  assert.match(candidateInbox, /scopeLabels\[classifyCandidateBatchScope\(selectedBatch\.scope\)\]/);
+  assert.match(candidateInbox, /Selected from current conversation/);
+  assert.match(candidateInbox, /Selected from ChatGPT export/);
+  assert.match(candidateInbox, /Unsupported source/);
 });
 
 test('mobile candidate resolution preserves structured error codes and event lifecycle metadata', () => {
@@ -152,4 +157,11 @@ test('candidate refresh preserves the explicit batch and falls back only when it
   assert.equal(selectCandidateBatch(batches, 'explicit')?.id, 'explicit');
   assert.equal(selectCandidateBatch(batches, 'removed')?.id, 'first');
   assert.equal(selectCandidateBatch([], 'removed'), null);
+});
+
+test('candidate batch provenance recognizes selected exports and fails closed on unknown scopes', () => {
+  assert.equal(classifyCandidateBatchScope('current_conversation'), 'current_conversation');
+  assert.equal(classifyCandidateBatchScope('selected_export'), 'selected_export');
+  assert.equal(classifyCandidateBatchScope('future_scope'), 'unsupported');
+  assert.equal(classifyCandidateBatchScope(null), 'unsupported');
 });

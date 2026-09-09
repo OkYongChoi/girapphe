@@ -43,3 +43,12 @@ export function selectCandidateBatch<T extends { id: string }>(
     ? batches.find((batch) => batch.id === preferredBatchId)
     : undefined) ?? batches[0] ?? null;
 }
+
+export type CandidateBatchScopeKind = 'current_conversation' | 'selected_export' | 'unsupported';
+
+export function classifyCandidateBatchScope(scope: unknown): CandidateBatchScopeKind {
+  if (scope === 'current_conversation' || scope === 'selected_export') {
+    return scope;
+  }
+  return 'unsupported';
+}
