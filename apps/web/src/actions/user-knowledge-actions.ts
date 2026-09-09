@@ -208,7 +208,7 @@ function readReviewedKnowledgePayload(
 function revalidateResolvedKnowledge(batchId?: string, topic?: string) {
   revalidatePath('/knowledge-inbox');
   if (batchId) revalidatePath(`/knowledge-inbox/${encodeURIComponent(batchId)}`);
-  revalidatePath('/my-knowledge');
+  revalidatePath('/my-notes');
   revalidatePath('/grid');
   revalidatePath('/knowledge');
   revalidatePath('/topics');
@@ -545,7 +545,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
           : 'related', relationDirection);
     }
 
-    revalidatePath('/my-knowledge');
+    revalidatePath('/my-notes');
     revalidatePath('/grid');
     revalidatePath('/knowledge');
     return;
@@ -673,7 +673,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
     await createPrivateKnowledgeEdgeForUser(user.id, `personal:${itemId}`, relatedNodeId, validRelation, relationDirection);
   }
 
-  revalidatePath('/my-knowledge');
+  revalidatePath('/my-notes');
   revalidatePath('/grid');
   revalidatePath('/knowledge');
 }
@@ -709,7 +709,7 @@ export async function updateKnowledgeItem(formData: FormData): Promise<Knowledge
     }, { syncGraph, expectedVersion });
 
     if (result.updated) {
-      revalidatePath('/my-knowledge');
+      revalidatePath('/my-notes');
       revalidatePath('/grid');
       revalidatePath('/knowledge');
     }
@@ -767,7 +767,7 @@ export async function updateKnowledgeItem(formData: FormData): Promise<Knowledge
     return { updated: false, version: null, stale: true };
   }
 
-  revalidatePath('/my-knowledge');
+  revalidatePath('/my-notes');
   revalidatePath('/grid');
   revalidatePath('/knowledge');
   return { updated: true, version: expectedVersion + 1 };
@@ -792,7 +792,7 @@ export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
   if (!process.env.DATABASE_URL) {
     softDeleteMemoryKnowledgeItemForUser(user.id, id, PERSONAL_CARD_RETENTION_DAYS, { syncGraph });
 
-    revalidatePath('/my-knowledge');
+    revalidatePath('/my-notes');
     revalidatePath('/grid');
     revalidatePath('/knowledge');
     return;
@@ -832,7 +832,7 @@ export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
     },
   ]);
 
-  revalidatePath('/my-knowledge');
+  revalidatePath('/my-notes');
   revalidatePath('/grid');
   revalidatePath('/knowledge');
 }
@@ -948,7 +948,7 @@ export async function restoreKnowledgeItem(formData: FormData): Promise<void> {
     ]);
   }
 
-  revalidatePath('/my-knowledge');
+  revalidatePath('/my-notes');
   revalidatePath('/grid');
   revalidatePath('/knowledge');
 }

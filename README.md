@@ -122,7 +122,7 @@ Core routes:
 - `/practice`
 - `/saved`
 - `/knowledge`
-- `/my-knowledge`
+- `/my-notes` (legacy `/my-knowledge` URLs redirect here)
 - `/knowledge-inbox`
 - `/knowledge-inbox/import`
 - `/insights`

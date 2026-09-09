@@ -12,10 +12,10 @@ const NAV_ITEMS = [
   { href: '/knowledge', label: 'nav.atlas' },
   { href: '/grid', label: 'nav.concepts' },
   { href: '/dashboard', label: 'nav.dashboard' },
-  { href: '/my-knowledge', label: 'nav.myNotes' },
+  { href: '/my-notes', label: 'nav.myNotes' },
   { href: '/topics', label: 'nav.topics', authOnly: true },
   { href: '/knowledge-inbox', label: 'nav.knowledgeInbox', authOnly: true },
-  { href: '/my-knowledge?view=insights', label: 'nav.insights', authOnly: true },
+  { href: '/my-notes?view=insights', label: 'nav.insights', authOnly: true },
   { href: '/ranking', label: 'nav.ranking' },
 ] as const;
 

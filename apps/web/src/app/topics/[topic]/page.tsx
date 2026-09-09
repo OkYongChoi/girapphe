@@ -248,7 +248,7 @@ export default async function TopicHubPage({ params }: TopicHubPageProps) {
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">{t('topic.hub.canonicalState')}</p>
               <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">{t('topic.hub.confirmedKnowledge')}</h2>
             </div>
-            <LocalizedLink href={`/my-knowledge?topic=${encodeURIComponent(hub.topic)}`} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100">{t('topic.index.library')}</LocalizedLink>
+            <LocalizedLink href={`/my-notes?topic=${encodeURIComponent(hub.topic)}`} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100">{t('topic.index.library')}</LocalizedLink>
           </div>
 
           {hub.items.length === 0 ? (

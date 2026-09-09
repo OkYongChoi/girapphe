@@ -69,10 +69,10 @@ test("renders private intelligence evidence and exports only selected context", 
     else if (isContextPackResponse(response)) contextResponses.push(response);
   });
 
-  await page.goto("/my-knowledge?view=insights", {
+  await page.goto("/my-notes?view=insights", {
     waitUntil: "domcontentloaded",
   });
-  await expect(page).toHaveURL(/\/my-knowledge\?view=insights$/);
+  await expect(page).toHaveURL(/\/my-notes\?view=insights$/);
 
   const heading = page.getByRole("heading", { name: headingCopy });
   await expect(heading).toBeVisible({ timeout: 30_000 });
@@ -136,7 +136,7 @@ test("renders private intelligence evidence and exports only selected context", 
   const messageBytes = Buffer.byteLength(await messageResponses[0]!.body());
   const metrics = {
     schemaVersion: 1,
-    route: "/my-knowledge?view=insights",
+    route: "/my-notes?view=insights",
     project: testInfo.project.name,
     syntheticPrivateEvidenceCount: 2,
     messageAsset: {

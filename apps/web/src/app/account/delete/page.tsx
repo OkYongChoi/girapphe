@@ -43,7 +43,7 @@ export default async function DeleteAccountPage({ searchParams }: DeleteAccountP
             <h2 className="text-xl font-black">Deletion boundaries</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">Import-job deletion is immediate: pending candidates and job metrics are removed while approved knowledge and hashed provenance stay intact.</p>
             <p className="mt-2 text-sm leading-6 text-slate-600">My Notes uses a visible 14-day Trash window for approved knowledge. Full account deletion below is immediate and irreversible.</p>
-            <Link href="/my-knowledge" className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold">Manage approved knowledge</Link>
+            <Link href="/my-notes" className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold">Manage approved knowledge</Link>
           </div>
         </section>
 

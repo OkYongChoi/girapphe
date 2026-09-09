@@ -36,7 +36,7 @@ export default async function TopicsPage() {
 
           <div className="mt-6 flex flex-wrap gap-2">
             <LocalizedLink href="/knowledge-inbox" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700">{t('topic.index.review')}</LocalizedLink>
-            <LocalizedLink href="/my-knowledge" className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100">{t('topic.index.library')}</LocalizedLink>
+            <LocalizedLink href="/my-notes" className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100">{t('topic.index.library')}</LocalizedLink>
             <LocalizedLink href="/knowledge" className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100">{t('nav.atlas')}</LocalizedLink>
           </div>
         </header>
@@ -52,7 +52,7 @@ export default async function TopicsPage() {
             <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-slate-500">{t('topic.index.emptyBody')}</p>
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               <LocalizedLink href="/knowledge-inbox" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700">{t('topic.index.openInbox')}</LocalizedLink>
-              <LocalizedLink href="/my-knowledge" className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100">{t('topic.index.addManual')}</LocalizedLink>
+              <LocalizedLink href="/my-notes" className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100">{t('topic.index.addManual')}</LocalizedLink>
             </div>
           </section>
         ) : (

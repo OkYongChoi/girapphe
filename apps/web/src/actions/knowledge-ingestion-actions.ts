@@ -48,7 +48,7 @@ export type {
 function revalidateKnowledgeSurfaces(batchId?: string) {
   revalidatePath('/knowledge-inbox');
   if (batchId) revalidatePath(`/knowledge-inbox/${batchId}`);
-  revalidatePath('/my-knowledge');
+  revalidatePath('/my-notes');
   revalidatePath('/grid');
   revalidatePath('/knowledge');
   revalidatePath('/insights');

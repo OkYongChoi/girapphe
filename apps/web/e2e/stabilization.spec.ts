@@ -4,12 +4,12 @@ const usesDeployedPreview = Boolean(process.env.PLAYWRIGHT_BASE_URL);
 
 test.describe('main stabilization regressions', () => {
   test('clearing filters in My Notes trash keeps the trash view', async ({ page }) => {
-    await page.goto('/my-knowledge?view=trash&q=no-match');
+    await page.goto('/my-notes?view=trash&q=no-match');
 
     await expect(page.getByRole('heading', { name: 'Knowledge Trash' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Clear', exact: true })).toHaveAttribute(
       'href',
-      /\/(?:en\/)?my-knowledge\?view=trash$/
+      /\/(?:en\/)?my-notes\?view=trash$/
     );
   });
 
@@ -21,7 +21,7 @@ test.describe('main stabilization regressions', () => {
 
     const title = `Guest concept injection ${testInfo.project.name} ${Date.now()}`;
 
-    await page.goto('/my-knowledge');
+    await page.goto('/my-notes');
     await page.locator('#new-title').fill(title);
     await page.locator('#new-topic').fill('machine-learning');
     await page.locator('#new-summary').fill('A private note rendered in Concepts.');
