@@ -225,9 +225,9 @@ server-due schedule; callers cannot supply or override `due_at`. It fills only
 the bounded confidence and reveal timestamps before completion. The table has
 no title, topic, question, answer, recalled response, reconstructed order,
 application response, cue, selector, or source locator columns.
-`resulting_due_at` is reserved only as the immutable audit value written by a
-future atomic completion; it has no queue index and is never a scheduling
-authority. `user_private_card_states.due_at` remains the sole due-state read.
+`resulting_due_at` is the immutable audit value written by atomic completion;
+it has no queue index and is never a scheduling authority.
+`user_private_card_states.due_at` remains the sole due-state read.
 
 A partial unique index permits one `prepared`, `confidence_selected`, or
 `revealed` attempt per owner, item version, and milestone across devices. Every
@@ -235,18 +235,36 @@ resume, confidence, and reveal transaction re-checks the current item version,
 source-supported revision, lifecycle, supersession, schedule version,
 enrollment generation, due instant, and milestone close before returning an
 active attempt. A mismatch changes the row to the terminal content-free
-`invalidated` state instead of authorizing stale reveal. Completion fields are
-schema-bounded for the next transactional slice, but no completion mutation is
-connected yet.
+`invalidated` state instead of authorizing stale reveal.
+
+Completion accepts only `outcome` and `hintUsed`; callers cannot supply item,
+schedule, timestamps, duration, or the next due instant. A locked preflight
+reads one PostgreSQL clock rounded upward to a JavaScript-safe millisecond and
+the full schedule/Practice snapshot. D+1 passes an owner-scoped, content-free
+context to the preferred-time adapter, while D+7 derives its next due instant
+in the shared schedule contract. The final write evaluates the milestone
+against that same preflight instant and uses one writable CTE: a full-snapshot
+compare-and-swap first advances the sole schedule row and Practice projection,
+then its `RETURNING` row permits the attempt to become `completed`. A failed
+schedule update therefore cannot leave a completed attempt behind.
+
+`response_duration_bucket` is derived in PostgreSQL from `started_at` through
+`confidence_selected_at`, never from a caller duration. Its half-open boundaries
+are `<30s` (`under_30s`), `30s..<90s` (`30_to_89s`), `90s..<180s`
+(`90_to_179s`), `180s..<360s` (`3_to_5m`), and `>=360s` (`over_5m`). The same
+outcome/hint retry returns the immutable completed row even if a later attempt
+has advanced the schedule; a different outcome or hint conflicts. Completion
+does not rewrite or extend `retention_expires_at`.
 
 Attempt retention is capped at 365 days from `started_at`. The existing daily
 private-product purge deletes expired rows. Removing one Practice item
 invalidates its active prepared attempt before deleting the schedule row;
 all-progress reset deletes all Recall attempt history before deleting all
 private Practice state. Full account deletion explicitly deletes the owner's
-attempts before Practice state and knowledge. Approval/enrollment hooks,
-completion and retry transitions, delivery claims, notification preferences,
-device tokens, and UI remain separate feature stages.
+attempts before Practice state and knowledge. The completion repository remains
+disconnected from HTTP and UI activation. Approval/enrollment hooks, delivery
+claims, notification preferences, device tokens, and UI remain separate feature
+stages.
 
 ## Billing and Entitlements
 

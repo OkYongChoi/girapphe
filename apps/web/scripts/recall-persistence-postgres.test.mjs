@@ -1121,6 +1121,385 @@ test('Recall prepared attempts start once, require confidence, reveal idempotent
   }
 });
 
+test('Recall completion atomically advances one schedule and resolves concurrent semantic replays', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const importedRecall = await import('../src/lib/recall-persistence.ts');
+  const recall = importedRecall.default ?? importedRecall;
+  const importedAttempts = await import('../src/lib/recall-attempts.ts');
+  const attempts = importedAttempts.default ?? importedAttempts;
+  const pool = new Pool({ connectionString: databaseUrl, max: 4 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
+  const userId = `live-completion-owner-${crypto.randomUUID()}`;
+  const batchId = `live-completion-batch-${crypto.randomUUID()}`;
+  const fixtures = [
+    'same-replay',
+    'conflicting-replay',
+    'd7-remembered',
+    'practice-cas-conflict',
+  ].map((label) => ({
+    label,
+    itemId: `live-completion-${label}-${crypto.randomUUID()}`,
+    draftId: `live-completion-draft-${crypto.randomUUID()}`,
+    sourceId: `live-completion-source-${crypto.randomUUID()}`,
+    revisionId: `live-completion-revision-${crypto.randomUUID()}`,
+  }));
+  const now = Date.now();
+  const enrolledAt = new Date(now - 25 * 60 * 60 * 1_000).toISOString();
+  const firstDueAt = new Date(now - 30 * 60 * 1_000).toISOString();
+  const d7EnrolledAt = new Date(now - 169 * 60 * 60 * 1_000).toISOString();
+  const d7DueAt = new Date(now - 15 * 60 * 1_000).toISOString();
+  const nextD7DueAt = new Date(new Date(enrolledAt).getTime() + 170 * 60 * 60 * 1_000)
+    .toISOString();
+  let bodyCompleted = false;
+
+  try {
+    await pool.query(
+      `INSERT INTO knowledge_ingestion_batches (
+         id, user_id, source_type, provider, scope, request_id, status, committed_at
+       ) VALUES ($1, $2, 'conversation', 'chatgpt', 'current_conversation', $3, 'approved', NOW())`,
+      [batchId, userId, `live-completion-request-${crypto.randomUUID()}`],
+    );
+    for (const fixture of fixtures) {
+      await pool.query(
+        `INSERT INTO user_knowledge_items (
+           id, user_id, title, summary, content, topic, tags, knowledge_type,
+           central_question, structured_content, bundle_schema_version, version
+         ) VALUES (
+           $1, $2, $3, '', '', 'recall-live', '[]'::jsonb,
+           'concept', 'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1, 1
+         )`,
+        [fixture.itemId, userId, `Completion ${fixture.label}`],
+      );
+      await pool.query(
+        `INSERT INTO knowledge_item_revisions
+           (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+         VALUES ($1, $2, $3, 1, '{}'::jsonb, 'confirmed')`,
+        [fixture.revisionId, userId, fixture.itemId],
+      );
+      await pool.query(
+        `INSERT INTO knowledge_card_drafts (
+           id, batch_id, user_id, client_card_id, title, knowledge_type,
+           central_question, structured_content, bundle_schema_version,
+           status, knowledge_item_id, approved_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, 'concept',
+           'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1,
+           'approved', $6, NOW()
+         )`,
+        [
+          fixture.draftId,
+          batchId,
+          userId,
+          `live-completion-card-${crypto.randomUUID()}`,
+          `Completion ${fixture.label}`,
+          fixture.itemId,
+        ],
+      );
+      await pool.query(
+        `INSERT INTO knowledge_card_sources (
+           id, user_id, knowledge_item_id, batch_id, draft_id, source_type,
+           provider, conversation_ref, supported_item_version, confirmed_at
+         ) VALUES ($1, $2, $3, $4, $5, 'conversation', 'chatgpt', $6, 1, NOW())`,
+        [
+          fixture.sourceId,
+          userId,
+          fixture.itemId,
+          batchId,
+          fixture.draftId,
+          `conversation-${crypto.randomUUID()}`,
+        ],
+      );
+      const enrollment = await recall.enrollApprovedRecallScheduleForUser(
+        userId,
+        fixture.itemId,
+        1,
+        enrolledAt,
+        firstDueAt,
+      );
+      assert.equal(enrollment.kind, 'enrolled');
+      if (fixture.label === 'd7-remembered') {
+        await pool.query(
+          `UPDATE user_private_card_states
+           SET status = 'saved',
+               knowledge_state = 'unknown',
+               progress_state = 'learning',
+               last_seen = $3::timestamptz,
+               due_at = $4::timestamptz,
+               recall_enrolled_at = $3::timestamptz,
+               recall_schedule_state = 'd7_pending',
+               recall_schedule_version = 2
+           WHERE user_id = $1 AND knowledge_item_id = $2`,
+          [userId, fixture.itemId, d7EnrolledAt, d7DueAt],
+        );
+      }
+      const started = await attempts.startOrResumeRecallAttemptForUser(userId, fixture.itemId);
+      assert.equal(started.kind, 'started');
+      assert.ok(started.attempt);
+      fixture.attemptId = started.attempt.id;
+      const retention = await pool.query(
+        `SELECT retention_expires_at
+         FROM recall_attempts
+         WHERE id = $1 AND user_id = $2`,
+        [fixture.attemptId, userId],
+      );
+      fixture.retentionExpiresAt = retention.rows[0]?.retention_expires_at.toISOString();
+      assert.equal((await attempts.setRecallAttemptConfidenceForUser(
+        userId,
+        fixture.attemptId,
+        'medium',
+      )).kind, 'selected');
+      assert.equal((await attempts.revealRecallAttemptForUser(
+        userId,
+        fixture.attemptId,
+      )).kind, 'revealed');
+    }
+
+    const resolveNextDeliveryAt = async (context) => {
+      assert.equal(context.userId, userId);
+      assert.equal(context.milestone, 'd1');
+      return nextD7DueAt;
+    };
+    const sameInput = { outcome: 'partial', hintUsed: true };
+    const sameRace = await Promise.all([
+      attempts.completeRecallAttemptForUser(
+        userId,
+        fixtures[0].attemptId,
+        sameInput,
+        resolveNextDeliveryAt,
+      ),
+      attempts.completeRecallAttemptForUser(
+        userId,
+        fixtures[0].attemptId,
+        sameInput,
+        resolveNextDeliveryAt,
+      ),
+    ]);
+    assert.deepEqual(sameRace.map((result) => result.kind).sort(), ['completed', 'unchanged']);
+
+    const conflictingRace = await Promise.all([
+      attempts.completeRecallAttemptForUser(
+        userId,
+        fixtures[1].attemptId,
+        { outcome: 'remembered', hintUsed: false },
+        resolveNextDeliveryAt,
+      ),
+      attempts.completeRecallAttemptForUser(
+        userId,
+        fixtures[1].attemptId,
+        { outcome: 'missed', hintUsed: true },
+        resolveNextDeliveryAt,
+      ),
+    ]);
+    assert.deepEqual(
+      conflictingRace.map((result) => result.kind).sort(),
+      ['completed', 'conflict'],
+    );
+
+    let d7ResolverCalls = 0;
+    const d7Completion = await attempts.completeRecallAttemptForUser(
+      userId,
+      fixtures[2].attemptId,
+      { outcome: 'remembered', hintUsed: false },
+      async () => {
+        d7ResolverCalls += 1;
+        return nextD7DueAt;
+      },
+    );
+    assert.equal(d7Completion.kind, 'completed');
+    assert.equal(d7ResolverCalls, 0);
+
+    const concurrentPracticeLastSeen = new Date(now - 5 * 60 * 1_000).toISOString();
+    const practiceCasConflict = await attempts.completeRecallAttemptForUser(
+      userId,
+      fixtures[3].attemptId,
+      { outcome: 'partial', hintUsed: false },
+      async (context) => {
+        assert.equal(context.userId, userId);
+        await pool.query(
+          `UPDATE user_private_card_states
+           SET status = 'saved',
+               knowledge_state = 'unknown',
+               progress_state = 'learning',
+               last_seen = $3::timestamptz
+           WHERE user_id = $1 AND knowledge_item_id = $2`,
+          [userId, fixtures[3].itemId, concurrentPracticeLastSeen],
+        );
+        return nextD7DueAt;
+      },
+    );
+    assert.deepEqual(practiceCasConflict, { kind: 'conflict', attempt: null });
+    assert.deepEqual((await pool.query(
+      `SELECT
+         a.lifecycle_state,
+         a.self_assessed_outcome,
+         a.completed_at,
+         a.resulting_due_at,
+         s.recall_schedule_version,
+         s.recall_schedule_state,
+         s.due_at,
+         s.status,
+         s.knowledge_state,
+         s.progress_state,
+         s.last_seen
+       FROM recall_attempts a
+       JOIN user_private_card_states s
+         ON s.user_id = a.user_id
+        AND s.knowledge_item_id = a.knowledge_item_id
+       WHERE a.user_id = $1 AND a.id = $2`,
+      [userId, fixtures[3].attemptId],
+    )).rows.map((row) => ({
+      ...row,
+      due_at: row.due_at.toISOString(),
+      last_seen: row.last_seen.toISOString(),
+    })), [{
+      lifecycle_state: 'revealed',
+      self_assessed_outcome: null,
+      completed_at: null,
+      resulting_due_at: null,
+      recall_schedule_version: 1,
+      recall_schedule_state: 'd1_pending',
+      due_at: firstDueAt,
+      status: 'saved',
+      knowledge_state: 'unknown',
+      progress_state: 'learning',
+      last_seen: concurrentPracticeLastSeen,
+    }]);
+
+    const persisted = (await pool.query(
+      `SELECT
+         a.id,
+         a.lifecycle_state,
+         a.self_assessed_outcome,
+         a.hint_used,
+         a.response_duration_bucket,
+         a.completed_at,
+         a.resulting_due_at,
+         a.retention_expires_at,
+         s.recall_schedule_version,
+         s.recall_schedule_state,
+         s.due_at,
+         s.status,
+         s.knowledge_state,
+         s.progress_state,
+         s.last_seen
+       FROM recall_attempts a
+       JOIN user_private_card_states s
+         ON s.user_id = a.user_id
+        AND s.knowledge_item_id = a.knowledge_item_id
+       WHERE a.user_id = $1
+         AND a.id = ANY($2::text[])
+       ORDER BY a.id`,
+      [userId, fixtures.slice(0, 3).map((fixture) => fixture.attemptId)],
+    )).rows;
+    assert.equal(persisted.length, 3);
+    for (const row of persisted) {
+      const fixture = fixtures.find((candidate) => candidate.attemptId === row.id);
+      assert.ok(fixture);
+      assert.equal(row.lifecycle_state, 'completed');
+      assert.ok(['remembered', 'partial', 'missed'].includes(row.self_assessed_outcome));
+      assert.equal(typeof row.hint_used, 'boolean');
+      assert.ok([
+        'under_30s',
+        '30_to_89s',
+        '90_to_179s',
+        '3_to_5m',
+        'over_5m',
+      ].includes(row.response_duration_bucket));
+      if (fixture.label === 'd7-remembered') {
+        assert.equal(row.self_assessed_outcome, 'remembered');
+        assert.equal(row.recall_schedule_version, 3);
+        assert.equal(row.recall_schedule_state, 'ordinary_practice');
+        assert.equal(
+          row.due_at.getTime() - row.completed_at.getTime(),
+          14 * 24 * 60 * 60 * 1_000,
+        );
+        assert.equal(row.resulting_due_at.toISOString(), row.due_at.toISOString());
+      } else {
+        assert.equal(row.recall_schedule_version, 2);
+        assert.equal(row.recall_schedule_state, 'd7_pending');
+        assert.equal(row.resulting_due_at.toISOString(), nextD7DueAt);
+        assert.equal(row.due_at.toISOString(), nextD7DueAt);
+      }
+      assert.equal(row.last_seen.toISOString(), row.completed_at.toISOString());
+      assert.equal(row.retention_expires_at.toISOString(), fixture.retentionExpiresAt);
+      if (row.self_assessed_outcome === 'remembered') {
+        assert.deepEqual(
+          [row.status, row.knowledge_state, row.progress_state],
+          ['known', 'known', 'review'],
+        );
+      } else {
+        assert.deepEqual(
+          [row.status, row.knowledge_state, row.progress_state],
+          ['saved', 'unknown', 'learning'],
+        );
+      }
+    }
+
+    const samePersisted = persisted.find((row) => row.id === fixtures[0].attemptId);
+    assert.ok(samePersisted);
+    await pool.query(
+      `UPDATE user_private_card_states
+       SET recall_schedule_version = recall_schedule_version + 1
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, fixtures[0].itemId],
+    );
+    assert.equal((await attempts.completeRecallAttemptForUser(
+      userId,
+      fixtures[0].attemptId,
+      {
+        outcome: samePersisted.self_assessed_outcome,
+        hintUsed: samePersisted.hint_used,
+      },
+      async () => {
+        throw new Error('A completed replay must not resolve another delivery instant.');
+      },
+    )).kind, 'unchanged');
+    assert.equal((await attempts.completeRecallAttemptForUser(
+      userId,
+      fixtures[0].attemptId,
+      {
+        outcome: samePersisted.self_assessed_outcome,
+        hintUsed: !samePersisted.hint_used,
+      },
+      async () => {
+        throw new Error('A conflicting replay must not resolve another delivery instant.');
+      },
+    )).kind, 'conflict');
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    repositoryAdapter.restore();
+    await collectCleanupFailure(cleanupFailures, 'delete completion knowledge items', () => (
+      pool.query(
+        'DELETE FROM user_knowledge_items WHERE user_id = $1 AND id = ANY($2::text[])',
+        [userId, fixtures.map((fixture) => fixture.itemId)],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete completion ingestion batch', () => (
+      pool.query('DELETE FROM knowledge_ingestion_batches WHERE id = $1 AND user_id = $2', [batchId, userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete completion tombstones', () => (
+      pool.query('DELETE FROM knowledge_ingestion_request_tombstones WHERE user_id = $1', [userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify completion fixture removal', async () => {
+      const remaining = (await pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE id = ANY($1::text[]))::integer AS items,
+           (SELECT COUNT(*)::integer FROM recall_attempts WHERE user_id = $2) AS attempts,
+           (SELECT COUNT(*)::integer FROM user_private_card_states WHERE user_id = $2) AS states,
+           (SELECT COUNT(*)::integer FROM knowledge_ingestion_batches WHERE id = $3) AS batches
+         FROM user_knowledge_items`,
+        [fixtures.map((fixture) => fixture.itemId), userId, batchId],
+      )).rows[0];
+      assert.deepEqual(remaining, { items: 0, attempts: 0, states: 0, batches: 0 });
+    });
+    await collectCleanupFailure(cleanupFailures, 'close completion database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});
+
 test('Private Practice executes Recall-compatible due, rating, removal, and reset SQL', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
 }, async () => {
