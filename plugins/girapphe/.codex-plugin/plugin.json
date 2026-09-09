@@ -1,6 +1,6 @@
 {
   "name": "girapphe",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Repository-aware workflows for maintaining, validating, and releasing Girapphe.",
   "author": {
     "name": "OkYongChoi",

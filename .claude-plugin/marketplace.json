@@ -1,0 +1,17 @@
+{
+  "name": "girapphe",
+  "owner": {
+    "name": "OkYongChoi"
+  },
+  "metadata": {
+    "description": "Official repository workflows for maintaining and releasing Girapphe."
+  },
+  "plugins": [
+    {
+      "name": "girapphe",
+      "source": "./plugins/girapphe",
+      "description": "Repository-aware workflows for maintaining, validating, and releasing Girapphe.",
+      "version": "0.2.0"
+    }
+  ]
+}
