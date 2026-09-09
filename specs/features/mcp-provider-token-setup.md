@@ -18,6 +18,9 @@ In scope:
 - Generate endpoint-specific, copyable OpenAI Responses API and Claude Code
   configuration examples without embedding the one-time token value.
 - Show current plan/workspace restrictions and link to official provider docs.
+- Localize the complete provider guide in English, Arabic, Spanish, Hindi,
+  Japanese, and Simplified Chinese without translating endpoint URLs or copied
+  configuration.
 - Add authenticated desktop/mobile browser coverage for the rendered guide.
 
 Out of scope:
@@ -45,6 +48,9 @@ Out of scope:
   raw Girapphe PAT.
 - [x] `AC-05`: Existing token creation remains one-time-display, owner-scoped,
   expiring, revocable, and limited to the selected knowledge scopes.
+- [x] `AC-06`: Every user-facing provider-guide instruction, status, and action
+  comes from the six-locale message catalogs while official URLs, provider plan
+  boundaries, administrator roles, and PAT privacy guidance stay equivalent.
 
 ## Privacy and data boundaries
 
@@ -64,8 +70,9 @@ owner-scope, and explicit-approval boundaries do not change.
 | `AC-01` | `apps/web/e2e-authenticated/authenticated-mcp-provider-setup.spec.ts` selects both native radio controls. |
 | `AC-02` | `apps/web/src/lib/mcp/provider-setup.test.ts` checks provider/auth boundaries and official-source links. |
 | `AC-03` | `apps/web/src/lib/mcp/provider-setup.test.ts` checks both generated token configurations and unsafe endpoint rejection. |
-| `AC-04` | Authenticated Preview desktop/mobile Playwright evidence plus screenshots from `authenticated-mcp-provider-setup.spec.ts`. |
+| `AC-04` | Authenticated Preview desktop/mobile Playwright evidence plus English and Arabic RTL screenshots from `authenticated-mcp-provider-setup.spec.ts`. |
 | `AC-05` | Existing MCP token/server regression suite and final diff inspection; no action, schema, or migration change. |
+| `AC-06` | `apps/web/src/lib/mcp/provider-setup.test.ts` verifies all provider-guide keys, plan/admin/PAT markers, and genuine availability translations across every supported locale; `apps/web/src/i18n/messages.test.ts` verifies catalog and placeholder parity; authenticated Arabic Playwright verifies RTL layout with an LTR configuration block. |
 
 ## Rollout
 

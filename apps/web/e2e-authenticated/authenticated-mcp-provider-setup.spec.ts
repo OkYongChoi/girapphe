@@ -77,3 +77,61 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   await testInfo.attach('mcp-provider-setup-evidence', { path: evidencePath, contentType: 'application/json' });
   await testInfo.attach('mcp-provider-setup-success', { path: screenshotPath, contentType: 'image/png' });
 });
+
+test('keeps the localized provider guide usable in an Arabic RTL layout', async ({ context, page }, testInfo) => {
+  const browserErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`);
+  });
+  page.on('pageerror', (error) => browserErrors.push(`page: ${error.message}`));
+
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/ar/settings#ai-connections', { waitUntil: 'domcontentloaded' });
+
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await expect(page.getByRole('heading', { name: 'استخدم Girapphe مع ChatGPT أو Claude' })).toBeVisible();
+
+  const guide = page.locator('section[aria-labelledby="mcp-provider-setup-title"]');
+  const chatgpt = guide.getByRole('radio', { name: 'ChatGPT' });
+  const claude = guide.getByRole('radio', { name: 'Claude' });
+  await chatgpt.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(claude).toBeChecked();
+  await expect(guide.getByRole('heading', { name: 'Claude على الويب أو Desktop' })).toBeVisible();
+
+  const snippet = guide.locator('pre');
+  await expect(snippet).toHaveAttribute('dir', 'ltr');
+  await expect(snippet).toHaveCSS('direction', 'ltr');
+  await guide.getByRole('button', { name: 'نسخ الإعداد' }).click();
+  await expect(guide.getByRole('button', { name: 'تم النسخ' })).toBeVisible();
+  const copiedSnippet = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copiedSnippet).toContain('${GIRAPPHE_MCP_TOKEN}');
+  expect(copiedSnippet).not.toMatch(/girapphe_mcp_[A-Za-z0-9_-]{20,}/u);
+
+  const pageOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+  expect(pageOverflow).toBe(false);
+  expect(browserErrors).toEqual([]);
+
+  const screenshotPath = testInfo.outputPath('mcp-provider-setup-arabic-success.png');
+  const evidencePath = resolve(
+    process.cwd(),
+    'test-results/authenticated-overlay-performance/mcp-provider-setup',
+    `${testInfo.project.name}-ar.json`,
+  );
+  mkdirSync(dirname(evidencePath), { recursive: true });
+  writeFileSync(evidencePath, `${JSON.stringify({
+    schemaVersion: 1,
+    route: '/ar/settings#ai-connections',
+    locale: 'ar',
+    direction: 'rtl',
+    codeDirection: 'ltr',
+    project: testInfo.project.name,
+    keyboardProviderSwitch: true,
+    copiedWithoutRawPat: true,
+    browserErrorCount: browserErrors.length,
+    pageOverflow,
+  }, null, 2)}\n`);
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  await testInfo.attach('mcp-provider-setup-arabic-evidence', { path: evidencePath, contentType: 'application/json' });
+  await testInfo.attach('mcp-provider-setup-arabic-success', { path: screenshotPath, contentType: 'image/png' });
+});
