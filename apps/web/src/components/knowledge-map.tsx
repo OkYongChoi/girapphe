@@ -470,36 +470,38 @@ export default function KnowledgeMap({
           onClose={() => setViewMode('grid')}
         />
       ) : (
-        <div className="w-full max-w-6xl mx-auto p-6">
-          <div className="mb-8 flex flex-col gap-4 justify-between items-center xl:flex-row">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">{t('nav.concepts')}</h1>
-              <p className="mt-1 text-sm text-gray-600">
-                {t('knowledge.showing', { filtered: filteredCards.length, total: cards.length })}
-              </p>
-              <p className="mt-1 text-xs text-gray-500">
-                {t('knowledge.generatedSummary', {
-                  core: coreCardCount,
-                  generated: generatedCardCount,
-                  state: includeGenerated
-                    ? t('knowledge.generatedShown', { limit: generatedLimit })
-                    : t('knowledge.generatedHidden'),
-                })}
-                {personalCards.length > 0 ? t('knowledge.privateCount', { count: personalCards.length }) : ''}
-              </p>
-            </div>
-            
-            <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:flex-nowrap">
+        <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:p-6">
+          <div
+            data-testid="concepts-header"
+            className="mb-5 grid gap-3 xl:grid-cols-[auto_minmax(0,1fr)] xl:items-center"
+          >
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 xl:flex-nowrap xl:justify-start">
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">{t('nav.concepts')}</h1>
+                <span
+                  role="status"
+                  aria-live="polite"
+                  aria-label={t('knowledge.showing', { filtered: filteredCards.length, total: cards.length })}
+                  className="shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-600"
+                >
+                  {filteredCards.length === cards.length
+                    ? formatNumber(cards.length)
+                    : `${formatNumber(filteredCards.length)}/${formatNumber(cards.length)}`}
+                </span>
+              </div>
+
               <button
                 type="button"
                 onClick={openGraphView}
                 disabled={isOpeningGraph}
-                className="min-h-11 rounded bg-blue-600 px-4 py-2 font-medium text-white shadow transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
+                className="min-h-11 shrink-0 whitespace-nowrap rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
               >
                 {isOpeningGraph ? t('knowledge.loadingGraph') : t('knowledge.graphView')}
               </button>
+            </div>
 
-              <div className="min-w-[12rem] flex-1 xl:w-60 xl:flex-none">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 xl:flex-nowrap xl:justify-end">
+              <div className="w-full min-w-0 sm:min-w-48 sm:flex-1 xl:w-60 xl:flex-none">
                 <input
                   id="concept-search"
                   type="text"
@@ -511,13 +513,13 @@ export default function KnowledgeMap({
                 />
               </div>
 
-              <div>
+              <div className="shrink-0">
                 <select
                   id="concept-sort"
                   aria-label={t('knowledge.sort')}
                   value={sort}
                   onChange={(e) => setSort(e.target.value as ConceptSort)}
-                  className="min-h-11 rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="min-h-11 max-w-full rounded border bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                 >
                   <option value="newest">{t('knowledge.sortNewest')}</option>
                   <option value="updated">{t('knowledge.sortUpdated')}</option>
@@ -525,13 +527,13 @@ export default function KnowledgeMap({
                 </select>
               </div>
 
-              <div>
+              <div className="shrink-0">
                 <select
                   id="concept-group-by"
                   aria-label={t('knowledge.groupBy')}
                   value={groupBy}
                   onChange={(e) => setGroupBy(e.target.value as ConceptGroupBy)}
-                  className="min-h-11 rounded border bg-white p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="min-h-11 max-w-full rounded border bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                 >
                   <option value="domain">{t('knowledge.groupByDomain')}</option>
                   <option value="tag">{t('knowledge.groupByTag')}</option>
@@ -539,7 +541,7 @@ export default function KnowledgeMap({
                 </select>
               </div>
 
-              <details className="w-full xl:relative xl:w-auto">
+              <details className="relative ms-auto shrink-0 xl:ms-0">
                 <summary className="flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded border bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
                   <span>{t('knowledge.filters')}</span>
                   {activeFilterCount > 0 ? (
@@ -548,8 +550,22 @@ export default function KnowledgeMap({
                     </span>
                   ) : null}
                 </summary>
-                <div data-testid="concept-filters" className="mt-2 w-full rounded-xl border bg-white p-4 shadow-lg xl:absolute xl:right-0 xl:z-20 xl:w-80">
+                <div
+                  data-testid="concept-filters"
+                  className="absolute end-0 top-full z-30 mt-2 max-h-[calc(100dvh-20rem)] w-[calc(100vw-2rem)] max-w-80 overflow-y-auto overscroll-contain rounded-xl border bg-white p-4 shadow-lg sm:w-80"
+                >
                   <div className="grid gap-3">
+                    <p className="text-xs leading-5 text-gray-500">
+                      {t('knowledge.generatedSummary', {
+                        core: coreCardCount,
+                        generated: generatedCardCount,
+                        state: includeGenerated
+                          ? t('knowledge.generatedShown', { limit: generatedLimit })
+                          : t('knowledge.generatedHidden'),
+                      })}
+                      {personalCards.length > 0 ? ` ${t('knowledge.privateCount', { count: personalCards.length })}` : ''}
+                    </p>
+
                     <label className="grid gap-1 text-sm font-medium text-gray-700" htmlFor="concept-domain">
                       {t('common.domain')}
                       <select

@@ -402,6 +402,39 @@ test.describe('browser smoke', () => {
       await page.setViewportSize({ width: 390, height: 844 });
     }
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
+    const conceptsHeader = page.getByTestId('concepts-header');
+    await expect(conceptsHeader.getByRole('status')).toHaveAccessibleName(/\d+ of \d+ concepts/);
+    if (exercisesViewportResize) {
+      await expect(page.getByTestId('concept-filters')).toBeHidden();
+      const mobileHeaderBox = await conceptsHeader.boundingBox();
+      expect(
+        mobileHeaderBox?.height ?? Number.POSITIVE_INFINITY,
+        'closed mobile Concepts header height',
+      ).toBeLessThanOrEqual(160);
+      expect(
+        await conceptsHeader.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+        'mobile Concepts header has no horizontal overflow',
+      ).toBe(true);
+
+      await page.setViewportSize({ width: 1024, height: 900 });
+      const mediumHeaderBox = await conceptsHeader.boundingBox();
+      const mediumViewport = page.viewportSize();
+      expect(
+        mediumHeaderBox?.height ?? Number.POSITIVE_INFINITY,
+        'closed medium-width Concepts header height',
+      ).toBeLessThanOrEqual(112);
+      expect(mediumHeaderBox?.x ?? -1, 'Concepts header left edge').toBeGreaterThanOrEqual(0);
+      expect(mediumHeaderBox?.y ?? -1, 'Concepts header top edge').toBeGreaterThanOrEqual(0);
+      expect(
+        (mediumHeaderBox?.x ?? 0) + (mediumHeaderBox?.width ?? 0),
+        'Concepts header right edge',
+      ).toBeLessThanOrEqual(mediumViewport?.width ?? 0);
+      expect(
+        (mediumHeaderBox?.y ?? 0) + (mediumHeaderBox?.height ?? 0),
+        'Concepts header bottom edge',
+      ).toBeLessThanOrEqual(mediumViewport?.height ?? 0);
+      await page.setViewportSize({ width: 390, height: 844 });
+    }
     const wikiLink = page.getByRole('link', { name: 'Wiki →' }).first();
     const wikiLinkBox = await wikiLink.boundingBox();
     expect(wikiLinkBox?.width ?? 0, 'concept source touch target width').toBeGreaterThanOrEqual(44);
@@ -448,6 +481,7 @@ test.describe('browser smoke', () => {
     await filters.click();
     const addedWithin = page.getByLabel('Added within');
     await expect(addedWithin).toHaveValue('all');
+    await expect(page.getByTestId('concept-filters').getByText(/^Core:/)).toBeVisible();
     if (exercisesViewportResize) {
       for (const control of [
         page.locator('#concept-domain'),
@@ -466,7 +500,25 @@ test.describe('browser smoke', () => {
     const filterPanel = await page.getByTestId('concept-filters').boundingBox();
     const viewport = page.viewportSize();
     expect(filterPanel?.x ?? -1, 'filter panel left edge').toBeGreaterThanOrEqual(0);
+    expect(filterPanel?.y ?? -1, 'filter panel top edge').toBeGreaterThanOrEqual(0);
     expect((filterPanel?.x ?? 0) + (filterPanel?.width ?? 0), 'filter panel right edge').toBeLessThanOrEqual(viewport?.width ?? 0);
+    expect((filterPanel?.y ?? 0) + (filterPanel?.height ?? 0), 'filter panel bottom edge').toBeLessThanOrEqual(viewport?.height ?? 0);
+    if (exercisesViewportResize) {
+      const expandedHeaderBox = await conceptsHeader.boundingBox();
+      expect(
+        expandedHeaderBox?.height ?? Number.POSITIVE_INFINITY,
+        'expanded mobile Concepts header height',
+      ).toBeLessThanOrEqual(160);
+      await page.locator('html').evaluate((element) => element.setAttribute('dir', 'rtl'));
+      const rtlFilterPanel = await page.getByTestId('concept-filters').boundingBox();
+      const rtlViewport = page.viewportSize();
+      expect(rtlFilterPanel?.x ?? -1, 'RTL filter panel left edge').toBeGreaterThanOrEqual(0);
+      expect(
+        (rtlFilterPanel?.x ?? 0) + (rtlFilterPanel?.width ?? 0),
+        'RTL filter panel right edge',
+      ).toBeLessThanOrEqual(rtlViewport?.width ?? 0);
+      await page.locator('html').evaluate((element) => element.setAttribute('dir', 'ltr'));
+    }
     await page.getByRole('button', { name: 'Reset all' }).click();
     await expect(sort).toHaveValue('newest');
     await expect(groupBy).toHaveValue('domain');
