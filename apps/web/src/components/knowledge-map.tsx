@@ -513,13 +513,13 @@ export default function KnowledgeMap({
                 />
               </div>
 
-              <div className="shrink-0">
+              <div className="min-w-0 flex-1 sm:flex-none">
                 <select
                   id="concept-sort"
                   aria-label={t('knowledge.sort')}
                   value={sort}
                   onChange={(e) => setSort(e.target.value as ConceptSort)}
-                  className="min-h-11 max-w-full rounded border bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="min-h-11 w-full max-w-full rounded border bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 sm:w-auto"
                 >
                   <option value="newest">{t('knowledge.sortNewest')}</option>
                   <option value="updated">{t('knowledge.sortUpdated')}</option>
