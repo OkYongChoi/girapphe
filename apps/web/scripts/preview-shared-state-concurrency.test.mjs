@@ -46,6 +46,8 @@ test('preview jobs serialize shared database and Worker-settings mutations', asy
     /repos\/\$GITHUB_REPOSITORY\/pulls\/\$PR_NUMBER/,
   );
   assert.equal(previewHeadGuard.step.env.EXPECTED_HEAD_SHA, '${{ github.event.pull_request.head.sha }}');
+  assert.match(previewHeadGuard.step.run, /current_state.*open/s);
+  assert.match(previewHeadGuard.step.run, /current_head_repository.*GITHUB_REPOSITORY/s);
   assert.match(previewHeadGuard.step.run, /current_head_sha.*EXPECTED_HEAD_SHA/s);
 
   const orderedStatefulCommands = [

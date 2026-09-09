@@ -90,9 +90,13 @@ jobs:
             --header "Authorization: Bearer $GH_TOKEN" \
             --header "Accept: application/vnd.github+json" \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          current_state="$(node --input-type=module -e 'const value = JSON.parse(process.argv[1]); process.stdout.write(String(value.state ?? ""));' "$response")"
+          current_head_repository="$(node --input-type=module -e 'const value = JSON.parse(process.argv[1]); process.stdout.write(String(value.head?.repo?.full_name ?? ""));' "$response")"
           current_head_sha="$(node --input-type=module -e 'const value = JSON.parse(process.argv[1]); process.stdout.write(String(value.head?.sha ?? ""));' "$response")"
-          if [ "$current_head_sha" != "$EXPECTED_HEAD_SHA" ]; then
-            echo "Refusing to mutate shared Preview state for superseded revision $EXPECTED_HEAD_SHA."
+          if [ "$current_state" != "open" ] || \
+             [ "$current_head_repository" != "$GITHUB_REPOSITORY" ] || \
+             [ "$current_head_sha" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "Refusing to mutate shared Preview state for a closed, foreign, or superseded pull request."
             exit 1
           fi
 
