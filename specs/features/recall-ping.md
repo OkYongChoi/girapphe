@@ -172,10 +172,12 @@ Out of scope:
 - [ ] `AC-13`: Every new preference, device-token, delivery, attempt, milestone,
   and memory-cue record participates in the account-deletion fence and explicit
   purge transaction. Device tokens and preferences live only while enabled;
-  delivery records expire after 30 days, attempt records after 365 days or an
-  earlier all-progress reset, and memory cues when the user deletes the cue,
-  knowledge item, or account. Queued external delivery identifiers are
-  invalidated before database deletion.
+  delivery records expire after 30 days, attempt records become purge-eligible
+  after 365 days or are deleted by an earlier all-progress reset, and memory
+  cues expire when the user deletes the cue, knowledge item, or account. The
+  daily purge may physically remove an expired attempt on its next run, up to
+  roughly one day later, without extending `retention_expires_at`. Queued
+  external delivery identifiers are invalidated before database deletion.
 - [ ] `AC-14`: The seven-day pilot requires research consent separate from
   Recall Ping notification consent and OS permission. Before enrollment, the
   participant sees the purpose, exact content-free fields, first-party storage
@@ -240,8 +242,10 @@ due terminal assessed Recall rows. Active milestones stay outside generic
 Practice until the prepared-session action advances them; start/resume,
 confidence, reveal authorization, stale invalidation, item removal, reset,
 retention, and account deletion now share the same locked schedule generation.
-No server action, API route, approval hook, completion transition, notification
-delivery, or visible Recall behavior calls the attempt repository yet.
+No user-facing server action, approval hook, completion transition,
+notification delivery, or visible Recall behavior calls the attempt repository
+yet. The authenticated scheduled-purge route invokes only its bounded retention
+cleanup.
 Unchecked criteria remain end-to-end requirements, not activation claims.
 
 ## Rollout
@@ -249,10 +253,11 @@ Unchecked criteria remain end-to-end requirements, not activation claims.
 Implementation requires additive checked-in Drizzle migrations. The first
 persistence slice extends `user_private_card_states` with a content-free current
 schedule snapshot, while `user_private_card_states.due_at` remains the single
-scheduling authority. Preference, delivery, attempt, device-token, milestone,
-and optional memory-cue records are intentionally deferred until their
-enrollment-generation, claim/lease, idempotency, and retention contracts are
-specified with the lifecycle stage that uses them.
+scheduling authority. The prepared-session slice adds content-free attempt
+records with a bounded retention path. Preference, delivery, device-token,
+standalone milestone, and optional memory-cue records remain deferred until
+their enrollment-generation, claim/lease, idempotency, and retention contracts
+are specified with the lifecycle stage that uses them.
 The existing `known -> 14 days` and `saved -> now` behavior must be migrated or
 adapted explicitly rather than shadowed by a Recall Ping-only queue.
 
@@ -285,11 +290,11 @@ Planned implementation PR boundaries:
    ordinary public or guest known cards reappear.
    The Practice compatibility sub-slice (terminal due selection, exact review
    count, active-milestone rating guard, and locked removal/reset) landed first.
-   The next prepared-session
-   sub-slice adds a content-free attempt table and disconnected server
-   repository for due-only start/resume, confidence-before-reveal, stale
-   invalidation, retention, and deletion wiring. Completion, retry scheduling,
-   approval/enrollment hooks, and runtime actions remain in this stage.
+   The prepared-session sub-slice adds a content-free attempt table and
+   disconnected server repository for due-only start/resume,
+   confidence-before-reveal, stale invalidation, retention, and deletion wiring.
+   Completion, retry scheduling, approval/enrollment hooks, and runtime actions
+   remain in this stage.
 4. **Mobile delivery:** add default-off notification settings, device-token
    lifecycle, generic payloads, scheduler claims, one-time snooze, and the
    authenticated deep link behind platform adapters.
