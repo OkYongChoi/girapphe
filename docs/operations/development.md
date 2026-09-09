@@ -217,6 +217,12 @@ If Chromium is not installed locally yet, run:
 pnpm exec playwright install --with-deps chromium
 ```
 
+GitHub-hosted runners first use the same dependency-aware install. If an
+unrelated third-party APT index refresh fails, the workflows retry only the
+Playwright-managed Chromium download against the runner's preinstalled system
+dependencies; the subsequent browser test still fails closed if those
+dependencies are insufficient.
+
 Release handoff checklist:
 
 ```bash

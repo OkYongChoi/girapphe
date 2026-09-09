@@ -155,7 +155,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          if ! pnpm exec playwright install --with-deps chromium; then
+            echo "::warning::System dependency refresh failed; retrying the browser-only install against runner-provided dependencies."
+            pnpm exec playwright install chromium
+          fi
 
       - name: Measure authenticated overlay
         env:
@@ -218,7 +222,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          if ! pnpm exec playwright install --with-deps chromium; then
+            echo "::warning::System dependency refresh failed; retrying the browser-only install against runner-provided dependencies."
+            pnpm exec playwright install chromium
+          fi
 
       - name: Measure authenticated overlay once
         env:
