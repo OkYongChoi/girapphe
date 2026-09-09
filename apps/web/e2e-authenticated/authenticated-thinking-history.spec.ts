@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { expect, test, type Page, type Request, type Response } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Request, type Response } from "@playwright/test";
 import { EXTRA_EN_MESSAGES } from "../src/i18n/catalogs/extended/en";
 
 const thinkingHistoryAsset = JSON.parse(
@@ -200,6 +200,26 @@ function requestMaterial(request: Request): string {
 
 function errorSummary(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+}
+
+async function clickActionableLinkBelowStickyChrome(link: Locator): Promise<void> {
+  await link.evaluate(async (element) => {
+    element.scrollIntoView({ block: "center", inline: "nearest" });
+    await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+  });
+  await expect.poll(async () => link.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const hitTarget = document.elementFromPoint(
+      bounds.left + bounds.width / 2,
+      bounds.top + bounds.height / 2,
+    );
+    return hitTarget !== null && (hitTarget === element || element.contains(hitTarget));
+  }), {
+    message: "the centered review link receives the next pointer action",
+    timeout: 10_000,
+    intervals: [100, 250, 500],
+  }).toBe(true);
+  await link.click({ timeout: 10_000 });
 }
 
 function assertPortableContext(format: ContextFormat, content: string) {
@@ -510,7 +530,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
       await expect(reviewLinks.nth(index).locator("xpath=ancestor::article[1]"))
         .toContainText("Candidate · not confirmed");
     }
-    await reviewLinks.first().click();
+    await clickActionableLinkBelowStickyChrome(reviewLinks.first());
     await expect(page).toHaveURL(/\/knowledge-inbox\/[^/]+\/[^/]+\/resolve$/);
     const evidenceGroup = page.getByRole("group", { name: "Evidence selectors to retain" });
     await expect(evidenceGroup).toContainText(/chatgpt-message:[0-9a-f]{48}/);

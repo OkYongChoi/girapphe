@@ -116,6 +116,9 @@ test('Thinking History import-event evidence waits for commit visibility and cle
     'the import route itself must not satisfy the submitted-batch redirect',
   );
   assert.match(source, /async function waitForSubmittedImportBatchId\([\s\S]{0,1400}submittedImportBatchIdsContainingMarker\([\s\S]{0,700}\.toBe\(1\)/);
+  assert.match(source, /async function clickActionableLinkBelowStickyChrome\([\s\S]{0,500}scrollIntoView\(\{ block: "center", inline: "nearest" \}\)[\s\S]{0,700}document\.elementFromPoint\([\s\S]{0,700}await link\.click\(\{ timeout: 10_000 \}\)/);
+  assert.match(source, /await clickActionableLinkBelowStickyChrome\(reviewLinks\.first\(\)\)/);
+  assert.doesNotMatch(source, /click\(\{ force: true \}\)/);
   assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await batchRow\.getByRole\("button", \{ name: deleteImportCopy \}\)\.click\(\)[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
   const submissionClick = source.indexOf('await page.getByRole("button", { name: /Create 2 review candidates/i }).click()');
   const exactRedirect = source.indexOf('await expect(page).toHaveURL(IMPORT_BATCH_URL_PATTERN', submissionClick);

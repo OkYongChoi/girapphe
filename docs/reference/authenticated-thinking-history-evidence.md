@@ -63,6 +63,12 @@ redirect itself fails after the server commit, the unique synthetic marker
 recovers the batch ID from the owner export first. One project therefore cannot
 satisfy or contaminate the other's privacy evidence.
 
+On the mobile long-form review page, the resolution link is centered below the
+sticky navigation and its midpoint is verified as the browser's actual pointer
+target before the test clicks it. The click has a bounded action timeout, so an
+actionability regression cannot consume the whole test budget and prevent the
+owner-scoped cleanup from running.
+
 The importer assertion is deliberately about one extracted
 `conversations.json`. It is not evidence for ZIP archives, numbered/split
 exports, or any other provider adapter. The parser is deterministic and makes
