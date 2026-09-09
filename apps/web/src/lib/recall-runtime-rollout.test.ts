@@ -67,6 +67,19 @@ test('checked-in Worker environments keep production off and Preview synthetic-o
     /authenticated-overlay-fixture\.mjs --write-recall-user-id-to-github-env/u,
   );
   assert.match(deployWorkflow, /NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN RECALL_RUNTIME_USER_IDS/u);
+  const absentSecretCleanup = deployWorkflow.slice(
+    deployWorkflow.indexOf('current_secrets_file="$(mktemp)"'),
+    deployWorkflow.indexOf('pnpm exec wrangler versions upload --env preview'),
+  );
+  const cleanupKeys = absentSecretCleanup.match(/for key in ([^\n]+); do/u)?.[1]?.split(' ');
+  assert.deepEqual(cleanupKeys, [
+    'NEXT_PUBLIC_ADSENSE_CLIENT_ID',
+    'NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID',
+    'NEXT_PUBLIC_ADSENSE_CONSENT_READY',
+    'NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN',
+    'RECALL_RUNTIME_USER_IDS',
+  ]);
+  assert.match(absentSecretCleanup, /if \[ -z "\$\{!key:-\}" \]/u);
 
   const evidenceWorkflow = readFileSync(
     new URL('../../../../.github/workflows/authenticated-performance.yml', import.meta.url),

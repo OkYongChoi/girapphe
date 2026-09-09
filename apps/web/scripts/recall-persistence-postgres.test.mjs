@@ -1941,21 +1941,26 @@ test('Private Practice executes Recall-compatible due, rating, removal, and rese
   }
 });
 
-test('knowledge revision cleanup removes stale Recall state and permits owner re-enrollment', {
+test('knowledge revision and Trash cleanup remove stale Recall state and permit owner re-enrollment', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
 }, async () => {
   process.env.DATABASE_URL = databaseUrl;
   const importedRecall = await import('../src/lib/recall-persistence.ts');
   const recall = importedRecall.default ?? importedRecall;
+  const importedAttempts = await import('../src/lib/recall-attempts.ts');
+  const attempts = importedAttempts.default ?? importedAttempts;
   const importedLifecycle = await import('../src/lib/recall-lifecycle-cleanup.ts');
   const lifecycle = importedLifecycle.default ?? importedLifecycle;
-  const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const pool = new Pool({ connectionString: databaseUrl, max: 3 });
   const repositoryAdapter = await installRepositoryPgAdapter(pool);
   const userId = `live-recall-revision-owner-${crypto.randomUUID()}`;
   const itemId = `live-recall-revision-item-${crypto.randomUUID()}`;
   const batchId = `live-recall-revision-batch-${crypto.randomUUID()}`;
   const draftId = `live-recall-revision-draft-${crypto.randomUUID()}`;
   const sourceId = `live-recall-revision-source-${crypto.randomUUID()}`;
+  let trashClient = null;
+  let trashTransactionOpen = false;
+  let concurrentStartPromise = null;
   let bodyCompleted = false;
 
   try {
@@ -2109,17 +2114,220 @@ test('knowledge revision cleanup removes stale Recall state and permits owner re
       userId,
       itemId,
       3,
-      '2026-09-20T00:00:00.000Z',
-      '2026-09-21T00:00:00.000Z',
+      new Date(Date.now() - 25 * 60 * 60 * 1_000).toISOString(),
+      new Date(Date.now() - 30 * 60 * 1_000).toISOString(),
     );
     assert.equal(thirdEnrollment.kind, 'enrolled');
     assert.equal(thirdEnrollment.schedule.practice.status, 'saved');
     assert.equal(thirdEnrollment.schedule.practice.knowledgeState, 'unknown');
     assert.equal(thirdEnrollment.schedule.practice.progressState, 'learning');
     assert.match(thirdEnrollment.schedule.practice.lastSeen, /^\d{4}-\d{2}-\d{2}T/);
+
+    await pool.query(
+      `UPDATE user_private_card_states
+       SET status = NULL, knowledge_state = NULL, progress_state = NULL, last_seen = NULL
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemId],
+    );
+    const unassessedAttempt = await attempts.startOrResumeRecallAttemptForUser(userId, itemId);
+    assert.equal(unassessedAttempt.kind, 'started');
+    assert.ok(unassessedAttempt.attempt);
+
+    const knowledgeLock = {
+      text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
+      params: [`knowledge-item:${userId}:${itemId}`],
+    };
+    const trashCleanup = lifecycle.buildStaleRecallEnrollmentCleanupQuery(userId, itemId);
+    trashClient = await pool.connect();
+    await trashClient.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+    trashTransactionOpen = true;
+    const trashBackendPid = (await trashClient.query(
+      'SELECT pg_backend_pid()::integer AS pid',
+    )).rows[0]?.pid;
+    await trashClient.query(firstLock.text, firstLock.params);
+
+    concurrentStartPromise = attempts.startOrResumeRecallAttemptForUser(userId, itemId);
+    let blockedStart = [];
+    for (let probe = 0; probe < 100; probe += 1) {
+      blockedStart = (await pool.query(
+        `SELECT waiter.pid::integer AS pid
+         FROM pg_locks holder
+         JOIN pg_locks waiter
+           ON waiter.locktype = holder.locktype
+          AND waiter.database IS NOT DISTINCT FROM holder.database
+          AND waiter.classid IS NOT DISTINCT FROM holder.classid
+          AND waiter.objid IS NOT DISTINCT FROM holder.objid
+          AND waiter.objsubid IS NOT DISTINCT FROM holder.objsubid
+         WHERE holder.pid = $1
+           AND holder.locktype = 'advisory'
+           AND holder.granted
+           AND NOT waiter.granted`,
+        [trashBackendPid],
+      )).rows;
+      if (blockedStart.length > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(blockedStart.length, 1);
+
+    await trashClient.query(knowledgeLock.text, knowledgeLock.params);
+    await trashClient.query(
+      `UPDATE user_knowledge_items
+       SET deleted_at = NOW(), purge_at = NOW() + INTERVAL '14 days', updated_at = NOW()
+       WHERE id = $1 AND user_id = $2`,
+      [itemId, userId],
+    );
+    assert.deepEqual((await trashClient.query(trashCleanup.text, trashCleanup.params)).rows, [{
+      invalidated_attempts: 1,
+      deleted_states: 1,
+      cleared_states: 0,
+    }]);
+    await trashClient.query('COMMIT');
+    trashTransactionOpen = false;
+    assert.deepEqual(await concurrentStartPromise, { kind: 'not_available', attempt: null });
+    concurrentStartPromise = null;
+    trashClient.release();
+    trashClient = null;
+
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM user_private_card_states WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemId],
+    )).rows[0]?.count, 0);
+    assert.deepEqual((await pool.query(
+      `SELECT lifecycle_state, invalidation_reason
+       FROM recall_attempts WHERE id = $1 AND user_id = $2`,
+      [unassessedAttempt.attempt.id, userId],
+    )).rows[0], { lifecycle_state: 'invalidated', invalidation_reason: 'stale_context' });
+
+    const restoreDeletedItem = async (nextVersion) => {
+      const restoreResults = await repositoryAdapter.transaction([
+        firstLock,
+        knowledgeLock,
+        {
+          text: `WITH restored_item AS (
+            UPDATE user_knowledge_items
+            SET deleted_at = NULL, purge_at = NULL, version = version + 1, updated_at = NOW()
+            WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL
+            RETURNING id, user_id, version
+          )
+          INSERT INTO knowledge_item_revisions
+            (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+          SELECT $3, user_id, id, version, '{}'::jsonb, 'restored'
+          FROM restored_item
+          RETURNING version`,
+          params: [itemId, userId, crypto.randomUUID()],
+        },
+        lifecycle.buildStaleRecallEnrollmentCleanupQuery(userId, itemId),
+      ]);
+      assert.deepEqual(restoreResults[2]?.rows, [{ version: nextVersion }]);
+      assert.deepEqual(restoreResults.at(-1)?.rows, [{
+        invalidated_attempts: 0,
+        deleted_states: 0,
+        cleared_states: 0,
+      }]);
+    };
+
+    await restoreDeletedItem(4);
+    const fourthEnrolledAt = new Date(Date.now() - 25 * 60 * 60 * 1_000).toISOString();
+    const fourthDueAt = new Date(Date.now() - 30 * 60 * 1_000).toISOString();
+    assert.deepEqual(await recall.enrollApprovedRecallScheduleForUser(
+      userId, itemId, 4, fourthEnrolledAt, fourthDueAt,
+    ), { kind: 'ineligible', schedule: null });
+    await pool.query(
+      'UPDATE knowledge_card_sources SET supported_item_version = 4 WHERE id = $1 AND user_id = $2',
+      [sourceId, userId],
+    );
+    const fourthEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId, itemId, 4, fourthEnrolledAt, fourthDueAt,
+    );
+    assert.equal(fourthEnrollment.kind, 'enrolled');
+    assert.deepEqual(fourthEnrollment.schedule.practice, {
+      status: null,
+      knowledgeState: null,
+      progressState: null,
+      lastSeen: null,
+    });
+
+    await pool.query(
+      `UPDATE user_private_card_states
+       SET status = 'saved', knowledge_state = 'unknown', progress_state = 'learning', last_seen = NOW()
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemId],
+    );
+    const assessedAttempt = await attempts.startOrResumeRecallAttemptForUser(userId, itemId);
+    assert.equal(assessedAttempt.kind, 'started');
+    assert.ok(assessedAttempt.attempt);
+
+    const assessedTrashResults = await repositoryAdapter.transaction([
+      firstLock,
+      knowledgeLock,
+      {
+        text: `UPDATE user_knowledge_items
+          SET deleted_at = NOW(), purge_at = NOW() + INTERVAL '14 days', updated_at = NOW()
+          WHERE id = $1 AND user_id = $2`,
+        params: [itemId, userId],
+      },
+      lifecycle.buildStaleRecallEnrollmentCleanupQuery(userId, itemId),
+    ]);
+    assert.deepEqual(assessedTrashResults.at(-1)?.rows, [{
+      invalidated_attempts: 1,
+      deleted_states: 0,
+      cleared_states: 1,
+    }]);
+    assert.deepEqual((await pool.query(
+      `SELECT lifecycle_state, invalidation_reason
+       FROM recall_attempts WHERE id = $1 AND user_id = $2`,
+      [assessedAttempt.attempt.id, userId],
+    )).rows[0], { lifecycle_state: 'invalidated', invalidation_reason: 'stale_context' });
+    assert.deepEqual((await pool.query(
+      `SELECT status, knowledge_state, progress_state,
+         last_seen IS NOT NULL AS last_seen_recorded,
+         recall_enrolled_at, recall_item_version
+       FROM user_private_card_states WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemId],
+    )).rows, [{
+      status: 'saved',
+      knowledge_state: 'unknown',
+      progress_state: 'learning',
+      last_seen_recorded: true,
+      recall_enrolled_at: null,
+      recall_item_version: null,
+    }]);
+
+    await restoreDeletedItem(5);
+    const fifthEnrolledAt = new Date(Date.now() - 25 * 60 * 60 * 1_000).toISOString();
+    const fifthDueAt = new Date(Date.now() - 30 * 60 * 1_000).toISOString();
+    assert.deepEqual(await recall.enrollApprovedRecallScheduleForUser(
+      userId, itemId, 5, fifthEnrolledAt, fifthDueAt,
+    ), { kind: 'ineligible', schedule: null });
+    await pool.query(
+      'UPDATE knowledge_card_sources SET supported_item_version = 5 WHERE id = $1 AND user_id = $2',
+      [sourceId, userId],
+    );
+    const fifthEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId, itemId, 5, fifthEnrolledAt, fifthDueAt,
+    );
+    assert.equal(fifthEnrollment.kind, 'enrolled');
+    assert.equal(fifthEnrollment.schedule.practice.status, 'saved');
+    assert.equal(fifthEnrollment.schedule.practice.knowledgeState, 'unknown');
+    assert.equal(fifthEnrollment.schedule.practice.progressState, 'learning');
+    assert.match(fifthEnrollment.schedule.practice.lastSeen, /^\d{4}-\d{2}-\d{2}T/);
     bodyCompleted = true;
   } finally {
     const cleanupFailures = [];
+    if (trashTransactionOpen && trashClient) {
+      await collectCleanupFailure(cleanupFailures, 'rollback Trash lifecycle transaction', async () => {
+        await trashClient.query('ROLLBACK');
+        trashTransactionOpen = false;
+      });
+    }
+    if (concurrentStartPromise) {
+      await collectCleanupFailure(cleanupFailures, 'settle concurrent Recall start', () => concurrentStartPromise);
+    }
+    if (trashClient) {
+      trashClient.release();
+      trashClient = null;
+    }
     repositoryAdapter.restore();
     await collectCleanupFailure(cleanupFailures, 'delete revision lifecycle knowledge item', () => (
       pool.query('DELETE FROM user_knowledge_items WHERE id = $1 AND user_id = $2', [itemId, userId])

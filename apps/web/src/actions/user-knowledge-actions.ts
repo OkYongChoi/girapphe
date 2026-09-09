@@ -850,6 +850,7 @@ export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
      WHERE e.user_id = $2 AND e.deleted_at IS NULL
        AND (e.source_private_node_id = d.id OR e.target_private_node_id = d.id)`;
   await pool.accountTransaction(user.id, [
+    buildRecallLifecycleLockQuery(user.id, id),
     {
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
       params: [`knowledge-item:${user.id}:${id}`],
@@ -858,6 +859,7 @@ export async function deleteKnowledgeItem(formData: FormData): Promise<void> {
       text: deleteQuery,
       params: [id, user.id, PERSONAL_CARD_RETENTION_DAYS, syncGraph, randomUUID()],
     },
+    buildStaleRecallEnrollmentCleanupQuery(user.id, id),
   ]);
 
   revalidatePath('/my-notes');

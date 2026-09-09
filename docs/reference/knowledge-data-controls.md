@@ -93,7 +93,9 @@ same `off`, `allowlist`, and `all` modes. Production configuration remains
 `off` by default; checked-in Preview configuration uses `allowlist`. Store at
 most 500 exact Clerk user IDs in the untracked `RECALL_RUNTIME_USER_IDS` secret;
 the authenticated Preview workflow injects only its marker-validated synthetic
-owner.
+owner. When the corresponding repository variable is empty, Preview deployment
+deletes an earlier Recall allowlist secret instead of inheriting stale access;
+provider lifecycle secrets remain independently managed and are not removed.
 
 The flag gates only discovery and new per-item enrollment. It never blocks an
 already-enrolled user's start, confidence, reveal, completion, or stop actions;

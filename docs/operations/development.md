@@ -243,7 +243,10 @@ in a production environment. `wrangler.jsonc` keeps production Recall
 enrollment off and Preview in `allowlist` mode. Before the Preview Worker is
 uploaded, the deployment workflow validates the marker-named Clerk account and
 injects only that synthetic user ID as `RECALL_RUNTIME_USER_IDS`; it never opens
-Recall enrollment to all Preview users.
+Recall enrollment to all Preview users. If the repository variable is empty,
+the deploy skips fixture-ID preparation and explicitly deletes any earlier
+`RECALL_RUNTIME_USER_IDS` Preview secret. This closes stale synthetic enrollment
+without deleting separately managed billing-provider lifecycle secrets.
 
 `E2E_CLERK_USER_EMAIL` must contain the exact
 `+clerk_test_girapphe_overlay_e2e` marker. Setup rejects an existing account

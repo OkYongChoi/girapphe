@@ -37,10 +37,11 @@ test('stale Recall cleanup is owner-scoped, invalidates active attempts, and pre
   assert.doesNotMatch(cleanup.text, /title|summary|content|central_question|structured_content/);
 });
 
-test('every knowledge-item version mutation holds the Recall lock and cleans stale enrollment atomically', () => {
+test('every knowledge-item lifecycle or version mutation holds the Recall lock and cleans stale enrollment atomically', () => {
   const actionsSource = readFileSync(new URL('../actions/user-knowledge-actions.ts', import.meta.url), 'utf8');
   const ingestionSource = readFileSync(new URL('./knowledge-ingestion.ts', import.meta.url), 'utf8');
   const manualUpdate = sourceSection(actionsSource, 'export async function updateKnowledgeItem(', 'export async function updateKnowledgeItemFormAction(');
+  const trashDelete = sourceSection(actionsSource, 'export async function deleteKnowledgeItem(', 'export async function getDeletedKnowledgeItems(');
   const trashRestore = sourceSection(actionsSource, 'export async function restoreKnowledgeItem(', 'export async function getTopicKnowledgeHub(');
   const draftResolution = sourceSection(ingestionSource, 'export async function resolveKnowledgeDraftForUser(', 'export async function verifyKnowledgeItemForUser(');
   const verification = sourceSection(ingestionSource, 'export async function verifyKnowledgeItemForUser(', 'export type KnowledgeArchiveResult');
@@ -48,6 +49,7 @@ test('every knowledge-item version mutation holds the Recall lock and cleans sta
   const supersession = sourceSection(ingestionSource, 'export async function supersedeKnowledgeItemForUser(', 'export type KnowledgeReuseMetadata');
 
   assert.match(manualUpdate, /buildRecallLifecycleLockQuery\(user\.id, id\)[\s\S]*KNOWLEDGE_ITEM_UPDATE_QUERY[\s\S]*buildStaleRecallEnrollmentCleanupQuery\(user\.id, id\)/);
+  assert.match(trashDelete, /accountTransaction\(user\.id, \[[\s\S]*buildRecallLifecycleLockQuery\(user\.id, id\)[\s\S]*knowledge-item:\$\{user\.id\}:\$\{id\}[\s\S]*text: deleteQuery[\s\S]*buildStaleRecallEnrollmentCleanupQuery\(user\.id, id\)/);
   assert.match(trashRestore, /buildRecallLifecycleLockQuery\(user\.id, id\)[\s\S]*restoreQuery[\s\S]*buildStaleRecallEnrollmentCleanupQuery\(user\.id, id\)/);
   assert.match(draftResolution, /input\.action !== 'create'[\s\S]*buildRecallLifecycleLockQuery\(userId, itemId\)[\s\S]*version = version \+ 1[\s\S]*buildStaleRecallEnrollmentCleanupQuery\(userId, itemId\)/);
   assert.match(verification, /buildRecallLifecycleLockQuery\(userId, itemId\)[\s\S]*version = version \+ 1[\s\S]*tx\.query\(recallCleanup\.text/);

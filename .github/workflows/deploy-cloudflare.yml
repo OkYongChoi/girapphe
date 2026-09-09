@@ -300,7 +300,7 @@ jobs:
           pnpm exec wrangler secret list --env preview --format json > "$current_secrets_file"
           # Provider lifecycle bindings are intentionally outside this deletion
           # list. An absent GitHub value must not erase existing subscriber care.
-          for key in NEXT_PUBLIC_ADSENSE_CLIENT_ID NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID NEXT_PUBLIC_ADSENSE_CONSENT_READY NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN; do
+          for key in NEXT_PUBLIC_ADSENSE_CLIENT_ID NEXT_PUBLIC_ADSENSE_PRACTICE_SLOT_ID NEXT_PUBLIC_ADSENSE_CONSENT_READY NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN RECALL_RUNTIME_USER_IDS; do
             if [ -z "${!key:-}" ] && node -e 'const fs = require("node:fs"); const rows = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.exit(rows.some((row) => row.name === process.argv[2]) ? 0 : 1);' "$current_secrets_file" "$key"; then
               pnpm exec wrangler secret delete "$key" --env preview
             fi
