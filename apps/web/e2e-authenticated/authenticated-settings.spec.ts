@@ -83,6 +83,7 @@ test('keeps AI connection guidance honest and restores browser-local reuse defau
 
   if (process.env.E2E_THINKING_HISTORY_ENABLED === 'true') {
     await page.goto('/en/my-notes?view=insights', { waitUntil: 'domcontentloaded' });
+    await page.locator('.thinking-evidence-toggle').first().click();
     await expect(page.locator('select.thinking-format-select').first()).toHaveValue('json');
   }
 
