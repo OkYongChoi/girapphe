@@ -1,4 +1,4 @@
-name: Purge expired personal knowledge cards
+name: Purge expired private product records
 
 on:
   schedule:
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Purge cards past their restore deadline
+      - name: Purge cards and Recall attempts past retention
         env:
           APP_BASE_URL: ${{ vars.APP_BASE_URL }}
           PERSONAL_KNOWLEDGE_PURGE_TOKEN: ${{ secrets.PERSONAL_KNOWLEDGE_PURGE_TOKEN }}

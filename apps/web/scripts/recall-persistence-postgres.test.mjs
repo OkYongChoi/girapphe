@@ -43,6 +43,56 @@ async function assertRejectsInSavepoint(client, operation, expected) {
   }
 }
 
+async function installRepositoryPgAdapter(pool) {
+  const importedDb = await import('../src/lib/db.ts');
+  const repositoryDb = importedDb.default ?? importedDb;
+  const importedAccountLifecycle = await import('../src/lib/account-lifecycle.ts');
+  const accountLifecycle = importedAccountLifecycle.default ?? importedAccountLifecycle;
+  const originalMethods = {
+    query: repositoryDb.query,
+    transaction: repositoryDb.transaction,
+    accountTransaction: repositoryDb.accountTransaction,
+  };
+  const transaction = async (queries) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+      const results = [];
+      for (const query of queries) {
+        const result = await client.query(query.text, query.params ?? []);
+        results.push({ rows: result.rows });
+      }
+      await client.query('COMMIT');
+      return results;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+  repositoryDb.query = async (text, params) => {
+    const result = await pool.query(text, params ?? []);
+    return { rows: result.rows };
+  };
+  repositoryDb.transaction = transaction;
+  repositoryDb.accountTransaction = async (actorUserId, queries) => {
+    const results = await transaction([
+      ...accountLifecycle.buildActiveAccountGuardQueries(actorUserId),
+      ...queries,
+    ]);
+    return results.slice(2);
+  };
+  return {
+    transaction,
+    restore() {
+      repositoryDb.query = originalMethods.query;
+      repositoryDb.transaction = originalMethods.transaction;
+      repositoryDb.accountTransaction = originalMethods.accountTransaction;
+    },
+  };
+}
+
 test('Recall migration bootstraps an absent Practice table, preserves rows, and enforces honest snapshots', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
 }, async () => {
@@ -348,6 +398,7 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
   const sharedImport = await import('@stem-brain/shared');
   const shared = sharedImport.default ?? sharedImport;
   const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
   const userId = `live-recall-owner-${crypto.randomUUID()}`;
   const otherUserId = `live-recall-other-${crypto.randomUUID()}`;
   const itemId = `live-recall-item-${crypto.randomUUID()}`;
@@ -583,6 +634,7 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
     bodyCompleted = true;
   } finally {
     const cleanupFailures = [];
+    repositoryAdapter.restore();
     await collectCleanupFailure(cleanupFailures, 'delete synthetic knowledge item', () => (
       pool.query(
         `DELETE FROM user_knowledge_items WHERE id = $1 AND user_id = $2`,
@@ -620,6 +672,455 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
   }
 });
 
+test('Recall attempt migration enforces content-free lifecycle shapes and one active milestone', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const client = await pool.connect();
+  const schemaName = `recall_attempt_${crypto.randomUUID().replaceAll('-', '_')}`;
+  const schema = quoteIdentifier(schemaName);
+  const itemId = `attempt-migration-${crypto.randomUUID()}`;
+  const userId = `attempt-migration-owner-${crypto.randomUUID()}`;
+  const firstAttemptId = crypto.randomUUID();
+  let bodyCompleted = false;
+
+  try {
+    const migrationSql = await readFile(
+      new URL('../drizzle/migrations/0024_recall_prepared_attempts.sql', import.meta.url),
+      'utf8',
+    );
+    const statements = parsePreviewMigration(migrationSql);
+    await client.query(`CREATE SCHEMA ${schema}`);
+    await client.query(`SET search_path TO ${schema}, public`);
+    await client.query(`
+      CREATE TABLE user_knowledge_items (
+        id text PRIMARY KEY,
+        user_id text NOT NULL,
+        UNIQUE (id, user_id)
+      )
+    `);
+    await client.query(
+      'INSERT INTO user_knowledge_items (id, user_id) VALUES ($1, $2)',
+      [itemId, userId],
+    );
+    for (let run = 0; run < 2; run += 1) {
+      for (const statement of statements) await client.query(statement);
+    }
+    assert.equal((await client.query(
+      `SELECT to_regclass('recall_attempts')::text AS table_name`,
+    )).rows[0]?.table_name, 'recall_attempts');
+    assert.equal((await client.query(`
+      SELECT COUNT(*)::integer AS count
+      FROM pg_indexes
+      WHERE schemaname = $1 AND tablename = 'recall_attempts'
+        AND indexname IN (
+          'idx_recall_attempts_one_active_milestone',
+          'idx_recall_attempts_user_item_started',
+          'idx_recall_attempts_retention'
+        )
+    `, [schemaName])).rows[0]?.count, 3);
+
+    const insertPrepared = `INSERT INTO recall_attempts (
+      id, user_id, knowledge_item_id, item_version, schedule_version,
+      recall_enrolled_at, milestone, exercise_type
+    ) VALUES ($1, $2, $3, 1, 1, NOW() - INTERVAL '25 hours', 'd1', 'concept')`;
+    await client.query(insertPrepared, [firstAttemptId, userId, itemId]);
+    await assert.rejects(
+      client.query(insertPrepared, [crypto.randomUUID(), userId, itemId]),
+      /idx_recall_attempts_one_active_milestone/,
+    );
+    await client.query(
+      `UPDATE recall_attempts
+       SET lifecycle_state = 'invalidated', invalidated_at = NOW(),
+           invalidation_reason = 'stale_context', updated_at = NOW()
+       WHERE id = $1`,
+      [firstAttemptId],
+    );
+    await client.query(insertPrepared, [crypto.randomUUID(), userId, itemId]);
+    await assert.rejects(
+      client.query(
+        `UPDATE recall_attempts
+         SET lifecycle_state = 'revealed', revealed_at = NOW(), updated_at = NOW()
+         WHERE lifecycle_state = 'prepared'`,
+      ),
+      /recall_attempts_lifecycle_shape_check/,
+    );
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    await collectCleanupFailure(cleanupFailures, 'reset attempt migration search path', () => (
+      client.query('RESET search_path')
+    ));
+    await collectCleanupFailure(cleanupFailures, 'drop attempt migration schema', () => (
+      client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+    ));
+    await collectCleanupFailure(cleanupFailures, 'release attempt migration client', async () => {
+      client.release();
+    });
+    await collectCleanupFailure(cleanupFailures, 'close attempt migration pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});
+
+test('Recall attempt retention purge deletes an expired row and preserves a current row', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = databaseUrl;
+  const importedAttempts = await import('../src/lib/recall-attempts.ts');
+  const attempts = importedAttempts.default ?? importedAttempts;
+  const importedDb = await import('../src/lib/db.ts');
+  const repositoryDb = importedDb.default ?? importedDb;
+  const originalQuery = repositoryDb.query;
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const client = await pool.connect();
+  const schemaName = `recall_retention_${crypto.randomUUID().replaceAll('-', '_')}`;
+  const schema = quoteIdentifier(schemaName);
+  const userId = `retention-owner-${crypto.randomUUID()}`;
+  const itemId = `retention-item-${crypto.randomUUID()}`;
+  const expiredAttemptId = crypto.randomUUID();
+  const currentAttemptId = crypto.randomUUID();
+  let bodyCompleted = false;
+  let transactionOpen = false;
+
+  try {
+    const migrationSql = await readFile(
+      new URL('../drizzle/migrations/0024_recall_prepared_attempts.sql', import.meta.url),
+      'utf8',
+    );
+    const statements = parsePreviewMigration(migrationSql);
+    await client.query(`CREATE SCHEMA ${schema}`);
+    await client.query('BEGIN');
+    transactionOpen = true;
+    await client.query(`SET LOCAL search_path TO ${schema}, public`);
+    await client.query(`
+      CREATE TABLE user_knowledge_items (
+        id text PRIMARY KEY,
+        user_id text NOT NULL,
+        UNIQUE (id, user_id)
+      )
+    `);
+    await client.query(
+      'INSERT INTO user_knowledge_items (id, user_id) VALUES ($1, $2)',
+      [itemId, userId],
+    );
+    for (const statement of statements) await client.query(statement);
+    await client.query(`
+      INSERT INTO recall_attempts (
+        id, user_id, knowledge_item_id, item_version, schedule_version,
+        recall_enrolled_at, milestone, exercise_type,
+        started_at, retention_expires_at
+      ) VALUES
+        (
+          $1, $3, $4, 1, 1, NOW() - INTERVAL '367 days', 'd1', 'concept',
+          NOW() - INTERVAL '366 days', NOW() - INTERVAL '1 day'
+        ),
+        (
+          $2, $3, $4, 1, 1, NOW() - INTERVAL '2 days', 'd7', 'concept',
+          NOW() - INTERVAL '1 day', NOW() + INTERVAL '1 day'
+        )
+    `, [expiredAttemptId, currentAttemptId, userId, itemId]);
+
+    repositoryDb.query = async (text, params) => {
+      const result = await client.query(text, params ?? []);
+      return { rows: result.rows };
+    };
+
+    assert.equal(await attempts.purgeExpiredRecallAttempts(), 1);
+    assert.deepEqual((await client.query(`
+      SELECT id, lifecycle_state
+      FROM recall_attempts
+      ORDER BY id
+    `)).rows, [{ id: currentAttemptId, lifecycle_state: 'prepared' }]);
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    repositoryDb.query = originalQuery;
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+    if (transactionOpen) {
+      await collectCleanupFailure(cleanupFailures, 'rollback retention transaction', async () => {
+        await client.query('ROLLBACK');
+        transactionOpen = false;
+      });
+    }
+    await collectCleanupFailure(cleanupFailures, 'reset retention search path', () => (
+      client.query('RESET search_path')
+    ));
+    await collectCleanupFailure(cleanupFailures, 'drop retention schema', () => (
+      client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify retention schema removal', async () => {
+      const remaining = (await client.query(
+        `SELECT COUNT(*)::integer AS count
+         FROM information_schema.schemata
+         WHERE schema_name = $1`,
+        [schemaName],
+      )).rows[0]?.count;
+      assert.equal(remaining, 0);
+    });
+    await collectCleanupFailure(cleanupFailures, 'release retention database client', async () => {
+      client.release();
+    });
+    await collectCleanupFailure(cleanupFailures, 'close retention database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});
+
+test('Recall prepared attempts start once, require confidence, reveal idempotently, and invalidate stale revisions', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const importedRecall = await import('../src/lib/recall-persistence.ts');
+  const recall = importedRecall.default ?? importedRecall;
+  const importedAttempts = await import('../src/lib/recall-attempts.ts');
+  const attempts = importedAttempts.default ?? importedAttempts;
+  const importedPractice = await import('../src/lib/private-practice-cards.ts');
+  const practice = importedPractice.default ?? importedPractice;
+  const importedAccountPurge = await import('../src/lib/account-private-purge.ts');
+  const accountPurge = importedAccountPurge.default ?? importedAccountPurge;
+  const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
+  const userId = `live-attempt-owner-${crypto.randomUUID()}`;
+  const itemId = `live-attempt-item-${crypto.randomUUID()}`;
+  const batchId = `live-attempt-batch-${crypto.randomUUID()}`;
+  const draftId = `live-attempt-draft-${crypto.randomUUID()}`;
+  const sourceId = `live-attempt-source-${crypto.randomUUID()}`;
+  const revisionId = `live-attempt-revision-${crypto.randomUUID()}`;
+  const now = Date.now();
+  const enrolledAt = new Date(now - 25 * 60 * 60 * 1_000).toISOString();
+  const firstDueAt = new Date(now - 30 * 60 * 1_000).toISOString();
+  let bodyCompleted = false;
+  try {
+    await pool.query(
+      `INSERT INTO user_knowledge_items (
+         id, user_id, title, summary, content, topic, tags, knowledge_type,
+         central_question, structured_content, bundle_schema_version, version
+       ) VALUES (
+         $1, $2, 'Prepared attempt fixture', '', '', 'recall-live', '[]'::jsonb,
+         'concept', 'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1, 1
+       )`,
+      [itemId, userId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_item_revisions
+         (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+       VALUES ($1, $2, $3, 1, '{}'::jsonb, 'confirmed')`,
+      [revisionId, userId, itemId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_ingestion_batches (
+         id, user_id, source_type, provider, scope, request_id, status, committed_at
+       ) VALUES ($1, $2, 'conversation', 'chatgpt', 'current_conversation', $3, 'approved', NOW())`,
+      [batchId, userId, `live-attempt-request-${crypto.randomUUID()}`],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_card_drafts (
+         id, batch_id, user_id, client_card_id, title, knowledge_type,
+         central_question, structured_content, bundle_schema_version,
+         status, knowledge_item_id, approved_at
+       ) VALUES (
+         $1, $2, $3, $4, 'Prepared attempt fixture', 'concept',
+         'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1,
+         'approved', $5, NOW()
+       )`,
+      [draftId, batchId, userId, `live-attempt-card-${crypto.randomUUID()}`, itemId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_card_sources (
+         id, user_id, knowledge_item_id, batch_id, draft_id, source_type,
+         provider, conversation_ref, supported_item_version, confirmed_at
+       ) VALUES ($1, $2, $3, $4, $5, 'conversation', 'chatgpt', $6, 1, NOW())`,
+      [sourceId, userId, itemId, batchId, draftId, `conversation-${crypto.randomUUID()}`],
+    );
+
+    const enrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      itemId,
+      1,
+      enrolledAt,
+      firstDueAt,
+    );
+    assert.equal(enrollment.kind, 'enrolled');
+
+    const starts = await Promise.all([
+      attempts.startOrResumeRecallAttemptForUser(userId, itemId),
+      attempts.startOrResumeRecallAttemptForUser(userId, itemId),
+    ]);
+    assert.deepEqual(starts.map((result) => result.kind).sort(), ['resumed', 'started']);
+    const activeAttempt = starts[0].attempt;
+    assert.ok(activeAttempt);
+    assert.equal(activeAttempt.state, 'prepared');
+    assert.equal(activeAttempt.milestone, 'd1');
+    assert.equal(activeAttempt.exerciseType, 'concept');
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM recall_attempts
+       WHERE user_id = $1
+         AND knowledge_item_id = $2
+         AND lifecycle_state IN ('prepared', 'confidence_selected', 'revealed')`,
+      [userId, itemId],
+    )).rows[0]?.count, 1);
+
+    assert.deepEqual(
+      await attempts.revealRecallAttemptForUser(userId, activeAttempt.id),
+      { kind: 'confidence_required', attempt: null },
+    );
+    const confidence = await attempts.setRecallAttemptConfidenceForUser(
+      userId,
+      activeAttempt.id,
+      'medium',
+    );
+    assert.equal(confidence.kind, 'selected');
+    const reveal = await attempts.revealRecallAttemptForUser(userId, activeAttempt.id);
+    assert.equal(reveal.kind, 'revealed');
+    assert.equal(reveal.attempt?.state, 'revealed');
+    assert.equal((await attempts.revealRecallAttemptForUser(userId, activeAttempt.id)).kind, 'unchanged');
+
+    await pool.query(
+      'UPDATE user_knowledge_items SET version = 2 WHERE id = $1 AND user_id = $2',
+      [itemId, userId],
+    );
+    assert.deepEqual(
+      await attempts.resumeRecallAttemptForUser(userId, activeAttempt.id),
+      { kind: 'invalidated', attempt: null },
+    );
+    assert.equal((await pool.query(
+      `SELECT invalidation_reason
+       FROM recall_attempts WHERE id = $1 AND user_id = $2`,
+      [activeAttempt.id, userId],
+    )).rows[0]?.invalidation_reason, 'stale_context');
+
+    await pool.query(
+      'UPDATE user_knowledge_items SET version = 1 WHERE id = $1 AND user_id = $2',
+      [itemId, userId],
+    );
+    const scheduleDriftAttempt = await attempts.startOrResumeRecallAttemptForUser(userId, itemId);
+    assert.equal(scheduleDriftAttempt.kind, 'started');
+    assert.ok(scheduleDriftAttempt.attempt);
+    assert.equal((await pool.query(
+      `UPDATE user_private_card_states
+       SET recall_schedule_version = recall_schedule_version + 1
+       WHERE user_id = $1 AND knowledge_item_id = $2
+       RETURNING recall_schedule_version`,
+      [userId, itemId],
+    )).rows[0]?.recall_schedule_version, scheduleDriftAttempt.attempt.scheduleVersion + 1);
+    assert.deepEqual(
+      await attempts.resumeRecallAttemptForUser(userId, scheduleDriftAttempt.attempt.id),
+      { kind: 'invalidated', attempt: null },
+    );
+    assert.deepEqual((await pool.query(
+      `SELECT lifecycle_state, invalidation_reason,
+         invalidated_at IS NOT NULL AS invalidated_at_recorded
+       FROM recall_attempts WHERE id = $1 AND user_id = $2`,
+      [scheduleDriftAttempt.attempt.id, userId],
+    )).rows[0], {
+      lifecycle_state: 'invalidated',
+      invalidation_reason: 'stale_context',
+      invalidated_at_recorded: true,
+    });
+
+    const removalAttempt = await attempts.startOrResumeRecallAttemptForUser(userId, itemId);
+    assert.equal(removalAttempt.kind, 'started');
+    assert.equal(await practice.removePrivatePracticeCardState(userId, itemId), true);
+    assert.equal((await pool.query(
+      `SELECT lifecycle_state, invalidation_reason
+       FROM recall_attempts
+       WHERE id = $1 AND user_id = $2`,
+      [removalAttempt.attempt?.id, userId],
+    )).rows[0]?.invalidation_reason, 'item_removed');
+
+    const resetEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      itemId,
+      1,
+      enrolledAt,
+      firstDueAt,
+    );
+    assert.equal(resetEnrollment.kind, 'enrolled');
+    assert.equal((await attempts.startOrResumeRecallAttemptForUser(userId, itemId)).kind, 'started');
+    await practice.resetPrivatePracticeProgress(userId);
+    assert.deepEqual((await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM recall_attempts WHERE user_id = $1) AS attempt_count,
+         (SELECT COUNT(*)::integer FROM user_private_card_states WHERE user_id = $1) AS state_count`,
+      [userId],
+    )).rows[0], { attempt_count: 0, state_count: 0 });
+
+    const accountPurgeEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      itemId,
+      1,
+      enrolledAt,
+      firstDueAt,
+    );
+    assert.equal(accountPurgeEnrollment.kind, 'enrolled');
+    assert.equal((await attempts.startOrResumeRecallAttemptForUser(userId, itemId)).kind, 'started');
+    const [accountPurgeResult] = await repositoryAdapter.transaction([
+      accountPurge.buildPrivateProductPurgeQuery(userId),
+    ]);
+    assert.equal(Number(accountPurgeResult.rows[0]?.deleted_recall_attempts), 1);
+    assert.deepEqual((await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM recall_attempts WHERE user_id = $1) AS attempts,
+         (SELECT COUNT(*)::integer FROM user_private_card_states WHERE user_id = $1) AS states,
+         (SELECT COUNT(*)::integer FROM user_knowledge_items WHERE user_id = $1) AS items,
+         (SELECT COUNT(*)::integer FROM knowledge_card_sources WHERE user_id = $1) AS sources,
+         (SELECT COUNT(*)::integer FROM knowledge_card_drafts WHERE user_id = $1) AS drafts,
+         (SELECT COUNT(*)::integer FROM knowledge_ingestion_batches WHERE user_id = $1) AS batches,
+         (SELECT COUNT(*)::integer FROM knowledge_ingestion_request_tombstones WHERE user_id = $1) AS tombstones`,
+      [userId],
+    )).rows[0], {
+      attempts: 0,
+      states: 0,
+      items: 0,
+      sources: 0,
+      drafts: 0,
+      batches: 0,
+      tombstones: 0,
+    });
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    repositoryAdapter.restore();
+    await collectCleanupFailure(cleanupFailures, 'delete prepared attempt knowledge item', () => (
+      pool.query('DELETE FROM user_knowledge_items WHERE id = $1 AND user_id = $2', [itemId, userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete prepared attempt ingestion batch', () => (
+      pool.query('DELETE FROM knowledge_ingestion_batches WHERE id = $1 AND user_id = $2', [batchId, userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete prepared attempt tombstones', () => (
+      pool.query('DELETE FROM knowledge_ingestion_request_tombstones WHERE user_id = $1', [userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify prepared attempt fixture removal', async () => {
+      const remaining = (await pool.query(
+        `SELECT
+           EXISTS (SELECT 1 FROM user_knowledge_items WHERE id = $1) AS item_exists,
+           EXISTS (SELECT 1 FROM recall_attempts WHERE knowledge_item_id = $1) AS attempt_exists,
+           EXISTS (SELECT 1 FROM user_private_card_states WHERE knowledge_item_id = $1) AS state_exists,
+           EXISTS (SELECT 1 FROM knowledge_item_revisions WHERE id = $2) AS revision_exists,
+           EXISTS (SELECT 1 FROM knowledge_card_sources WHERE id = $3) AS source_exists,
+           EXISTS (SELECT 1 FROM knowledge_card_drafts WHERE id = $4) AS draft_exists,
+           EXISTS (SELECT 1 FROM knowledge_ingestion_batches WHERE id = $5) AS batch_exists,
+           EXISTS (SELECT 1 FROM knowledge_ingestion_request_tombstones WHERE user_id = $6) AS tombstone_exists`,
+        [itemId, revisionId, sourceId, draftId, batchId, userId],
+      )).rows[0];
+      assert.deepEqual(remaining, {
+        item_exists: false,
+        attempt_exists: false,
+        state_exists: false,
+        revision_exists: false,
+        source_exists: false,
+        draft_exists: false,
+        batch_exists: false,
+        tombstone_exists: false,
+      });
+    });
+    await collectCleanupFailure(cleanupFailures, 'close prepared attempt database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});
+
 test('Private Practice executes Recall-compatible due, rating, removal, and reset SQL', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
 }, async () => {
@@ -627,6 +1128,7 @@ test('Private Practice executes Recall-compatible due, rating, removal, and rese
   const importedPractice = await import('../src/lib/private-practice-cards.ts');
   const practice = importedPractice.default ?? importedPractice;
   const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
   const userId = `live-practice-owner-${crypto.randomUUID()}`;
   const itemIds = {
     plain: `live-practice-plain-${crypto.randomUUID()}`,
@@ -753,6 +1255,7 @@ test('Private Practice executes Recall-compatible due, rating, removal, and rese
     bodyCompleted = true;
   } finally {
     const cleanupFailures = [];
+    repositoryAdapter.restore();
     await collectCleanupFailure(cleanupFailures, 'delete private Practice fixtures', () => (
       pool.query('DELETE FROM user_knowledge_items WHERE user_id = $1', [userId])
     ));

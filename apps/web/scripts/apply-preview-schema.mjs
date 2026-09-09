@@ -27,6 +27,7 @@ const PREVIEW_MIGRATIONS = [
   { url: new URL('../drizzle/migrations/0021_billing_v1_domain.sql', import.meta.url) },
   { url: new URL('../drizzle/migrations/0022_recall_ping_persistence.sql', import.meta.url) },
   { url: new URL('../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0024_recall_prepared_attempts.sql', import.meta.url) },
 ];
 
 const SAFE_STATEMENT_PREFIXES = [
@@ -78,6 +79,151 @@ const RECALL_STATE_CONSTRAINTS = new Set([
 
 function normalizedSql(statement) {
   return statement.replace(/\s+/g, ' ').trim().replace(/;$/, '');
+}
+
+const POSTGRES_DOLLAR_QUOTE_DELIMITER = /^\$(?:[A-Za-z_\u0080-\u{10ffff}][A-Za-z0-9_\u0080-\u{10ffff}]*)?\$/u;
+
+function codePointBefore(value, index) {
+  if (index <= 0) return undefined;
+  const trailingCodeUnit = value.charCodeAt(index - 1);
+  if (trailingCodeUnit >= 0xdc00 && trailingCodeUnit <= 0xdfff && index > 1) {
+    const leadingCodeUnit = value.charCodeAt(index - 2);
+    if (leadingCodeUnit >= 0xd800 && leadingCodeUnit <= 0xdbff) {
+      return value.slice(index - 2, index);
+    }
+  }
+  return value[index - 1];
+}
+
+function isPostgresIdentifierContinuation(character) {
+  return character !== undefined
+    && (/[A-Za-z0-9_$]/u.test(character) || character.codePointAt(0) >= 0x80);
+}
+
+function dollarQuoteDelimiterAt(statement, index) {
+  if (statement[index] !== '$' || isPostgresIdentifierContinuation(codePointBefore(statement, index))) {
+    return null;
+  }
+  return statement.slice(index).match(POSTGRES_DOLLAR_QUOTE_DELIMITER)?.[0] ?? null;
+}
+
+function isEscapeStringQuote(statement, quoteIndex) {
+  const prefix = statement[quoteIndex - 1];
+  return (prefix === 'E' || prefix === 'e')
+    && !isPostgresIdentifierContinuation(codePointBefore(statement, quoteIndex - 1));
+}
+
+function assertExactlyOneTopLevelStatement(statement) {
+  let blockCommentDepth = 0;
+  let dollarQuoteDelimiter = null;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inSingleQuote = false;
+  let singleQuoteUsesBackslashEscapes = false;
+  let statementEnded = false;
+  let sawStatementToken = false;
+
+  for (let index = 0; index < statement.length; index += 1) {
+    const character = statement[index];
+    const next = statement[index + 1];
+
+    if (inLineComment) {
+      if (character === '\n' || character === '\r') inLineComment = false;
+      continue;
+    }
+
+    if (blockCommentDepth > 0) {
+      if (character === '/' && next === '*') {
+        blockCommentDepth += 1;
+        index += 1;
+      } else if (character === '*' && next === '/') {
+        blockCommentDepth -= 1;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (dollarQuoteDelimiter !== null) {
+      if (statement.startsWith(dollarQuoteDelimiter, index)) {
+        index += dollarQuoteDelimiter.length - 1;
+        dollarQuoteDelimiter = null;
+      }
+      continue;
+    }
+
+    if (inSingleQuote) {
+      if (singleQuoteUsesBackslashEscapes && character === '\\') {
+        index += 1;
+      } else if (character === "'" && next === "'") {
+        index += 1;
+      } else if (character === "'") {
+        inSingleQuote = false;
+        singleQuoteUsesBackslashEscapes = false;
+      }
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      if (character === '"' && next === '"') {
+        index += 1;
+      } else if (character === '"') {
+        inDoubleQuote = false;
+      }
+      continue;
+    }
+
+    if (/\s/u.test(character)) continue;
+    if (character === '-' && next === '-') {
+      inLineComment = true;
+      index += 1;
+      continue;
+    }
+    if (character === '/' && next === '*') {
+      blockCommentDepth = 1;
+      index += 1;
+      continue;
+    }
+    if (statementEnded) {
+      throw new Error('Refusing preview migration fragment with multiple top-level SQL statements');
+    }
+
+    const delimiter = dollarQuoteDelimiterAt(statement, index);
+    if (delimiter !== null) {
+      dollarQuoteDelimiter = delimiter;
+      sawStatementToken = true;
+      index += delimiter.length - 1;
+    } else if (character === "'") {
+      inSingleQuote = true;
+      singleQuoteUsesBackslashEscapes = isEscapeStringQuote(statement, index);
+      sawStatementToken = true;
+    } else if (character === '"') {
+      inDoubleQuote = true;
+      sawStatementToken = true;
+    } else if (character === ';') {
+      if (!sawStatementToken) {
+        throw new Error('Refusing preview migration fragment without exactly one SQL statement');
+      }
+      statementEnded = true;
+    } else {
+      sawStatementToken = true;
+    }
+  }
+
+  if (blockCommentDepth > 0) {
+    throw new Error('Refusing preview migration fragment with an unterminated block comment');
+  }
+  if (dollarQuoteDelimiter !== null) {
+    throw new Error('Refusing preview migration fragment with an unterminated dollar-quoted string');
+  }
+  if (inSingleQuote) {
+    throw new Error('Refusing preview migration fragment with an unterminated single-quoted string');
+  }
+  if (inDoubleQuote) {
+    throw new Error('Refusing preview migration fragment with an unterminated double-quoted identifier');
+  }
+  if (!sawStatementToken) {
+    throw new Error('Refusing preview migration fragment without exactly one SQL statement');
+  }
 }
 
 const SAFE_LEGACY_BILLING_UPGRADE_DIGESTS = new Set([
@@ -623,6 +769,7 @@ export function parseLegacyBillingUpgradeMigration(sql) {
 }
 
 export function assertSafePreviewStatement(statement) {
+  assertExactlyOneTopLevelStatement(statement);
   const isBoundedRetentionBackfill = /^UPDATE "user_knowledge_items"\s+SET "purge_at"\s*=/i.test(statement)
     && /AND "purge_at" IS NULL;?$/i.test(statement);
   const isKnownRelationOriginDefault = /^ALTER TABLE\s+"knowledge_card_sources"\s+ALTER COLUMN\s+"relation_origin"\s+SET DEFAULT\s+'extracted_from_source';?$/i.test(statement)

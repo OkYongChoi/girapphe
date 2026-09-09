@@ -23,6 +23,7 @@ test('account deletion covers every owner-scoped private product table', () => {
     'knowledge_item_supersessions',
     'knowledge_card_sources',
     'user_graph_edges',
+    'recall_attempts',
     'user_private_card_states',
     'user_graph_nodes',
     'user_knowledge_items',
@@ -112,6 +113,19 @@ test('account deletion removes product events before batch deletion triggers run
   assert.match(
     source,
     /deleted_ingestion_request_tombstones AS \([\s\S]{0,240}DELETE FROM knowledge_ingestion_request_tombstones[\s\S]{0,240}COUNT\(\*\) FROM deleted_batches/,
+  );
+});
+
+test('account deletion removes Recall attempts before Practice state and knowledge', () => {
+  const source = readFileSync(new URL('../account-private-purge.ts', import.meta.url), 'utf8');
+  const attempts = source.indexOf('deleted_recall_attempts AS');
+  const privateStates = source.indexOf('deleted_private_states AS');
+  const items = source.indexOf('deleted_items AS');
+
+  assert.ok(attempts >= 0 && attempts < privateStates && privateStates < items);
+  assert.match(
+    source,
+    /deleted_private_states AS \([\s\S]{0,260}deleted_recall_attempts/,
   );
 });
 

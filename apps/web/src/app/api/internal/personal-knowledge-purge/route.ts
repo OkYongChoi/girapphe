@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { purgeExpiredPersonalKnowledgeItems } from '@/lib/personal-knowledge';
+import { purgeExpiredRecallAttempts } from '@/lib/recall-attempts';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const deleted = await purgeExpiredPersonalKnowledgeItems();
-    return NextResponse.json({ deleted });
+    const recallAttemptsDeleted = await purgeExpiredRecallAttempts();
+    return NextResponse.json({ deleted, recall_attempts_deleted: recallAttemptsDeleted });
   } catch (error) {
     console.error('Personal knowledge purge failed:', error);
     return NextResponse.json({ error: 'purge_failed' }, { status: 500 });

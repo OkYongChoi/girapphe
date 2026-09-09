@@ -26,12 +26,65 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0021_billing_v1_domain.sql', 63, parsePreviewMigration],
     ['0022_recall_ping_persistence.sql', 15, parsePreviewMigration],
     ['0023_knowledge_ingestion_request_tombstones.sql', 21, parsePreviewMigration],
+    ['0024_recall_prepared_attempts.sql', 4, parsePreviewMigration],
   ];
   for (const [name, expectedCount, parse] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
     const statements = parse(sql);
     assert.equal(statements.length, expectedCount, name);
     for (const statement of statements) assert.doesNotThrow(() => assertSafePreviewStatement(statement));
+  }
+});
+
+test('preview schema update rejects SQL appended after an allowlisted statement', () => {
+  for (const statement of [
+    'CREATE TABLE IF NOT EXISTS safe_preview_probe (id text); DELETE FROM knowledge_cards',
+    'CREATE TABLE IF NOT EXISTS safe_preview_probe (id text); /* separator */ DELETE FROM knowledge_cards',
+    'CREATE TABLE IF NOT EXISTS safe_preview_probe (id text); -- separator\nDELETE FROM knowledge_cards',
+  ]) {
+    assert.throws(
+      () => assertSafePreviewStatement(statement),
+      /multiple top-level SQL statements/,
+    );
+  }
+});
+
+test('preview schema update allows one statement with quoted and commented semicolons', () => {
+  for (const statement of [
+    `CREATE TABLE IF NOT EXISTS preview_quoted_values (
+      "semi;colon" text DEFAULT 'ordinary;value',
+      escaped_value text DEFAULT E'escaped\\';still-string'
+    );`,
+    `CREATE TABLE IF NOT EXISTS preview_commented_values (
+      id text, -- line-comment semicolon; is not a statement boundary
+      value text /* outer comment; /* nested comment; */ still outer */
+    );`,
+    `CREATE TABLE IF NOT EXISTS preview_trailing_comment (id text);
+     -- a trailing comment may contain ; DELETE FROM knowledge_cards
+     /* a nested trailing comment; /* still a comment; */ remains harmless */`,
+  ]) {
+    assert.doesNotThrow(() => assertSafePreviewStatement(statement));
+  }
+});
+
+test('preview schema update allows semicolons in tagged and untagged dollar quotes', () => {
+  for (const statement of [
+    'CREATE TABLE IF NOT EXISTS preview_untagged_dollar (value text DEFAULT $$one;two$$);',
+    'CREATE TABLE IF NOT EXISTS preview_tagged_dollar (value text DEFAULT $body$one;two$body$);',
+  ]) {
+    assert.doesNotThrow(() => assertSafePreviewStatement(statement));
+  }
+});
+
+test('preview schema update rejects unterminated PostgreSQL lexical constructs', () => {
+  for (const statement of [
+    "CREATE TABLE IF NOT EXISTS preview_bad_single (value text DEFAULT 'unterminated);",
+    'CREATE TABLE IF NOT EXISTS preview_bad_double ("unterminated text);',
+    'CREATE TABLE IF NOT EXISTS preview_bad_dollar (value text DEFAULT $$unterminated);',
+    'CREATE TABLE IF NOT EXISTS preview_bad_tagged (value text DEFAULT $body$unterminated);',
+    'CREATE TABLE IF NOT EXISTS preview_bad_comment (id text); /* unterminated',
+  ]) {
+    assert.throws(() => assertSafePreviewStatement(statement), /unterminated/);
   }
 });
 
@@ -192,6 +245,27 @@ test('recall persistence migration preserves one scheduling authority and legacy
   assert.match(sql, /ADD COLUMN IF NOT EXISTS "supported_item_version" integer/);
   assert.match(sql, /FOREIGN KEY \("knowledge_item_id", "supported_item_version"\)/);
   assert.doesNotMatch(sql, /^\s*UPDATE\b/im);
+});
+
+test('prepared Recall attempts are content-free, owner-scoped, unique, and retention-bounded', async () => {
+  const sql = await readFile(new URL('../drizzle/migrations/0024_recall_prepared_attempts.sql', import.meta.url), 'utf8');
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS "recall_attempts"/);
+  assert.match(sql, /FOREIGN KEY \("knowledge_item_id", "user_id"\)/);
+  assert.match(sql, /ON DELETE cascade/);
+  assert.match(sql, /idx_recall_attempts_one_active_milestone/);
+  assert.match(
+    sql,
+    /\("user_id", "knowledge_item_id", "item_version", "milestone"\)[\s\S]+WHERE "lifecycle_state" IN \('prepared', 'confidence_selected', 'revealed'\)/,
+  );
+  assert.match(sql, /"retention_expires_at" <= "started_at" \+ INTERVAL '365 days'/);
+  assert.match(sql, /"self_assessed_outcome" text/);
+  assert.match(sql, /"response_duration_bucket" text/);
+  assert.doesNotMatch(sql, /INDEX[^;]+"resulting_due_at"/i);
+  assert.doesNotMatch(
+    sql,
+    /"(?:title|topic|question|answer|content|response_text|reconstructed_order|application_response|memory_cue|selector|source_url|source_locator|transcript)"\s+(?:text|jsonb)/i,
+  );
+  assert.doesNotMatch(sql, /^\s*(?:UPDATE|DELETE)\b/im);
 });
 
 test('typed bundle migration keeps all new fields nullable and does not rewrite legacy rows', async () => {

@@ -148,6 +148,13 @@
       "when": 1788912000000,
       "tag": "0023_knowledge_ingestion_request_tombstones",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788962400000,
+      "tag": "0024_recall_prepared_attempts",
+      "breakpoints": true
     }
   ]
 }

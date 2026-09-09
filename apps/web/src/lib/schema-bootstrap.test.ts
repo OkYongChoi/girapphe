@@ -67,3 +67,19 @@ test('fresh schema retains every legacy billing lifecycle table during migration
     /CHECK \("operation" IN \('checkout', 'mobile_purchase', 'prepare', 'activation', 'renewal', 'reconciliation'\)\)/,
   );
 });
+
+test('fresh schema includes the content-free Recall attempt contract', () => {
+  const schema = readFileSync(new URL('../../schema.sql', import.meta.url), 'utf8');
+  const attempts = schema.slice(
+    schema.indexOf('CREATE TABLE IF NOT EXISTS recall_attempts'),
+    schema.indexOf('CREATE TABLE IF NOT EXISTS mcp_access_tokens'),
+  );
+
+  assert.match(attempts, /FOREIGN KEY \(knowledge_item_id, user_id\)/);
+  assert.match(attempts, /idx_recall_attempts_one_active_milestone/);
+  assert.match(attempts, /retention_expires_at <= started_at \+ INTERVAL '365 days'/);
+  assert.doesNotMatch(
+    attempts,
+    /\b(?:title|topic|question|answer|content|response_text|reconstructed_order|application_response|memory_cue|selector|source_url|source_locator|transcript)\s+(?:TEXT|JSONB)\b/i,
+  );
+});

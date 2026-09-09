@@ -226,9 +226,12 @@ Change the constraint only in a later protected release; otherwise the
 still-running Worker can fail every affected write if deployment is slow or
 stops after migration.
 
-Recall schedule persistence is checked against a real Preview PostgreSQL
-database after migration preparation. To run the same test against an isolated
-non-production database without printing its URL:
+Recall schedule and prepared-attempt persistence are checked against a real
+Preview PostgreSQL database after migration preparation. This includes the
+partial active-attempt uniqueness constraint, cross-device start/resume,
+confidence-before-reveal, stale-revision invalidation, and Practice
+remove/reset behavior. To run the same test against an isolated non-production
+database without printing its URL:
 
 ```bash
 cd apps/web

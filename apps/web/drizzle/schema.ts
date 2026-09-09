@@ -328,6 +328,132 @@ export const userPrivateCardStates = pgTable("user_private_card_states", {
   )`),
 ]);
 
+export const recallAttempts = pgTable("recall_attempts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  knowledgeItemId: text("knowledge_item_id").notNull(),
+  itemVersion: integer("item_version").notNull(),
+  scheduleVersion: integer("schedule_version").notNull(),
+  recallEnrolledAt: timestamp("recall_enrolled_at", { withTimezone: true }).notNull(),
+  milestone: text("milestone").notNull(),
+  exerciseType: text("exercise_type").notNull(),
+  lifecycleState: text("lifecycle_state").notNull().default("prepared"),
+  confidence: text("confidence"),
+  selfAssessedOutcome: text("self_assessed_outcome"),
+  hintUsed: boolean("hint_used"),
+  responseDurationBucket: text("response_duration_bucket"),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  confidenceSelectedAt: timestamp("confidence_selected_at", { withTimezone: true }),
+  revealedAt: timestamp("revealed_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+  invalidationReason: text("invalidation_reason"),
+  resultingDueAt: timestamp("resulting_due_at", { withTimezone: true }),
+  retentionExpiresAt: timestamp("retention_expires_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now() + INTERVAL '365 days'`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  foreignKey({
+    columns: [t.knowledgeItemId, t.userId],
+    foreignColumns: [userKnowledgeItems.id, userKnowledgeItems.userId],
+    name: "recall_attempts_item_owner_fk",
+  }).onDelete("cascade"),
+  uniqueIndex("idx_recall_attempts_one_active_milestone")
+    .on(t.userId, t.knowledgeItemId, t.itemVersion, t.milestone)
+    .where(sql`${t.lifecycleState} IN ('prepared', 'confidence_selected', 'revealed')`),
+  index("idx_recall_attempts_user_item_started")
+    .on(t.userId, t.knowledgeItemId, t.startedAt.desc()),
+  index("idx_recall_attempts_retention").on(t.retentionExpiresAt),
+  check("recall_attempts_id_check", sql`${t.id} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'`),
+  check("recall_attempts_item_version_check", sql`${t.itemVersion} >= 1`),
+  check("recall_attempts_schedule_version_check", sql`${t.scheduleVersion} >= 1`),
+  check("recall_attempts_milestone_check", sql`${t.milestone} IN ('d1', 'd7')`),
+  check("recall_attempts_exercise_type_check", sql`${t.exerciseType} IN ('concept', 'procedure', 'comparison')`),
+  check("recall_attempts_lifecycle_state_check", sql`${t.lifecycleState} IN ('prepared', 'confidence_selected', 'revealed', 'completed', 'invalidated')`),
+  check("recall_attempts_confidence_check", sql`${t.confidence} IS NULL OR ${t.confidence} IN ('low', 'medium', 'high')`),
+  check("recall_attempts_outcome_check", sql`${t.selfAssessedOutcome} IS NULL OR ${t.selfAssessedOutcome} IN ('remembered', 'partial', 'missed')`),
+  check("recall_attempts_duration_check", sql`${t.responseDurationBucket} IS NULL OR ${t.responseDurationBucket} IN ('under_30s', '30_to_89s', '90_to_179s', '3_to_5m', 'over_5m')`),
+  check("recall_attempts_invalidation_reason_check", sql`${t.invalidationReason} IS NULL OR ${t.invalidationReason} IN ('stale_context', 'item_removed')`),
+  check("recall_attempts_retention_check", sql`${t.retentionExpiresAt} > ${t.startedAt} AND ${t.retentionExpiresAt} <= ${t.startedAt} + INTERVAL '365 days'`),
+  check("recall_attempts_timestamp_order_check", sql`
+    (${t.confidenceSelectedAt} IS NULL OR ${t.confidenceSelectedAt} >= ${t.startedAt})
+    AND (${t.revealedAt} IS NULL OR ${t.revealedAt} >= ${t.confidenceSelectedAt})
+    AND (${t.completedAt} IS NULL OR ${t.completedAt} >= ${t.revealedAt})
+    AND (${t.invalidatedAt} IS NULL OR ${t.invalidatedAt} >= ${t.startedAt})
+    AND ${t.updatedAt} >= ${t.startedAt}
+  `),
+  check("recall_attempts_lifecycle_shape_check", sql`COALESCE(
+    (
+      ${t.lifecycleState} = 'prepared'
+      AND ${t.confidence} IS NULL
+      AND ${t.confidenceSelectedAt} IS NULL
+      AND ${t.revealedAt} IS NULL
+      AND ${t.completedAt} IS NULL
+      AND ${t.invalidatedAt} IS NULL
+      AND ${t.invalidationReason} IS NULL
+      AND ${t.selfAssessedOutcome} IS NULL
+      AND ${t.hintUsed} IS NULL
+      AND ${t.responseDurationBucket} IS NULL
+      AND ${t.resultingDueAt} IS NULL
+    )
+    OR (
+      ${t.lifecycleState} = 'confidence_selected'
+      AND ${t.confidence} IS NOT NULL
+      AND ${t.confidenceSelectedAt} IS NOT NULL
+      AND ${t.revealedAt} IS NULL
+      AND ${t.completedAt} IS NULL
+      AND ${t.invalidatedAt} IS NULL
+      AND ${t.invalidationReason} IS NULL
+      AND ${t.selfAssessedOutcome} IS NULL
+      AND ${t.hintUsed} IS NULL
+      AND ${t.responseDurationBucket} IS NULL
+      AND ${t.resultingDueAt} IS NULL
+    )
+    OR (
+      ${t.lifecycleState} = 'revealed'
+      AND ${t.confidence} IS NOT NULL
+      AND ${t.confidenceSelectedAt} IS NOT NULL
+      AND ${t.revealedAt} IS NOT NULL
+      AND ${t.completedAt} IS NULL
+      AND ${t.invalidatedAt} IS NULL
+      AND ${t.invalidationReason} IS NULL
+      AND ${t.selfAssessedOutcome} IS NULL
+      AND ${t.hintUsed} IS NULL
+      AND ${t.responseDurationBucket} IS NULL
+      AND ${t.resultingDueAt} IS NULL
+    )
+    OR (
+      ${t.lifecycleState} = 'completed'
+      AND ${t.confidence} IS NOT NULL
+      AND ${t.confidenceSelectedAt} IS NOT NULL
+      AND ${t.revealedAt} IS NOT NULL
+      AND ${t.completedAt} IS NOT NULL
+      AND ${t.invalidatedAt} IS NULL
+      AND ${t.invalidationReason} IS NULL
+      AND ${t.selfAssessedOutcome} IS NOT NULL
+      AND ${t.hintUsed} IS NOT NULL
+      AND ${t.responseDurationBucket} IS NOT NULL
+      AND ${t.resultingDueAt} IS NOT NULL
+    )
+    OR (
+      ${t.lifecycleState} = 'invalidated'
+      AND ${t.completedAt} IS NULL
+      AND ${t.invalidatedAt} IS NOT NULL
+      AND ${t.invalidationReason} IS NOT NULL
+      AND ${t.selfAssessedOutcome} IS NULL
+      AND ${t.hintUsed} IS NULL
+      AND ${t.responseDurationBucket} IS NULL
+      AND ${t.resultingDueAt} IS NULL
+      AND (
+        (${t.confidence} IS NULL AND ${t.confidenceSelectedAt} IS NULL AND ${t.revealedAt} IS NULL)
+        OR (${t.confidence} IS NOT NULL AND ${t.confidenceSelectedAt} IS NOT NULL)
+      )
+    ),
+    FALSE
+  )`),
+]);
+
 export const knowledgeIngestionBatches = pgTable("knowledge_ingestion_batches", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),

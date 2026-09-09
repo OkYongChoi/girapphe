@@ -13,10 +13,10 @@ environment; `main` is the only production deployment trigger.
 
 ### Pull request
 
-For an internal PR, the workflow runs quality checks, creates/updates the stable Cloudflare
-Preview alias `pr-<number>-girapphe-preview.<workers-subdomain>.workers.dev`, and smoke tests
-it. The preview uses preview Clerk keys and `DATABASE_URL_PREVIEW`; it does not run migrations
-and cannot access `/admin`.
+For an internal PR, the workflow runs quality checks, applies the bounded idempotent Preview
+schema updates to `DATABASE_URL_PREVIEW`, verifies their database semantics, creates/updates the
+stable Cloudflare Preview alias `pr-<number>-girapphe-preview.<workers-subdomain>.workers.dev`,
+and smoke tests it. The preview uses preview Clerk keys and cannot access `/admin`.
 
 The workflow first deploys the preview Worker to apply its non-versioned Worker settings, then
 uploads the PR-specific alias. Review and share only the PR alias URL; the base preview Worker
@@ -83,10 +83,11 @@ They are included in both Worker environments; do not add redundant GitHub secre
 
 1. In Neon, create a dedicated **schema-only** branch/database for previews. Do not
    select current production data.
-2. Apply every current Drizzle migration through `0021_billing_v1_domain.sql`. Add only synthetic
-   or anonymized seed data when representative QA data is needed. Migration `0021` is additive:
-   it preserves legacy billing tables and the old subscription-reference key so the previous
-   Worker can keep running during deployment and remains a valid rollback target.
+2. Initialize it with every current Drizzle migration through
+   `0024_recall_prepared_attempts.sql`. Add only synthetic or anonymized seed data when
+   representative QA data is needed. The later migrations are additive: they preserve the
+   mixed-version billing rollback contract and add only content-free Recall schedule and attempt
+   state.
 3. Save its connection string as `DATABASE_URL_PREVIEW`.
 4. In Clerk, use a development/preview instance for the preview keys. Confirm sign-in works on a PR URL.
 
@@ -94,8 +95,11 @@ The preview preflight rejects placeholder, malformed, and live Clerk keys. Set t
 development-instance values as `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW` (`pk_test_...`) and
 `CLERK_SECRET_KEY_PREVIEW` (`sk_test_...`) in GitHub before rerunning the PR workflow.
 
-Do not point preview at production. Preview deploys deliberately skip migrations so every PR
-uses a known, already-migrated schema.
+Do not point preview at production. Each internal PR deploy replays only the bounded idempotent
+subset listed in `apps/web/scripts/apply-preview-schema.mjs` before its live database tests and
+Worker upload. That helper currently covers `0005`, `0008`, `0010`, `0011`, and migrations
+`0014` through `0024`; it is not a
+replacement for the explicit first-time database bootstrap above.
 
 Preview URLs are public by default. If a future per-PR QA workflow needs data cloned from
 production, use anonymized data and protect the Worker with Cloudflare Access before assigning
@@ -148,13 +152,16 @@ version upload, not a repository secret or a value to configure manually.
 See [Development and Operations](docs/operations/development.md#authenticated-graph-overlay-evidence)
 for inputs, evidence artifacts, and the three-run/one-run policy.
 
-## Scheduled personal-card cleanup
+## Scheduled private-product cleanup
 
-Deleted personal knowledge cards remain recoverable for 14 days. The `Purge expired personal
-knowledge cards` GitHub Actions workflow runs once a day at 00:20 Asia/Seoul and asks the
-production application to permanently remove only cards whose individual restore deadline has
-passed. A card can therefore remain in the trash for up to roughly one additional day after its
-14-day deadline, depending on when the daily job runs.
+Deleted personal knowledge cards remain recoverable for 14 days. The `Purge expired private
+product records` GitHub Actions workflow runs once a day at 00:20 Asia/Seoul and asks the
+production application to permanently remove cards whose individual restore deadline has
+passed and content-free Recall attempt rows whose 365-day retention deadline has passed. A card
+can therefore remain in the trash for up to roughly one additional day after its 14-day
+deadline, depending on when the daily job runs. The same daily cadence may leave an expired
+attempt row for roughly one additional day; cleanup never extends its stored
+`retention_expires_at`.
 
 The job sends `PERSONAL_KNOWLEDGE_PURGE_TOKEN` as a bearer token. Generate this value locally
 with a cryptographically secure random generator (for example, `openssl rand -hex 32`) and store
