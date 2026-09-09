@@ -83,7 +83,7 @@ history or approve, publish, or mutate public knowledge.
 | `AC-03` | `apps/web/src/app/knowledge-inbox/page.tsx` source inspection and the final browser suite. |
 | `AC-04` | `apps/web/src/lib/settings-preferences.test.ts` and the authenticated reload assertion in `authenticated-settings.spec.ts`. |
 | `AC-05` | Preference tests, source inspection of both consumers, and the Preview-gated Thinking History assertion in `authenticated-settings.spec.ts`. |
-| `AC-06` | Desktop/mobile English and Arabic assertions in `authenticated-settings.spec.ts` plus all six localization catalog checks. |
+| `AC-06` | Desktop/mobile English and Arabic assertions in `authenticated-settings.spec.ts`, including the English guide's explicit LTR boundary inside RTL Settings, plus all six localization catalog checks. |
 | `AC-07` | Preference parser tests, MCP token regression tests, and final diff inspection. |
 | `AC-08` | Two consecutive save assertions plus replacement of the first live-region node in `authenticated-settings.spec.ts`. |
 

@@ -33,7 +33,12 @@ export default function McpProviderSetupGuide({
   }
 
   return (
-    <section className="mt-6 overflow-hidden rounded-2xl border border-cyan-200 bg-cyan-50/40" aria-labelledby="mcp-provider-setup-title">
+    <section
+      lang="en"
+      dir="ltr"
+      className="mt-6 overflow-hidden rounded-2xl border border-cyan-200 bg-cyan-50/40"
+      aria-labelledby="mcp-provider-setup-title"
+    >
       <div className="border-b border-cyan-200 bg-white px-4 py-4 md:px-5">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-700">Provider-specific setup</p>
         <h3 id="mcp-provider-setup-title" className="mt-1 text-lg font-black text-slate-950">Use Girapphe with ChatGPT or Claude</h3>

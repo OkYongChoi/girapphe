@@ -85,6 +85,7 @@ test('Settings renders the provider guide without receiving the raw PAT', () => 
 
   assert.match(componentSource, /name="mcp-provider-setup"/u);
   assert.match(componentSource, /MCP_PROVIDER_SETUP_GUIDES/u);
+  assert.match(componentSource, /lang="en"[\s\S]*dir="ltr"/u);
   assert.match(settingsSource, /<DraftReviewMcpConnections tokens=\{tokens\} \/>/u);
   assert.match(connectionsSource, /<McpProviderSetupGuide endpointUrl=\{endpointUrl\} tokenReady=\{Boolean\(rawToken\)\} \/>/u);
   assert.doesNotMatch(connectionsSource, /<McpProviderSetupGuide[^>]+rawToken=/u);
