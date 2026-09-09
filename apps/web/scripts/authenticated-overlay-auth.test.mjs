@@ -67,6 +67,27 @@ test('My Notes mutation evidence gates on the same resolved Clerk auth mode as s
   );
 });
 
+test('Thinking History dismissal evidence waits for rendering and tracks the exact expanded card', async () => {
+  const testUrl = new URL(
+    '../e2e-authenticated/authenticated-thinking-history.spec.ts',
+    import.meta.url,
+  );
+  const source = await fs.readFile(testUrl, 'utf8');
+
+  assert.match(
+    source,
+    /await page\.goto\("\/my-notes\?view=insights"[\s\S]{0,240}await expect\(signalCards\.first\(\)\)\.toBeVisible[\s\S]{0,160}const signalCountBeforeDismiss = await signalCards\.count\(\)/,
+  );
+  assert.match(source, /const dismissedSignalId = await dismissedSignal\.getAttribute\("data-signal-id"\)/);
+  assert.match(source, /const dismissedSignalIdentity = page\.locator\([\s\S]{0,160}data-signal-id=\$\{JSON\.stringify\(dismissedSignalId\)\}/);
+  assert.match(source, /await dismissedSignalIdentity\.getByRole\("button", \{ name: dismissCopy \}\)\.click\(\)/);
+  assert.match(source, /await expect\(dismissedSignalIdentity\)\.toHaveCount\(0\)/);
+  assert.match(source, /await expect\(signalCards\)\.toHaveCount\(signalCountBeforeDismiss - 1\)/);
+  assert.doesNotMatch(source, /dismissInspectButton\.locator\("xpath=ancestor::article/);
+  assert.doesNotMatch(source, /dismissedSignalIdentity = signalCards\.filter/);
+  assert.doesNotMatch(source, /await expect\(dismissedSignal\)\.toBeHidden/);
+});
+
 test('production-compatible sign-in ticket is short lived and owner scoped', async () => {
   const calls = [];
   const ticket = await createSyntheticSignInTicket({

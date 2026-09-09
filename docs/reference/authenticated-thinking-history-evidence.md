@@ -45,6 +45,9 @@ because opening a signal changes the toggle's accessible name. The My Notes
 mutation check waits until the tag picker exposes its enhanced hidden form value
 before typing, then keeps `fill` and `Enter` adjacent so the same-tick input/event
 regression remains exercised rather than hidden behind an extra state wait.
+After returning to the insights feed, the test waits for a rendered signal,
+captures that expanded card's server-owned signal identifier, and requires both
+that same card identity to disappear and the overall card count to decrease.
 
 The importer assertion is deliberately about one extracted
 `conversations.json`. It is not evidence for ZIP archives, numbered/split

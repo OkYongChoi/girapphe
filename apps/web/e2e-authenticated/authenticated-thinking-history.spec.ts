@@ -247,22 +247,33 @@ test("proves selected import, private evidence, portable context, dismissal, and
   await expect(page).toHaveURL(/\/topics\/[^#]+#item-/);
 
   await page.goto("/my-notes?view=insights", { waitUntil: "domcontentloaded" });
-  const signalCountBeforeDismiss = await page.locator(".thinking-card").count();
+  const signalCards = page.locator(".thinking-card");
+  await expect(signalCards.first()).toBeVisible({ timeout: 30_000 });
+  const signalCountBeforeDismiss = await signalCards.count();
   // Desktop and mobile may run sequentially. The fixture provides two
   // independent signals so each project still has at least one to dismiss.
   expect(signalCountBeforeDismiss).toBeGreaterThanOrEqual(1);
-  const dismissedSignal = page.locator(".thinking-card").first();
+  const dismissedSignal = signalCards.first();
+  const dismissedSignalId = await dismissedSignal.getAttribute("data-signal-id");
+  expect(dismissedSignalId).not.toBeNull();
+  const dismissedSignalIdentity = page.locator(
+    `.thinking-card[data-signal-id=${JSON.stringify(dismissedSignalId)}]`,
+  );
+  await expect(dismissedSignalIdentity).toHaveCount(1);
   const dismissInspectButton = dismissedSignal.getByRole("button", { name: inspectCopy });
   await dismissInspectButton.click();
+  const dismissedEvidenceLink = dismissedSignal.getByRole("link", {
+    name: openKnowledgeCopy,
+  }).first();
+  await expect(dismissedEvidenceLink).toHaveAttribute("href", /\/topics\/[^#]+#item-/);
   page.once("dialog", (dialog) => dialog.accept());
   const dismissResponsePromise = page.waitForResponse(
     (response) => signalOperation(response) === "dismissed" && response.status() === 204,
   );
-  await dismissedSignal.getByRole("button", { name: dismissCopy }).click();
+  await dismissedSignalIdentity.getByRole("button", { name: dismissCopy }).click();
   await dismissResponsePromise;
-  // A `.first()` locator would retarget the next signal after dismissal, so
-  // assert the observable removal without reusing that live locator.
-  await expect(page.locator(".thinking-card")).toHaveCount(signalCountBeforeDismiss - 1);
+  await expect(dismissedSignalIdentity).toHaveCount(0);
+  await expect(signalCards).toHaveCount(signalCountBeforeDismiss - 1);
 
   const marker = randomUUID().replaceAll("-", "");
   const selectedQuestionA = `E2E_SELECTED_QUESTION_A_${marker}`;
