@@ -24,6 +24,7 @@ export default async function GridPage() {
         <KnowledgeMap
           initialCards={cardPage.cards}
           initialHasMoreCards={cardPage.hasMore}
+          initialTotalCards={cardPage.totalCount}
           initialView="grid"
           personalItems={personalMapItems}
           isGuest={actor.isGuest}

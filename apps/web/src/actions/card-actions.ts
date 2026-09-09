@@ -1859,16 +1859,49 @@ export async function getKnowledgeMapCardPage({
 }) {
   const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 144));
   const boundedOffset = Math.max(0, Math.trunc(offset));
-  const cards = await getAllCardsWithStatus({
-    locale,
-    knowledgeMapLimit: boundedLimit + 1,
-    knowledgeMapOffset: boundedOffset,
-  });
+  const [cards, totalCount] = await Promise.all([
+    getAllCardsWithStatus({
+      locale,
+      knowledgeMapLimit: boundedLimit + 1,
+      knowledgeMapOffset: boundedOffset,
+    }),
+    getKnowledgeMapCardTotal(),
+  ]);
 
   return {
     cards: cards.slice(0, boundedLimit),
     hasMore: cards.length > boundedLimit,
+    totalCount,
   };
+}
+
+async function getKnowledgeMapCardTotal() {
+  const user = await requireCurrentActor();
+  const getFallbackCount = async () => {
+    const sourceCards = limitCardsForGuestKnowledgeMap(
+      await getMockCardsForActor(user.isGuest),
+      user.isGuest,
+    );
+    return sourceCards.filter((card) => !isExcludedFromKnowledgeMap(card.id)).length;
+  };
+
+  if (!process.env.DATABASE_URL) return getFallbackCount();
+
+  try {
+    await ensureCardSchema();
+    const result = await pool.query<{ count: string }>(`
+      SELECT COUNT(*)::text AS count
+      FROM knowledge_cards kc
+      WHERE kc.id NOT LIKE 'drill_%'
+        AND kc.id NOT LIKE 'graph_adv_%'
+        AND kc.title NOT ILIKE 'Sponsored Content %';
+    `);
+    const count = Number.parseInt(result.rows[0]?.count ?? '', 10);
+    return Number.isFinite(count) ? count : getFallbackCount();
+  } catch (error) {
+    console.error('Error in getKnowledgeMapCardTotal:', error);
+    return getFallbackCount();
+  }
 }
 
 export async function getKnowledgeGraphSnapshot({

@@ -81,6 +81,7 @@ type EditableCardValues = {
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
   initialHasMoreCards?: boolean;
+  initialTotalCards: number;
   initialGraphSnapshot?: KnowledgeGraphSnapshot | null;
   initialView?: 'grid' | 'graph';
   personalItems?: KnowledgeMapPersonalItem[];
@@ -128,6 +129,7 @@ function fallbackEndpointLabel(id: string) {
 export default function KnowledgeMap({
   initialCards,
   initialHasMoreCards = false,
+  initialTotalCards,
   initialGraphSnapshot = null,
   initialView = 'graph',
   personalItems = [],
@@ -239,6 +241,12 @@ export default function KnowledgeMap({
     [baseCards, generatedCards, includeGenerated]
   );
   const cards = useMemo<MapCard[]>(() => [...publicCards, ...personalCards], [publicCards, personalCards]);
+  const totalCardCount = useMemo(
+    () => includeGenerated
+      ? cards.length
+      : Math.max(initialTotalCards + personalCards.length, cards.length),
+    [cards.length, includeGenerated, initialTotalCards, personalCards.length],
+  );
   const graphPublicCards = graphSnapshot?.cards ?? EMPTY_GRAPH_CARDS;
   const graphEdges = useMemo<KnowledgeGraphEdgeView[]>(() => {
     const canonicalEdges: KnowledgeGraphEdgeView[] = (graphSnapshot?.edges ?? []).map((edge) => ({
@@ -481,12 +489,12 @@ export default function KnowledgeMap({
                 <span
                   role="status"
                   aria-live="polite"
-                  aria-label={t('knowledge.showing', { filtered: filteredCards.length, total: cards.length })}
+                  aria-label={t('knowledge.showing', { filtered: filteredCards.length, total: totalCardCount })}
                   className="shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-600"
                 >
                   {filteredCards.length === cards.length
-                    ? formatNumber(cards.length)
-                    : `${formatNumber(filteredCards.length)}/${formatNumber(cards.length)}`}
+                    ? formatNumber(totalCardCount)
+                    : `${formatNumber(filteredCards.length)}/${formatNumber(totalCardCount)}`}
                 </span>
               </div>
 
