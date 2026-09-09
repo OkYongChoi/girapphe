@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 const PREVIEW_MIGRATIONS = [
+  new URL('../drizzle/migrations/0005_add_quiz_rate_limits.sql', import.meta.url),
   new URL('../drizzle/migrations/0014_guest_knowledge_limits.sql', import.meta.url),
   new URL('../drizzle/migrations/0015_typed_knowledge_bundles.sql', import.meta.url),
   new URL('../drizzle/migrations/0016_conversation_knowledge_hub.sql', import.meta.url),

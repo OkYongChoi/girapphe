@@ -10,6 +10,7 @@ import {
 
 test('preview schema update contains only bounded idempotent statements', async () => {
   const migrations = [
+    ['0005_add_quiz_rate_limits.sql', 1],
     ['0014_guest_knowledge_limits.sql', 5],
     ['0015_typed_knowledge_bundles.sql', 4],
     ['0016_conversation_knowledge_hub.sql', 39],

@@ -205,6 +205,10 @@ auditable.
 
 The Preview deploy job runs the bounded, idempotent migration subset in
 `apps/web/scripts/apply-preview-schema.mjs` before its database-semantic tests.
+That subset also reapplies additive legacy table creation when a long-lived
+Preview database predates the corresponding migration journal entry; every
+such repair must remain `CREATE ... IF NOT EXISTS` and pass the safe-statement
+allowlist.
 Local bootstrap remains a development convenience. Any production data or
 schema change must still be represented by a checked-in Drizzle migration; a
 runtime bootstrap query is not deployment evidence.
