@@ -227,6 +227,27 @@ Local bootstrap remains a development convenience. Any production data or
 schema change must still be represented by a checked-in Drizzle migration; a
 runtime bootstrap query is not deployment evidence.
 
+All pull-request Preview deploy jobs share `DATABASE_URL_PREVIEW` and the same
+Preview Worker settings. The deploy job and authenticated Preview evidence job
+therefore use the constant `girapphe-preview-shared-state-v1` concurrency group.
+Different PRs and authenticated evidence runs wait in a queue of up to 100
+entries (`queue: max`) while schema preparation, all live PostgreSQL semantic
+checks, Worker mutation, and synthetic-fixture use run one at a time. Dispatch
+authenticated evidence only after its target Preview deploy has passed.
+
+The workflow-level concurrency rule never cancels an in-flight workflow. It
+retains only the latest pending revision for the same PR or `main`, so repeated
+pushes replace stale waiting work without interrupting a stateful job. Before a
+Preview deployment, authenticated fixture run, or production deployment makes
+its first shared-state mutation, it also compares the event SHA with the
+current GitHub PR or `main` head and fails closed if the PR was closed, became
+foreign, or its revision was superseded. The authenticated job repeats this
+check after acquiring the shared Preview group, rather than trusting its
+earlier dispatch validation. A revision that already passed its in-job guard
+completes its stateful sequence; the latest pending workflow runs next.
+Keep schema preparation, all live PostgreSQL semantic checks, and the Worker
+upload inside the serialized deploy job and in that order.
+
 Because production migrations run before the replacement Worker is deployed,
 changing or removing a unique constraint used as an explicit `ON CONFLICT`
 arbiter requires an expand/contract release. First deploy conflict handling

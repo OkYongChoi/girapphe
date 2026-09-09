@@ -10,11 +10,13 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
-# Prevent an older commit from deploying after a newer push to the same PR or main.
+# Let an in-flight stateful job finish. The deployment jobs reject a superseded
+# revision before their first shared-state mutation.
 concurrency:
   group: cloudflare-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   ci:
@@ -55,6 +57,12 @@ jobs:
     needs: ci
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
     timeout-minutes: 30
+    # Preview PRs share one database and one Worker configuration. Serialize the
+    # stateful migration, DB checks, deploy, and authenticated fixture workflows.
+    concurrency:
+      group: girapphe-preview-shared-state-v1
+      cancel-in-progress: false
+      queue: max
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -70,6 +78,23 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify pull request head is current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          current_head_sha="$(node --input-type=module -e 'const value = JSON.parse(process.argv[1]); process.stdout.write(String(value.head?.sha ?? ""));' "$response")"
+          if [ "$current_head_sha" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "Refusing to mutate shared Preview state for superseded revision $EXPECTED_HEAD_SHA."
+            exit 1
+          fi
 
       - name: Resolve Cloudflare preview URL
         env:
@@ -306,6 +331,22 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify main revision is current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/main")"
+          current_head_sha="$(node --input-type=module -e 'const value = JSON.parse(process.argv[1]); process.stdout.write(String(value.object?.sha ?? ""));' "$response")"
+          if [ "$current_head_sha" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "Refusing to mutate production state for superseded revision $EXPECTED_HEAD_SHA."
+            exit 1
+          fi
 
       - name: Install
         run: pnpm install --frozen-lockfile
