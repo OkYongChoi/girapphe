@@ -74,9 +74,12 @@ test('keeps AI connection guidance honest and restores browser-local reuse defau
   await aiClient.selectOption('claude');
   await expect(saveAnnouncement).toHaveAttribute('data-save-announcement', '1');
   await expect(saveAnnouncement).toHaveText('Saved on this browser.');
+  const firstAnnouncement = await saveAnnouncement.locator('span').elementHandle();
+  expect(firstAnnouncement).not.toBeNull();
   await contextFormat.selectOption('json');
   await expect(saveAnnouncement).toHaveAttribute('data-save-announcement', '2');
   await expect(saveAnnouncement).toHaveText('Saved on this browser.');
+  await expect.poll(() => firstAnnouncement!.evaluate((element) => element.isConnected)).toBe(false);
   await expect(page.getByText(/Choose the exact model in Claude/)).toBeVisible();
   await expect.poll(() => page.evaluate((storageKey) => window.localStorage.getItem(storageKey), SETTINGS_STORAGE_KEY))
     .toBe(JSON.stringify({ version: 1, aiClient: 'claude', contextFormat: 'json' }));

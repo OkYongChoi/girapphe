@@ -10,9 +10,9 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   page.on('pageerror', (error) => browserErrors.push(`page: ${error.message}`));
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.goto('/knowledge-inbox', { waitUntil: 'domcontentloaded' });
+  await page.goto('/en/settings#ai-connections', { waitUntil: 'domcontentloaded' });
 
-  await expect(page.getByRole('heading', { name: 'Knowledge Inbox' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Use Girapphe with ChatGPT or Claude' })).toBeVisible();
 
   const chatgpt = page.getByRole('radio', { name: 'ChatGPT' });
@@ -66,7 +66,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   mkdirSync(dirname(evidencePath), { recursive: true });
   writeFileSync(evidencePath, `${JSON.stringify({
     schemaVersion: 1,
-    route: '/knowledge-inbox',
+    route: '/en/settings#ai-connections',
     project: testInfo.project.name,
     providers: ['chatgpt', 'claude'],
     copiedWithoutRawPat: true,

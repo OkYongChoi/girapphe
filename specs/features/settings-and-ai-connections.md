@@ -16,8 +16,8 @@ In scope:
 - Add an authenticated web Settings route and a compact header entry point.
 - Move MCP token creation, permission review, status, one-time secret display,
   and revocation from Candidate Inbox into Settings.
-- Let the person choose which external AI app's connection guide is shown.
-  The exact model remains selected in that external app.
+- Let the person choose which external AI app's short, localized connection
+  guide is shown. The exact model remains selected in that external app.
 - Store only versioned, enum-only browser preferences for the connection guide
   and default Context Pack format, then apply the format to both Topic Context
   Packs and Thinking History reuse.
@@ -85,7 +85,7 @@ history or approve, publish, or mutate public knowledge.
 | `AC-05` | Preference tests, source inspection of both consumers, and the Preview-gated Thinking History assertion in `authenticated-settings.spec.ts`. |
 | `AC-06` | Desktop/mobile English and Arabic assertions in `authenticated-settings.spec.ts` plus all six localization catalog checks. |
 | `AC-07` | Preference parser tests, MCP token regression tests, and final diff inspection. |
-| `AC-08` | The two consecutive save-announcement assertions in `authenticated-settings.spec.ts`. |
+| `AC-08` | Two consecutive save assertions plus replacement of the first live-region node in `authenticated-settings.spec.ts`. |
 
 The authenticated test uses the dedicated synthetic owner and does not create
 or revoke an MCP token. Its success screenshots contain only that fixture's

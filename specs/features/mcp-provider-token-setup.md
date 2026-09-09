@@ -4,7 +4,7 @@ Status: Implemented
 
 ## User outcome
 
-A signed-in person can open the Knowledge Inbox, choose ChatGPT or Claude, and
+A signed-in person can open Settings, choose ChatGPT or Claude, and
 follow a provider-specific path that actually matches the client's supported
 authentication: OAuth for the hosted chat app, or the scoped Girapphe PAT for
 a header-capable API or developer client.
@@ -31,7 +31,7 @@ Out of scope:
 
 ## Acceptance criteria
 
-- [x] `AC-01`: Knowledge Inbox offers native, keyboard-operable ChatGPT and
+- [x] `AC-01`: Settings offers native, keyboard-operable ChatGPT and
   Claude choices and shows only the chosen provider's instructions.
 - [x] `AC-02`: Each provider explains the hosted-app OAuth route separately
   from a PAT-capable route, including the correct Girapphe endpoint and current
@@ -48,8 +48,9 @@ Out of scope:
 
 ## Privacy and data boundaries
 
-Provider selection is transient component state and is not written to browser
-storage, the server, provenance, or analytics. The raw Girapphe PAT remains in
+The detailed guide's ChatGPT/Claude selection is transient component state and
+does not overwrite the separate browser-saved quick-guide preference. It is not
+written to the server, provenance, or analytics. The raw Girapphe PAT remains in
 the existing one-time result only; it is not passed into the setup-guide
 component or included in copied examples. The examples refer to a process
 environment variable and tell users to keep it out of browser code and shared

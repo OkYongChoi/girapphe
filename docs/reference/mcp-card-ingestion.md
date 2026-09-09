@@ -120,6 +120,9 @@ proof that either provider is connected.
 Settings stores only a versioned, enum-only browser preference for which
 external AI client's setup guide to show (`chatgpt`, `claude`, `gemini`, or
 `other`) and the default Context Pack format (`markdown`, `yaml`, or `json`).
+The saved client controls the short localized guidance at the top of Settings.
+The detailed provider guide's ChatGPT/Claude radio is a transient view choice
+and does not overwrite that saved preference.
 It stores no MCP token, provider credential, conversation text, private
 knowledge, or provenance. The guide preference does not override the
 `provider` declared by an MCP request, and the exact AI model remains selected
