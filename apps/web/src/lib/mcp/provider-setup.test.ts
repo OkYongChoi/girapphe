@@ -19,6 +19,11 @@ test('provider setup keeps native-app OAuth separate from PAT clients', () => {
     assert.match(guide.officialGuideUrl, /^https:\/\/(?:help\.openai\.com|support\.claude\.com)\//u);
     assert.match(guide.tokenGuideUrl, /^https:\/\/(?:platform\.openai\.com|code\.claude\.com)\//u);
   }
+
+  const claudeGuide = MCP_PROVIDER_SETUP_GUIDES.claude;
+  assert.match(claudeGuide.nativeSteps[0] ?? '', /Free, Pro, or Max.*Customize → Connectors/u);
+  assert.match(claudeGuide.nativeSteps[0] ?? '', /Team or Enterprise.*Organization settings → Connectors/u);
+  assert.match(claudeGuide.availability, /Free \(one custom connector\), Pro, Max, Team, and Enterprise/u);
 });
 
 test('ChatGPT token example uses a server-side OpenAI MCP Authorization header', () => {

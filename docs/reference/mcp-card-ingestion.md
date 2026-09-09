@@ -88,11 +88,13 @@ tool approval enabled. Its allowlist includes the draft-creation tools plus
 the PAT's selected scopes. See OpenAI's current
 [remote MCP reference](https://platform.openai.com/docs/guides/tools-connectors-mcp).
 
-For **Claude web or Desktop**, open Settings → Connectors, add the same remote
-MCP endpoint, select Connect, and complete the Girapphe OAuth sign-in. Remote
-custom connectors currently require Claude Pro, Max, Team, or Enterprise;
-Team and Enterprise owners must first enable the connector for their
-organization. See Anthropic's current
+For **Claude web or Desktop**, Free, Pro, and Max users open Customize →
+Connectors, choose + → Add custom connector, add the public Girapphe MCP
+endpoint, select Connect, and complete the Girapphe OAuth sign-in. Free plans
+are limited to one custom connector. On Team and Enterprise, an owner first
+adds it under Organization settings → Connectors; members then connect to and
+enable it individually. Remote custom connectors are currently available on
+Free, Pro, Max, Team, and Enterprise. See Anthropic's current
 [custom connector guide](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).
 
 **Claude Code** accepts the PAT through a custom Streamable HTTP header. Store

@@ -38,6 +38,8 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   await expect(claude).toBeChecked();
   await expect(page.getByRole('heading', { name: 'Claude web or Desktop' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Use the PAT with Claude Code' })).toBeVisible();
+  await expect(page.getByText(/Free, Pro, or Max, open Customize → Connectors/)).toBeVisible();
+  await expect(page.getByText(/Free \(one custom connector\), Pro, Max, Team, and Enterprise/)).toBeVisible();
   const claudeTokenArticle = page.locator('article').filter({
     has: page.getByRole('heading', { name: 'Use the PAT with Claude Code' }),
   });
