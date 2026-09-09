@@ -1282,6 +1282,19 @@ BEGIN
     RETURN NULL;
   END IF;
 
+  IF (
+    SELECT COUNT(*)
+    FROM public.knowledge_ingestion_request_tombstones AS tombstone
+    WHERE tombstone.user_id = NEW.user_id
+  ) + (2 * (
+    SELECT COUNT(*)
+    FROM public.knowledge_ingestion_batches AS batch
+    WHERE batch.user_id = NEW.user_id
+      AND batch.scope = 'selected_export'
+  )) + 2 > 40000 THEN
+    RETURN NULL;
+  END IF;
+
   RETURN NEW;
 END;
 $$;

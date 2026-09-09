@@ -267,6 +267,14 @@ test('selected export deletion tombstones are content-free and owner scoped', as
   assert.match(sql, /tombstone\.request_id = NEW\.request_id/);
   assert.match(sql, /selected-export-session:v1:/);
   assert.match(sql, /pg_catalog\.lower\(NEW\.id\)/);
+  assert.match(
+    sql,
+    /COUNT\(\*\)[\s\S]+knowledge_ingestion_request_tombstones AS tombstone[\s\S]+tombstone\.user_id = NEW\.user_id/,
+  );
+  assert.match(
+    sql,
+    /2 \* \([\s\S]+knowledge_ingestion_batches AS batch[\s\S]+batch\.scope = 'selected_export'[\s\S]+\)\) \+ 2 > 40000/,
+  );
   assert.match(sql, /AFTER DELETE ON public\.knowledge_ingestion_batches/);
   assert.match(sql, /REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches/);
   assert.match(sql, /FOR EACH STATEMENT/);

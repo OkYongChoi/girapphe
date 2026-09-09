@@ -851,6 +851,11 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       }),
       /ingestion quota is unavailable/,
     );
+    assert.equal((await directOldBatchInsert(
+      capacityUserId,
+      crypto.randomUUID(),
+      'over-cap-draining-worker',
+    )).rowCount, 0, 'the database bridge must reject an old Worker insert at capacity');
     const currentConversationAtSelectedExportCapacity = await createKnowledgeDraftBatchForUser(capacityUserId, {
       provider: 'chatgpt', scope: 'current_conversation', requestId: 'current-conversation-at-selected-export-capacity',
       cards: [{ clientCardId: 'current-at-cap-card', title: 'Current conversation remains independent' }],
