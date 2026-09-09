@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 import {
   MCP_PROVIDER_SETUP_GUIDES,
   MCP_TOKEN_ENVIRONMENT_VARIABLE,
@@ -20,22 +21,34 @@ test('provider setup keeps native-app OAuth separate from PAT clients', () => {
     assert.match(guide.tokenGuideUrl, /^https:\/\/(?:platform\.openai\.com|code\.claude\.com)\//u);
   }
 
+  const chatgptGuide = MCP_PROVIDER_SETUP_GUIDES.chatgpt;
+  assert.match(chatgptGuide.nativeSteps[0] ?? '', /Business.*admin or owner/u);
+  assert.match(chatgptGuide.nativeSteps[0] ?? '', /Enterprise\/Edu.*admin.*grants developer-mode access/u);
+  assert.match(chatgptGuide.availability, /Business setup is admin\/owner-only/u);
+  assert.match(chatgptGuide.availability, /Pro custom apps remain limited to read\/fetch/u);
+
   const claudeGuide = MCP_PROVIDER_SETUP_GUIDES.claude;
   assert.match(claudeGuide.nativeSteps[0] ?? '', /Free, Pro, or Max.*Customize → Connectors/u);
   assert.match(claudeGuide.nativeSteps[0] ?? '', /Team or Enterprise.*Organization settings → Connectors/u);
   assert.match(claudeGuide.availability, /Free \(one custom connector\), Pro, Max, Team, and Enterprise/u);
 });
 
-test('ChatGPT token example uses a server-side OpenAI MCP Authorization header', () => {
+test('ChatGPT token example uses the Responses API MCP authorization field', () => {
   const snippet = buildMcpProviderTokenSnippet('chatgpt', productionEndpoint);
+  const tool = runInNewContext(`(${snippet})`, {
+    process: { env: { [MCP_TOKEN_ENVIRONMENT_VARIABLE]: 'test-token' } },
+  }) as Record<string, unknown>;
 
   assert.match(snippet, /type: "mcp"/u);
   assert.match(snippet, /server_url: "https:\/\/www\.girapphe\.com\/api\/mcp"/u);
-  assert.match(snippet, new RegExp(`process\\.env\\.${MCP_TOKEN_ENVIRONMENT_VARIABLE}`, 'u'));
+  assert.match(snippet, new RegExp(`authorization: process\\.env\\.${MCP_TOKEN_ENVIRONMENT_VARIABLE}`, 'u'));
+  assert.doesNotMatch(snippet, /headers|Authorization|Bearer/u);
   assert.match(snippet, /create_knowledge_bundle_drafts/u);
   assert.match(snippet, /get_topic_context/u);
   assert.match(snippet, /require_approval: "always"/u);
   assert.doesNotMatch(snippet, /girapphe_mcp_[A-Za-z0-9_-]+/u);
+  assert.equal(tool.authorization, 'test-token');
+  assert.equal('headers' in tool, false);
 });
 
 test('Claude token example configures Streamable HTTP without embedding a PAT', () => {

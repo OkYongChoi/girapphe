@@ -21,6 +21,8 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   await expect(page.getByRole('heading', { name: 'ChatGPT web app' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Use the PAT with OpenAI Responses API' })).toBeVisible();
   await expect(page.getByText('GIRAPPHE_MCP_TOKEN', { exact: false }).first()).toBeVisible();
+  await expect(page.getByText(/On Business, an admin or owner enables developer mode/)).toBeVisible();
+  await expect(page.getByText(/Enterprise\/Edu requires admin-granted access/)).toBeVisible();
 
   const openAiTokenArticle = page.locator('article').filter({
     has: page.getByRole('heading', { name: 'Use the PAT with OpenAI Responses API' }),
@@ -31,7 +33,8 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   const openAiSnippet = await page.evaluate(() => navigator.clipboard.readText());
   expect(openAiSnippet).toContain('type: "mcp"');
   expect(openAiSnippet).toContain(`${new URL(page.url()).origin}/api/mcp`);
-  expect(openAiSnippet).toContain('process.env.GIRAPPHE_MCP_TOKEN');
+  expect(openAiSnippet).toContain('authorization: process.env.GIRAPPHE_MCP_TOKEN');
+  expect(openAiSnippet).not.toContain('headers:');
   expect(openAiSnippet).toContain('get_topic_context');
 
   await claude.check();

@@ -35,10 +35,11 @@ Out of scope:
   Claude choices and shows only the chosen provider's instructions.
 - [x] `AC-02`: Each provider explains the hosted-app OAuth route separately
   from a PAT-capable route, including the correct Girapphe endpoint and current
-  plan/workspace boundary.
-- [x] `AC-03`: The OpenAI example uses an MCP Authorization header and the
-  Claude Code example uses Streamable HTTP with an Authorization header; both
-  reference `GIRAPPHE_MCP_TOKEN` instead of embedding a secret.
+  plan, workspace, and administrator-role boundary.
+- [x] `AC-03`: The OpenAI example uses the Responses API MCP tool's top-level
+  `authorization` field and the Claude Code example uses Streamable HTTP with
+  an Authorization header; both reference `GIRAPPHE_MCP_TOKEN` instead of
+  embedding a secret.
 - [x] `AC-04`: The rendered desktop and mobile guide can switch providers,
   copy a setup example, reflow without horizontal page overflow, and exposes no
   raw Girapphe PAT.
