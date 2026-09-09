@@ -56,6 +56,8 @@ Out of scope:
 - [x] `AC-07`: The change stores no model credential, conversation text, private
   knowledge, or token secret in browser preferences; MCP tokens remain hashed,
   owner-scoped, expiring, revocable, and shown in raw form only once.
+- [x] `AC-08`: Every preference write refreshes the polite save announcement,
+  including consecutive successful saves with the same localized message.
 
 ## Privacy and data boundaries
 
@@ -83,6 +85,7 @@ history or approve, publish, or mutate public knowledge.
 | `AC-05` | Preference tests, source inspection of both consumers, and the Preview-gated Thinking History assertion in `authenticated-settings.spec.ts`. |
 | `AC-06` | Desktop/mobile English and Arabic assertions in `authenticated-settings.spec.ts` plus all six localization catalog checks. |
 | `AC-07` | Preference parser tests, MCP token regression tests, and final diff inspection. |
+| `AC-08` | The two consecutive save-announcement assertions in `authenticated-settings.spec.ts`. |
 
 The authenticated test uses the dedicated synthetic owner and does not create
 or revoke an MCP token. Its success screenshots contain only that fixture's

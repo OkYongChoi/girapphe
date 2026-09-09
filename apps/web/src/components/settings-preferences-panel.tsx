@@ -17,7 +17,10 @@ import type { MessageKey } from '@/i18n/messages';
 export default function SettingsPreferencesPanel() {
   const { t } = useI18n();
   const [preferences, setPreferences] = useState<SettingsPreferences>(DEFAULT_SETTINGS_PREFERENCES);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'unavailable'>('idle');
+  const [saveAnnouncement, setSaveAnnouncement] = useState<{
+    status: 'idle' | 'saved' | 'unavailable';
+    sequence: number;
+  }>({ status: 'idle', sequence: 0 });
 
   useEffect(() => {
     setPreferences(readSettingsPreferences());
@@ -25,7 +28,11 @@ export default function SettingsPreferencesPanel() {
 
   function update(next: SettingsPreferences) {
     setPreferences(next);
-    setSaveStatus(writeSettingsPreferences(next) ? 'saved' : 'unavailable');
+    const status = writeSettingsPreferences(next) ? 'saved' : 'unavailable';
+    setSaveAnnouncement((current) => ({
+      status,
+      sequence: current.sequence + 1,
+    }));
   }
 
   const aiLabel = t(`settings.aiClient.${preferences.aiClient}` as MessageKey);
@@ -96,14 +103,19 @@ export default function SettingsPreferencesPanel() {
         </label>
         <p className="mt-4 text-xs leading-relaxed text-slate-500">{t('settings.localPreferenceNote')}</p>
         <p
+          role="status"
           aria-live="polite"
-          className={`mt-2 min-h-5 text-xs font-bold ${saveStatus === 'unavailable' ? 'text-amber-700' : 'text-emerald-700'}`}
+          aria-atomic="true"
+          data-save-announcement={saveAnnouncement.sequence}
+          className={`mt-2 min-h-5 text-xs font-bold ${saveAnnouncement.status === 'unavailable' ? 'text-amber-700' : 'text-emerald-700'}`}
         >
-          {saveStatus === 'saved'
-            ? t('settings.saved')
-            : saveStatus === 'unavailable'
-              ? t('settings.saveUnavailable')
-              : ''}
+          {saveAnnouncement.status === 'idle' ? null : (
+            <span key={saveAnnouncement.sequence}>
+              {saveAnnouncement.status === 'saved'
+                ? t('settings.saved')
+                : t('settings.saveUnavailable')}
+            </span>
+          )}
         </p>
       </div>
     </section>

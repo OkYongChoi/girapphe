@@ -70,9 +70,13 @@ test('keeps AI connection guidance honest and restores browser-local reuse defau
   await expect(contextFormat).toHaveValue('markdown');
   await expect(page.getByText('Model selection stays in the AI app.')).toBeVisible();
 
+  const saveAnnouncement = page.getByRole('status');
   await aiClient.selectOption('claude');
+  await expect(saveAnnouncement).toHaveAttribute('data-save-announcement', '1');
+  await expect(saveAnnouncement).toHaveText('Saved on this browser.');
   await contextFormat.selectOption('json');
-  await expect(page.getByText('Saved on this browser.')).toBeVisible();
+  await expect(saveAnnouncement).toHaveAttribute('data-save-announcement', '2');
+  await expect(saveAnnouncement).toHaveText('Saved on this browser.');
   await expect(page.getByText(/Choose the exact model in Claude/)).toBeVisible();
   await expect.poll(() => page.evaluate((storageKey) => window.localStorage.getItem(storageKey), SETTINGS_STORAGE_KEY))
     .toBe(JSON.stringify({ version: 1, aiClient: 'claude', contextFormat: 'json' }));
