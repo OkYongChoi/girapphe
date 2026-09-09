@@ -21,6 +21,7 @@ import {
 } from '@/my-notes-view';
 import {
   KNOWLEDGE_BUNDLE_TYPES,
+  splitKnowledgeTagInput,
   type KnowledgeBundleType,
   type Locale,
 } from '@stem-brain/shared';
@@ -153,6 +154,7 @@ function NotesContent() {
   async function addNote() {
     if (!title.trim() || submitting || (knowledgeType && !centralQuestion.trim())) return;
     const sourceView: MyNotesView = 'active';
+    const parsedTags = splitKnowledgeTagInput(tags);
     setSubmitting(true); setError(null);
     try {
       const typedFields = knowledgeType ? {
@@ -165,9 +167,9 @@ function NotesContent() {
         summary, knowledge_type: '', central_question: '', structured_content: null, bundle_schema_version: null,
       };
       if (editing) {
-        await mobileApi.mutate({ action: 'update-note', id: editing.id, version: editing.version, title, topic, content, tags: tags.split(',').map((value) => value.trim()).filter(Boolean), ...typedFields });
+        await mobileApi.mutate({ action: 'update-note', id: editing.id, version: editing.version, title, topic, content, tags: parsedTags, ...typedFields });
       } else {
-        await mobileApi.mutate({ action: 'create-note', title, topic, content, tags: tags.split(',').map((value) => value.trim()).filter(Boolean), requestId: `${Date.now()}-${Math.random()}`, ...typedFields });
+        await mobileApi.mutate({ action: 'create-note', title, topic, content, tags: parsedTags, requestId: `${Date.now()}-${Math.random()}`, ...typedFields });
       }
       resetEditor(); await load(sourceView);
     } catch (reason) {

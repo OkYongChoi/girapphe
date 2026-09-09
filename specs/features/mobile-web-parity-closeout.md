@@ -84,6 +84,9 @@ Out of scope:
   archive and unarchive use the item's current version and surface stale
   conflicts; search includes tags; and type plus today/week/month/all date
   filters use local calendar boundaries without changing stored timestamps.
+  Mobile tag entry recognizes ASCII, Arabic, and fullwidth commas. The API
+  normalizes tags before enforcing the 12-tag and 48-Unicode-code-point bounds,
+  so astral letters are not counted as two UTF-16 units.
 - [x] `AC-07`: The mobile architecture document names the current tabs,
   hidden routes, My Notes terminology, expression bundle, dynamic Expo config,
   and the exact intentional web-only boundary. The mobile check and both iOS
@@ -111,7 +114,9 @@ Out of scope:
   the frontier. Review progress counts only actual ratings in the current
   round, keeps traversal completion separate, and exposes an accessible
   progress value plus an iOS and Android traversal-complete announcement.
-  Transient reads retry once, while permanent client errors do not retry.
+  Transient reads retry once, while permanent client errors do not retry. A
+  missing mobile API base URL remains a distinct configuration error outside
+  the network catch and therefore is never retried.
 - [x] `AC-10`: A candidate with duplicate suggestions offers a 44-point,
   localized link to its encoded detailed web-review route when the validated
   app base URL is available. Its visible and accessibility label identifies the
@@ -142,10 +147,10 @@ app. Signed-out users retain the existing local public Practice fallback.
 | `AC-03` | Focused synced-history state test and source inspection prove bounded previous-card recovery without decrementing successful advances. |
 | `AC-04` | Mobile source-contract tests cover prerequisite statuses and localized `last_seen` rendering. |
 | `AC-05` | `apps/mobile/src/candidate-inbox.test.ts` covers both scope values and scope-aware mobile copy. |
-| `AC-06` | `apps/mobile/src/my-notes-view.test.ts` and a mobile API source-contract test cover lifecycle views, optimistic versions, tags, types, and local date boundaries. |
+| `AC-06` | `apps/mobile/src/my-notes-view.test.ts`, `apps/mobile/src/mobile-tag-contract.test.ts`, `packages/shared/src/knowledge-tags.test.mjs`, and the web normalization tests cover lifecycle views, optimistic versions, localized separators, canonical tags, Unicode/astral bounds, types, and local date boundaries. |
 | `AC-07` | `pnpm check:docs`, `pnpm --filter @stem-brain/mobile check`, `pnpm --filter @stem-brain/mobile build`, `pnpm harness`, and `git diff --check`. |
 | `AC-08` | `packages/shared/src/mobile-practice.test.mjs`, focused web cursor/contract/handler/selector/private-card tests, the checked-in migration/schema assertions, `apps/mobile/src/mobile-practice-api-contract.test.ts`, and the unauthenticated Practice POST browser smoke cover request bounds, alternating keyset lanes, pre-limit eligibility, raw-ID seek/index wiring, one-wrap behavior, legacy rejection, authentication ordering, and private POST wiring. `pnpm harness:deploy` covers the Cloudflare build and size, not live Postgres execution; Preview migration and `EXPLAIN` evidence remains a release-time gate. |
-| `AC-09` | `packages/shared/src/mobile-practice.test.mjs`, executable mixed rating/skip round tests in `apps/mobile/src/practice-parity.test.ts`, and focused desktop Practice browser smoke cover bounded history, frontier advancement, cadence preservation, previous-card behavior, retry classification, progress, cycle wiring, iOS announcement wiring, and rendered controls. |
+| `AC-09` | `packages/shared/src/mobile-practice.test.mjs`, `apps/mobile/src/mobile-api-errors.test.ts`, executable mixed rating/skip round tests in `apps/mobile/src/practice-parity.test.ts`, and focused desktop Practice browser smoke cover bounded history, frontier advancement, cadence preservation, configuration-versus-network retry classification, progress, cycle wiring, iOS announcement wiring, and rendered controls. |
 | `AC-10` | `apps/mobile/src/candidate-inbox.test.ts` covers encoded URL construction, unsafe-base rejection, candidate-specific localized labels, the 44-point accessible link source contract, and `pnpm --filter @stem-brain/mobile build` exports that source into both platform bundles. |
 
 ## Rollout

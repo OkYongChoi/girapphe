@@ -130,7 +130,10 @@ Authenticated mobile `notes`, `graph`, and `practice` payloads preserve the
 legacy flat fields and may additionally include `knowledge_type`,
 `central_question`, `structured_content`, and `bundle_schema_version`. Mobile
 create/update requests accept the same fields, reject invalid version-one
-bundles, and keep quick notes untyped.
+bundles, and keep quick notes untyped. Note tags use the shared canonical tag
+contract: at most 12 values are normalized with Unicode NFKC before validation,
+each normalized tag is bounded to 48 Unicode code points (including astral
+letters as one code point), and invalid tags fail with `400 INVALID_TAGS`.
 
 `GET /api/mobile?resource=notes&view=active|archive|trash` returns the
 owner-scoped My Notes lifecycle view requested by the client. Mobile clients
@@ -140,6 +143,11 @@ current `version`. A stale optimistic version returns `409 NOTE_STALE`; the
 client must reload before retrying. Moving an item to Trash continues to use
 `delete-note`, and `restore-note` restores a trashed item to the lifecycle
 state it held before deletion.
+
+The mobile My Notes editor accepts ASCII comma, Arabic comma (`،`), and
+fullwidth comma (`，`) separators. Splitting happens in the shared client
+contract, while the API independently normalizes and validates the resulting
+array before calling the owner-scoped knowledge action.
 
 `GET /api/mobile?resource=saved` returns owner-scoped `cards` plus authoritative
 `stats` (`explainable`, `unclear`, and `reviewable`). New clients select the

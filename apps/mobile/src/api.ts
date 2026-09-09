@@ -10,11 +10,17 @@ import type {
 } from '@stem-brain/shared';
 import { getActiveLocale, translate } from '@/i18n';
 import {
+  MobileApiConfigurationError,
   MobileApiNetworkError,
   MobileApiRequestError,
 } from './mobile-api-errors';
 
-export { MobileApiNetworkError, MobileApiRequestError, isTransientMobileApiError } from './mobile-api-errors';
+export {
+  MobileApiConfigurationError,
+  MobileApiNetworkError,
+  MobileApiRequestError,
+  isTransientMobileApiError,
+} from './mobile-api-errors';
 
 const apiBaseUrl = (process.env.EXPO_PUBLIC_APP_BASE_URL ?? '').replace(/\/$/, '');
 export const MOBILE_KNOWLEDGE_CAPABILITIES = 'expression-v1,event-chronology-v1,causal-relations-v1';
@@ -212,7 +218,9 @@ function readApiErrorCode(payload: unknown): string | null {
 }
 
 function getBaseUrl() {
-  if (!apiBaseUrl) throw new Error(translate(getActiveLocale(), 'api.missingUrl'));
+  if (!apiBaseUrl) {
+    throw new MobileApiConfigurationError(translate(getActiveLocale(), 'api.missingUrl'));
+  }
   return apiBaseUrl;
 }
 
@@ -226,9 +234,10 @@ async function authenticatedFetch(path: string, init?: RequestInit): Promise<Res
   }
   if (!token) throw new Error(translate(locale, 'api.signInRequired'));
 
+  const baseUrl = getBaseUrl();
   let response: Response;
   try {
-    response = await fetch(`${getBaseUrl()}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -262,9 +271,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 async function publicRequest<T>(path: string): Promise<T> {
   const locale = getActiveLocale();
+  const baseUrl = getBaseUrl();
   let response: Response;
   try {
-    response = await fetch(`${getBaseUrl()}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       headers: {
         Accept: 'application/json',
         'Accept-Language': locale,

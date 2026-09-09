@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseAcceptLanguage } from '@stem-brain/shared';
+import { parseAcceptLanguage, parseStrictKnowledgeTags } from '@stem-brain/shared';
 import {
   getAllCardsWithStatus,
   getCardLeaderboard,
@@ -157,9 +157,7 @@ function parseMobileBundle(body: Record<string, unknown>, capabilities: MobileKn
 
 function parseMobileTags(value: unknown): string[] | null {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > 12) return null;
-  const tags = value.map((tag) => typeof tag === 'string' ? tag.trim() : '');
-  return tags.every((tag) => tag.length > 0 && tag.length <= 48) ? tags : null;
+  return parseStrictKnowledgeTags(value);
 }
 
 async function readBody(request: NextRequest) {
@@ -461,7 +459,7 @@ export async function POST(request: NextRequest) {
     const bundle = parseMobileBundle(body, capabilities);
     if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
     const tags = parseMobileTags(body.tags);
-    if (!tags) return invalid('Tags must contain at most 12 non-empty values.', 'INVALID_TAGS');
+    if (!tags) return invalid('Tags must contain at most 12 valid values of 48 Unicode code points each.', 'INVALID_TAGS');
     await createKnowledgeItem(toFormData({ title, summary, content, topic, tags: tags.join(','), request_id: requestId,
       knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
       bundle_schema_version: bundle.knowledgeType ? '1' : '' }));
@@ -478,7 +476,7 @@ export async function POST(request: NextRequest) {
     const bundle = parseMobileBundle(body, capabilities);
     if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
     const tags = parseMobileTags(body.tags);
-    if (!tags) return invalid('Tags must contain at most 12 non-empty values.', 'INVALID_TAGS');
+    if (!tags) return invalid('Tags must contain at most 12 valid values of 48 Unicode code points each.', 'INVALID_TAGS');
     const resolvedVersion = await resolveMobileNoteUpdateVersion(
       body.version,
       () => getActiveKnowledgeItemVersionForUser(mobileUser.id, id),

@@ -18,6 +18,10 @@ const practiceContract = readFileSync(
   join(sourceDir, '../../web/src/lib/mobile-practice-contract.ts'),
   'utf8',
 );
+const webPackageJson = readFileSync(
+  join(sourceDir, '../../web/package.json'),
+  'utf8',
+);
 
 test('native Practice sends its opaque cursor in a bounded POST body, not the URL', () => {
   const practiceClient = mobileApi.match(
@@ -33,16 +37,35 @@ test('native Practice sends its opaque cursor in a bounded POST body, not the UR
 });
 
 test('server authenticates before delegating Practice POST to the bounded handler', () => {
-  const postHandler = mobileRoute.slice(mobileRoute.indexOf('export async function POST'));
+  const postStart = mobileRoute.indexOf('export async function POST');
+  assert.notEqual(postStart, -1, 'POST handler must exist');
+  const postHandler = mobileRoute.slice(postStart);
   const practiceBranch = mobileRoute.match(
     /if \(request\.nextUrl\.searchParams\.get\('resource'\) === 'practice'\) \{([\s\S]*?)\n {2}\}\n\n {2}const parsedBody = await readBody/,
   )?.[1] ?? '';
-  assert.ok(postHandler.indexOf('requireMobileUser()') < postHandler.indexOf("resource') === 'practice'"));
+  const authentication = postHandler.indexOf('requireMobileUser()');
+  const practiceDispatch = postHandler.indexOf("resource') === 'practice'");
+  assert.notEqual(authentication, -1, 'POST authentication must exist');
+  assert.notEqual(practiceDispatch, -1, 'Practice dispatch must exist');
+  assert.ok(authentication < practiceDispatch);
   assert.match(practiceBranch, /return handleMobilePracticePost\(request/);
   assert.match(practiceHandler, /readBoundedJson\(request, MAX_MOBILE_PRACTICE_BODY_BYTES\)/);
   assert.match(practiceHandler, /decodeMobilePracticeCursor\(input\.cursor, input\.mode\)/);
   assert.match(practiceHandler, /nextCursor: next\.nextCursor \? encodeMobilePracticeCursor/);
   assert.match(practiceHandler, /privateResponse/);
+});
+
+test('web server test script preserves main and mobile-practice test unions', () => {
+  for (const testPath of [
+    'src/lib/knowledge-tag-normalization.test.ts',
+    'src/lib/knowledge-tag-suggestions.test.ts',
+    'src/lib/mobile-practice-contract.test.ts',
+    'src/lib/mobile-practice-cursor.test.ts',
+    'src/lib/mobile-practice-handler.test.ts',
+    'src/lib/mobile-practice-selector.test.ts',
+  ]) {
+    assert.match(webPackageJson, new RegExp(testPath.replaceAll('.', '\\.')));
+  }
 });
 
 test('legacy Practice GET fails explicitly instead of silently truncating exclusions', () => {

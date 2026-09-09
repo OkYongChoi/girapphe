@@ -44,7 +44,9 @@ When a field, relationship type, or knowledge-state value changes, update the
 graph engine first and then adjust app surfaces.
 
 `@stem-brain/shared` is reserved for constants, API client types, and utilities
-that are shared across web, mobile, and future app targets.
+that are shared across web, mobile, and future app targets. Its canonical tag
+contract keeps localized comma parsing, Unicode normalization, and code-point
+bounds identical across the native editor and web API.
 
 ## Feature Boundaries
 
@@ -58,12 +60,14 @@ Mobile feature code should be organized around user flows, not platform names:
   across deterministic public/private keyset lanes instead of growing rated or
   skipped ID arrays. Skips advance the frontier and advertising cadence but not
   Reviewed, may reappear after a requested wrap, and only transient reads retry
-  once.
+  once. A missing app base URL is a permanent local configuration error and is
+  never wrapped or retried as a network failure.
 - My Notes: quick notes plus full-field version-one concept, procedure,
   comparison, mechanism, structure, claim/evidence, question, decision, and
   event and expression bundles. Active, Archive, and Trash are distinct views;
   active knowledge supports tag-aware search plus topic, type, date, and sort
-  controls.
+  controls. Tag entry recognizes ASCII, Arabic, and fullwidth commas; the API
+  independently applies the shared Unicode-normalized tag limits.
 - Candidate Inbox: quick save-as-new or ignore for explicitly submitted
   current-conversation and selected-export candidates, with their source scope
   labeled separately. A possible duplicate links to the exact detailed web

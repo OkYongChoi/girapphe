@@ -1,3 +1,10 @@
+export class MobileApiConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MobileApiConfigurationError';
+  }
+}
+
 export class MobileApiNetworkError extends Error {
   constructor(message: string) {
     super(message);
