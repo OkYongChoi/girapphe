@@ -20,6 +20,7 @@ function LocalizedApp() {
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="topic/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="knowledge-topics" options={{ headerShown: false }} />
           <Stack.Screen name="knowledge-topic/[topic]" options={{ headerShown: false }} />
           <Stack.Screen name="candidate-inbox" options={{ headerShown: false }} />
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />

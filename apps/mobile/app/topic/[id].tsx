@@ -15,9 +15,11 @@ import { localizeDomain, localizeType } from '@stem-brain/shared';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
 import { KnowledgeText } from '@/components/knowledge-text';
 import { useSubscription } from '@/subscriptions';
+import { useMobileAuth } from '@/auth';
 
 export default function TopicDetailScreen() {
   const router = useRouter();
+  const auth = useMobileAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const subscription = useSubscription();
   const node = subscription.isReady
@@ -59,14 +61,33 @@ export default function TopicDetailScreen() {
   const prerequisites = getPrerequisiteNodes(node.id, subscription.isAdFree);
   const dependents = getDependentNodes(node.id, subscription.isAdFree);
   const related = getRelatedNodes(node.id, 6, subscription.isAdFree);
+  const displayedTitle = content?.label ?? content?.title ?? node.label;
+  const displayedSummary = content?.summary ?? getNodeSummary(node.id);
+  const displayedExplanation = content?.explanation ?? getNodeExplanation(node.id);
+  const publicNode = node;
 
   function openTopic(nextNode: GraphNode) {
     router.push({ pathname: '/topic/[id]', params: { id: nextNode.id } });
   }
 
+  function reviewPrivateCopy() {
+    const draftParams = {
+      draftKey: `${publicNode.id}:${Date.now()}`,
+      draftSourceId: publicNode.id,
+    };
+    if (auth.isSignedIn) {
+      router.push({ pathname: '/(tabs)/notes', params: draftParams });
+      return;
+    }
+    router.push({
+      pathname: '/sign-in',
+      params: { continueAction: 'copy-public-concept', ...draftParams },
+    });
+  }
+
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
-      <Stack.Screen options={{ title: content?.label ?? content?.title ?? node.label }} />
+      <Stack.Screen options={{ title: displayedTitle }} />
       <ScrollView contentContainerStyle={styles.content}>
         <Pressable
           accessibilityRole="button"
@@ -82,8 +103,8 @@ export default function TopicDetailScreen() {
             <View style={[styles.domainDot, { backgroundColor: getDomainColor(node.domain) }]} />
             <Text style={styles.domainText}>{content?.domain_label ?? localizeDomain(locale, node.domain)}</Text>
           </View>
-          <KnowledgeText value={content?.label ?? content?.title ?? node.label} direction={direction} style={styles.title} />
-          <KnowledgeText value={content?.summary ?? getNodeSummary(node.id)} direction={direction} style={styles.summary} />
+          <KnowledgeText value={displayedTitle} direction={direction} style={styles.title} />
+          <KnowledgeText value={displayedSummary} direction={direction} style={styles.summary} />
           <TranslationFallbackNotice dark translation={content} />
           <View style={styles.metaRow}>
             <Text style={styles.metaChip}>{content?.type_label ?? localizeType(locale, node.type)}</Text>
@@ -94,7 +115,24 @@ export default function TopicDetailScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('topic.explanation')}</Text>
-          <KnowledgeText value={content?.explanation ?? getNodeExplanation(node.id)} direction={direction} legacyDollarMath style={styles.bodyText} />
+          <KnowledgeText value={displayedExplanation} direction={direction} legacyDollarMath style={styles.bodyText} />
+        </View>
+
+        <View style={styles.privateCopyPanel}>
+          <Text style={styles.privateCopyHint}>{t('topic.savePrivateCopyHint')}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t(
+              auth.isSignedIn ? 'topic.savePrivateCopyA11y' : 'topic.signInToSavePrivateCopyA11y',
+              { topic: displayedTitle },
+            )}
+            onPress={reviewPrivateCopy}
+            style={({ pressed }) => [styles.privateCopyButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.privateCopyButtonText}>
+              {t(auth.isSignedIn ? 'topic.savePrivateCopy' : 'topic.signInToSavePrivateCopy')}
+            </Text>
+          </Pressable>
         </View>
 
         <RelationshipSection title={t('topic.prerequisites')} nodes={prerequisites} onPress={openTopic} translatedNodes={content?.related_nodes} />
@@ -237,6 +275,34 @@ const styles = StyleSheet.create({
     color: '#445463',
     fontSize: 15,
     lineHeight: 23,
+  },
+  privateCopyPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#eff6ff',
+    padding: 14,
+    gap: 10,
+    marginBottom: 14,
+  },
+  privateCopyHint: {
+    color: '#334155',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  privateCopyButton: {
+    minHeight: 44,
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: '#111827',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  privateCopyButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800',
   },
   topicRow: {
     minHeight: 64,

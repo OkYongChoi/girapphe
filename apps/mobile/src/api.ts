@@ -124,6 +124,26 @@ export type MobileTopicHubItem = PersonalNoteSummary & {
   review_at: string | null;
 };
 
+export type MobileTopicSummary = {
+  topic: string;
+  item_count: number;
+  open_question_count: number;
+  decision_count: number;
+  event_count: number;
+  source_count: number;
+  last_updated_at: string;
+  sample_titles: string[];
+};
+
+export type MobileRankingRow = {
+  rank: number;
+  label: string;
+  participantId: string;
+  isCurrentUser: boolean;
+  explainable: number;
+  avgScore: number;
+};
+
 export type MobileTopicHub = {
   topic: string;
   generated_at: string;
@@ -190,6 +210,7 @@ export type MobileCandidateDraft = {
   bundle_schema_version: number | null;
   status: 'pending' | 'approved' | 'rejected';
   version: number;
+  requires_detailed_review: boolean;
   duplicate_suggestions: Array<{
     id: string;
     title: string;
@@ -303,6 +324,7 @@ export const mobileApi = {
     return publicRequest<ContentResponse>(withLocale(`/api/mobile?resource=content&ids=${query}`));
   },
   notes: (view: 'active' | 'archive' | 'trash' = 'active') => request<{ items: PersonalNote[] }>(withLocale(`/api/mobile?resource=notes&view=${view}`)),
+  topics: () => request<{ topics: MobileTopicSummary[] }>(withLocale('/api/mobile?resource=topics')),
   topicHub: (topic: string) => request<{ hub: MobileTopicHub }>(withLocale(`/api/mobile?resource=topic-hub&topic=${encodeURIComponent(topic)}`)),
   candidateInbox: () => request<{ batches: MobileCandidateBatch[] }>(withLocale('/api/mobile?resource=candidate-inbox')),
   candidateBatch: (batchId: string) => request<{ batch: MobileCandidateBatch; drafts: MobileCandidateDraft[] }>(withLocale(`/api/mobile?resource=candidate-batch&batchId=${encodeURIComponent(batchId)}`)),
@@ -316,7 +338,7 @@ export const mobileApi = {
   },
   saved: () => request<{ cards: MobileCard[]; stats: MobilePracticeStats }>(withLocale('/api/mobile?resource=saved')),
   dashboard: () => request<{ stats: MobilePracticeStats; domains: Array<{ domain: string; domain_label?: string; reviewed: number; explainable: number; unclear: number }> }>(withLocale('/api/mobile?resource=dashboard')),
-  ranking: () => request<{ rows: Array<{ rank: number; label: string; explainable: number; avgScore: number }> }>(withLocale('/api/mobile?resource=ranking')),
+  ranking: () => request<{ rows: MobileRankingRow[] }>(withLocale('/api/mobile?resource=ranking')),
   adminNodes: () => request<{ nodes: Array<{ id: string; label: string; domain: string; level: number; difficulty: number; type: string }> }>(withLocale('/api/mobile?resource=admin-nodes')),
   adminEdges: () => request<{ edges: Array<{ id: number; source: string; target: string; type: string; weight: number }>; nodes: Array<{ id: string; label: string }> }>(withLocale('/api/mobile?resource=admin-edges')),
   adminUsers: () => request<{ users: Array<{ user_id: string; mastered: number; reinforcing: number; total: number; last_updated: string | null }> }>(withLocale('/api/mobile?resource=admin-users')),

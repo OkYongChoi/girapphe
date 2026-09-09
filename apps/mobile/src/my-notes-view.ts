@@ -58,6 +58,39 @@ export type MyNotesPendingActionGuard = {
   pendingId: () => string | null;
 };
 
+export type MyNotesEditorRequest = Readonly<{
+  revision: number;
+  noteId: string | null;
+}>;
+
+export type MyNotesEditorRequestGuard = {
+  select: (noteId: string | null) => void;
+  capture: () => MyNotesEditorRequest;
+  isCurrent: (request: MyNotesEditorRequest) => boolean;
+};
+
+export type MyNotesStaleReloadResult<T> =
+  | { status: 'reloaded'; winner: T | null }
+  | { status: 'superseded'; winner: T | null }
+  | { status: 'unavailable'; winner: null };
+
+export async function reloadMyNoteAfterStale<T extends { id: string }>(
+  noteId: string,
+  reloadLatest: () => Promise<readonly T[] | null>,
+  isEditorRequestCurrent: () => boolean,
+  replaceEditor: (winner: T | null) => void,
+): Promise<MyNotesStaleReloadResult<T>> {
+  const latestItems = await reloadLatest();
+  if (latestItems === null) return { status: 'unavailable', winner: null };
+  const winner = latestItems.find((item) => item.id === noteId) ?? null;
+  if (!isEditorRequestCurrent()) return { status: 'superseded', winner };
+  replaceEditor(winner);
+  return {
+    status: 'reloaded',
+    winner,
+  };
+}
+
 function startOfLocalDay(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 }
@@ -204,6 +237,26 @@ export function createMyNotesPendingActionGuard(): MyNotesPendingActionGuard {
     },
     pendingId() {
       return pendingNoteId;
+    },
+  };
+}
+
+export function createMyNotesEditorRequestGuard(
+  initialNoteId: string | null = null,
+): MyNotesEditorRequestGuard {
+  let revision = 0;
+  let noteId = initialNoteId;
+
+  return {
+    select(nextNoteId) {
+      noteId = nextNoteId;
+      revision += 1;
+    },
+    capture() {
+      return { revision, noteId };
+    },
+    isCurrent(request) {
+      return request.revision === revision && request.noteId === noteId;
     },
   };
 }

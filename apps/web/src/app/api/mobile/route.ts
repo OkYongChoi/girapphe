@@ -39,7 +39,10 @@ import { readBoundedJson } from '@/lib/billing/bounded-json';
 import { handlePublicContentRequest } from '@/lib/public-content-api';
 import { parseContentLocale } from '@/lib/content-localization';
 import { parseKnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
-import { getTopicKnowledgeHubForUser } from '@/lib/topic-knowledge-hub';
+import {
+  getActiveKnowledgeTopicSummariesForUser,
+  getTopicKnowledgeHubForUser,
+} from '@/lib/topic-knowledge-hub';
 import {
   getKnowledgeDraftBatch,
   getKnowledgeDraftBatches,
@@ -55,7 +58,7 @@ import {
 } from '@/lib/knowledge-ingestion';
 import { resolveMobileNoteUpdateVersion } from '@/lib/mobile-note-update-version';
 import {
-  mobileCandidateApprovalRequiresCapability,
+  classifyMobileCandidateMutationPreflight,
   mobileCandidateRequiresDetailedCausalReview,
   mobileKnowledgeEditRequiresCapability,
   readMobileKnowledgeCapabilities,
@@ -203,13 +206,13 @@ export async function GET(request: NextRequest) {
   switch (resource) {
     case 'admin-nodes':
       if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
-      return NextResponse.json({ nodes: await getAdminNodes() });
+      return privateJson({ nodes: await getAdminNodes() });
     case 'admin-edges':
       if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
-      return NextResponse.json({ edges: await getAdminEdges(), nodes: await getAdminNodes() });
+      return privateJson({ edges: await getAdminEdges(), nodes: await getAdminNodes() });
     case 'admin-users':
       if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
-      return NextResponse.json({ users: await getAdminUsers() });
+      return privateJson({ users: await getAdminUsers() });
     case 'notes': {
       const view = request.nextUrl.searchParams.get('view');
       const items = view === 'trash'
@@ -229,6 +232,8 @@ export async function GET(request: NextRequest) {
         relations: withMobileRelationCompatibility(hub.relations, capabilities),
       } });
     }
+    case 'topics':
+      return privateJson({ topics: await getActiveKnowledgeTopicSummariesForUser(mobileUser.id) });
     case 'candidate-inbox':
       return privateJson({ batches: await getKnowledgeDraftBatches() });
     case 'candidate-batch': {
@@ -250,6 +255,7 @@ export async function GET(request: NextRequest) {
           return {
             ...compatibleDraft,
             relations: withMobileRelationCompatibility(compatibleDraft.relations, capabilities),
+            requires_detailed_review: mobileCandidateRequiresDetailedCausalReview(draft),
           };
         }),
       });
@@ -293,14 +299,16 @@ export async function GET(request: NextRequest) {
     }
     case 'dashboard': {
       const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress(locale)]);
-      return NextResponse.json({ stats, domains });
+      return privateJson({ stats, domains });
     }
     case 'ranking': {
       const rows = await getCardLeaderboard();
-      return NextResponse.json({
+      return privateJson({
         rows: rows.map((row, index) => ({
           rank: index + 1,
           label: `Learner ${index + 1}`,
+          participantId: row.participantId,
+          isCurrentUser: row.isCurrentUser,
           explainable: row.explainable,
           avgScore: row.avgScore,
         })),
@@ -386,10 +394,19 @@ export async function POST(request: NextRequest) {
     const batchId = stringField(body.batchId, 240);
     const draftId = stringField(body.draftId, 240);
     const draftVersion = body.draftVersion;
-    if (!batchId || !draftId || !Number.isSafeInteger(draftVersion) || (draftVersion as number) <= 0) return invalid('A valid candidate and version are required.');
+    if (!batchId || !draftId || typeof draftVersion !== 'number' || !Number.isSafeInteger(draftVersion) || draftVersion <= 0) return invalid('A valid candidate and version are required.');
     const context = await getKnowledgeDraftResolutionContext(draftId);
     if (!context || context.draft.batch_id !== batchId || context.draft.status !== 'pending') {
       return NextResponse.json({ error: 'The candidate is no longer pending.', code: 'CANDIDATE_STALE' }, { status: 409 });
+    }
+    const preflight = classifyMobileCandidateMutationPreflight({
+      action,
+      draft: context.draft,
+      draftVersion,
+      capabilities,
+    });
+    if (preflight === 'stale') {
+      return NextResponse.json({ error: 'The candidate changed before review.', code: 'CANDIDATE_STALE' }, { status: 409 });
     }
     const candidateForm = toFormData({
       batch_id: batchId,
@@ -398,16 +415,22 @@ export async function POST(request: NextRequest) {
     });
     if (action === 'ignore-candidate') {
       const result = await ignoreKnowledgeDraft(candidateForm);
-      return result.resolved ? NextResponse.json(result) : NextResponse.json({ ...result, error: 'The candidate changed before it was ignored.' }, { status: 409 });
+      return result.resolved
+        ? NextResponse.json(result)
+        : NextResponse.json({
+          ...result,
+          error: 'The candidate changed before it was ignored.',
+          code: 'CANDIDATE_STALE',
+        }, { status: 409 });
     }
     const draft = context.draft;
-    if (mobileCandidateApprovalRequiresCapability(draft, capabilities)) {
+    if (preflight === 'knowledge-capability-required') {
       return NextResponse.json({
         error: 'Update the app before approving knowledge features that are unavailable in this version.',
         code: 'KNOWLEDGE_CAPABILITY_REQUIRED',
       }, { status: 409 });
     }
-    if (mobileCandidateRequiresDetailedCausalReview(draft)) {
+    if (preflight === 'causal-review-required') {
       return NextResponse.json({
         error: 'Review causal relationship targets, directions, and evidence in the detailed web review before approval.',
         code: 'CAUSAL_REVIEW_REQUIRED',

@@ -3,6 +3,62 @@ export type CandidateInboxRequestGuard = Readonly<{
   isLatest: (request: number) => boolean;
 }>;
 
+export type CandidateQuickAction = 'approve-candidate' | 'ignore-candidate';
+
+export type CandidateQuickActionDraft = {
+  id: string;
+  requires_detailed_review: boolean;
+};
+
+export type CandidateQuickActionOutcome<Result, Draft> =
+  | { status: 'detailed-review-required' }
+  | { status: 'resolved'; result: Result }
+  | {
+    status: 'stale';
+    latestDraft: Draft | null;
+    reloadSucceeded: boolean;
+  };
+
+export function candidateQuickActionRequiresDetailedReview(
+  draft: CandidateQuickActionDraft,
+  action: CandidateQuickAction,
+): boolean {
+  return action === 'approve-candidate' && draft.requires_detailed_review;
+}
+
+export async function resolveCandidateQuickAction<
+  Result,
+  Draft extends CandidateQuickActionDraft,
+>({
+  draft,
+  action,
+  mutate,
+  reloadLatest,
+  isStaleError,
+}: {
+  draft: Draft;
+  action: CandidateQuickAction;
+  mutate: () => Promise<Result>;
+  reloadLatest: () => Promise<readonly Draft[] | null>;
+  isStaleError: (reason: unknown) => boolean;
+}): Promise<CandidateQuickActionOutcome<Result, Draft>> {
+  if (candidateQuickActionRequiresDetailedReview(draft, action)) {
+    return { status: 'detailed-review-required' };
+  }
+
+  try {
+    return { status: 'resolved', result: await mutate() };
+  } catch (reason) {
+    if (!isStaleError(reason)) throw reason;
+    const latestDrafts = await reloadLatest();
+    return {
+      status: 'stale',
+      latestDraft: latestDrafts?.find((candidate) => candidate.id === draft.id) ?? null,
+      reloadSucceeded: latestDrafts !== null,
+    };
+  }
+}
+
 export function createCandidateInboxRequestGuard(): CandidateInboxRequestGuard {
   let latestRequest = 0;
 

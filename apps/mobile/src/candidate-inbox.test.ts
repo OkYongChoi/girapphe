@@ -6,9 +6,11 @@ import { fileURLToPath } from 'node:url';
 import {
   addPendingCandidate,
   buildCandidateWebReviewUrl,
+  candidateQuickActionRequiresDetailedReview,
   classifyCandidateBatchScope,
   createCandidateInboxRequestGuard,
   removePendingCandidate,
+  resolveCandidateQuickAction,
   selectCandidateBatch,
 } from './candidate-inbox-requests';
 
@@ -76,6 +78,101 @@ test('the last completed overlapping mutation owns the final guarded refresh', a
   assert.deepEqual(renderedDrafts, []);
 });
 
+test('candidate quick-action resolver blocks causal approval before mutation', async () => {
+  const draft = { id: 'causal-draft', requires_detailed_review: true };
+  let mutations = 0;
+  let reloads = 0;
+
+  assert.equal(candidateQuickActionRequiresDetailedReview(draft, 'approve-candidate'), true);
+  assert.equal(candidateQuickActionRequiresDetailedReview(draft, 'ignore-candidate'), false);
+
+  const outcome = await resolveCandidateQuickAction({
+    draft,
+    action: 'approve-candidate',
+    mutate: async () => { mutations += 1; return { resolved: true }; },
+    reloadLatest: async () => { reloads += 1; return [draft]; },
+    isStaleError: () => false,
+  });
+
+  assert.deepEqual(outcome, { status: 'detailed-review-required' });
+  assert.equal(mutations, 0);
+  assert.equal(reloads, 0);
+});
+
+test('candidate quick-action resolver reloads and returns the fresh draft after a stale race', async () => {
+  const staleDraft = { id: 'draft-a', version: 1, requires_detailed_review: false };
+  const freshDraft = { ...staleDraft, version: 2 };
+  const staleError = new Error('candidate stale');
+  let reloads = 0;
+  let renderedDrafts = [staleDraft];
+
+  const outcome = await resolveCandidateQuickAction({
+    draft: staleDraft,
+    action: 'ignore-candidate',
+    mutate: async () => { throw staleError; },
+    reloadLatest: async () => {
+      reloads += 1;
+      renderedDrafts = [freshDraft];
+      return renderedDrafts;
+    },
+    isStaleError: (reason) => reason === staleError,
+  });
+
+  assert.equal(reloads, 1);
+  assert.equal(outcome.status, 'stale');
+  if (outcome.status !== 'stale') return;
+  assert.equal(outcome.reloadSucceeded, true);
+  assert.equal(outcome.latestDraft?.version, 2);
+  assert.equal(renderedDrafts[0]?.version, 2);
+  assert.ok(outcome.latestDraft);
+  const latestDraft = outcome.latestDraft;
+
+  let retriedVersion = 0;
+  const retry = await resolveCandidateQuickAction({
+    draft: latestDraft,
+    action: 'ignore-candidate',
+    mutate: async () => { retriedVersion = latestDraft.version; return { resolved: true }; },
+    reloadLatest: async () => renderedDrafts,
+    isStaleError: () => false,
+  });
+  assert.equal(retry.status, 'resolved');
+  assert.equal(retriedVersion, 2);
+});
+
+test('a stale noncausal approval reloads a newly causal draft and converges to detailed review', async () => {
+  const staleDraft = { id: 'draft-a', version: 1, requires_detailed_review: false };
+  const latestCausalDraft = { ...staleDraft, version: 2, requires_detailed_review: true };
+  const staleError = new Error('candidate stale');
+  let mutations = 0;
+  let reloads = 0;
+
+  const staleOutcome = await resolveCandidateQuickAction({
+    draft: staleDraft,
+    action: 'approve-candidate',
+    mutate: async () => { mutations += 1; throw staleError; },
+    reloadLatest: async () => { reloads += 1; return [latestCausalDraft]; },
+    isStaleError: (reason) => reason === staleError,
+  });
+
+  assert.equal(staleOutcome.status, 'stale');
+  assert.equal(mutations, 1);
+  assert.equal(reloads, 1);
+  if (staleOutcome.status !== 'stale' || !staleOutcome.latestDraft) return;
+  assert.deepEqual(staleOutcome.latestDraft, latestCausalDraft);
+
+  const retryOutcome = await resolveCandidateQuickAction({
+    draft: staleOutcome.latestDraft,
+    action: 'approve-candidate',
+    mutate: async () => { mutations += 1; return { resolved: true }; },
+    reloadLatest: async () => { reloads += 1; return [latestCausalDraft]; },
+    isStaleError: () => false,
+  });
+
+  assert.deepEqual(retryOutcome, { status: 'detailed-review-required' });
+  assert.equal(mutations, 1);
+  assert.equal(reloads, 1);
+});
+
 test('candidate inbox guards the list response before automatic batch selection', () => {
   const sourceDir = dirname(fileURLToPath(import.meta.url));
   const candidateInbox = readFileSync(join(sourceDir, '../app/candidate-inbox.tsx'), 'utf8');
@@ -83,11 +180,11 @@ test('candidate inbox guards the list response before automatic batch selection'
   assert.match(candidateInbox, /const \[requestGuard\] = useState\(createCandidateInboxRequestGuard\)/);
   assert.match(
     candidateInbox,
-    /const load = useCallback\(async \(\) => \{\s*const request = requestGuard\.begin\(\);\s*setDrafts\(\[\]\);[\s\S]*?const next = \(await mobileApi\.candidateInbox\(\)\)\.batches;\s*if \(!requestGuard\.isLatest\(request\)\) return;\s*setBatches\(next\);\s*const nextBatch = selectCandidateBatch\(next, selectedBatchId\.current\);\s*if \(nextBatch\) await loadBatch\(nextBatch\);/,
+    /const load = useCallback\(async \(\): Promise<MobileCandidateDraft\[\] \| null> => \{\s*const request = requestGuard\.begin\(\);\s*setDrafts\(\[\]\);[\s\S]*?const next = \(await mobileApi\.candidateInbox\(\)\)\.batches;\s*if \(!requestGuard\.isLatest\(request\)\) return null;\s*setBatches\(next\);\s*const nextBatch = selectCandidateBatch\(next, selectedBatchId\.current\);\s*if \(nextBatch\) return await loadBatch\(nextBatch\);/,
   );
   assert.match(
     candidateInbox,
-    /const result = await mobileApi\.candidateBatch\(batch\.id\);\s*if \(!requestGuard\.isLatest\(request\)\) return;\s*selectedBatchId\.current = result\.batch\.id;\s*setSelectedBatch\(result\.batch\);\s*setDrafts\(result\.drafts\);/,
+    /const result = await mobileApi\.candidateBatch\(batch\.id\);\s*if \(!requestGuard\.isLatest\(request\)\) return null;\s*selectedBatchId\.current = result\.batch\.id;\s*setSelectedBatch\(result\.batch\);\s*setDrafts\(result\.drafts\);\s*return result\.drafts;/,
   );
   assert.match(
     candidateInbox,
@@ -99,9 +196,11 @@ test('candidate inbox guards the list response before automatic batch selection'
   );
   assert.match(
     candidateInbox,
-    /mobileApi\.mutate<MobileCandidateResolutionResult>\([\s\S]*?\.then\(async \(result\) => \{\s*await load\(\);[\s\S]*?result\.skippedEdges/,
+    /resolveCandidateQuickAction\(\{[\s\S]*?draftVersion: draft\.version,[\s\S]*?reloadLatest: load,[\s\S]*?\.then\(async \(outcome\) => \{[\s\S]*?const result = outcome\.result;\s*await load\(\);[\s\S]*?result\.skippedEdges/,
   );
   assert.match(candidateInbox, /reason instanceof MobileApiRequestError[\s\S]*?CANDIDATE_DEPENDENCY_PENDING[\s\S]*?copy\.pendingDependency/);
+  assert.match(candidateInbox, /reason\.code === 'CAUSAL_REVIEW_REQUIRED'[\s\S]*?CAUSAL_REVIEW_COPY\[locale\]/);
+  assert.match(candidateInbox, /outcome\.status === 'stale'[\s\S]*?STALE_REVIEW_COPY\[locale\]/);
   assert.match(candidateInbox, /accessibilityLiveRegion="polite"[\s\S]*?styles\.noticeCard/);
   assert.match(candidateInbox, /pendingMutations\.current\.has\(draft\.id\)/);
   assert.match(
@@ -122,6 +221,7 @@ test('mobile candidate resolution preserves structured error codes and event lif
 
   assert.match(mobileApiErrors, /export class MobileApiRequestError extends Error/);
   assert.match(mobileApi, /throw new MobileApiRequestError\([\s\S]*?readApiErrorCode\(payload\)/);
+  assert.match(mobileApi, /requires_detailed_review: boolean;/);
   assert.match(mobileRoute, /lifecycle_patch_semantics[\s\S]*?tri_state_v1/);
   assert.match(
     mobileRoute,
@@ -130,15 +230,23 @@ test('mobile candidate resolution preserves structured error codes and event lif
   assert.match(mobileRoute, /result\.pendingDependency[\s\S]*?CANDIDATE_DEPENDENCY_PENDING/);
   assert.match(
     mobileRoute,
-    /mobileCandidateApprovalRequiresCapability\(draft, capabilities\)[\s\S]*?KNOWLEDGE_CAPABILITY_REQUIRED/,
+    /action === 'ignore-candidate'[\s\S]*?ignoreKnowledgeDraft\(candidateForm\)[\s\S]*?code: 'CANDIDATE_STALE'/,
   );
   assert.match(
     mobileRoute,
-    /mobileCandidateApprovalRequiresCapability\(draft, capabilities\)[\s\S]*?candidateForm\.set\('structured_content'/,
+    /classifyMobileCandidateMutationPreflight\(\{[\s\S]*?draftVersion,[\s\S]*?preflight === 'stale'[\s\S]*?CANDIDATE_STALE[\s\S]*?action === 'ignore-candidate'/,
   );
   assert.match(
     mobileRoute,
-    /mobileCandidateRequiresDetailedCausalReview\(draft\)[\s\S]*?CAUSAL_REVIEW_REQUIRED/,
+    /preflight === 'knowledge-capability-required'[\s\S]*?KNOWLEDGE_CAPABILITY_REQUIRED[\s\S]*?candidateForm\.set\('structured_content'/,
+  );
+  assert.match(
+    mobileRoute,
+    /preflight === 'causal-review-required'[\s\S]*?CAUSAL_REVIEW_REQUIRED/,
+  );
+  assert.match(
+    mobileRoute,
+    /requires_detailed_review: mobileCandidateRequiresDetailedCausalReview\(draft\)/,
   );
 });
 
@@ -183,10 +291,30 @@ test('builds an encoded first-party detailed review handoff and rejects unsafe b
   assert.equal(buildCandidateWebReviewUrl(undefined, 'batch', 'draft'), null);
 });
 
-test('renders an actionable detailed web review link for duplicate candidates', () => {
+test('renders an actionable detailed web review link for duplicate and causal candidates', () => {
   const sourceDir = dirname(fileURLToPath(import.meta.url));
   const candidateInbox = readFileSync(join(sourceDir, '../app/candidate-inbox.tsx'), 'utf8');
   assert.match(candidateInbox, /buildCandidateWebReviewUrl\(appBaseUrl, draft\.batch_id, draft\.id\)/);
+  assert.match(
+    candidateInbox,
+    /draft\.duplicate_suggestions\.length > 0 \|\| draft\.requires_detailed_review\s*\? buildCandidateWebReviewUrl/,
+  );
+  assert.match(
+    candidateInbox,
+    /const approvalDisabled = mutatingIds\.has\(draft\.id\) \|\| draft\.requires_detailed_review/,
+  );
+  assert.match(
+    candidateInbox,
+    /candidateQuickActionRequiresDetailedReview\(draft, action\)[\s\S]*?setError\(CAUSAL_REVIEW_COPY\[locale\]\);\s*return;/,
+  );
+  assert.match(
+    candidateInbox,
+    /draft\.requires_detailed_review \? \([\s\S]*?detailedReviewWarning[\s\S]*?CAUSAL_REVIEW_COPY\[locale\]/,
+  );
+  assert.match(
+    candidateInbox,
+    /accessibilityState=\{\{ disabled: approvalDisabled \}\}\s*disabled=\{approvalDisabled\}/,
+  );
 
   const groupStart = candidateInbox.indexOf('<KnowledgeNotationGroup');
   const groupEnd = candidateInbox.indexOf('</KnowledgeNotationGroup>', groupStart);
@@ -212,4 +340,18 @@ test('renders an actionable detailed web review link for duplicate candidates', 
     /(?:en|ja|'zh-CN'|es|ar|hi): '[^']*\{title\}[^']*'/g,
   ) ?? [];
   assert.equal(reviewTemplates.length, 6);
+
+  const causalCopyStart = candidateInbox.indexOf('const CAUSAL_REVIEW_COPY');
+  const causalCopyEnd = candidateInbox.indexOf('const STALE_REVIEW_COPY', causalCopyStart);
+  const causalTemplates = candidateInbox.slice(causalCopyStart, causalCopyEnd).match(
+    /(?:en|ja|'zh-CN'|es|ar|hi): '[^']+'/g,
+  ) ?? [];
+  assert.equal(causalTemplates.length, 6);
+
+  const staleCopyStart = candidateInbox.indexOf('const STALE_REVIEW_COPY');
+  const staleCopyEnd = candidateInbox.indexOf('type ScopeCopy', staleCopyStart);
+  const staleTemplates = candidateInbox.slice(staleCopyStart, staleCopyEnd).match(
+    /(?:en|ja|'zh-CN'|es|ar|hi): '[^']+'/g,
+  ) ?? [];
+  assert.equal(staleTemplates.length, 6);
 });

@@ -11,7 +11,10 @@ Review queue must not silently open new-card Practice, and a ChatGPT-export
 batch must not be described as if it came from the current conversation.
 Practice traverses a deterministic, bounded cursor without growing card-ID
 arrays, skips do not inflate the visible Reviewed count, and a possible
-duplicate provides an actionable handoff to detailed web review.
+duplicate or causal candidate provides an actionable handoff to detailed web
+review. Mobile users can also rediscover all approved private topics, identify
+their own anonymous leaderboard row, reuse their private tags, and start an
+editable private-note draft from a public concept without saving it implicitly.
 
 ## Scope
 
@@ -35,10 +38,21 @@ In scope:
   the mobile Candidate Inbox;
 - give a possible duplicate an encoded link to that exact candidate's
   owner-scoped detailed web review;
+- require causal candidates to use that same detailed review handoff instead
+  of offering a mobile quick approval that the server will reject;
 - surface the existing active, archived, and trashed personal-knowledge
   lifecycle in My Notes with optimistic-version archive/restore requests;
 - match web organization basics with tag-aware search plus knowledge-type and
-  local-calendar date filters; and
+  local-calendar date filters;
+- reuse the owner's frequent active-note tags in create and edit, with the same
+  normalization, limits, removable chips, and bounded opt-in suggestions as
+  the web form;
+- expose the owner-scoped private Topics index, including its counts, sample
+  titles, recency, and exact Topic Hub navigation;
+- preserve anonymous leaderboard participant IDs and identify the signed-in
+  user's row while retaining the legacy display label for installed clients;
+- prefill, but never automatically persist, a reviewable My Notes draft from a
+  public concept;
 - keep the current Expo navigation and architecture documentation accurate;
 - add the owner-first private-card cursor index used by the mobile server
   adapter without changing stored user data.
@@ -72,7 +86,8 @@ Out of scope:
 - [x] `AC-03`: After advancing a synced Practice card, the user can reopen the
   immediately previous card and submit a replacement rating; this does not
   decrement the successful-advance counter, rewind the current frontier cursor,
-  or claim that the first server mutation was rolled back.
+  or claim that the first server mutation was rolled back. The Previous control
+  remains available after the last card advances into the terminal empty state.
 - [x] `AC-04`: Synced Practice renders each returned prerequisite and its
   knowledge state, while Review renders `last_seen` when the server supplies
   it; both retain accessible text alternatives.
@@ -86,7 +101,14 @@ Out of scope:
   filters use local calendar boundaries without changing stored timestamps.
   Mobile tag entry recognizes ASCII, Arabic, and fullwidth commas. The API
   normalizes tags before enforcing the 12-tag and 48-Unicode-code-point bounds,
-  so astral letters are not counted as two UTF-16 units.
+  so astral letters are not counted as two UTF-16 units. A stale edit reloads
+  the active owner-scoped notes and replaces the editor, including version and
+  tags, with the winning server note before the user can retry. If the user
+  cancels or selects another note while that reload is pending, the newer
+  editor identity wins and the delayed response cannot replace it. Editable
+  controls are locked during the save request, while Cancel and selecting
+  another note remain available. If the stale note is no longer active, all
+  entered fields are preserved as an unsaved new-note draft instead of reset.
 - [x] `AC-07`: The mobile architecture document names the current tabs,
   hidden routes, My Notes terminology, expression bundle, dynamic Expo config,
   and the exact intentional web-only boundary. The mobile check and both iOS
@@ -116,18 +138,55 @@ Out of scope:
   progress value plus an iOS and Android traversal-complete announcement.
   Transient reads retry once, while permanent client errors do not retry. A
   missing mobile API base URL remains a distinct configuration error outside
-  the network catch and therefore is never retried.
-- [x] `AC-10`: A candidate with duplicate suggestions offers a 44-point,
-  localized link to its encoded detailed web-review route when the validated
-  app base URL is available. Its visible and accessibility label identifies the
-  specific candidate title; a missing or unsafe base fails closed.
+  the network catch and therefore is never retried. If a rating mutation
+  succeeds but both next-card reads fail, retrying the recovered card remains a
+  replacement rating and does not inflate progress.
+- [x] `AC-10`: A candidate with duplicate suggestions or a candidate requiring
+  detailed causal review offers a 44-point, localized link to its encoded
+  detailed web-review route when the validated app base URL is available. Its
+  visible and accessibility label identifies the specific candidate title; a
+  missing or unsafe base fails closed. Detailed-review candidates cannot use
+  mobile save-as-new, and the server's causal-review conflict has localized
+  recovery copy. A stale approve or ignore conflict reloads the latest batch
+  and drafts before retry, and both server race paths return the structured
+  `CANDIDATE_STALE` code. The requested draft version is checked before
+  capability or causal gates, so a stale noncausal v1 request whose latest
+  draft is causal v2 first reloads v2 and only that matching version requires
+  detailed review.
+- [x] `AC-11`: Mobile exposes an authenticated, private no-store Topics index
+  over the same owner-scoped summaries as web. Each summary shows knowledge,
+  open-question, decision, event, source, sample-title, and recency context and
+  opens the exact private Topic Hub. My Notes has an accessible entry point.
+- [x] `AC-12`: Mobile Ranking preserves the server's anonymous participant ID,
+  identifies and highlights the current user with localized labels, retains the
+  legacy API label for installed clients, and remains private no-store data.
+- [x] `AC-13`: A public concept can prefill a bounded quick-note draft in My
+  Notes. Only its one-time key and validated accessible public-node ID cross the
+  route boundary; My Notes derives displayed draft content from trusted app
+  catalog/current-locale public content, including after authentication. The
+  user sees that the copy is unsaved, may review and edit it, and must explicitly
+  use the existing Add note action; opening the draft performs no persistence.
+- [x] `AC-14`: Mobile My Notes derives up to 500 frequent-tag suggestions only
+  from the signed-in owner's loaded active notes, keeps the native suggestion
+  panel closed until requested, renders at most 24 matches, and uses the shared
+  12-tag and 48-Unicode-code-point normalization contract. Direct entry,
+  comma-separated entry, removable 44-point chips, create, and edit all submit
+  the same normalized values, including a valid uncommitted draft. This is a
+  committed-text source contract; physical native IME composition evidence is
+  tracked separately by the My Notes tag-selection specification.
 
 ## Privacy and data boundaries
 
 This change adds no persisted user field, retention rule, public write, or new
 content collection. Migration 0025 adds only an owner-first read index and does
-not rewrite user data. Ratings continue through the existing owner-scoped mobile
-API. Previous-card recovery keeps only a capped 100-entry in-memory history for
+not rewrite user data. Tag suggestions are derived locally from the
+owner-scoped active-note response; no global tag endpoint or cross-owner
+projection is added. Topic summaries, ranking, and administrative reads are
+authenticated private no-store responses. Public-concept route state contains
+no deep-link title or body: My Notes validates the node against accessible
+public data and persists nothing until the user explicitly adds the private
+note. Ratings continue through the existing owner-scoped mobile API.
+Previous-card recovery keeps only a capped 100-entry in-memory history for
 the current screen session. The transient opaque cursor contains bounded
 traversal metadata, never an actor identity, card content, or rating list; the
 server always derives the owner from authentication. The cursor is sent only to
@@ -144,20 +203,26 @@ app. Signed-out users retain the existing local public Practice fallback.
 | --- | --- |
 | `AC-01` | `apps/mobile/src/practice-parity.test.ts`, `apps/mobile/src/mobile-practice-api-contract.test.ts`, and `apps/web/src/lib/mobile-practice-contract.test.ts` cover authoritative Review entry, configured-database failure propagation, route intent, and stale-response rejection. |
 | `AC-02` | `apps/mobile/src/practice-parity.test.ts` proves `reviewable` is preferred independently of `unclear`; `apps/web/src/lib/mobile-practice-contract.test.ts` proves that count reuses the selectable-card predicate. |
-| `AC-03` | Focused synced-history state test and source inspection prove bounded previous-card recovery without decrementing successful advances. |
+| `AC-03` | Focused synced-history state and source tests prove bounded previous-card recovery without decrementing successful advances, including the terminal empty state. |
 | `AC-04` | Mobile source-contract tests cover prerequisite statuses and localized `last_seen` rendering. |
 | `AC-05` | `apps/mobile/src/candidate-inbox.test.ts` covers both scope values and scope-aware mobile copy. |
-| `AC-06` | `apps/mobile/src/my-notes-view.test.ts`, `apps/mobile/src/mobile-tag-contract.test.ts`, `packages/shared/src/knowledge-tags.test.mjs`, and the web normalization tests cover lifecycle views, optimistic versions, localized separators, canonical tags, Unicode/astral bounds, types, and local date boundaries. |
+| `AC-06` | `apps/mobile/src/my-notes-view.test.ts`, `apps/mobile/src/mobile-notes-api-contract.test.ts`, `apps/mobile/src/mobile-tag-contract.test.ts`, and shared/web normalization tests cover lifecycle views, optimistic versions, stale-winner editor replacement including tags, delayed-reload cancellation and note-switch identity races, save-time editor locking, missing-winner draft preservation, localized separators, canonical tags, Unicode/astral bounds, types, and local date boundaries. |
 | `AC-07` | `pnpm check:docs`, `pnpm --filter @stem-brain/mobile check`, `pnpm --filter @stem-brain/mobile build`, `pnpm harness`, and `git diff --check`. |
 | `AC-08` | `packages/shared/src/mobile-practice.test.mjs`, focused web cursor/contract/handler/selector/private-card tests, the checked-in migration/schema assertions, `apps/mobile/src/mobile-practice-api-contract.test.ts`, and the unauthenticated Practice POST browser smoke cover request bounds, alternating keyset lanes, pre-limit eligibility, raw-ID seek/index wiring, one-wrap behavior, legacy rejection, authentication ordering, and private POST wiring. `pnpm harness:deploy` covers the Cloudflare build and size, not live Postgres execution; Preview migration and `EXPLAIN` evidence remains a release-time gate. |
-| `AC-09` | `packages/shared/src/mobile-practice.test.mjs`, `apps/mobile/src/mobile-api-errors.test.ts`, executable mixed rating/skip round tests in `apps/mobile/src/practice-parity.test.ts`, and focused desktop Practice browser smoke cover bounded history, frontier advancement, cadence preservation, configuration-versus-network retry classification, progress, cycle wiring, iOS announcement wiring, and rendered controls. |
-| `AC-10` | `apps/mobile/src/candidate-inbox.test.ts` covers encoded URL construction, unsafe-base rejection, candidate-specific localized labels, the 44-point accessible link source contract, and `pnpm --filter @stem-brain/mobile build` exports that source into both platform bundles. |
+| `AC-09` | `packages/shared/src/mobile-practice.test.mjs`, `apps/mobile/src/mobile-api-errors.test.ts`, and executable mixed rating/skip/retry tests in `apps/mobile/src/practice-parity.test.ts` cover bounded history, frontier advancement, cadence preservation, configuration-versus-network retry classification, replacement identity, progress, cycle wiring, terminal Previous, iOS announcement wiring, and rendered controls. |
+| `AC-10` | `apps/web/src/lib/mobile-knowledge-capabilities.test.ts` and `apps/mobile/src/candidate-inbox.test.ts` behavior tests cover version-first preflight, stale noncausal v1 to causal v2 convergence, causal mutation blocking, fresh-version reload, structured ignore-race codes, encoded URL construction, unsafe-base rejection, detailed-review routing, localized labels, and the 44-point accessible link contract. |
+| `AC-11` | `apps/mobile/src/mobile-web-parity-regressions.test.ts` covers the private Topics API, registered route, My Notes entry, accessible list links, and exact Topic Hub navigation. |
+| `AC-12` | `apps/mobile/src/mobile-web-parity-regressions.test.ts` covers participant identity, legacy compatibility, current-user labeling/highlighting, localized rendering, and private response wiring. |
+| `AC-13` | `apps/mobile/src/mobile-web-parity-regressions.test.ts` covers signed-out continuation, public-node validation, rejection of injected or mismatched route content, trusted current-locale overlays, one-time draft consumption, explicit unsaved copy, and the absence of a direct create-note mutation. |
+| `AC-14` | `packages/shared/src/knowledge-tags.test.mjs`, `apps/mobile/src/mobile-knowledge-tags.test.ts`, and `apps/mobile/src/mobile-notes-api-contract.test.ts` cover shared Unicode normalization, frequency ranking, direct and separator entry, chip removal, a closed and 24-result-bounded suggestion panel, uncommitted-draft submission, 44-point controls, picker reset wiring, and strict server parsing for create and edit. |
 
 ## Rollout
 
 The response fields, batch scope values, and owner-scoped archive lifecycle
-already exist on the web. The mobile API adds a backward-compatible adapter for
-that lifecycle plus an additive `stats` field on saved-card responses. The
+already exist on the web. The mobile API adds backward-compatible Topics,
+candidate detail, ranking-identity, private-cache, and lifecycle changes plus an
+additive `stats` field on saved-card responses. The legacy ranking `label`
+remains while updated clients use `participantId` and `isCurrentUser`. The
 Practice POST endpoint must deploy before a binary that calls it. Legacy
 Practice GET remains available for older builds and fails explicitly for an
 invalid exclusion ID or when a caller exceeds its historical 100-ID bound.
@@ -169,4 +234,6 @@ additive and safe to retain during rollback. No provider activation is needed.
 Rollback must keep the server adapter until updated binaries are no longer in
 use. Static Expo export proves that both platform bundles contain the change;
 interaction, accessibility, signing, and store availability still require
-separate physical-device and EAS evidence.
+separate physical-device and EAS evidence. Native IME composition behavior is
+also a physical-device gate and is not proven by browser composition tests or
+Expo source/export checks.

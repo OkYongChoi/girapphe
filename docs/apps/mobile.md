@@ -20,8 +20,8 @@ permissions, build, and device capability layers.
     Account tabs.
   - Progress, Review, and Ranking are hidden tab routes reached from the app's
     signed-in surfaces.
-  - Topic detail, private Topic Hub, Candidate Inbox, Sign In, Subscription,
-    and Admin are root-stack routes.
+  - Topic detail, the private Topics index and Topic Hub, Candidate Inbox,
+    Sign In, Subscription, and Admin are root-stack routes.
 - iOS and Android are produced from the same source tree:
   - `pnpm --filter @stem-brain/mobile ios`
   - `pnpm --filter @stem-brain/mobile android`
@@ -66,15 +66,42 @@ Mobile feature code should be organized around user flows, not platform names:
   comparison, mechanism, structure, claim/evidence, question, decision, and
   event and expression bundles. Active, Archive, and Trash are distinct views;
   active knowledge supports tag-aware search plus topic, type, date, and sort
-  controls. Tag entry recognizes ASCII, Arabic, and fullwidth commas; the API
-  independently applies the shared Unicode-normalized tag limits.
+  controls. A stale edit reloads the owner-scoped active list and installs the
+  winning server fields, version, and tags before retry. Cancel or selecting a
+  different note advances the editor request identity, so a delayed reload can
+  refresh the list but cannot overwrite the user's newer editor choice. Form
+  mutation controls are read-only while Save is pending, but Cancel and another
+  note's Edit remain available. If the stale item is absent from the refreshed
+  active list, its entered fields become an unsaved new-note draft instead of
+  being cleared. Create and edit reuse the owner's frequent active-note tags through
+  an opt-in picker that renders at most 24 suggestions at once; selected tags
+  remain removable chips, while direct, Enter, and comma-separated entry share
+  the 12-tag and 48-Unicode-code-point contract with web. My Notes links to the
+  private Topics index and accepts an explicitly unsaved draft copied from a
+  validated public-node ID for review and editing. React Native receives
+  platform-committed text through `onChangeText`/`onSubmitEditing`; unlike the
+  web DOM it exposes no equivalent composition-event contract here, so CJK and
+  complex-script IME timing remains a physical iOS/Android validation gate.
 - Candidate Inbox: quick save-as-new or ignore for explicitly submitted
   current-conversation and selected-export candidates, with their source scope
   labeled separately. A possible duplicate links to the exact detailed web
-  review when the configured app base URL is safe.
+  review when the configured app base URL is safe. Causal candidates require
+  that detailed review and cannot use mobile quick approval. A stale approve or
+  ignore conflict reloads the latest batch and drafts before another attempt.
+  Version freshness is evaluated before capability and causal gates, so a stale
+  request always reloads before the latest matching causal draft is routed to
+  detailed review.
+- Topics: owner-scoped summaries of active private knowledge, open questions,
+  decisions, events, sources, recent sample titles, and update time.
 - Topic Hub: compact approved knowledge, open questions, relations, timeline,
   and source-position views.
-- Topic detail: explanation plus prerequisite/dependent/related navigation.
+- Topic detail: explanation plus prerequisite/dependent/related navigation and
+  an explicit handoff to review an editable private-copy draft in My Notes.
+  Signed-out users resume that handoff after authentication; route-controlled
+  title and body text are never trusted as public-concept provenance.
+- Ranking: anonymous participant IDs with a localized, highlighted current-user
+  row; the legacy display label remains in the API only for installed-client
+  compatibility and does not expose account identity.
 
 Do not create separate iOS-only or Android-only versions of these flows unless
 the interaction model is genuinely platform-specific.
@@ -146,14 +173,23 @@ reuses the existing reveal/rating/review schedule with a type-specific recall
 prompt.
 
 Candidate review is intentionally split by interaction depth. Mobile supports
-quick save-as-new and ignore; a possible duplicate links to the web review
-surface. Web owns side-by-side comparison, full editing, merge/update, evidence
+quick save-as-new and ignore for simple candidates; a possible duplicate or
+causal candidate links to the web review surface, and causal quick approval is
+disabled. Web owns side-by-side comparison, full editing, merge/update, evidence
 selection, advanced canonical lifecycle actions, local graph/history, native
 ChatGPT archive parsing, Thinking History signal generation, and context-pack
 export. Basic archive, restore, and trash organization is available in mobile
-My Notes. Mobile Topic Hub views remain compact while consuming the same
-owner-scoped canonical data. Neither app retains raw conversation text:
+My Notes. Mobile Topics and Topic Hub views consume the same owner-scoped
+canonical data. Opening a public-concept copy passes only a bounded public-node
+ID and one-time key; My Notes resolves the title and body from trusted public
+catalog/current-locale content. The draft is not private knowledge until the
+user explicitly submits the form. Neither app retains raw conversation text:
 provenance is selector-only.
+
+My Notes derives frequent-tag suggestions locally from the current owner's
+already-loaded active-note response. The shared normalization utility is used
+by web, the native editor, and the mobile server adapter; no public or global
+tag-suggestion endpoint is part of the mobile contract.
 
 The web Settings connection guide and Context Pack format are browser-local
 presentation preferences, so they do not create a mobile API contract or a new

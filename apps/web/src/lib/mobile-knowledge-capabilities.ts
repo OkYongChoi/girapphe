@@ -8,6 +8,12 @@ export type MobileKnowledgeCapabilities = {
   causalRelations: boolean;
 };
 
+export type MobileCandidateMutationPreflight =
+  | 'ready'
+  | 'stale'
+  | 'knowledge-capability-required'
+  | 'causal-review-required';
+
 export function readMobileKnowledgeCapabilities(header: string | null): MobileKnowledgeCapabilities {
   const values = new Set((header ?? '').split(',').map((value) => value.trim()));
   return {
@@ -82,4 +88,30 @@ export function mobileCandidateRequiresDetailedCausalReview(
   draft: { relations?: Array<{ type: string }> } | null | undefined,
 ): boolean {
   return Boolean(draft?.relations?.some((relation) => MOBILE_CAUSAL_RELATION_TYPES.has(relation.type)));
+}
+
+export function classifyMobileCandidateMutationPreflight({
+  action,
+  draft,
+  draftVersion,
+  capabilities,
+}: {
+  action: 'approve-candidate' | 'ignore-candidate';
+  draft: {
+    version: number;
+    structured_content?: KnowledgeBundleContent | null;
+    relations?: Array<{ type: string }>;
+  };
+  draftVersion: number;
+  capabilities: MobileKnowledgeCapabilities;
+}): MobileCandidateMutationPreflight {
+  if (draft.version !== draftVersion) return 'stale';
+  if (action === 'ignore-candidate') return 'ready';
+  if (mobileCandidateApprovalRequiresCapability(draft, capabilities)) {
+    return 'knowledge-capability-required';
+  }
+  if (mobileCandidateRequiresDetailedCausalReview(draft)) {
+    return 'causal-review-required';
+  }
+  return 'ready';
 }

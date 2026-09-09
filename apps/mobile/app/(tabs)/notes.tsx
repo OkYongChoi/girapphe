@@ -1,5 +1,5 @@
-import { useCallback, useDeferredValue, useMemo, useRef, useState } from 'react';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Alert, FlatList, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AuthRequired } from '@/components/auth-required';
 import { MobileApiRequestError, mobileApi, type PersonalNote } from '@/api';
@@ -7,21 +7,35 @@ import { useI18n } from '@/i18n';
 import { buildMobileKnowledgeBundle, knowledgeBundleQuestionStatusLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, mobileKnowledgeBundleEditValues } from '@/knowledge-bundle-ui';
 import { MobileKnowledgeBundleView } from '@/components/knowledge-bundle-view';
 import { KnowledgeNotationGroup } from '@/components/knowledge-notation-group';
+import { KnowledgeTagPicker } from '@/components/knowledge-tag-picker';
 import { KnowledgeText } from '@/components/knowledge-text';
 import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
 import {
+  createPublicConceptDraftLocalizationGuard,
+  parsePublicConceptDraftRoute,
+  resolvePublicConceptDraft,
+  withTrustedLocalizedPublicConceptContent,
+  type PublicConceptDraftRouteParams,
+} from '@/public-concept-copy';
+import { useSubscription } from '@/subscriptions';
+import {
   buildMyNotesListRows,
+  createMyNotesEditorRequestGuard,
   createMyNotesPendingActionGuard,
   createMyNotesViewRequestGuard,
   filterAndSortMyNotes,
   myNotesViewCapabilities,
+  reloadMyNoteAfterStale,
   type MyNotesDateRange,
   type MyNotesTypeFilter,
   type MyNotesView,
 } from '@/my-notes-view';
 import {
   KNOWLEDGE_BUNDLE_TYPES,
-  splitKnowledgeTagInput,
+  MAX_KNOWLEDGE_TAG_CODE_POINTS,
+  MAX_KNOWLEDGE_TAGS,
+  collectKnowledgeTagSuggestions,
+  sanitizeKnowledgeTags,
   type KnowledgeBundleType,
   type Locale,
 } from '@stem-brain/shared';
@@ -101,12 +115,16 @@ export default function NotesScreen() {
 
 function NotesContent() {
   const router = useRouter();
+  const draftParams = useLocalSearchParams<PublicConceptDraftRouteParams>();
+  const subscription = useSubscription();
   const { direction, formatDate, formatNumber, locale, t } = useI18n();
   const [items, setItems] = useState<PersonalNote[]>([]);
   const [title, setTitle] = useState('');
   const [topic, setTopic] = useState('');
   const [content, setContent] = useState('');
-  const [tags, setTags] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState('');
+  const [tagEditorKey, setTagEditorKey] = useState(0);
   const [summary, setSummary] = useState('');
   const [knowledgeType, setKnowledgeType] = useState<KnowledgeBundleType | null>(null);
   const [centralQuestion, setCentralQuestion] = useState('');
@@ -121,23 +139,47 @@ function NotesContent() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  const [copyDraftSourceId, setCopyDraftSourceId] = useState<string | null>(null);
   const pendingActionGuard = useRef(createMyNotesPendingActionGuard());
   const viewRequestGuard = useRef(createMyNotesViewRequestGuard());
+  const editorRequestGuard = useRef(createMyNotesEditorRequestGuard());
+  const consumedDraftKey = useRef<string | null>(null);
+  const pendingDraftKey = useRef<string | null>(null);
+  const publicCopyDraftLocalizationGuard = useRef(createPublicConceptDraftLocalizationGuard());
+  const mounted = useRef(true);
+  const currentLocale = useRef(locale);
   const [error, setError] = useState<string | null>(null);
   const deferredBundleFields = useDeferredValue(bundleFields);
   const deferredCentralQuestion = useDeferredValue(centralQuestion);
   const deferredSummary = useDeferredValue(summary);
+  const tagSuggestions = useMemo(
+    () => collectKnowledgeTagSuggestions(items.map((item) => item.tags), locale),
+    [items, locale],
+  );
+  currentLocale.current = locale;
 
-  const load = useCallback(async (targetView: MyNotesView = view) => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      publicCopyDraftLocalizationGuard.current.invalidate();
+      editorRequestGuard.current.select(null);
+    };
+  }, []);
+
+  const load = useCallback(async (targetView: MyNotesView = view): Promise<PersonalNote[] | null> => {
     const guard = viewRequestGuard.current;
-    if (!guard.isSelected(targetView)) return;
+    if (!guard.isSelected(targetView)) return null;
     const requestId = guard.begin();
     setLoading(true); setError(null);
     try {
       const nextItems = (await mobileApi.notes(targetView)).items;
-      if (guard.isCurrent(targetView, requestId)) setItems(nextItems);
+      if (!guard.isCurrent(targetView, requestId)) return null;
+      setItems(nextItems);
+      return nextItems;
     } catch (reason) {
       if (guard.isCurrent(targetView, requestId)) setError(reason instanceof Error ? reason.message : t('notes.loadError'));
+      return null;
     } finally {
       if (guard.isCurrent(targetView, requestId)) setLoading(false);
     }
@@ -145,16 +187,116 @@ function NotesContent() {
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
+  const parsedDraftRoute = parsePublicConceptDraftRoute(draftParams);
+  const draftKey = parsedDraftRoute?.draftKey ?? '';
+  const draftSourceId = parsedDraftRoute?.sourceId ?? '';
+  const publicCopyDraft = useMemo(() => (
+    subscription.isReady
+      ? resolvePublicConceptDraft(
+        { draftKey, draftSourceId },
+        subscription.isAdFree,
+      )
+      : null
+  ), [draftKey, draftSourceId, subscription.isAdFree, subscription.isReady]);
+
+  useEffect(() => {
+    if (
+      !subscription.isReady
+      || !draftKey
+      || !draftSourceId
+      || consumedDraftKey.current === draftKey
+      || pendingDraftKey.current === draftKey
+    ) return;
+    if (!publicCopyDraft) {
+      publicCopyDraftLocalizationGuard.current.invalidate();
+      consumedDraftKey.current = draftKey;
+      router.setParams({ draftKey: '', draftSourceId: '' });
+      return;
+    }
+
+    pendingDraftKey.current = draftKey;
+    consumedDraftKey.current = draftKey;
+    router.setParams({ draftKey: '', draftSourceId: '' });
+    const localizationRevision = publicCopyDraftLocalizationGuard.current.begin();
+
+    const guard = viewRequestGuard.current;
+    if (guard.selected() !== 'active') {
+      guard.select('active');
+      setItems([]);
+      setQuery('');
+      setSelectedTopic('all');
+      setTypeFilter('all');
+      setDateRange('all');
+      setSortBy('created');
+      setLoading(true);
+      setView('active');
+    }
+
+    editorRequestGuard.current.select(null);
+    setEditing(null);
+    setTitle(publicCopyDraft.title);
+    setTopic(publicCopyDraft.topic);
+    setContent(publicCopyDraft.content);
+    setTags([]);
+    setTagDraft('');
+    setTagEditorKey((current) => current + 1);
+    setSummary(publicCopyDraft.summary);
+    setKnowledgeType(null);
+    setCentralQuestion('');
+    setBundleFields(Array(11).fill(''));
+    setCopyDraftSourceId(publicCopyDraft.sourceId);
+    setError(null);
+    pendingDraftKey.current = null;
+
+    if (locale === 'en') return;
+    void mobileApi.content([publicCopyDraft.sourceId]).then((localizedResponse) => {
+      if (
+        !mounted.current
+        || currentLocale.current !== locale
+        || !publicCopyDraftLocalizationGuard.current.isCurrent(localizationRevision)
+      ) return;
+      const trustedDraft = withTrustedLocalizedPublicConceptContent(
+        publicCopyDraft,
+        localizedResponse.items.find((item) => item.id === publicCopyDraft.sourceId),
+      );
+      setTitle(trustedDraft.title);
+      setSummary(trustedDraft.summary);
+      setContent(trustedDraft.content);
+    }).catch(() => undefined);
+  }, [
+    draftKey,
+    draftSourceId,
+    locale,
+    publicCopyDraft,
+    router,
+    subscription.isReady,
+  ]);
+
   function resetEditor() {
-    setTitle(''); setTopic(''); setContent(''); setTags(''); setSummary(''); setKnowledgeType(null);
+    publicCopyDraftLocalizationGuard.current.invalidate();
+    editorRequestGuard.current.select(null);
+    setTitle(''); setTopic(''); setContent(''); setTags([]); setTagDraft(''); setSummary(''); setKnowledgeType(null);
+    setTagEditorKey((current) => current + 1);
     setCentralQuestion(''); setBundleFields(Array(11).fill(''));
     setEditing(null);
+    setCopyDraftSourceId(null);
+  }
+
+  function preserveEditorAsNewNote() {
+    publicCopyDraftLocalizationGuard.current.invalidate();
+    editorRequestGuard.current.select(null);
+    setEditing(null);
+    setCopyDraftSourceId(null);
+    setTagEditorKey((current) => current + 1);
   }
 
   async function addNote() {
     if (!title.trim() || submitting || (knowledgeType && !centralQuestion.trim())) return;
+    publicCopyDraftLocalizationGuard.current.invalidate();
     const sourceView: MyNotesView = 'active';
-    const parsedTags = splitKnowledgeTagInput(tags);
+    const submittedTags = sanitizeKnowledgeTags([...tags, tagDraft]);
+    const submittedEditing = editing;
+    const editorRequest = editorRequestGuard.current.capture();
     setSubmitting(true); setError(null);
     try {
       const typedFields = knowledgeType ? {
@@ -166,14 +308,38 @@ function NotesContent() {
       } : {
         summary, knowledge_type: '', central_question: '', structured_content: null, bundle_schema_version: null,
       };
-      if (editing) {
-        await mobileApi.mutate({ action: 'update-note', id: editing.id, version: editing.version, title, topic, content, tags: parsedTags, ...typedFields });
+      if (submittedEditing) {
+        await mobileApi.mutate({ action: 'update-note', id: submittedEditing.id, version: submittedEditing.version, title, topic, content, tags: submittedTags, ...typedFields });
       } else {
-        await mobileApi.mutate({ action: 'create-note', title, topic, content, tags: parsedTags, requestId: `${Date.now()}-${Math.random()}`, ...typedFields });
+        await mobileApi.mutate({ action: 'create-note', title, topic, content, tags: submittedTags, requestId: `${Date.now()}-${Math.random()}`, ...typedFields });
       }
-      resetEditor(); await load(sourceView);
+      if (editorRequestGuard.current.isCurrent(editorRequest)) resetEditor();
+      await load(sourceView);
     } catch (reason) {
-      if (viewRequestGuard.current.isSelected(sourceView)) setError(reason instanceof Error ? reason.message : t('notes.saveError'));
+      const staleEditingNote = submittedEditing
+        && reason instanceof MobileApiRequestError
+        && reason.code === 'NOTE_STALE'
+        ? submittedEditing
+        : null;
+      if (staleEditingNote && viewRequestGuard.current.isSelected(sourceView)) {
+        const reloadResult = await reloadMyNoteAfterStale(
+          staleEditingNote.id,
+          () => load(sourceView),
+          () => editorRequestGuard.current.isCurrent(editorRequest),
+          (winner) => {
+            if (winner) startEdit(winner);
+            else preserveEditorAsNewNote();
+          },
+        );
+        if (viewRequestGuard.current.isSelected(sourceView) && reloadResult.status === 'reloaded') {
+          setError(t(reloadResult.winner ? 'notes.staleError' : 'notes.staleMissingError'));
+        }
+      } else if (
+        viewRequestGuard.current.isSelected(sourceView)
+        && editorRequestGuard.current.isCurrent(editorRequest)
+      ) {
+        setError(reason instanceof Error ? reason.message : t('notes.saveError'));
+      }
     }
     finally { setSubmitting(false); }
   }
@@ -236,17 +402,30 @@ function NotesContent() {
     await updateNoteLifecycle(note, 'restore-note', 'trash');
   }
   function startEdit(note: PersonalNote) {
-    setEditing(note); setTitle(note.title); setTopic(note.topic); setContent(note.content); setTags(note.tags.join(', ')); setSummary(note.summary);
+    publicCopyDraftLocalizationGuard.current.invalidate();
+    editorRequestGuard.current.select(note.id);
+    setCopyDraftSourceId(null);
+    setTagEditorKey((current) => current + 1);
+    setEditing(note); setTitle(note.title); setTopic(note.topic); setContent(note.content); setTags(note.tags); setTagDraft(''); setSummary(note.summary);
     setKnowledgeType(note.knowledge_type); setCentralQuestion(note.central_question ?? '');
     setBundleFields(mobileKnowledgeBundleEditValues(note.structured_content, note.content));
   }
   function chooseType(nextType: KnowledgeBundleType | null) {
+    publicCopyDraftLocalizationGuard.current.invalidate();
     if (nextType !== knowledgeType) setBundleFields([!knowledgeType && content.trim() ? content : bundleFields[0] ?? '', ...Array(10).fill('')]);
     setKnowledgeType(nextType);
   }
   function updateBundleField(index: number, value: string) {
+    publicCopyDraftLocalizationGuard.current.invalidate();
     setBundleFields((current) => Array.from({ length: 11 }, (_, fieldIndex) => fieldIndex === index ? value : current[fieldIndex] ?? ''));
   }
+  function updateTitle(value: string) { publicCopyDraftLocalizationGuard.current.invalidate(); setTitle(value); }
+  function updateTopic(value: string) { publicCopyDraftLocalizationGuard.current.invalidate(); setTopic(value); }
+  function updateTags(value: string[]) { publicCopyDraftLocalizationGuard.current.invalidate(); setTags(value); }
+  function updateTagDraft(value: string) { publicCopyDraftLocalizationGuard.current.invalidate(); setTagDraft(value); }
+  function updateSummary(value: string) { publicCopyDraftLocalizationGuard.current.invalidate(); setSummary(value); }
+  function updateCentralQuestion(value: string) { publicCopyDraftLocalizationGuard.current.invalidate(); setCentralQuestion(value); }
+  function updateContent(value: string) { publicCopyDraftLocalizationGuard.current.invalidate(); setContent(value); }
   const bundlePreview = useMemo(() => {
     if (!knowledgeType) return null;
     try {
@@ -276,6 +455,9 @@ function NotesContent() {
           <Pressable accessibilityRole="link" onPress={() => router.push('/candidate-inbox')} style={styles.candidateInboxLink}>
             <Text style={styles.candidateInboxLinkText}>{CANDIDATE_INBOX_COPY[locale]} →</Text>
           </Pressable>
+          <Pressable accessibilityRole="link" onPress={() => router.push('/knowledge-topics')} style={styles.topicsLink}>
+            <Text style={styles.topicsLinkText}>{t('notes.openTopics')} →</Text>
+          </Pressable>
           <View style={styles.tabs}>
             {(['active', 'archive', 'trash'] as const).map((value) => (
               <Pressable
@@ -291,24 +473,48 @@ function NotesContent() {
           </View>
           {capabilities.showsEditor ? (
             <View style={styles.form}>
-              <TextInput accessibilityLabel={t('notes.titlePlaceholder')} value={title} onChangeText={setTitle} placeholder={t('notes.titlePlaceholder')} style={styles.input} />
-              <TextInput accessibilityLabel={t('notes.topicPlaceholder')} value={topic} onChangeText={setTopic} placeholder={t('notes.topicPlaceholder')} style={styles.input} />
-              <TextInput accessibilityLabel={BUNDLE_COPY[locale].tags} value={tags} onChangeText={setTags} placeholder={BUNDLE_COPY[locale].tags} style={styles.input} />
-              <TextInput accessibilityLabel={BUNDLE_COPY[locale].summary} value={summary} onChangeText={setSummary} placeholder={BUNDLE_COPY[locale].summary} multiline style={[styles.input, styles.shortMultiline]} />
+              {copyDraftSourceId ? (
+                <Text accessibilityLiveRegion="polite" style={styles.copyDraftNotice}>{t('notes.copyDraftNotice')}</Text>
+              ) : null}
+              <TextInput accessibilityLabel={t('notes.titlePlaceholder')} accessibilityState={{ disabled: submitting }} editable={!submitting} value={title} onChangeText={updateTitle} placeholder={t('notes.titlePlaceholder')} style={[styles.input, submitting && styles.disabled]} />
+              <TextInput accessibilityLabel={t('notes.topicPlaceholder')} accessibilityState={{ disabled: submitting }} editable={!submitting} value={topic} onChangeText={updateTopic} placeholder={t('notes.topicPlaceholder')} style={[styles.input, submitting && styles.disabled]} />
+              <KnowledgeTagPicker
+                key={tagEditorKey}
+                value={tags}
+                draft={tagDraft}
+                suggestions={tagSuggestions}
+                disabled={submitting}
+                onChange={updateTags}
+                onDraftChange={updateTagDraft}
+                labels={{
+                  label: BUNDLE_COPY[locale].tags,
+                  placeholder: t('notes.tagsPlaceholder'),
+                  select: t('notes.tagsSelect'),
+                  search: t('notes.tagsSearch'),
+                  noMatches: t('notes.tagsNoMatches'),
+                  help: t('notes.tagsHelp'),
+                  limit: t('notes.tagsLimit', { count: MAX_KNOWLEDGE_TAGS }),
+                  length: t('notes.tagsLength', { count: MAX_KNOWLEDGE_TAG_CODE_POINTS }),
+                  invalid: t('notes.tagsInvalid'),
+                  close: t('common.close'),
+                  remove: t('common.remove'),
+                }}
+              />
+              <TextInput accessibilityLabel={BUNDLE_COPY[locale].summary} accessibilityState={{ disabled: submitting }} editable={!submitting} value={summary} onChangeText={updateSummary} placeholder={BUNDLE_COPY[locale].summary} multiline style={[styles.input, styles.shortMultiline, submitting && styles.disabled]} />
               <Text style={styles.fieldLabel}>{BUNDLE_COPY[locale].format}</Text>
               <View style={styles.typeGrid}>
-                <Pressable accessibilityRole="button" accessibilityState={{ selected: knowledgeType === null }} onPress={() => chooseType(null)} style={[styles.typeButton, knowledgeType === null && styles.typeButtonActive]}>
+                <Pressable accessibilityRole="button" accessibilityState={{ selected: knowledgeType === null, disabled: submitting }} disabled={submitting} onPress={() => chooseType(null)} style={[styles.typeButton, knowledgeType === null && styles.typeButtonActive, submitting && styles.disabled]}>
                   <Text style={[styles.typeButtonText, knowledgeType === null && styles.typeButtonTextActive]}>{BUNDLE_COPY[locale].quick}</Text>
                 </Pressable>
                 {KNOWLEDGE_BUNDLE_TYPES.map((value) => (
-                  <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: knowledgeType === value }} onPress={() => chooseType(value)} style={[styles.typeButton, knowledgeType === value && styles.typeButtonActive]}>
+                  <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: knowledgeType === value, disabled: submitting }} disabled={submitting} onPress={() => chooseType(value)} style={[styles.typeButton, knowledgeType === value && styles.typeButtonActive, submitting && styles.disabled]}>
                     <Text style={[styles.typeButtonText, knowledgeType === value && styles.typeButtonTextActive]}>{knowledgeBundleTypeLabel(locale, value)}</Text>
                   </Pressable>
                 ))}
               </View>
               {knowledgeType ? (
                 <>
-                  <TextInput accessibilityLabel={BUNDLE_COPY[locale].question} value={centralQuestion} onChangeText={setCentralQuestion} placeholder={BUNDLE_COPY[locale].questionPlaceholder} style={styles.input} />
+                  <TextInput accessibilityLabel={BUNDLE_COPY[locale].question} accessibilityState={{ disabled: submitting }} editable={!submitting} value={centralQuestion} onChangeText={updateCentralQuestion} placeholder={BUNDLE_COPY[locale].questionPlaceholder} style={[styles.input, submitting && styles.disabled]} />
                   <View accessibilityLabel={`${BUNDLE_EDITOR_HELP[locale].notation}\n${BUNDLE_EDITOR_HELP[locale].visual}`} style={styles.editorHelp}>
                     <Text style={styles.editorHelpText}>{BUNDLE_EDITOR_HELP[locale].notation}</Text>
                     <Text selectable style={styles.editorSyntax}>{'\\(E = mc^2\\) · \\(\\ce{2H2 + O2 -> 2H2O}\\) · \\(\\pu{9.81 m/s^2}\\) · `inline code`'}</Text>
@@ -326,7 +532,7 @@ function NotesContent() {
                         <View style={styles.typeGrid}>
                           {(['open', 'answered'] as const).map((status) => {
                             const selected = (bundleFields[6] || 'open') === status;
-                            return <Pressable key={status} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => updateBundleField(6, status)} style={[styles.typeButton, selected && styles.typeButtonActive]}><Text style={[styles.typeButtonText, selected && styles.typeButtonTextActive]}>{knowledgeBundleQuestionStatusLabel(locale, status)}</Text></Pressable>;
+                            return <Pressable key={status} accessibilityRole="button" accessibilityState={{ selected, disabled: submitting }} disabled={submitting} onPress={() => updateBundleField(6, status)} style={[styles.typeButton, selected && styles.typeButtonActive, submitting && styles.disabled]}><Text style={[styles.typeButtonText, selected && styles.typeButtonTextActive]}>{knowledgeBundleQuestionStatusLabel(locale, status)}</Text></Pressable>;
                           })}
                         </View>
                       </View>
@@ -334,11 +540,13 @@ function NotesContent() {
                       <TextInput
                         key={`${knowledgeType}-${index}`}
                         accessibilityLabel={fieldLabel}
+                        accessibilityState={{ disabled: submitting }}
+                        editable={!submitting}
                         value={bundleFields[index] ?? ''}
                         onChangeText={(value) => updateBundleField(index, value)}
                         placeholder={`${fieldLabel} · ${bundleFieldHelp(locale, knowledgeType, index)}`}
                         multiline
-                        style={[styles.input, styles.contentInput]}
+                        style={[styles.input, styles.contentInput, submitting && styles.disabled]}
                       />
                     );
                   })}
@@ -359,12 +567,12 @@ function NotesContent() {
                   </View>
                 </>
               ) : (
-                <TextInput accessibilityLabel={t('notes.contentPlaceholder')} value={content} onChangeText={setContent} placeholder={t('notes.contentPlaceholder')} multiline style={[styles.input, styles.contentInput]} />
+                <TextInput accessibilityLabel={t('notes.contentPlaceholder')} accessibilityState={{ disabled: submitting }} editable={!submitting} value={content} onChangeText={updateContent} placeholder={t('notes.contentPlaceholder')} multiline style={[styles.input, styles.contentInput, submitting && styles.disabled]} />
               )}
               <Pressable accessibilityRole="button" disabled={!title.trim() || submitting || Boolean(knowledgeType && !centralQuestion.trim())} onPress={() => void addNote()} style={[styles.addButton, (!title.trim() || submitting || Boolean(knowledgeType && !centralQuestion.trim())) && styles.disabled]}>
                 <Text style={styles.addButtonText}>{submitting ? t('notes.saving') : editing ? t('notes.saveChanges') : t('notes.add')}</Text>
               </Pressable>
-              {editing ? <Pressable accessibilityRole="button" onPress={resetEditor} style={styles.actionButton}><Text style={styles.action}>{t('notes.cancelEdit')}</Text></Pressable> : null}
+              {editing || copyDraftSourceId ? <Pressable accessibilityRole="button" onPress={resetEditor} style={styles.actionButton}><Text style={styles.action}>{t('notes.cancelEdit')}</Text></Pressable> : null}
             </View>
           ) : null}
           <TextInput accessibilityLabel={t('notes.search')} value={query} onChangeText={setQuery} placeholder={t('notes.search')} style={styles.input}/>
@@ -472,6 +680,8 @@ const styles = StyleSheet.create({
   title: { color: '#111827', fontSize: 32, fontWeight: '800', marginBottom: 14 },
   candidateInboxLink: { alignSelf: 'flex-start', backgroundColor: '#eef2ff', borderColor: '#a5b4fc', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12 },
   candidateInboxLinkText: { color: '#3730a3', fontSize: 13, fontWeight: '800' },
+  topicsLink: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center', backgroundColor: '#eff6ff', borderColor: '#93c5fd', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, marginBottom: 12 },
+  topicsLinkText: { color: '#1d4ed8', fontSize: 13, fontWeight: '800' },
   tabs: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   tab: { minHeight: 44, justifyContent: 'center', backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },
   activeTab: { backgroundColor: '#dbeafe', borderColor: '#2563eb' },
@@ -479,6 +689,7 @@ const styles = StyleSheet.create({
   filter: { minHeight: 44, justifyContent: 'center', backgroundColor: '#fff', borderColor: '#d8dee8', borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
   filterLabel: { color: '#374151', fontSize: 12, fontWeight: '800', marginTop: 10 },
   form: { backgroundColor: '#fff', borderRadius: 12, padding: 14, gap: 10, marginBottom: 14 },
+  copyDraftNotice: { borderColor: '#bfdbfe', borderWidth: 1, borderRadius: 8, backgroundColor: '#eff6ff', color: '#1e3a8a', padding: 12, fontSize: 13, lineHeight: 19 },
   fieldLabel: { color: '#374151', fontSize: 13, fontWeight: '800' },
   statusEditor: { gap: 8 },
   typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

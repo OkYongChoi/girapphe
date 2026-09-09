@@ -43,6 +43,7 @@ export {
   MAX_KNOWLEDGE_TAG_SUGGESTIONS,
   MAX_KNOWLEDGE_TAGS,
   canonicalizeKnowledgeTag,
+  collectKnowledgeTagSuggestions,
   normalizeKnowledgeTag,
   parseStrictKnowledgeTags,
   sanitizeKnowledgeTags,

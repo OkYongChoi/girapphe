@@ -3,14 +3,22 @@ import test from 'node:test';
 import type { KnowledgeBundleType } from '@stem-brain/shared';
 import {
   buildMyNotesListRows,
+  createMyNotesEditorRequestGuard,
   createMyNotesPendingActionGuard,
   createMyNotesViewRequestGuard,
   filterAndSortMyNotes,
   localCalendarPeriod,
   myNotesViewCapabilities,
+  reloadMyNoteAfterStale,
   type MyNotesViewItem,
   type MyNotesViewOptions,
 } from './my-notes-view';
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => { resolve = next; });
+  return { promise, resolve };
+}
 
 const now = new Date(2026, 8, 9, 12);
 
@@ -219,4 +227,109 @@ test('pending action guard rejects rapid duplicate and cross-note mutations', ()
   assert.equal(guard.isPending(), false);
   assert.equal(guard.pendingId(), null);
   assert.equal(guard.begin('note-b'), true);
+});
+
+test('stale note reload replaces the editor with the winning version and tags', async () => {
+  const stale = { id: 'note-a', version: 1, title: 'Stale', tags: ['old'] };
+  const winner = { id: 'note-a', version: 2, title: 'Winner', tags: ['fresh', 'reviewed'] };
+  let reloads = 0;
+  let editor = stale;
+  const editorGuard = createMyNotesEditorRequestGuard(stale.id);
+  const editorRequest = editorGuard.capture();
+
+  const result = await reloadMyNoteAfterStale(
+    stale.id,
+    async () => { reloads += 1; return [winner]; },
+    () => editorGuard.isCurrent(editorRequest),
+    (latest) => { if (latest) editor = latest; },
+  );
+
+  assert.equal(reloads, 1);
+  assert.deepEqual(result, { status: 'reloaded', winner });
+  assert.deepEqual(editor, winner);
+  assert.equal(editor.version, 2);
+  assert.deepEqual(editor.tags, ['fresh', 'reviewed']);
+});
+
+test('failed stale-note reload does not reapply an unavailable editor value', async () => {
+  let replacements = 0;
+  const editorGuard = createMyNotesEditorRequestGuard('note-a');
+  const editorRequest = editorGuard.capture();
+  const result = await reloadMyNoteAfterStale(
+    'note-a',
+    async () => null,
+    () => editorGuard.isCurrent(editorRequest),
+    () => { replacements += 1; },
+  );
+
+  assert.deepEqual(result, { status: 'unavailable', winner: null });
+  assert.equal(replacements, 0);
+});
+
+test('a stale note missing from the active reload preserves its fields as a new draft', async () => {
+  const stale = { id: 'note-a', version: 1, title: 'Keep this title', tags: ['keep'] };
+  const editorGuard = createMyNotesEditorRequestGuard(stale.id);
+  const editorRequest = editorGuard.capture();
+  const draft = { title: stale.title, tags: [...stale.tags] };
+  let editingId: string | null = stale.id;
+
+  const result = await reloadMyNoteAfterStale(
+    stale.id,
+    async () => [],
+    () => editorGuard.isCurrent(editorRequest),
+    (winner) => {
+      assert.equal(winner, null);
+      editorGuard.select(null);
+      editingId = null;
+    },
+  );
+
+  assert.deepEqual(result, { status: 'reloaded', winner: null });
+  assert.equal(editingId, null);
+  assert.deepEqual(draft, { title: 'Keep this title', tags: ['keep'] });
+});
+
+test('a delayed stale-note reload cannot restore an editor after the user cancels it', async () => {
+  const stale = { id: 'note-a', version: 1, title: 'Stale', tags: ['old'] };
+  const winner = { id: 'note-a', version: 2, title: 'Winner', tags: ['fresh'] };
+  const latest = deferred<readonly typeof winner[] | null>();
+  const editorGuard = createMyNotesEditorRequestGuard(stale.id);
+  const editorRequest = editorGuard.capture();
+  let editor: typeof stale | typeof winner | null = stale;
+
+  const reloading = reloadMyNoteAfterStale(
+    stale.id,
+    () => latest.promise,
+    () => editorGuard.isCurrent(editorRequest),
+    (next) => { editor = next; },
+  );
+  editorGuard.select(null);
+  editor = null;
+  latest.resolve([winner]);
+
+  assert.deepEqual(await reloading, { status: 'superseded', winner });
+  assert.equal(editor, null);
+});
+
+test('a delayed stale-note reload cannot replace a different note selected by the user', async () => {
+  const stale = { id: 'note-a', version: 1, title: 'Stale A', tags: ['old'] };
+  const winner = { id: 'note-a', version: 2, title: 'Winner A', tags: ['fresh'] };
+  const selected = { id: 'note-b', version: 4, title: 'Current B', tags: ['keep'] };
+  const latest = deferred<readonly typeof winner[] | null>();
+  const editorGuard = createMyNotesEditorRequestGuard(stale.id);
+  const editorRequest = editorGuard.capture();
+  let editor: typeof stale | typeof winner | typeof selected | null = stale;
+
+  const reloading = reloadMyNoteAfterStale(
+    stale.id,
+    () => latest.promise,
+    () => editorGuard.isCurrent(editorRequest),
+    (next) => { editor = next; },
+  );
+  editorGuard.select(selected.id);
+  editor = selected;
+  latest.resolve([winner, selected]);
+
+  assert.deepEqual(await reloading, { status: 'superseded', winner });
+  assert.deepEqual(editor, selected);
 });

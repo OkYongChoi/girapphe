@@ -87,6 +87,13 @@ export function recoverPreviousPracticeCard<Card extends { id: string }>(state: 
   };
 }
 
+export function resolvePreviousPracticeActionAfterAdvance(
+  action: SyncedPracticeAction | null,
+  advanced: boolean,
+): SyncedPracticeAction | null {
+  return advanced ? null : action;
+}
+
 export function createReviewRoundProgress(): ReviewRoundProgress {
   return { reviewed: 0, completed: false, resetOnNextAdvance: false };
 }

@@ -14,11 +14,13 @@ import {
   recordCompletedPracticeAction,
   recordReviewRoundAdvance,
   recoverPreviousPracticeCard,
+  resolvePreviousPracticeActionAfterAdvance,
   resolvePracticeMode,
   resolvePracticeFocusMode,
   reviewQueueCount,
   reviewedPracticeCardCount,
 } from './practice-parity';
+import { catalogs } from './i18n/catalogs';
 
 test('accepts supported practice modes and defaults invalid route input to new', () => {
   assert.equal(resolvePracticeMode('new'), 'new');
@@ -152,6 +154,34 @@ test('tracks mixed review rounds with constant-size counters and separate comple
   assert.deepEqual(progress, { reviewed: 0, completed: false, resetOnNextAdvance: false });
 });
 
+test('preserves replacement identity when a saved rating is followed by failed next-card reads', () => {
+  let progress = recordReviewRoundAdvance(createReviewRoundProgress(), {
+    pool: 3,
+    action: 'known',
+    replacesRatedAction: false,
+    cycled: false,
+  });
+  let previousAction: 'known' | 'saved' | 'skip' | null = 'known';
+
+  // The rating mutation succeeded, but both the initial and retry reads failed.
+  previousAction = resolvePreviousPracticeActionAfterAdvance(previousAction, false);
+  assert.equal(previousAction, 'known');
+  assert.equal(progress.reviewed, 1);
+
+  // Retrying the still-visible recovered card must remain a replacement.
+  const replacesRatedAction = previousAction === 'known' || previousAction === 'saved';
+  progress = recordReviewRoundAdvance(progress, {
+    pool: 3,
+    action: 'saved',
+    replacesRatedAction,
+    cycled: false,
+  });
+  previousAction = resolvePreviousPracticeActionAfterAdvance(previousAction, true);
+
+  assert.equal(progress.reviewed, 1);
+  assert.equal(previousAction, null);
+});
+
 test('retries a failed Practice read once without hiding a second failure', async () => {
   let attempts = 0;
   const waits: number[] = [];
@@ -206,6 +236,28 @@ test('maps every prerequisite status and formats only valid last-seen timestamps
   assert.equal(formatReviewLastSeen('not-a-date', () => 'unused'), null);
 });
 
+test('keeps Previous reachable when a synced advance exhausts the current queue', () => {
+  const sourceDir = dirname(fileURLToPath(import.meta.url));
+  const practiceScreen = readFileSync(join(sourceDir, '../app/(tabs)/practice.tsx'), 'utf8');
+  const navigationStart = practiceScreen.indexOf(
+    '{!loading && !sponsoredCardVisible && (card || historyState.history.length > 0) ? (',
+  );
+  const cardOnlyBranch = practiceScreen.indexOf('{sponsoredCardVisible ? (', navigationStart);
+  const previousControl = practiceScreen.indexOf(
+    "accessibilityLabel={t('practice.previousAria')}",
+    navigationStart,
+  );
+
+  assert.notEqual(navigationStart, -1);
+  assert.notEqual(cardOnlyBranch, -1);
+  assert.notEqual(previousControl, -1);
+  assert.ok(previousControl < cardOnlyBranch, 'Previous must render before the card-only branch');
+  assert.doesNotMatch(
+    practiceScreen.slice(cardOnlyBranch),
+    /accessibilityLabel=\{t\('practice\.previousAria'\)\}/,
+  );
+});
+
 test('wires review intent and server learning context into the mobile screens', () => {
   const sourceDir = dirname(fileURLToPath(import.meta.url));
   const practiceScreen = readFileSync(join(sourceDir, '../app/(tabs)/practice.tsx'), 'utf8');
@@ -224,6 +276,11 @@ test('wires review intent and server learning context into the mobile screens', 
   assert.match(practiceScreen, /router\.setParams\(\{ mode: undefined \}\)/);
   assert.match(practiceScreen, /requestSequence === requestSequenceRef\.current/);
   assert.match(practiceScreen, /cursorRef\.current = result\.nextCursor/);
+  const syncedLoad = practiceScreen.slice(
+    practiceScreen.indexOf('const load = useCallback'),
+    practiceScreen.indexOf('useFocusEffect', practiceScreen.indexOf('const load = useCallback')),
+  );
+  assert.doesNotMatch(syncedLoad, /setPreviousAction/);
   assert.equal(practiceScreen.match(/cursorRef\.current = null/g)?.length, 2);
   assert.doesNotMatch(practiceScreen, /ratedCardIds|skippedCardIds|excludeIds/);
   assert.doesNotMatch(practiceScreen, /roundRatedIdsRef|ratedCardActionCounts/);
@@ -250,16 +307,32 @@ test('wires review intent and server learning context into the mobile screens', 
   assert.match(rateHandler, /const actionMode = modeRef\.current/);
   assert.match(rateHandler, /const cursor = cursorRef\.current/);
   assert.match(rateHandler, /const advanced = await load\(actionMode, cursor, sessionGeneration, true\)/);
+  assert.match(rateHandler, /setPreviousAction\(\(current\) => resolvePreviousPracticeActionAfterAdvance\(current, advanced\.ok\)\)[\s\S]*?if \(!advanced\.ok\) return/);
   assert.match(rateHandler, /recordReviewRoundAdvance\(current, \{[\s\S]*?action: status,[\s\S]*?cycled: advanced\.cycled/);
   assert.ok(rateHandler.indexOf('recordAdvance') > rateHandler.indexOf('if (!advanced.ok'));
 
   const skipHandler = practiceScreen.match(/async function skip\(\) \{([\s\S]*?)\n {2}\}/)?.[1] ?? '';
   assert.match(skipHandler, /const cursor = cursorRef\.current/);
   assert.match(skipHandler, /const advanced = await load\(actionMode, cursor, sessionGeneration, true\)/);
+  assert.match(skipHandler, /setPreviousAction\(\(current\) => resolvePreviousPracticeActionAfterAdvance\(current, advanced\.ok\)\)[\s\S]*?if \(!advanced\.ok\) return/);
   assert.match(skipHandler, /recordReviewRoundAdvance\(current, \{[\s\S]*?action: 'skip',[\s\S]*?cycled: advanced\.cycled/);
   assert.ok(skipHandler.indexOf('recordAdvance') > skipHandler.indexOf('if (!advanced.ok'));
   assert.match(practiceScreen, /loadPracticeWithRetry\([\s\S]*?isTransientMobileApiError/);
   assert.match(practiceScreen, /reviewedPracticeCardCount\(historyState\)/);
   assert.match(practiceScreen, /accessibilityRole="progressbar"[\s\S]*?practice\.roundComplete/);
   assert.match(practiceScreen, /Platform\.OS === 'ios'[\s\S]*?AccessibilityInfo\.announceForAccessibility/);
+});
+
+test('round completion copy stays true when a cycle returns no next card', () => {
+  assert.deepEqual(
+    Object.values(catalogs).map((catalog) => catalog['practice.roundComplete']),
+    [
+      'Round complete! You went through all {count} cards.',
+      'ラウンド完了！{count}枚すべて確認しました。',
+      '本轮完成！您已浏览完所有 {count} 张卡片。',
+      '¡Ronda completada! Has visto las {count} tarjetas.',
+      'اكتملت الجولة! مررت بجميع البطاقات وعددها {count}.',
+      'चरण पूरा हुआ! आपने सभी {count} कार्ड देख लिए।',
+    ],
+  );
 });

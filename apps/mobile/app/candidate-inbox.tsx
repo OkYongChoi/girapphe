@@ -17,9 +17,11 @@ import { useI18n } from '@/i18n';
 import {
   addPendingCandidate,
   buildCandidateWebReviewUrl,
+  candidateQuickActionRequiresDetailedReview,
   classifyCandidateBatchScope,
   createCandidateInboxRequestGuard,
   removePendingCandidate,
+  resolveCandidateQuickAction,
   selectCandidateBatch,
   type CandidateBatchScopeKind,
 } from '@/candidate-inbox-requests';
@@ -50,6 +52,24 @@ const WEB_REVIEW_COPY: Record<Locale, string> = {
   es: 'Abrir la revisión web detallada de {title}',
   ar: 'فتح المراجعة التفصيلية على الويب لـ {title}',
   hi: '{title} की विस्तृत वेब समीक्षा खोलें',
+};
+
+const CAUSAL_REVIEW_COPY: Record<Locale, string> = {
+  en: 'This candidate includes causal relationships. Review each target, direction, and supporting evidence on the web before saving.',
+  ja: 'この候補には因果関係が含まれます。保存前にWebで各対象・方向・根拠を確認してください。',
+  'zh-CN': '此候选包含因果关系。保存前请在网页版审核每个目标、方向和支持证据。',
+  es: 'Este candidato incluye relaciones causales. Revisa en la web cada destino, dirección y evidencia antes de guardarlo.',
+  ar: 'يتضمن هذا المرشح علاقات سببية. راجع كل هدف واتجاه ودليل داعم على الويب قبل الحفظ.',
+  hi: 'इस उम्मीदवार में कारणात्मक संबंध हैं। सहेजने से पहले वेब पर हर लक्ष्य, दिशा और सहायक प्रमाण की समीक्षा करें।',
+};
+
+const STALE_REVIEW_COPY: Record<Locale, string> = {
+  en: 'This candidate changed in another session. The latest version is shown; review it before trying again.',
+  ja: 'この候補は別のセッションで変更されました。最新の内容を表示しています。確認してからもう一度お試しください。',
+  'zh-CN': '此候选已在另一会话中更改。现已显示最新版本，请审核后重试。',
+  es: 'Este candidato cambió en otra sesión. Se muestra la versión más reciente; revísala antes de intentarlo de nuevo.',
+  ar: 'تغيّر هذا المرشح في جلسة أخرى. تظهر أحدث نسخة؛ راجعها قبل المحاولة مرة أخرى.',
+  hi: 'यह उम्मीदवार किसी दूसरे सत्र में बदल गया। नवीनतम संस्करण दिखाया गया है; दोबारा कोशिश करने से पहले इसकी समीक्षा करें।',
 };
 
 type ScopeCopy = { subtitle: string; current: string; selectedExport: string; unsupported: string };
@@ -93,7 +113,7 @@ function CandidateInboxContent() {
     selected_export: scopeCopy.selectedExport,
     unsupported: scopeCopy.unsupported,
   };
-  const loadBatch = useCallback(async (batch: MobileCandidateBatch) => {
+  const loadBatch = useCallback(async (batch: MobileCandidateBatch): Promise<MobileCandidateDraft[] | null> => {
     const request = requestGuard.begin();
     selectedBatchId.current = batch.id;
     setSelectedBatch(batch);
@@ -102,46 +122,54 @@ function CandidateInboxContent() {
     setError(null);
     try {
       const result = await mobileApi.candidateBatch(batch.id);
-      if (!requestGuard.isLatest(request)) return;
+      if (!requestGuard.isLatest(request)) return null;
       selectedBatchId.current = result.batch.id;
       setSelectedBatch(result.batch);
       setDrafts(result.drafts);
+      return result.drafts;
     } catch (reason) {
       if (requestGuard.isLatest(request)) {
         setError(reason instanceof Error ? reason.message : t('api.networkFailed'));
       }
+      return null;
     } finally {
       if (requestGuard.isLatest(request)) setLoading(false);
     }
   }, [requestGuard, t]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<MobileCandidateDraft[] | null> => {
     const request = requestGuard.begin();
     setDrafts([]);
     setLoading(true);
     setError(null);
     try {
       const next = (await mobileApi.candidateInbox()).batches;
-      if (!requestGuard.isLatest(request)) return;
+      if (!requestGuard.isLatest(request)) return null;
       setBatches(next);
       const nextBatch = selectCandidateBatch(next, selectedBatchId.current);
-      if (nextBatch) await loadBatch(nextBatch);
+      if (nextBatch) return await loadBatch(nextBatch);
       else {
         selectedBatchId.current = null;
         setSelectedBatch(null);
         setLoading(false);
+        return [];
       }
     } catch (reason) {
       if (requestGuard.isLatest(request)) {
         setError(reason instanceof Error ? reason.message : t('api.networkFailed'));
         setLoading(false);
       }
+      return null;
     }
   }, [loadBatch, requestGuard, t]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   const resolve = (draft: MobileCandidateDraft, action: 'approve-candidate' | 'ignore-candidate') => {
+    if (candidateQuickActionRequiresDetailedReview(draft, action)) {
+      setError(CAUSAL_REVIEW_COPY[locale]);
+      return;
+    }
     const destructive = action === 'ignore-candidate';
     Alert.alert(
       destructive ? copy.ignore : copy.save,
@@ -154,13 +182,33 @@ function CandidateInboxContent() {
           setMutatingIds((current) => addPendingCandidate(current, draft.id));
           setError(null);
           setNotice(null);
-          void mobileApi.mutate<MobileCandidateResolutionResult>({
+          void resolveCandidateQuickAction({
+            draft,
             action,
-            batchId: draft.batch_id,
-            draftId: draft.id,
-            draftVersion: draft.version,
+            mutate: () => mobileApi.mutate<MobileCandidateResolutionResult>({
+              action,
+              batchId: draft.batch_id,
+              draftId: draft.id,
+              draftVersion: draft.version,
+            }),
+            reloadLatest: load,
+            isStaleError: (reason) => reason instanceof MobileApiRequestError
+              && reason.code === 'CANDIDATE_STALE',
           })
-            .then(async (result) => {
+            .then(async (outcome) => {
+              if (outcome.status === 'detailed-review-required') {
+                if (selectedBatchId.current === draft.batch_id) {
+                  setError(CAUSAL_REVIEW_COPY[locale]);
+                }
+                return;
+              }
+              if (outcome.status === 'stale') {
+                if (selectedBatchId.current === draft.batch_id && outcome.reloadSucceeded) {
+                  setError(STALE_REVIEW_COPY[locale]);
+                }
+                return;
+              }
+              const result = outcome.result;
               await load();
               if (!destructive && (result.skippedEdges ?? 0) > 0) {
                 setNotice(interpolate(copy.edgesSkipped, {
@@ -171,8 +219,11 @@ function CandidateInboxContent() {
             .catch((reason) => {
               if (selectedBatchId.current === draft.batch_id) {
                 setError(reason instanceof MobileApiRequestError
-                  && reason.code === 'CANDIDATE_DEPENDENCY_PENDING'
-                  ? copy.pendingDependency
+                  ? reason.code === 'CANDIDATE_DEPENDENCY_PENDING'
+                    ? copy.pendingDependency
+                    : reason.code === 'CAUSAL_REVIEW_REQUIRED'
+                      ? CAUSAL_REVIEW_COPY[locale]
+                      : reason.message
                   : reason instanceof Error ? reason.message : t('api.networkFailed'));
               }
             })
@@ -232,10 +283,11 @@ function CandidateInboxContent() {
           const duplicateSuggestionValues = draft.duplicate_suggestions
             .slice(0, 3)
             .map((item) => `${item.title} · ${Math.round(item.score * 100)}%`);
-          const webReviewUrl = draft.duplicate_suggestions.length > 0
+          const webReviewUrl = draft.duplicate_suggestions.length > 0 || draft.requires_detailed_review
             ? buildCandidateWebReviewUrl(appBaseUrl, draft.batch_id, draft.id)
             : null;
           const webReviewLabel = interpolate(WEB_REVIEW_COPY[locale], { title: draft.title });
+          const approvalDisabled = mutatingIds.has(draft.id) || draft.requires_detailed_review;
 
           const notationBlocks = [
             ...buildKnowledgeNotationGroupBlocks([
@@ -272,6 +324,11 @@ function CandidateInboxContent() {
                   </View>
                 ) : null}
               </KnowledgeNotationGroup>
+              {draft.requires_detailed_review ? (
+                <View style={styles.detailedReviewWarning}>
+                  <Text style={styles.detailedReviewWarningText}>{CAUSAL_REVIEW_COPY[locale]}</Text>
+                </View>
+              ) : null}
               {webReviewUrl ? (
                 <Pressable
                   accessibilityLabel={webReviewLabel}
@@ -283,7 +340,7 @@ function CandidateInboxContent() {
                 </Pressable>
               ) : null}
               <View style={styles.actions}>
-                <Pressable accessibilityRole="button" disabled={mutatingIds.has(draft.id)} onPress={() => resolve(draft, 'approve-candidate')} style={[styles.saveButton, mutatingIds.has(draft.id) && styles.disabled]}><Text style={styles.saveText}>{mutatingIds.has(draft.id) ? copy.saving : copy.save}</Text></Pressable>
+                <Pressable accessibilityRole="button" accessibilityState={{ disabled: approvalDisabled }} disabled={approvalDisabled} onPress={() => resolve(draft, 'approve-candidate')} style={[styles.saveButton, approvalDisabled && styles.disabled]}><Text style={styles.saveText}>{mutatingIds.has(draft.id) ? copy.saving : copy.save}</Text></Pressable>
                 <Pressable accessibilityRole="button" disabled={mutatingIds.has(draft.id)} onPress={() => resolve(draft, 'ignore-candidate')} style={[styles.ignoreButton, mutatingIds.has(draft.id) && styles.disabled]}><Text style={styles.ignoreText}>{copy.ignore}</Text></Pressable>
               </View>
             </View>
@@ -335,6 +392,8 @@ const styles = StyleSheet.create({
   duplicateTitle: { color: '#92400e', fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
   duplicateBody: { color: '#78350f', fontSize: 12, lineHeight: 18 },
   duplicateItem: { color: '#854d0e', fontSize: 12, fontWeight: '700' },
+  detailedReviewWarning: { borderColor: '#f59e0b', borderWidth: 1, borderRadius: 12, backgroundColor: '#fffbeb', padding: 12 },
+  detailedReviewWarningText: { color: '#78350f', fontSize: 12, lineHeight: 18, fontWeight: '700' },
   webReviewLink: { minHeight: 44, alignSelf: 'stretch', justifyContent: 'center', borderColor: '#f59e0b', borderWidth: 1, borderRadius: 9, backgroundColor: '#fff', paddingHorizontal: 12, marginTop: 6 },
   webReviewLinkText: { color: '#92400e', fontSize: 13, fontWeight: '900', textAlign: 'center' },
   actions: { flexDirection: 'row', gap: 8, marginTop: 3 },

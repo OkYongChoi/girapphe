@@ -4,6 +4,7 @@ import {
   MAX_KNOWLEDGE_TAG_CODE_POINTS,
   MAX_KNOWLEDGE_TAGS,
   canonicalizeKnowledgeTag,
+  collectKnowledgeTagSuggestions,
   normalizeKnowledgeTag,
   parseStrictKnowledgeTags,
   sanitizeKnowledgeTags,
@@ -15,6 +16,19 @@ test('knowledge tag input recognizes ASCII, Arabic, and fullwidth commas', () =>
     splitKnowledgeTagInput('machine learning، العربية，量子力学,  '),
     ['machine learning', 'العربية', '量子力学'],
   );
+});
+
+test('owner tag suggestions remain frequency-ranked, deterministic, and bounded', () => {
+  const uniqueTags = Array.from({ length: 521 }, (_, index) => `tag-${String(index).padStart(3, '0')}`);
+  const suggestions = collectKnowledgeTagSuggestions(
+    [uniqueTags, ['ZZ Top', 'zz/top', '!!!', 'general']],
+    'en',
+    500,
+  );
+  assert.equal(suggestions.length, 500);
+  assert.equal(suggestions[0], 'zz-top');
+  assert.equal(suggestions[1], 'tag-000');
+  assert.equal(suggestions.at(-1), 'tag-498');
 });
 
 test('strict API tags normalize before validating Unicode code-point length', () => {

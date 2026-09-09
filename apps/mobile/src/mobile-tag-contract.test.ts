@@ -11,6 +11,7 @@ import {
 
 const sourceDir = dirname(fileURLToPath(import.meta.url));
 const notesSource = readFileSync(join(sourceDir, '../app/(tabs)/notes.tsx'), 'utf8');
+const mobileTagSource = readFileSync(join(sourceDir, 'mobile-knowledge-tags.ts'), 'utf8');
 const mobileRoute = readFileSync(join(sourceDir, '../../web/src/app/api/mobile/route.ts'), 'utf8');
 
 test('mobile tag entry shares the localized comma parser', () => {
@@ -20,7 +21,8 @@ test('mobile tag entry shares the localized comma parser', () => {
     'gamma',
     'delta',
   ]);
-  assert.match(notesSource, /splitKnowledgeTagInput\(tags\)/);
+  assert.match(notesSource, /<KnowledgeTagPicker/);
+  assert.match(mobileTagSource, /const TAG_SEPARATOR = \/\[,،，\]\/u/);
   assert.doesNotMatch(notesSource, /tags\.split\(','\)/);
 });
 

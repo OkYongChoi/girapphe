@@ -26,6 +26,7 @@ import {
   recordCompletedPracticeAction,
   recordReviewRoundAdvance,
   recoverPreviousPracticeCard,
+  resolvePreviousPracticeActionAfterAdvance,
   resolvePracticeFocusMode,
   reviewQueueCount,
   reviewedPracticeCardCount,
@@ -287,7 +288,6 @@ function SyncedPracticeScreen() {
     setLoading(true);
     setError(null);
     setIsRevealed(false);
-    setPreviousAction(null);
     setExpressionDirection('forward');
     try {
       const result = await loadPracticeWithRetry(
@@ -366,7 +366,9 @@ function SyncedPracticeScreen() {
       await mobileApi.mutate({ action: 'rate-card', cardId: completedCard.id, status });
       if (sessionGeneration !== sessionGenerationRef.current) return;
       const advanced = await load(actionMode, cursor, sessionGeneration, true);
-      if (!advanced.ok || sessionGeneration !== sessionGenerationRef.current) return;
+      if (sessionGeneration !== sessionGenerationRef.current) return;
+      setPreviousAction((current) => resolvePreviousPracticeActionAfterAdvance(current, advanced.ok));
+      if (!advanced.ok) return;
       if (actionMode === 'review') {
         setReviewRoundProgress((current) => recordReviewRoundAdvance(current, {
           pool: initialReviewPoolRef.current,
@@ -398,7 +400,9 @@ function SyncedPracticeScreen() {
     setReviewRoundProgress((current) => ({ ...current, completed: false }));
     try {
       const advanced = await load(actionMode, cursor, sessionGeneration, true);
-      if (!advanced.ok || sessionGeneration !== sessionGenerationRef.current) return;
+      if (sessionGeneration !== sessionGenerationRef.current) return;
+      setPreviousAction((current) => resolvePreviousPracticeActionAfterAdvance(current, advanced.ok));
+      if (!advanced.ok) return;
       if (actionMode === 'review') {
         setReviewRoundProgress((current) => recordReviewRoundAdvance(current, {
           pool: initialReviewPoolRef.current,
@@ -449,6 +453,7 @@ function SyncedPracticeScreen() {
   const reviewedCount = reviewedPracticeCardCount(historyState);
   const reviewPool = initialReviewPoolRef.current;
   const reviewProgress = Math.min(reviewRoundProgress.reviewed, reviewPool);
+  const sponsoredCardVisible = showSponsoredCard && subscriptionReady && !isAdFree;
 
   useEffect(() => {
     if (Platform.OS === 'ios' && reviewRoundProgress.completed) {
@@ -522,24 +527,22 @@ function SyncedPracticeScreen() {
         {error ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{error}</Text> : null}
         {loading ? <Text style={styles.emptyText}>{t('common.loading')}</Text> : null}
 
-        {showSponsoredCard && subscriptionReady && !isAdFree ? (
-          <NativeSponsoredCard onContinue={() => setShowSponsoredCard(false)} onUpgrade={() => router.push('/subscription')} />
-        ) : !loading && card ? (
-          <>
-            <View style={styles.navigationRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t('practice.previousAria')}
-                disabled={historyState.history.length === 0}
-                onPress={showPrevious}
-                style={({ pressed }) => [
-                  styles.navigationButton,
-                  historyState.history.length === 0 && styles.navigationButtonDisabled,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.navigationText}>{t('practice.previous')}</Text>
-              </Pressable>
+        {!loading && !sponsoredCardVisible && (card || historyState.history.length > 0) ? (
+          <View style={styles.navigationRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('practice.previousAria')}
+              disabled={historyState.history.length === 0}
+              onPress={showPrevious}
+              style={({ pressed }) => [
+                styles.navigationButton,
+                historyState.history.length === 0 && styles.navigationButtonDisabled,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.navigationText}>{t('practice.previous')}</Text>
+            </Pressable>
+            {card ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t('practice.skip')}
@@ -548,7 +551,14 @@ function SyncedPracticeScreen() {
               >
                 <Text style={styles.navigationText}>{t('practice.skip')}</Text>
               </Pressable>
-            </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {sponsoredCardVisible ? (
+          <NativeSponsoredCard onContinue={() => setShowSponsoredCard(false)} onUpgrade={() => router.push('/subscription')} />
+        ) : !loading && card ? (
+          <>
             <View style={styles.card}>
               <View style={styles.cardHeader}>
                 <Text style={styles.domainText}>{card.domain_label ?? localizeDomain(locale, card.domain)}</Text>

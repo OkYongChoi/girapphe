@@ -150,7 +150,13 @@ Provenance retains source selectors and metadata, never raw transcript text.
 Context-pack downloads likewise contain only selected canonical knowledge and
 selector-only provenance. Web owns full comparison, editing, merge/update,
 graph, history, evidence, and export workflows; mobile provides quick
-save-as-new/ignore review and a compact Topic Hub.
+save-as-new/ignore review for simple candidates, requires detailed web review
+for causal candidates, and includes the owner-scoped Topics index plus compact
+Topic Hub. A public concept can prefill an editable My Notes copy from its
+validated public-node ID and trusted current-locale content; nothing is saved
+until the user explicitly adds the private note. Web, iOS, and Android My Notes
+share owner-scoped frequent-tag reuse, direct entry, and the same bounded tag
+normalization contract.
 
 Quality commands:
 
@@ -325,7 +331,8 @@ Enable Clerk's Native API before producing a native build.
 `/api/mobile` and anchors first-party candidate review links. Authenticated
 Practice reads use a bounded `{ mode, cursor, cycleOnEmpty }` POST and
 server-side alternating keyset lanes instead of growing card-ID arrays; notes,
-progress, knowledge-map state, and admin requests use the same origin.
+topic summaries, progress, ranking, knowledge-map state, and admin requests use
+the same origin and authenticated private no-store responses.
 
 ## Environments & Deployment
 
