@@ -27,11 +27,11 @@ import type { Translate } from '@/i18n/core';
 import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
 import KnowledgeBundleView from '@/components/knowledge-bundle-view';
 import KnowledgeText from '@/components/knowledge-text';
-import { isKnowledgeBundleType, KNOWLEDGE_BUNDLE_TYPES } from '@stem-brain/shared';
+import { isKnowledgeBundleType, KNOWLEDGE_BUNDLE_TYPES, localizePathname } from '@stem-brain/shared';
 import KnowledgeIntelligencePanel from '@/components/knowledge-intelligence-loader';
 import { getKnowledgeIntelligenceForUser } from '@/lib/knowledge-intelligence';
 import { isAiThinkingHistoryEnabledForUser } from '@/lib/ai-thinking-history-rollout';
-import KnowledgeDateRangeFilter, { KnowledgeFilterDisclosure } from '@/components/knowledge-date-range-filter';
+import KnowledgeDateRangeFilter from '@/components/knowledge-date-range-filter';
 
 export const dynamic = 'force-dynamic';
 
@@ -155,6 +155,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
   }
 
   const clearFiltersHref = view === 'active' ? '/my-notes' : `/my-notes?view=${view}`;
+  const localizedClearFiltersHref = localizePathname(clearFiltersHref, locale);
 
   const [items, linkTargets, privateGraph] = await Promise.all([
     isTrash ? getDeletedKnowledgeItems() : isArchive ? getArchivedKnowledgeItems() : getUserKnowledgeItems(),
@@ -261,6 +262,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 {t('notes.search')}
               </label>
               <input
+                key={`${view}:${params.q ?? ''}`}
                 id="knowledge-search"
                 type="text"
                 name="q"
@@ -277,14 +279,18 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
             </div>
 
             <div className="mt-2 grid grid-cols-2 gap-2">
-              <KnowledgeFilterDisclosure
-                key={`filters:${typeFilter}:${topicFilter}:${period}:${params.start ?? ''}:${params.end ?? ''}`}
-                label={t('common.filter')}
-                activeCount={activeFacetCount}
-                defaultOpen={activeFacetCount > 0}
-                resetKey={`${typeFilter}:${topicFilter}:${period}:${params.start ?? ''}:${params.end ?? ''}`}
-                contentClassName="grid gap-2 border-t p-3 sm:grid-cols-2 lg:grid-cols-3"
+              <details
+                key={`filters:${view}:${typeFilter}:${topicFilter}:${period}:${params.start ?? ''}:${params.end ?? ''}`}
+                open={activeFacetCount > 0}
+                className="group min-w-0 rounded-lg border bg-gray-50 open:col-span-2 open:bg-white"
               >
+                <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
+                  <span>{t('common.filter')}{activeFacetCount > 0 ? ` (${activeFacetCount})` : ''}</span>
+                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180">
+                    <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </summary>
+                <div className="grid gap-2 border-t p-3 sm:grid-cols-2 lg:grid-cols-3">
                   <select name="type" defaultValue={typeFilter} className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('bundle.format')}>
                     <option value="all">{t('common.allStatus')}</option>
                     <option value="legacy">{t('bundle.quickNote')}</option>
@@ -321,16 +327,21 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                       to: t('notes.to'),
                     }}
                   />
-              </KnowledgeFilterDisclosure>
+                </div>
+              </details>
 
-              <KnowledgeFilterDisclosure
-                key={`sort:${sortBy}:${groupBy}`}
-                label={t('notes.sort')}
-                activeCount={activeViewOptionCount}
-                defaultOpen={activeViewOptionCount > 0}
-                resetKey={`${sortBy}:${groupBy}`}
-                contentClassName="grid gap-2 border-t p-3 sm:grid-cols-2"
+              <details
+                key={`sort:${view}:${sortBy}:${groupBy}`}
+                open={activeViewOptionCount > 0}
+                className="group min-w-0 rounded-lg border bg-gray-50 open:col-span-2 open:bg-white"
               >
+                <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
+                  <span>{t('notes.sort')}{activeViewOptionCount > 0 ? ` (${activeViewOptionCount})` : ''}</span>
+                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180">
+                    <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </summary>
+                <div className="grid gap-2 border-t p-3 sm:grid-cols-2">
                   <select
                     id="knowledge-sort"
                     name="sort"
@@ -348,17 +359,18 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                     <option value="week">{t('notes.byWeek')}</option>
                     <option value="month">{t('notes.byMonth')}</option>
                   </select>
-              </KnowledgeFilterDisclosure>
+                </div>
+              </details>
             </div>
 
             {hasActiveFilter ? (
               <div className="mt-2 text-right">
-                <LocalizedLink
-                  href={clearFiltersHref}
+                <a
+                  href={localizedClearFiltersHref}
                   className="inline-flex min-h-8 items-center rounded-lg px-2 text-sm font-medium text-blue-700 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {t('common.clear')}
-                </LocalizedLink>
+                </a>
               </div>
             ) : null}
           </form>
@@ -496,9 +508,9 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
               <p className="mt-1 text-sm text-gray-500">
                 {t('notes.noMatchesBody')}
               </p>
-              <LocalizedLink href={clearFiltersHref} className="mt-3 inline-block text-sm text-blue-600 hover:underline">
+              <a href={localizedClearFiltersHref} className="mt-3 inline-block text-sm text-blue-600 hover:underline">
                 {t('notes.clearFilters')}
-              </LocalizedLink>
+              </a>
             </div>
           ) : (
             <div className="grid gap-6">
