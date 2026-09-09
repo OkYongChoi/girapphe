@@ -12,6 +12,10 @@ import McpProviderSetupGuide from '@/components/mcp-provider-setup-guide';
 import SubmitButton from '@/components/submit-button';
 import { useI18n } from '@/i18n/client';
 
+type CopyTarget =
+  | { kind: 'token'; tokenId: string }
+  | { kind: 'endpoint' };
+
 export default function DraftReviewMcpConnections({
   tokens,
   defaultExpanded = false,
@@ -23,8 +27,11 @@ export default function DraftReviewMcpConnections({
   const { formatDate, t } = useI18n();
   const panelId = useId();
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const [rawToken, setRawToken] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [rawToken, setRawToken] = useState<{
+    id: string;
+    value: string;
+    copied: boolean;
+  } | null>(null);
   const [endpointCopied, setEndpointCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [endpointUrl, setEndpointUrl] = useState('/api/mcp');
@@ -41,14 +48,19 @@ export default function DraftReviewMcpConnections({
     && (!token.expires_at || currentTime === 0 || new Date(token.expires_at).getTime() > currentTime)
   )).length;
 
-  async function copyValue(value: string, success: 'token' | 'endpoint') {
+  async function copyValue(value: string, target: CopyTarget) {
     setError(null);
     try {
       await navigator.clipboard.writeText(value);
-      if (success === 'token') setCopied(true);
-      else setEndpointCopied(true);
+      if (target.kind === 'token') {
+        setRawToken((current) => (
+          current?.id === target.tokenId ? { ...current, copied: true } : current
+        ));
+      } else {
+        setEndpointCopied(true);
+      }
     } catch {
-      setError(success === 'token' ? t('mcp.tokenCopyError') : t('mcp.endpointCopyError'));
+      setError(target.kind === 'token' ? t('mcp.tokenCopyError') : t('mcp.endpointCopyError'));
     }
   }
 
@@ -91,7 +103,7 @@ export default function DraftReviewMcpConnections({
                   <code className="min-w-0 flex-1 break-all rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800">{endpointUrl}</code>
                   <button
                     type="button"
-                    onClick={() => void copyValue(endpointUrl, 'endpoint')}
+                    onClick={() => void copyValue(endpointUrl, { kind: 'endpoint' })}
                     className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500"
                   >
                     {endpointCopied ? t('mcp.endpointCopied') : t('mcp.copyEndpoint')}
@@ -104,10 +116,9 @@ export default function DraftReviewMcpConnections({
               className="grid gap-3 rounded-xl border border-violet-100 bg-violet-50/40 p-4"
               action={async (formData) => {
                 setError(null);
-                setCopied(false);
                 try {
                   const result = await createMcpAccessToken(formData);
-                  setRawToken(result.token);
+                  setRawToken({ id: result.record.id, value: result.token, copied: false });
                   router.refresh();
                 } catch (createError) {
                   setError(createError instanceof Error ? createError.message : t('mcp.createError'));
@@ -149,13 +160,13 @@ export default function DraftReviewMcpConnections({
               <p className="text-sm font-bold text-amber-950">{t('mcp.secretTitle')}</p>
               <p className="mt-1 text-xs leading-relaxed text-amber-800">{t('mcp.secretBody')}</p>
               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <code className="min-w-0 flex-1 break-all rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-slate-900">{rawToken}</code>
+                <code className="min-w-0 flex-1 break-all rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-slate-900">{rawToken.value}</code>
                 <button
                   type="button"
-                  onClick={() => void copyValue(rawToken, 'token')}
+                  onClick={() => void copyValue(rawToken.value, { kind: 'token', tokenId: rawToken.id })}
                   className="min-h-11 rounded-lg border border-amber-300 bg-white px-4 text-sm font-bold text-amber-900 hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
                 >
-                  {copied ? t('mcp.tokenCopied') : t('mcp.copyToken')}
+                  {rawToken.copied ? t('mcp.tokenCopied') : t('mcp.copyToken')}
                 </button>
               </div>
             </div>
@@ -205,8 +216,14 @@ export default function DraftReviewMcpConnections({
                       {!revoked ? (
                         <form
                           action={async (formData) => {
-                            await revokeMcpAccessToken(formData);
-                            router.refresh();
+                            setError(null);
+                            try {
+                              await revokeMcpAccessToken(formData);
+                              setRawToken((current) => current?.id === token.id ? null : current);
+                              router.refresh();
+                            } catch {
+                              setError(t('mcp.revokeError'));
+                            }
                           }}
                         >
                           <input type="hidden" name="token_id" value={token.id} />

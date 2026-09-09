@@ -56,7 +56,9 @@ Out of scope:
   least 44 CSS pixels and usable mobile/RTL reflow.
 - [x] `AC-07`: The change stores no model credential, conversation text, private
   knowledge, or token secret in browser preferences; MCP tokens remain hashed,
-  owner-scoped, expiring, revocable, and shown in raw form only once.
+  owner-scoped, expiring, revocable, and shown in raw form only once. When that
+  same token is successfully revoked, Settings immediately clears its transient
+  raw-secret state; a failed revoke leaves that transient state unchanged.
 - [x] `AC-08`: Every preference write refreshes the polite save announcement,
   including consecutive successful saves with the same localized message.
 
@@ -69,8 +71,11 @@ contain no authored or private knowledge.
 
 MCP token records keep their current server-owned lifecycle and owner scope.
 The raw secret is returned once, is never placed in local storage, and is not
-recoverable from Settings later. With the corresponding scope, a connected AI
-client can create pending drafts from content the user explicitly submits. A
+recoverable from Settings later. A successful revoke of the just-created token
+also removes that secret from transient component state without deleting the
+server-owned token record. If revocation fails, Settings reports the error and
+keeps that transient state unchanged. With the corresponding scope, a connected
+AI client can create pending drafts from content the user explicitly submits. A
 separately granted context-read scope can retrieve bounded confirmed knowledge
 by explicit item IDs or a recent-topic query. It cannot read conversation
 history or approve, publish, or mutate public knowledge.
@@ -85,12 +90,15 @@ history or approve, publish, or mutate public knowledge.
 | `AC-04` | `apps/web/src/lib/settings-preferences.test.ts` and the authenticated reload assertion in `authenticated-settings.spec.ts`. |
 | `AC-05` | Preference tests, source inspection of both consumers, and the Preview-gated Thinking History assertion in `authenticated-settings.spec.ts`. |
 | `AC-06` | Desktop/mobile English and Arabic assertions in `authenticated-settings.spec.ts`, including the English guide's explicit LTR boundary inside RTL Settings, plus all six localization catalog checks. |
-| `AC-07` | Preference parser tests, MCP token regression tests, and final diff inspection. |
+| `AC-07` | Preference parser and MCP token regressions, the revoke control-flow source regression in `apps/web/src/lib/mcp/provider-setup.test.ts`, and `authenticated-mcp-provider-setup.spec.ts`, which checks an exact no-reload raw-secret transition from one node to zero and preserves the post-reload absence assertion without retaining the raw PAT in evidence. |
 | `AC-08` | Two consecutive save assertions plus replacement of the first live-region node in `authenticated-settings.spec.ts`. |
 
-The authenticated test uses the dedicated synthetic owner and does not create
-or revoke an MCP token. Its success screenshots contain only that fixture's
-account and token metadata, never a raw secret.
+The authenticated Settings preference test uses the dedicated synthetic owner
+and does not create or revoke an MCP token. The separate provider-setup test
+permits PAT mutation only for the marker-validated testing-token Preview
+fixture, redacts the one-time secret immediately after capture, and clears the
+clipboard before recording evidence. Success screenshots contain only that
+fixture's account and token metadata, never a raw secret.
 
 ## Rollout
 

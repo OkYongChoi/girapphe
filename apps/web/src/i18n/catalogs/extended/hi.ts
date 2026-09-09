@@ -480,6 +480,7 @@ export const EXTRA_HI_MESSAGES = {
   "mcp.revokedAt": "{date} को रद्द किया गया",
   "mcp.expiresAt": "{date} को समय समाप्त होगा",
   "mcp.revoke": "रद्द करें",
+  "mcp.revokeError": "MCP कनेक्शन रद्द नहीं किया जा सका।",
   "mcp.revokeConfirm": "MCP कनेक्शन \"{label}\" रद्द करें? क्लाइंट सभी सूचीबद्ध ज्ञान क्षमताओं तक पहुँच तुरंत खो देगा।",
   "import.pausedTitle": "ChatGPT आयात अस्थायी रूप से रुका है",
   "import.pausedBody": "नए आयात अभी उपलब्ध नहीं हैं। मौजूदा लंबित मसौदे और डेटा नियंत्रण उपलब्ध रहेंगे।",

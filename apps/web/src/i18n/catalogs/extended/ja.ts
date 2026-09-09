@@ -480,6 +480,7 @@ export const EXTRA_JA_MESSAGES = {
   "mcp.revokedAt": "取り消し日時：{date}",
   "mcp.expiresAt": "有効期限：{date}",
   "mcp.revoke": "取り消す",
+  "mcp.revokeError": "MCP接続を取り消せませんでした。",
   "mcp.revokeConfirm": "MCP接続「{label}」を取り消しますか？クライアントは一覧にあるすべてのナレッジ機能へ直ちにアクセスできなくなります。",
   "import.pausedTitle": "ChatGPT のインポートは一時停止中です",
   "import.pausedBody": "新しいインポートは一時的に利用できません。既存の保留中の下書きとデータ管理機能は引き続き利用できます。",

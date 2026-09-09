@@ -92,6 +92,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   let renderedGuideOmitsAnyRawPat = false;
   let overflowsViewport = true;
   let revokedAfterReload = false;
+  let rawSurfaceAbsentImmediatelyAfterRevoke = false;
   let rawSurfaceAbsentAfterReload = false;
 
   try {
@@ -162,33 +163,25 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
 
     try {
       const capturedPatRequiresRevocation = rawToken.length > 0;
-      let tokenRow = page.getByRole('listitem').filter({
+      const tokenRow = page.getByRole('listitem').filter({
         has: page.getByText(connectionLabel, { exact: true }),
       });
-      let revokeButton = tokenRow.getByRole('button', { name: 'Revoke' });
+      const revokeButton = tokenRow.getByRole('button', { name: 'Revoke' });
       let revokeButtonVisible = false;
       try {
         await revokeButton.waitFor({ state: 'visible', timeout: 5_000 });
         revokeButtonVisible = true;
-      } catch {
-        await hidePatSurface(page);
-        await clearClipboard(page);
-        await page.reload({ waitUntil: 'domcontentloaded' });
-        tokenRow = page.getByRole('listitem').filter({
-          has: page.getByText(connectionLabel, { exact: true }),
-        });
-        revokeButton = tokenRow.getByRole('button', { name: 'Revoke' });
-        try {
-          await revokeButton.waitFor({ state: 'visible', timeout: 5_000 });
-          revokeButtonVisible = true;
-        } catch (error) {
-          if (capturedPatRequiresRevocation) throw error;
-        }
+      } catch (error) {
+        if (capturedPatRequiresRevocation) throw error;
       }
       if (revokeButtonVisible) {
+        const rawTokenCode = page.locator('#ai-connections [role="status"] code');
+        await expect(rawTokenCode).toHaveCount(1);
         page.once('dialog', (dialog) => dialog.accept());
         await revokeButton.click();
         await expect(tokenRow.getByText('Revoked', { exact: true })).toBeVisible();
+        await expect(rawTokenCode).toHaveCount(0);
+        rawSurfaceAbsentImmediatelyAfterRevoke = true;
       }
     } catch (error) {
       cleanupError ??= error;
@@ -234,6 +227,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   expect(renderedGuideOmitsCapturedPat).toBe(true);
   expect(renderedGuideOmitsAnyRawPat).toBe(true);
   expect(revokedAfterReload).toBe(true);
+  expect(rawSurfaceAbsentImmediatelyAfterRevoke).toBe(true);
   expect(rawSurfaceAbsentAfterReload).toBe(true);
   expect(overflowsViewport).toBe(false);
   expect(browserErrors.length === 0).toBe(true);
@@ -253,6 +247,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
     createdOneTimePat: true,
     copiedWithoutRawPat: true,
     revokedBeforeScreenshot: revokedAfterReload,
+    clearedOneTimePatImmediatelyOnRevoke: rawSurfaceAbsentImmediatelyAfterRevoke,
     browserErrorCount: browserErrors.length,
     pageOverflow: overflowsViewport,
   }, null, 2)}\n`);

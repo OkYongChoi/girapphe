@@ -480,6 +480,7 @@ export const EXTRA_ZH_CN_MESSAGES = {
   "mcp.revokedAt": "撤销于{date}",
   "mcp.expiresAt": "到期于{date}",
   "mcp.revoke": "撤销",
+  "mcp.revokeError": "无法撤销MCP连接。",
   "mcp.revokeConfirm": "要撤销MCP连接“{label}”吗？该客户端将立即失去所有列出的知识功能权限。",
   "import.pausedTitle": "ChatGPT 导入已暂停",
   "import.pausedBody": "暂时无法创建新导入。现有待审核草稿和数据控制仍可使用。",
