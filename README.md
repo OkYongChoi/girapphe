@@ -41,6 +41,7 @@ This project implements an AI/CS knowledge graph MVP with:
 - Development/operations: `docs/operations/development.md`
 - Resource planning: `docs/operations/resource-planning.md`
 - Admin operations: `docs/operations/admin.md`
+- Shareable Codex plugin: `docs/operations/codex-plugin.md`
 
 ## Key Implementation Files
 
@@ -190,8 +191,8 @@ pnpm harness
 ```
 
 This runs workspace checks, validates documentation and feature-spec contracts,
-verifies the patched image parser, validates checked-in environment templates,
-and builds the web app.
+verifies the shareable Codex plugin and patched image parser, validates checked-in
+environment templates, and builds the web app.
 
 On a clean checkout, reproduce the CI quality gate with:
 
@@ -238,6 +239,13 @@ Push is part of release handoff, not the repeatable validation script:
 git status --short
 git push
 ```
+
+## Codex Plugin
+
+The public repository includes an installable `girapphe` Codex plugin with the
+project's graph, database, validation, and protected-release skills. See the
+[Codex plugin guide](docs/operations/codex-plugin.md) for installation and update
+commands.
 
 ## Auth Configuration
 
