@@ -64,7 +64,9 @@ export function KnowledgeFilterDisclosure({
           <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      {open ? <div id={panelId} className={contentClassName}>{children}</div> : null}
+      <div id={panelId} hidden={!open} className={contentClassName}>
+        {children}
+      </div>
     </div>
   );
 }

@@ -812,6 +812,15 @@ test.describe('browser smoke', () => {
     await filters.getByRole('button', { name: 'Search' }).click();
     await expect(page.locator('details').filter({ hasText: title })).toHaveCount(1);
 
+    const activeFilterButton = page.getByRole('search').getByRole('button', { name: /^Filter/ });
+    await expect(activeFilterButton).toHaveAttribute('aria-expanded', 'true');
+    await activeFilterButton.click();
+    await page.getByRole('search').getByRole('textbox', { name: 'Search notes' }).fill(title);
+    await page.getByRole('search').getByRole('button', { name: 'Search' }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get('type')).toBe('procedure');
+    await expect.poll(() => new URL(page.url()).searchParams.get('period')).toBe('custom');
+    await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe(title);
+
     await page.getByRole('search').getByRole('link', { name: 'Clear' }).click();
     await expect(page).toHaveURL(/\/(?:en\/)?my-notes$/);
     const resetFilters = page.getByRole('search');
