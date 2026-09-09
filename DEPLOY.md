@@ -97,7 +97,8 @@ development-instance values as `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY_PREVIEW` (`pk_
 
 Do not point preview at production. Each internal PR deploy replays only the bounded idempotent
 subset listed in `apps/web/scripts/apply-preview-schema.mjs` before its live database tests and
-Worker upload. That helper currently covers migrations `0014` through `0023`; it is not a
+Worker upload. That helper currently covers `0005`, `0008`, `0010`, `0011`, and migrations
+`0014` through `0024`; it is not a
 replacement for the explicit first-time database bootstrap above.
 
 Preview URLs are public by default. If a future per-PR QA workflow needs data cloned from

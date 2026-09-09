@@ -43,6 +43,56 @@ async function assertRejectsInSavepoint(client, operation, expected) {
   }
 }
 
+async function installRepositoryPgAdapter(pool) {
+  const importedDb = await import('../src/lib/db.ts');
+  const repositoryDb = importedDb.default ?? importedDb;
+  const importedAccountLifecycle = await import('../src/lib/account-lifecycle.ts');
+  const accountLifecycle = importedAccountLifecycle.default ?? importedAccountLifecycle;
+  const originalMethods = {
+    query: repositoryDb.query,
+    transaction: repositoryDb.transaction,
+    accountTransaction: repositoryDb.accountTransaction,
+  };
+  const transaction = async (queries) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+      const results = [];
+      for (const query of queries) {
+        const result = await client.query(query.text, query.params ?? []);
+        results.push({ rows: result.rows });
+      }
+      await client.query('COMMIT');
+      return results;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+  repositoryDb.query = async (text, params) => {
+    const result = await pool.query(text, params ?? []);
+    return { rows: result.rows };
+  };
+  repositoryDb.transaction = transaction;
+  repositoryDb.accountTransaction = async (actorUserId, queries) => {
+    const results = await transaction([
+      ...accountLifecycle.buildActiveAccountGuardQueries(actorUserId),
+      ...queries,
+    ]);
+    return results.slice(2);
+  };
+  return {
+    transaction,
+    restore() {
+      repositoryDb.query = originalMethods.query;
+      repositoryDb.transaction = originalMethods.transaction;
+      repositoryDb.accountTransaction = originalMethods.accountTransaction;
+    },
+  };
+}
+
 test('Recall migration bootstraps an absent Practice table, preserves rows, and enforces honest snapshots', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
 }, async () => {
@@ -348,6 +398,7 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
   const sharedImport = await import('@stem-brain/shared');
   const shared = sharedImport.default ?? sharedImport;
   const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
   const userId = `live-recall-owner-${crypto.randomUUID()}`;
   const otherUserId = `live-recall-other-${crypto.randomUUID()}`;
   const itemId = `live-recall-item-${crypto.randomUUID()}`;
@@ -583,6 +634,7 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
     bodyCompleted = true;
   } finally {
     const cleanupFailures = [];
+    repositoryAdapter.restore();
     await collectCleanupFailure(cleanupFailures, 'delete synthetic knowledge item', () => (
       pool.query(
         `DELETE FROM user_knowledge_items WHERE id = $1 AND user_id = $2`,
@@ -733,7 +785,7 @@ test('Recall attempt retention purge deletes an expired row and preserves a curr
 
   try {
     const migrationSql = await readFile(
-      new URL('../drizzle/migrations/0023_recall_prepared_attempts.sql', import.meta.url),
+      new URL('../drizzle/migrations/0024_recall_prepared_attempts.sql', import.meta.url),
       'utf8',
     );
     const statements = parsePreviewMigration(migrationSql);
@@ -825,11 +877,10 @@ test('Recall prepared attempts start once, require confidence, reveal idempotent
   const attempts = importedAttempts.default ?? importedAttempts;
   const importedPractice = await import('../src/lib/private-practice-cards.ts');
   const practice = importedPractice.default ?? importedPractice;
-  const importedDb = await import('../src/lib/db.ts');
-  const repositoryDb = importedDb.default ?? importedDb;
-  const importedAccountLifecycle = await import('../src/lib/account-lifecycle.ts');
-  const accountLifecycle = importedAccountLifecycle.default ?? importedAccountLifecycle;
+  const importedAccountPurge = await import('../src/lib/account-private-purge.ts');
+  const accountPurge = importedAccountPurge.default ?? importedAccountPurge;
   const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
   const userId = `live-attempt-owner-${crypto.randomUUID()}`;
   const itemId = `live-attempt-item-${crypto.randomUUID()}`;
   const batchId = `live-attempt-batch-${crypto.randomUUID()}`;
@@ -840,43 +891,6 @@ test('Recall prepared attempts start once, require confidence, reveal idempotent
   const enrolledAt = new Date(now - 25 * 60 * 60 * 1_000).toISOString();
   const firstDueAt = new Date(now - 30 * 60 * 1_000).toISOString();
   let bodyCompleted = false;
-  const originalDbMethods = {
-    query: repositoryDb.query,
-    transaction: repositoryDb.transaction,
-    accountTransaction: repositoryDb.accountTransaction,
-  };
-
-  const pgTransaction = async (queries) => {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
-      const results = [];
-      for (const query of queries) {
-        const result = await client.query(query.text, query.params ?? []);
-        results.push({ rows: result.rows });
-      }
-      await client.query('COMMIT');
-      return results;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-  };
-  repositoryDb.query = async (text, params) => {
-    const result = await pool.query(text, params ?? []);
-    return { rows: result.rows };
-  };
-  repositoryDb.transaction = pgTransaction;
-  repositoryDb.accountTransaction = async (actorUserId, queries) => {
-    const results = await pgTransaction([
-      ...accountLifecycle.buildActiveAccountGuardQueries(actorUserId),
-      ...queries,
-    ]);
-    return results.slice(2);
-  };
-
   try {
     await pool.query(
       `INSERT INTO user_knowledge_items (
@@ -1032,17 +1046,51 @@ test('Recall prepared attempts start once, require confidence, reveal idempotent
          (SELECT COUNT(*)::integer FROM user_private_card_states WHERE user_id = $1) AS state_count`,
       [userId],
     )).rows[0], { attempt_count: 0, state_count: 0 });
+
+    const accountPurgeEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      itemId,
+      1,
+      enrolledAt,
+      firstDueAt,
+    );
+    assert.equal(accountPurgeEnrollment.kind, 'enrolled');
+    assert.equal((await attempts.startOrResumeRecallAttemptForUser(userId, itemId)).kind, 'started');
+    const [accountPurgeResult] = await repositoryAdapter.transaction([
+      accountPurge.buildPrivateProductPurgeQuery(userId),
+    ]);
+    assert.equal(Number(accountPurgeResult.rows[0]?.deleted_recall_attempts), 1);
+    assert.deepEqual((await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM recall_attempts WHERE user_id = $1) AS attempts,
+         (SELECT COUNT(*)::integer FROM user_private_card_states WHERE user_id = $1) AS states,
+         (SELECT COUNT(*)::integer FROM user_knowledge_items WHERE user_id = $1) AS items,
+         (SELECT COUNT(*)::integer FROM knowledge_card_sources WHERE user_id = $1) AS sources,
+         (SELECT COUNT(*)::integer FROM knowledge_card_drafts WHERE user_id = $1) AS drafts,
+         (SELECT COUNT(*)::integer FROM knowledge_ingestion_batches WHERE user_id = $1) AS batches,
+         (SELECT COUNT(*)::integer FROM knowledge_ingestion_request_tombstones WHERE user_id = $1) AS tombstones`,
+      [userId],
+    )).rows[0], {
+      attempts: 0,
+      states: 0,
+      items: 0,
+      sources: 0,
+      drafts: 0,
+      batches: 0,
+      tombstones: 0,
+    });
     bodyCompleted = true;
   } finally {
     const cleanupFailures = [];
-    repositoryDb.query = originalDbMethods.query;
-    repositoryDb.transaction = originalDbMethods.transaction;
-    repositoryDb.accountTransaction = originalDbMethods.accountTransaction;
+    repositoryAdapter.restore();
     await collectCleanupFailure(cleanupFailures, 'delete prepared attempt knowledge item', () => (
       pool.query('DELETE FROM user_knowledge_items WHERE id = $1 AND user_id = $2', [itemId, userId])
     ));
     await collectCleanupFailure(cleanupFailures, 'delete prepared attempt ingestion batch', () => (
       pool.query('DELETE FROM knowledge_ingestion_batches WHERE id = $1 AND user_id = $2', [batchId, userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete prepared attempt tombstones', () => (
+      pool.query('DELETE FROM knowledge_ingestion_request_tombstones WHERE user_id = $1', [userId])
     ));
     await collectCleanupFailure(cleanupFailures, 'verify prepared attempt fixture removal', async () => {
       const remaining = (await pool.query(
@@ -1053,8 +1101,9 @@ test('Recall prepared attempts start once, require confidence, reveal idempotent
            EXISTS (SELECT 1 FROM knowledge_item_revisions WHERE id = $2) AS revision_exists,
            EXISTS (SELECT 1 FROM knowledge_card_sources WHERE id = $3) AS source_exists,
            EXISTS (SELECT 1 FROM knowledge_card_drafts WHERE id = $4) AS draft_exists,
-           EXISTS (SELECT 1 FROM knowledge_ingestion_batches WHERE id = $5) AS batch_exists`,
-        [itemId, revisionId, sourceId, draftId, batchId],
+           EXISTS (SELECT 1 FROM knowledge_ingestion_batches WHERE id = $5) AS batch_exists,
+           EXISTS (SELECT 1 FROM knowledge_ingestion_request_tombstones WHERE user_id = $6) AS tombstone_exists`,
+        [itemId, revisionId, sourceId, draftId, batchId, userId],
       )).rows[0];
       assert.deepEqual(remaining, {
         item_exists: false,
@@ -1064,6 +1113,7 @@ test('Recall prepared attempts start once, require confidence, reveal idempotent
         source_exists: false,
         draft_exists: false,
         batch_exists: false,
+        tombstone_exists: false,
       });
     });
     await collectCleanupFailure(cleanupFailures, 'close prepared attempt database pool', () => pool.end());
@@ -1078,6 +1128,7 @@ test('Private Practice executes Recall-compatible due, rating, removal, and rese
   const importedPractice = await import('../src/lib/private-practice-cards.ts');
   const practice = importedPractice.default ?? importedPractice;
   const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
   const userId = `live-practice-owner-${crypto.randomUUID()}`;
   const itemIds = {
     plain: `live-practice-plain-${crypto.randomUUID()}`,
@@ -1204,6 +1255,7 @@ test('Private Practice executes Recall-compatible due, rating, removal, and rese
     bodyCompleted = true;
   } finally {
     const cleanupFailures = [];
+    repositoryAdapter.restore();
     await collectCleanupFailure(cleanupFailures, 'delete private Practice fixtures', () => (
       pool.query('DELETE FROM user_knowledge_items WHERE user_id = $1', [userId])
     ));
