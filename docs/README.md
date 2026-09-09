@@ -22,7 +22,7 @@ This folder contains technical documentation for the Personal STEM Brain project
 - [Billing V1 Operations](./operations/billing.md)
 - [Data Model](./reference/data-model.md)
 - [Development & Operations](./operations/development.md)
-- [Shareable Codex Plugin](./operations/codex-plugin.md)
+- [Shareable Codex and Claude Code Plugins](./operations/codex-plugin.md)
 - [Recall Ping Seven-Day Pilot](./operations/recall-ping-pilot.md)
 - [Resource Planning](./operations/resource-planning.md)
 - [Admin Operations](./operations/admin.md)

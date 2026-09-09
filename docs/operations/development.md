@@ -55,8 +55,9 @@ pnpm --filter @stem-brain/web build
 and type checks for the web and mobile apps plus type checks for shared
 workspace packages. `pnpm check:docs` validates local Markdown links and the
 minimum feature-spec structure described in `specs/README.md`.
-`pnpm check:plugin` verifies the public Codex marketplace metadata and requires
-the packaged plugin skills to match their project-local source copies exactly.
+`pnpm check:plugin` verifies the public Codex and Claude Code marketplace
+metadata, keeps their plugin identity metadata synchronized, and requires the
+packaged plugin skills to match their project-local source copies exactly.
 
 On a clean checkout, reproduce the CI quality gate with:
 

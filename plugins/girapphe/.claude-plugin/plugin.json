@@ -1,0 +1,17 @@
+{
+  "name": "girapphe",
+  "version": "0.2.0",
+  "description": "Repository-aware workflows for maintaining, validating, and releasing Girapphe.",
+  "author": {
+    "name": "OkYongChoi",
+    "url": "https://github.com/OkYongChoi"
+  },
+  "homepage": "https://github.com/OkYongChoi/girapphe",
+  "repository": "https://github.com/OkYongChoi/girapphe",
+  "keywords": [
+    "girapphe",
+    "knowledge-graph",
+    "release",
+    "validation"
+  ]
+}

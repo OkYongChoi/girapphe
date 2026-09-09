@@ -30,6 +30,32 @@ const pluginFields = new Set([
   'keywords',
 ]);
 const authorFields = new Set(['name', 'email', 'url']);
+const claudePluginFields = new Set([
+  'name',
+  'version',
+  'description',
+  'author',
+  'homepage',
+  'repository',
+  'license',
+  'keywords',
+]);
+const claudeMarketplaceFields = new Set(['name', 'owner', 'metadata', 'plugins']);
+const claudeMarketplaceMetadataFields = new Set(['description', 'version', 'pluginRoot']);
+const claudeMarketplacePluginFields = new Set([
+  'name',
+  'source',
+  'description',
+  'version',
+  'author',
+  'homepage',
+  'repository',
+  'license',
+  'keywords',
+  'category',
+  'tags',
+  'strict',
+]);
 const interfaceFields = new Set([
   'displayName',
   'shortDescription',
@@ -254,6 +280,60 @@ async function validateManifestMetadata(manifest, pluginRoot) {
   }
 }
 
+function validateClaudePluginMetadata(manifest) {
+  assertObject(manifest, 'Claude plugin manifest');
+  assertAllowedFields(manifest, claudePluginFields, 'Claude plugin manifest');
+  assertNonEmptyString(manifest.name, 'Claude plugin manifest.name');
+  assert.match(manifest.name, /^[a-z0-9]+(?:-[a-z0-9]+)*$/u, 'Claude plugin manifest.name must be kebab-case');
+  assertNonEmptyString(manifest.version, 'Claude plugin manifest.version');
+  assert.match(manifest.version, strictSemver, 'Claude plugin manifest.version must be strict semver');
+  assertNonEmptyString(manifest.description, 'Claude plugin manifest.description');
+  assertObject(manifest.author, 'Claude plugin manifest.author');
+  assertAllowedFields(manifest.author, authorFields, 'Claude plugin manifest.author');
+  assertNonEmptyString(manifest.author.name, 'Claude plugin manifest.author.name');
+  assertOptionalNonEmptyString(manifest.author.email, 'Claude plugin manifest.author.email');
+  assertOptionalHttpsUrl(manifest.author.url, 'Claude plugin manifest.author.url');
+  assertOptionalHttpsUrl(manifest.homepage, 'Claude plugin manifest.homepage');
+  assertOptionalHttpsUrl(manifest.repository, 'Claude plugin manifest.repository');
+  assertOptionalNonEmptyString(manifest.license, 'Claude plugin manifest.license');
+  if (manifest.keywords !== undefined) assertStringArray(manifest.keywords, 'Claude plugin manifest.keywords');
+}
+
+function validateClaudeMarketplace(marketplace, manifest) {
+  assertObject(marketplace, 'Claude marketplace');
+  assertAllowedFields(marketplace, claudeMarketplaceFields, 'Claude marketplace');
+  assert.equal(marketplace.name, 'girapphe');
+
+  assertObject(marketplace.owner, 'Claude marketplace.owner');
+  assertAllowedFields(marketplace.owner, authorFields, 'Claude marketplace.owner');
+  assertNonEmptyString(marketplace.owner.name, 'Claude marketplace.owner.name');
+
+  assertObject(marketplace.metadata, 'Claude marketplace.metadata');
+  assertAllowedFields(
+    marketplace.metadata,
+    claudeMarketplaceMetadataFields,
+    'Claude marketplace.metadata',
+  );
+  assertNonEmptyString(
+    marketplace.metadata.description,
+    'Claude marketplace.metadata.description',
+  );
+
+  assert.ok(Array.isArray(marketplace.plugins), 'Claude marketplace.plugins must be an array');
+  const entries = marketplace.plugins.filter((entry) => entry?.name === manifest.name);
+  assert.equal(entries.length, 1, 'Claude marketplace has exactly one Girapphe entry');
+  const entry = entries[0];
+  assertObject(entry, 'Claude marketplace Girapphe entry');
+  assertAllowedFields(
+    entry,
+    claudeMarketplacePluginFields,
+    'Claude marketplace Girapphe entry',
+  );
+  assert.equal(entry.source, './plugins/girapphe');
+  assert.equal(entry.version, manifest.version);
+  assert.equal(entry.description, manifest.description);
+}
+
 async function relativeFiles(root, directory = root) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
@@ -281,19 +361,23 @@ export async function validateCodexPlugin(repositoryRoot = defaultRepositoryRoot
   const sourceSkills = path.join(repositoryRoot, '.codex', 'skills');
   const pluginRoot = path.join(repositoryRoot, 'plugins', 'girapphe');
   const packagedSkills = path.join(pluginRoot, 'skills');
-  const manifest = await readJson(path.join(pluginRoot, '.codex-plugin', 'plugin.json'));
-  const marketplace = await readJson(
+  const codexManifest = await readJson(path.join(pluginRoot, '.codex-plugin', 'plugin.json'));
+  const codexMarketplace = await readJson(
     path.join(repositoryRoot, '.agents', 'plugins', 'marketplace.json'),
   );
+  const claudeManifest = await readJson(path.join(pluginRoot, '.claude-plugin', 'plugin.json'));
+  const claudeMarketplace = await readJson(
+    path.join(repositoryRoot, '.claude-plugin', 'marketplace.json'),
+  );
 
-  await validateManifestMetadata(manifest, pluginRoot);
-  assert.equal(manifest.name, path.basename(pluginRoot));
-  assert.equal(manifest.skills, './skills/');
-  assert.ok(!JSON.stringify(manifest).includes('[TODO:'), 'plugin manifest has no TODO placeholders');
+  await validateManifestMetadata(codexManifest, pluginRoot);
+  assert.equal(codexManifest.name, path.basename(pluginRoot));
+  assert.equal(codexManifest.skills, './skills/');
+  assert.ok(!JSON.stringify(codexManifest).includes('[TODO:'), 'Codex plugin manifest has no TODO placeholders');
 
-  assert.equal(marketplace.name, 'girapphe');
-  const entries = marketplace.plugins.filter((entry) => entry?.name === manifest.name);
-  assert.equal(entries.length, 1, 'marketplace has exactly one Girapphe entry');
+  assert.equal(codexMarketplace.name, 'girapphe');
+  const entries = codexMarketplace.plugins.filter((entry) => entry?.name === codexManifest.name);
+  assert.equal(entries.length, 1, 'Codex marketplace has exactly one Girapphe entry');
   assert.deepEqual(entries[0].source, {
     source: 'local',
     path: './plugins/girapphe',
@@ -302,7 +386,21 @@ export async function validateCodexPlugin(repositoryRoot = defaultRepositoryRoot
     installation: 'AVAILABLE',
     authentication: 'ON_INSTALL',
   });
-  assert.equal(entries[0].category, manifest.interface.category);
+  assert.equal(entries[0].category, codexManifest.interface.category);
+
+  validateClaudePluginMetadata(claudeManifest);
+  validateClaudeMarketplace(claudeMarketplace, claudeManifest);
+  assert.equal(claudeManifest.name, path.basename(pluginRoot));
+  assert.ok(!JSON.stringify(claudeManifest).includes('[TODO:'), 'Claude plugin manifest has no TODO placeholders');
+  for (const field of ['name', 'version', 'description', 'author', 'homepage', 'repository', 'keywords']) {
+    assert.deepEqual(
+      claudeManifest[field],
+      codexManifest[field],
+      `Claude and Codex plugin manifest.${field} must match`,
+    );
+  }
+
+  await relativeFiles(pluginRoot);
 
   const sourceFiles = await relativeFiles(sourceSkills);
   const packagedFiles = await relativeFiles(packagedSkills);
@@ -327,5 +425,5 @@ export async function validateCodexPlugin(repositoryRoot = defaultRepositoryRoot
 if (process.argv[1]
   && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   await validateCodexPlugin();
-  console.log('Codex plugin packaging check passed.');
+  console.log('Codex and Claude Code plugin packaging check passed.');
 }

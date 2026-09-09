@@ -15,7 +15,9 @@ async function writeFixture(root, packagedContent = '# Skill\n') {
     mkdir(sourceSkill, { recursive: true }),
     mkdir(packagedSkill, { recursive: true }),
     mkdir(path.join(root, 'plugins', 'girapphe', '.codex-plugin'), { recursive: true }),
+    mkdir(path.join(root, 'plugins', 'girapphe', '.claude-plugin'), { recursive: true }),
     mkdir(path.join(root, '.agents', 'plugins'), { recursive: true }),
+    mkdir(path.join(root, '.claude-plugin'), { recursive: true }),
   ]);
   const skill = '---\nname: example\ndescription: Example skill.\n---\n\n# Skill\n';
   await Promise.all([
@@ -23,9 +25,12 @@ async function writeFixture(root, packagedContent = '# Skill\n') {
     writeFile(path.join(packagedSkill, 'SKILL.md'), packagedContent === '# Skill\n' ? skill : packagedContent),
     writeFile(path.join(root, 'plugins', 'girapphe', '.codex-plugin', 'plugin.json'), JSON.stringify({
       name: 'girapphe',
-      version: '0.1.0',
+      version: '0.2.0',
       description: 'Girapphe repository workflows.',
       author: { name: 'Example Maintainer', url: 'https://example.com' },
+      homepage: 'https://example.com/girapphe',
+      repository: 'https://example.com/girapphe.git',
+      keywords: ['girapphe'],
       skills: './skills/',
       interface: {
         displayName: 'Girapphe',
@@ -45,6 +50,26 @@ async function writeFixture(root, packagedContent = '# Skill\n') {
         source: { source: 'local', path: './plugins/girapphe' },
         policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
         category: 'Developer Tools',
+      }],
+    })),
+    writeFile(path.join(root, 'plugins', 'girapphe', '.claude-plugin', 'plugin.json'), JSON.stringify({
+      name: 'girapphe',
+      version: '0.2.0',
+      description: 'Girapphe repository workflows.',
+      author: { name: 'Example Maintainer', url: 'https://example.com' },
+      homepage: 'https://example.com/girapphe',
+      repository: 'https://example.com/girapphe.git',
+      keywords: ['girapphe'],
+    })),
+    writeFile(path.join(root, '.claude-plugin', 'marketplace.json'), JSON.stringify({
+      name: 'girapphe',
+      owner: { name: 'Example Maintainer' },
+      metadata: { description: 'Girapphe repository workflows.' },
+      plugins: [{
+        name: 'girapphe',
+        source: './plugins/girapphe',
+        description: 'Girapphe repository workflows.',
+        version: '0.2.0',
       }],
     })),
   ]);
@@ -70,6 +95,20 @@ async function writeFixtureSkillFile(root, relativePath, contents) {
   ]);
 }
 
+async function editClaudeManifest(root, edit) {
+  const manifestPath = path.join(root, 'plugins', 'girapphe', '.claude-plugin', 'plugin.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  edit(manifest);
+  await writeFile(manifestPath, JSON.stringify(manifest));
+}
+
+async function editClaudeMarketplace(root, edit) {
+  const marketplacePath = path.join(root, '.claude-plugin', 'marketplace.json');
+  const marketplace = JSON.parse(await readFile(marketplacePath, 'utf8'));
+  edit(marketplace);
+  await writeFile(marketplacePath, JSON.stringify(marketplace));
+}
+
 test('accepts a marketplace-backed plugin whose packaged skills match the project skills', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'girapphe-plugin-valid-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -89,6 +128,41 @@ test('rejects stale packaged skill content', async (t) => {
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFixture(root, '# Stale skill\n');
   await assert.rejects(validateCodexPlugin(root), /packaged copy is current/u);
+});
+
+test('rejects a missing Claude plugin manifest', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'girapphe-plugin-claude-missing-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFixture(root);
+  await rm(path.join(root, 'plugins', 'girapphe', '.claude-plugin', 'plugin.json'));
+
+  await assert.rejects(validateCodexPlugin(root), /ENOENT|no such file/u);
+});
+
+test('rejects Claude and Codex plugin version drift', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'girapphe-plugin-version-drift-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFixture(root);
+  await editClaudeManifest(root, (manifest) => { manifest.version = '0.2.1'; });
+  await editClaudeMarketplace(root, (marketplace) => {
+    marketplace.plugins[0].version = '0.2.1';
+  });
+
+  await assert.rejects(
+    validateCodexPlugin(root),
+    /Claude and Codex plugin manifest\.version must match/u,
+  );
+});
+
+test('rejects a Claude marketplace source outside the packaged plugin', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'girapphe-plugin-claude-source-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFixture(root);
+  await editClaudeMarketplace(root, (marketplace) => {
+    marketplace.plugins[0].source = '../girapphe';
+  });
+
+  await assert.rejects(validateCodexPlugin(root), /\.\/plugins\/girapphe/u);
 });
 
 test('rejects missing required plugin ingestion metadata', async (t) => {

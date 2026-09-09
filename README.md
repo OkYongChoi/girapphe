@@ -41,7 +41,7 @@ This project implements an AI/CS knowledge graph MVP with:
 - Development/operations: `docs/operations/development.md`
 - Resource planning: `docs/operations/resource-planning.md`
 - Admin operations: `docs/operations/admin.md`
-- Shareable Codex plugin: `docs/operations/codex-plugin.md`
+- Shareable Codex and Claude Code plugins: `docs/operations/codex-plugin.md`
 
 ## Key Implementation Files
 
@@ -242,12 +242,12 @@ git status --short
 git push
 ```
 
-## Codex Plugin
+## Codex and Claude Code Plugins
 
-The public repository includes an installable `girapphe` Codex plugin with the
-project's graph, database, validation, and protected-release skills. See the
-[Codex plugin guide](docs/operations/codex-plugin.md) for installation and update
-commands.
+The public repository includes an installable `girapphe` plugin for Codex and
+Claude Code with the project's graph, database, validation, and
+protected-release skills. See the [agent plugin guide](docs/operations/codex-plugin.md)
+for installation and update commands.
 
 ## Auth Configuration
 
