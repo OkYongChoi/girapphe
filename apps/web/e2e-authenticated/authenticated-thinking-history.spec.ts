@@ -307,8 +307,21 @@ test("proves selected import, private evidence, portable context, dismissal, and
     buffer: Buffer.from(JSON.stringify(fixture)),
   });
   await expect(page.getByRole("heading", { name: importSummaryCopy })).toBeVisible();
-  await expect(page.getByText(selectedQuestionA, { exact: true })).toBeVisible();
-  await expect(page.getByText(unselectedMarker, { exact: true })).toBeVisible();
+  const exchangeRow = (question: string) => page.getByRole("listitem").filter({
+    has: page.getByRole("checkbox", { name: question }),
+  });
+  const selectedExchangeARow = exchangeRow(selectedQuestionA);
+  const selectedExchangeBRow = exchangeRow(selectedQuestionB);
+  const unselectedExchangeRow = exchangeRow(unselectedMarker);
+  for (const [row, question] of [
+    [selectedExchangeARow, selectedQuestionA],
+    [selectedExchangeBRow, selectedQuestionB],
+    [unselectedExchangeRow, unselectedMarker],
+  ] as const) {
+    await expect(row).toHaveCount(1);
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(question);
+  }
   await page.waitForTimeout(500);
   const privateMarkers = [
     selectedQuestionA,
@@ -336,11 +349,8 @@ test("proves selected import, private evidence, portable context, dismissal, and
     "local parsing must not create product-event rows before consent",
   ).toEqual([]);
 
-  for (const question of [selectedQuestionA, selectedQuestionB]) {
-    await page.getByText(question, { exact: true })
-      .locator("xpath=ancestor::label[1]")
-      .getByRole("checkbox")
-      .check();
+  for (const row of [selectedExchangeARow, selectedExchangeBRow]) {
+    await row.getByRole("checkbox").check();
   }
   await page.getByText(importConsentCopy, { exact: true })
     .locator("xpath=ancestor::label[1]")

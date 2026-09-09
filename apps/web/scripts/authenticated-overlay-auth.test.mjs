@@ -88,6 +88,21 @@ test('Thinking History dismissal evidence waits for rendering and tracks the exa
   assert.doesNotMatch(source, /await expect\(dismissedSignal\)\.toBeHidden/);
 });
 
+test('Thinking History local import evidence targets unique visible exchange rows', async () => {
+  const testUrl = new URL(
+    '../e2e-authenticated/authenticated-thinking-history.spec.ts',
+    import.meta.url,
+  );
+  const source = await fs.readFile(testUrl, 'utf8');
+
+  assert.match(source, /const exchangeRow = \(question: string\) => page\.getByRole\("listitem"\)\.filter\(\{/);
+  assert.match(source, /has: page\.getByRole\("checkbox", \{ name: question \}\)/);
+  assert.match(source, /await expect\(row\)\.toHaveCount\(1\)[\s\S]{0,160}await expect\(row\)\.toBeVisible\(\)[\s\S]{0,160}await expect\(row\)\.toContainText\(question\)/);
+  assert.match(source, /for \(const row of \[selectedExchangeARow, selectedExchangeBRow\]\)[\s\S]{0,100}await row\.getByRole\("checkbox"\)\.check\(\)/);
+  assert.doesNotMatch(source, /getByText\(selectedQuestionA, \{ exact: true \}\)/);
+  assert.doesNotMatch(source, /getByText\(question, \{ exact: true \}\)/);
+});
+
 test('production-compatible sign-in ticket is short lived and owner scoped', async () => {
   const calls = [];
   const ticket = await createSyntheticSignInTicket({

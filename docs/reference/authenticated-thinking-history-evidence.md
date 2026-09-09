@@ -48,6 +48,10 @@ regression remains exercised rather than hidden behind an extra state wait.
 After returning to the insights feed, the test waits for a rendered signal,
 captures that expanded card's server-owned signal identifier, and requires both
 that same card identity to disappear and the overall card count to decrease.
+The local import preview is scoped through each exchange checkbox's accessible
+name, then requires one visible list row containing the exact synthetic question;
+selection reuses that same row instead of depending on incidental text-node
+boundaries around the localized Question and Answer labels.
 
 The importer assertion is deliberately about one extracted
 `conversations.json`. It is not evidence for ZIP archives, numbered/split
