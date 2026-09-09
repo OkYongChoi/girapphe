@@ -20,6 +20,9 @@ import {
   normalizeKnowledgeOpaqueReference,
   normalizeKnowledgeSourceUrl,
 } from '@/lib/knowledge-source-url';
+import { sanitizeKnowledgeTags } from '@/lib/knowledge-tag-normalization';
+
+export { sanitizeKnowledgeTags } from '@/lib/knowledge-tag-normalization';
 
 export const MCP_DRAFT_CREATE_SCOPE = 'knowledge:drafts:create' as const;
 export const MCP_CONTEXT_READ_SCOPE = 'knowledge:context:read' as const;
@@ -659,15 +662,6 @@ function isProvider(input: string): input is KnowledgeProvider {
 
 export function isKnowledgeRelationType(input: string): input is KnowledgeRelationType {
   return (KNOWLEDGE_RELATION_TYPES as readonly string[]).includes(input);
-}
-
-export function sanitizeKnowledgeTags(tags: unknown): string[] {
-  if (!Array.isArray(tags)) return [];
-  return Array.from(new Set(tags
-    .filter((tag): tag is string => typeof tag === 'string')
-    .map((tag) => normalizeKnowledgeTopic(tag))
-    .filter((tag) => tag !== 'general')))
-    .slice(0, 12);
 }
 
 export function parseEndpointIdentifier(value: string): { kind: 'public' | 'private' | 'personal' | 'draft'; id: string } | null {

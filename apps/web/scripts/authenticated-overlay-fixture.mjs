@@ -2,12 +2,21 @@ import { createHash, randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { createClerkClient } from '@clerk/backend';
 import pg from 'pg';
+import {
+  AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
+  AUTHENTICATED_OVERLAY_EMAIL_MARKER,
+  AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX,
+  AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
+} from './authenticated-overlay-constants.mjs';
+
+export {
+  AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
+  AUTHENTICATED_OVERLAY_EMAIL_MARKER,
+  AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX,
+  AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
+} from './authenticated-overlay-constants.mjs';
 
 const { Pool } = pg;
-
-export const AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX = 'Girapphe authenticated overlay fixture';
-export const AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE = 'authenticated-overlay-e2e';
-export const AUTHENTICATED_OVERLAY_EMAIL_MARKER = '+clerk_test_girapphe_overlay_e2e';
 
 function requireValue(value, name) {
   const normalized = String(value ?? '').trim();
@@ -114,6 +123,28 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
 
   await client.query('BEGIN');
   try {
+    const draftProbeTitles = [
+      'Unsaved create draft',
+      `${AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX} %`,
+    ];
+    await client.query(
+      `DELETE FROM user_graph_nodes
+       WHERE user_id = $1
+         AND knowledge_item_id IN (
+           SELECT id
+           FROM user_knowledge_items
+           WHERE user_id = $1
+             AND (title = $2 OR title LIKE $3)
+         )`,
+      [userId, ...draftProbeTitles],
+    );
+    await client.query(
+      `DELETE FROM user_knowledge_items
+       WHERE user_id = $1
+         AND (title = $2 OR title LIKE $3)`,
+      [userId, ...draftProbeTitles],
+    );
+
     if (resetMcpAccessTokens) {
       // Keep repeated Preview evidence runs below the immutable application
       // quota without widening cleanup beyond the validated synthetic owner.
@@ -256,11 +287,23 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
           WHERE user_id = $1 AND id = $3 AND deleted_at IS NULL) AS private_edges,
          (SELECT COUNT(*)::int FROM user_graph_edges
           WHERE user_id = $1 AND id = $4 AND source_public_node_id IS NOT NULL
-            AND target_private_node_id IS NOT NULL AND deleted_at IS NULL) AS public_links`,
-      [userId, ids.nodeIds, ids.privateEdgeId, ids.publicEdgeId],
+            AND target_private_node_id IS NOT NULL AND deleted_at IS NULL) AS public_links,
+         (SELECT COUNT(*)::int FROM user_knowledge_items
+          WHERE user_id = $1 AND (title = $5 OR title LIKE $6)) AS draft_probes`,
+      [
+        userId,
+        ids.nodeIds,
+        ids.privateEdgeId,
+        ids.publicEdgeId,
+        ...draftProbeTitles,
+      ],
     );
     const counts = verification.rows[0] ?? {};
-    if (Number(counts.private_nodes) < 2 || Number(counts.private_edges) < 1) {
+    if (
+      Number(counts.private_nodes) < 2
+      || Number(counts.private_edges) < 1
+      || Number(counts.draft_probes) !== 0
+    ) {
       throw new Error('Authenticated overlay fixture verification did not find the required owner-scoped rows.');
     }
 

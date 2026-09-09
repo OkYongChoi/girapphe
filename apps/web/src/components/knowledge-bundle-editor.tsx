@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useEffect, useId, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   createEmptyKnowledgeBundleContent,
   createKnowledgeBundleContentFromLegacy,
@@ -34,6 +34,7 @@ type KnowledgeBundleEditorProps = {
   defaultContent?: KnowledgeBundleContent | null;
   legacyContent?: string | null;
   allowQuickNote?: boolean;
+  resetOnFormReset?: boolean;
 };
 
 const fieldClass = 'min-h-11 w-full min-w-0 max-w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400';
@@ -191,6 +192,7 @@ export default function KnowledgeBundleEditor({
   defaultContent = null,
   legacyContent = '',
   allowQuickNote = true,
+  resetOnFormReset = false,
 }: KnowledgeBundleEditorProps) {
   const { t } = useI18n();
   const [hydrated, setHydrated] = useState(false);
@@ -200,12 +202,29 @@ export default function KnowledgeBundleEditor({
     defaultType ? defaultContent ?? createEmptyKnowledgeBundleContent(defaultType) : null,
   );
   const [previewOpen, setPreviewOpen] = useState(false);
+  const rootRef = useRef<HTMLFieldSetElement>(null);
   const previewId = useId();
   const serialized = useMemo(() => content ? JSON.stringify(content) : '', [content]);
   const deferredQuestion = useDeferredValue(question);
   const deferredContent = useDeferredValue(content);
 
   useEffect(() => setHydrated(true), []);
+
+  useEffect(() => {
+    if (!resetOnFormReset) return;
+    const form = rootRef.current?.closest('form');
+    if (!form) return;
+    const reset = () => {
+      setType(defaultType);
+      setQuestion(defaultQuestion ?? '');
+      setContent(defaultType
+        ? defaultContent ?? createEmptyKnowledgeBundleContent(defaultType)
+        : null);
+      setPreviewOpen(false);
+    };
+    form.addEventListener('reset', reset);
+    return () => form.removeEventListener('reset', reset);
+  }, [defaultContent, defaultQuestion, defaultType, resetOnFormReset]);
 
   function chooseType(next: string) {
     setPreviewOpen(false);
@@ -222,7 +241,7 @@ export default function KnowledgeBundleEditor({
   function updateContent(next: KnowledgeBundleContent) { setContent(next); }
 
   return (
-    <fieldset aria-busy={!hydrated} className="min-w-0 max-w-full rounded-xl border border-blue-100 bg-blue-50/40 p-3 md:col-span-2">
+    <fieldset ref={rootRef} aria-busy={!hydrated} className="min-w-0 max-w-full rounded-xl border border-blue-100 bg-blue-50/40 p-3 md:col-span-2">
       <legend className="px-1 text-xs font-bold uppercase tracking-wide text-blue-800">{t('bundle.editorTitle')}</legend>
       <div className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-3">
       <input type="hidden" name="bundle_mode_present" value="1" />
