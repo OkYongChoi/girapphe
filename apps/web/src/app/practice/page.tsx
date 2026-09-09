@@ -7,6 +7,8 @@ import { GUEST_PRACTICE_CARD_LIMIT } from '@/lib/guest';
 import { hasAdFreeEntitlement } from '@/lib/billing/database';
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
+import { hasActiveRecallScheduleForUser } from '@/lib/recall-runtime';
+import { isRecallRuntimeEnrollmentEnabledForUser } from '@/lib/recall-runtime-rollout';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,11 +18,16 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
   const searchParams = await props.searchParams;
   const mode = searchParams?.mode === 'review' ? 'review' : 'new';
   const adsenseConsentReady = process.env.NEXT_PUBLIC_ADSENSE_CONSENT_READY === 'true';
+  const recallEnrollmentEnabled = !actor.isGuest
+    && isRecallRuntimeEnrollmentEnabledForUser(actor.id);
 
-  const [initialCard, stats, isAdFree] = await Promise.all([
+  const [initialCard, stats, isAdFree, hasActiveRecall] = await Promise.all([
     getNextCard(mode, undefined, locale),
     getUserStats(),
     hasAdFreeEntitlement(actor.isGuest ? null : actor.id),
+    actor.isGuest || recallEnrollmentEnabled
+      ? Promise.resolve(false)
+      : hasActiveRecallScheduleForUser(actor.id),
   ]);
 
   return (
@@ -36,6 +43,19 @@ export default async function PracticePage(props: { searchParams: Promise<{ [key
             <p className="text-sm text-gray-600">{t('practice.subtitle')}</p>
           </div>
         </div>
+
+        {recallEnrollmentEnabled || hasActiveRecall ? (
+          <aside className="mb-5 rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-cyan-950">
+            <h2 className="font-black">{t('recall.title')}</h2>
+            <p className="mt-1 text-sm leading-relaxed">{t('recall.subtitle')}</p>
+            <LocalizedLink
+              href="/recall"
+              className="mt-3 inline-flex min-h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-bold text-white hover:bg-cyan-800 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2"
+            >
+              {t('recall.openReview')}
+            </LocalizedLink>
+          </aside>
+        ) : null}
 
         {/* Mode Toggle */}
         <nav

@@ -8,10 +8,12 @@ import {
   buildAuthenticatedMcpProviderSummary,
   buildAuthenticatedMobileApiSummary,
   buildAuthenticatedOverlaySummary,
+  buildAuthenticatedRecallSummary,
   buildAuthenticatedThinkingHistorySummary,
   renderAuthenticatedMcpProviderSummary,
   renderAuthenticatedMobileApiSummary,
   renderAuthenticatedOverlaySummary,
+  renderAuthenticatedRecallSummary,
   renderAuthenticatedThinkingHistorySummary,
   summarizeAuthenticatedOverlayResults,
 } from './summarize-authenticated-overlay-results.mjs';
@@ -376,6 +378,72 @@ test('authenticated result loader fails closed when Preview PAT artifacts are ab
   );
 });
 
+test('authenticated summary links Recall render, action, database, and browser evidence', () => {
+  const metric = (project, routeReadyMs) => ({
+    project,
+    syntheticOwnerAllowlisted: true,
+    rendered: {
+      privateQuestionVisible: true,
+      preRevealAnswerHidden: true,
+      localDraftAbsentFromActions: true,
+      localDraftVisibleAfterReveal: true,
+      postRevealAnswerVisible: true,
+      completionVisible: true,
+    },
+    routeStatus: 200,
+    routeReadyMs,
+    routeHtmlBytes: 4_096,
+    serverActionRequestCount: 4,
+    actionFlow: [
+      { stage: 'start', status: 200 },
+      { stage: 'confidence', status: 200 },
+      { stage: 'reveal', status: 200 },
+      { stage: 'complete', status: 200 },
+    ],
+    actionResponseHeadersTotalMs: 400,
+    actionDecodedBytesTotal: 8_192,
+    actionTransferredBytesTotal: 4_096,
+    persisted: {
+      attemptCount: 1,
+      attemptLifecycleState: 'completed',
+      confidence: 'high',
+      outcome: 'remembered',
+      hintUsed: false,
+      scheduleState: 'd7_pending',
+      scheduleVersion: 2,
+      practiceStatus: 'known',
+      dueMatchesAttempt: true,
+    },
+    browserErrorCount: 0,
+    durationMs: routeReadyMs + 1_000,
+    screenshots: ['pre.png', 'post.png', 'complete.png'],
+  });
+  const summary = buildAuthenticatedRecallSummary([
+    metric('authenticated-desktop', 700),
+    metric('authenticated-mobile', 900),
+  ]);
+
+  assert.equal(summary.projects['authenticated-desktop'].preRevealAnswerHiddenEveryRun, true);
+  assert.equal(summary.projects['authenticated-desktop'].localDraftAbsentFromActionsEveryRun, true);
+  assert.equal(summary.projects['authenticated-mobile'].completedDbStateEveryRun, true);
+  assert.deepEqual(summary.projects['authenticated-desktop'].serverActionRequests, {
+    median: 4,
+    worst: 4,
+  });
+  assert.deepEqual(summary.projects['authenticated-desktop'].actionFlows, [
+    'start:200 -> confidence:200 -> reveal:200 -> complete:200',
+  ]);
+  const markdown = renderAuthenticatedRecallSummary(summary);
+  assert.match(markdown, /hidden -> revealed -> complete/);
+  assert.match(markdown, /start:200 -> confidence:200 -> reveal:200 -> complete:200/);
+  assert.match(markdown, /completed; D\+7; due matched/);
+  assert.match(markdown, /owner-and-ID-scoped Preview evidence/);
+
+  const gated = renderAuthenticatedRecallSummary(null);
+  assert.match(gated, /production-default-off/);
+  assert.match(gated, /allowlisted Preview synthetic owner/);
+});
+
 test('authenticated result loader merges private-path metrics into persisted summaries', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'girapphe-auth-summary-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -384,6 +452,7 @@ test('authenticated result loader merges private-path metrics into persisted sum
     fs.mkdir(path.join(root, 'thinking-history'), { recursive: true }),
     fs.mkdir(path.join(root, 'mobile-api'), { recursive: true }),
     fs.mkdir(path.join(root, 'mcp-provider-setup'), { recursive: true }),
+    fs.mkdir(path.join(root, 'recall'), { recursive: true }),
   ]);
   await Promise.all([
     fs.writeFile(path.join(root, 'metrics', 'desktop-1.json'), JSON.stringify({
@@ -432,6 +501,45 @@ test('authenticated result loader merges private-path metrics into persisted sum
       path.join(root, 'mcp-provider-setup', 'authenticated-desktop.json'),
       JSON.stringify(successfulMcpNormalMetric),
     ),
+    fs.writeFile(path.join(root, 'recall', 'authenticated-desktop.json'), JSON.stringify({
+      project: 'authenticated-desktop',
+      syntheticOwnerAllowlisted: true,
+      rendered: {
+        privateQuestionVisible: true,
+        preRevealAnswerHidden: true,
+        localDraftAbsentFromActions: true,
+        localDraftVisibleAfterReveal: true,
+        postRevealAnswerVisible: true,
+        completionVisible: true,
+      },
+      routeStatus: 200,
+      routeReadyMs: 700,
+      routeHtmlBytes: 4_096,
+      serverActionRequestCount: 4,
+      actionFlow: [
+        { stage: 'start', status: 200 },
+        { stage: 'confidence', status: 200 },
+        { stage: 'reveal', status: 200 },
+        { stage: 'complete', status: 200 },
+      ],
+      actionResponseHeadersTotalMs: 400,
+      actionDecodedBytesTotal: 8_192,
+      actionTransferredBytesTotal: 4_096,
+      persisted: {
+        attemptCount: 1,
+        attemptLifecycleState: 'completed',
+        confidence: 'high',
+        outcome: 'remembered',
+        hintUsed: false,
+        scheduleState: 'd7_pending',
+        scheduleVersion: 2,
+        practiceStatus: 'known',
+        dueMatchesAttempt: true,
+      },
+      browserErrorCount: 0,
+      durationMs: 1_700,
+      screenshots: ['pre.png', 'post.png', 'complete.png'],
+    })),
   ]);
 
   const { summary, markdown } = await summarizeAuthenticatedOverlayResults(root);
@@ -445,9 +553,13 @@ test('authenticated result loader merges private-path metrics into persisted sum
   assert.match(markdown, /Mobile API deployed path/);
   assert.equal(summary.mcpProvider.normalUiRevocationPassed, true);
   assert.match(markdown, /MCP provider PAT closeout/);
+  assert.equal(summary.recall.projects['authenticated-desktop'].completedDbStateEveryRun, true);
+  assert.match(markdown, /Recall private review path/);
+  assert.match(markdown, /hidden -> revealed -> complete/);
   const persisted = JSON.parse(await fs.readFile(path.join(root, 'summary.json'), 'utf8'));
   assert.equal(persisted.thinkingHistory.runs.length, 1);
   assert.equal(persisted.mobileApi.runs.length, 1);
   assert.equal(persisted.mcpProvider.patMutationRuns, 1);
+  assert.equal(persisted.recall.runs.length, 1);
   assert.equal(await fs.readFile(path.join(root, 'summary.md'), 'utf8'), markdown);
 });

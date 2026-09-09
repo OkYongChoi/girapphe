@@ -662,11 +662,13 @@ test('cancellation deletes an unassessed row and clears only Recall fields for a
       ? [
           { rows: [] },
           { rows: [] },
+          { rows: [] },
           { rows: [{ knowledge_item_id: ITEM_ID, retained_practice: true }] },
           { rows: [] },
         ] as never
       : [
           { rows: [] },
+          { rows: [{ id: 'active-attempt' }] },
           { rows: [{ knowledge_item_id: ITEM_ID, retained_practice: false }] },
           { rows: [] },
           { rows: [] },
@@ -680,18 +682,26 @@ test('cancellation deletes an unassessed row and clears only Recall fields for a
   );
   assert.deepEqual(deleted, { kind: 'cancelled', retainedPractice: false });
   assert.match(queries[0]!.text, /pg_advisory_xact_lock/);
-  assert.match(queries[1]!.text, /DELETE FROM user_private_card_states s/);
-  assert.match(queries[1]!.text, /s\.status IS NULL/);
-  assert.match(queries[1]!.text, /s\.last_seen IS NULL/);
+  assert.match(queries[1]!.text, /UPDATE recall_attempts a/);
+  assert.match(queries[1]!.text, /invalidation_reason = 'item_removed'/);
+  assert.match(queries[1]!.text, /a\.item_version = \$3/);
+  assert.match(queries[1]!.text, /a\.schedule_version = \$4/);
+  assert.match(queries[1]!.text, /a\.recall_enrolled_at = \$5::timestamptz/);
+  assert.match(queries[1]!.text, /EXISTS \(/);
+  assert.match(queries[1]!.text, /s\.recall_schedule_version = a\.schedule_version/);
+  assert.deepEqual(queries[1]!.params, [USER_ID, ITEM_ID, 1, 1, ENROLLED_AT]);
+  assert.match(queries[2]!.text, /DELETE FROM user_private_card_states s/);
+  assert.match(queries[2]!.text, /s\.status IS NULL/);
+  assert.match(queries[2]!.text, /s\.last_seen IS NULL/);
   assert.doesNotMatch(
-    queries[1]!.text,
+    queries[2]!.text,
     /archived_at|deleted_at|purge_at|supported_item_version|knowledge_item_supersessions/,
   );
-  assert.doesNotMatch(queries[1]!.text, /s\.recall_item_version = i\.version/);
-  assert.match(queries[1]!.text, /s\.recall_item_version = \$3/);
-  assert.match(queries[1]!.text, /s\.recall_schedule_version = \$4/);
-  assert.match(queries[1]!.text, /s\.recall_enrolled_at = \$5::timestamptz/);
-  assert.deepEqual(queries[1]!.params, [USER_ID, ITEM_ID, 1, 1, ENROLLED_AT]);
+  assert.doesNotMatch(queries[2]!.text, /s\.recall_item_version = i\.version/);
+  assert.match(queries[2]!.text, /s\.recall_item_version = \$3/);
+  assert.match(queries[2]!.text, /s\.recall_schedule_version = \$4/);
+  assert.match(queries[2]!.text, /s\.recall_enrolled_at = \$5::timestamptz/);
+  assert.deepEqual(queries[2]!.params, [USER_ID, ITEM_ID, 1, 1, ENROLLED_AT]);
 
   assessed = true;
   const cleared = await cancelRecallScheduleForItem(
@@ -700,7 +710,7 @@ test('cancellation deletes an unassessed row and clears only Recall fields for a
     cancellationExpectation(),
   );
   assert.deepEqual(cleared, { kind: 'cancelled', retainedPractice: true });
-  const clearSql = queries[2]!.text;
+  const clearSql = queries[3]!.text;
   assert.match(clearSql, /SET recall_enrolled_at = NULL/);
   assert.match(clearSql, /recall_schedule_version = NULL/);
   const setClause = clearSql.slice(clearSql.indexOf('SET'), clearSql.indexOf('FROM user_knowledge_items'));
@@ -717,7 +727,7 @@ test('cancellation deletes an unassessed row and clears only Recall fields for a
   assert.match(clearSql, /s\.recall_item_version = \$3/);
   assert.match(clearSql, /s\.recall_schedule_version = \$4/);
   assert.match(clearSql, /s\.recall_enrolled_at = \$5::timestamptz/);
-  assert.deepEqual(queries[2]!.params, [USER_ID, ITEM_ID, 1, 1, ENROLLED_AT]);
+  assert.deepEqual(queries[3]!.params, [USER_ID, ITEM_ID, 1, 1, ENROLLED_AT]);
 });
 
 test('cancellation stays owner-scoped and rejects stale versions or enrollment generations', async (context) => {
@@ -740,12 +750,14 @@ test('cancellation stays owner-scoped and rejects stale versions or enrollment g
           { rows: [] },
           { rows: [] },
           { rows: [] },
+          { rows: [] },
           { rows: [{
             owner_item_id: ITEM_ID,
             ...scheduleRow(conflictSchedule),
           }] },
         ] as never
       : [
+          { rows: [] },
           { rows: [] },
           { rows: [] },
           { rows: [] },
@@ -757,7 +769,7 @@ test('cancellation stays owner-scoped and rejects stale versions or enrollment g
   const replay = await cancelRecallScheduleForItem(USER_ID, ITEM_ID, expected);
   assert.deepEqual(replay, { kind: 'unchanged', retainedPractice: false });
 
-  const ownerProbeSql = queries[3]!.text;
+  const ownerProbeSql = queries[4]!.text;
   assert.match(ownerProbeSql, /i\.user_id = \$1/);
   assert.match(ownerProbeSql, /s\.knowledge_item_id,/);
   assert.doesNotMatch(ownerProbeSql, /state_row_item_id/);

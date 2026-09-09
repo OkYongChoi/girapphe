@@ -222,6 +222,7 @@ function revalidateResolvedKnowledge(batchId?: string, topic?: string) {
   revalidatePath('/topics');
   revalidatePath('/topics/[topic]', 'page');
   if (topic) revalidatePath(`/topics/${encodeURIComponent(topic)}`);
+  revalidatePath('/recall');
 }
 
 function readBundleFormData(formData: FormData): KnowledgeBundleFields | null {

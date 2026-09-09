@@ -297,6 +297,56 @@ export function renderAuthenticatedMcpProviderSummary(summary) {
   ].join('\n');
 }
 
+export function buildAuthenticatedRecallSummary(metrics) {
+  const byProject = Map.groupBy(metrics, (metric) => metric.project);
+  const projects = Object.fromEntries([...byProject.entries()].map(([project, rows]) => {
+    const transferred = rows
+      .map((row) => row.actionTransferredBytesTotal)
+      .filter((value) => Number.isFinite(value));
+    return [project, {
+      runs: rows.length,
+      routeStatuses: [...new Set(rows.map((row) => row.routeStatus))],
+      routeReadyMs: summarize(rows.map((row) => row.routeReadyMs)),
+      routeHtmlBytes: summarize(rows.map((row) => row.routeHtmlBytes)),
+      serverActionRequests: summarize(rows.map((row) => row.serverActionRequestCount)),
+      actionFlows: [...new Set(rows.map((row) => (
+        row.actionFlow.map((action) => `${action.stage}:${action.status}`).join(' -> ')
+      )))],
+      actionResponseHeadersTotalMs: summarize(
+        rows.map((row) => row.actionResponseHeadersTotalMs),
+      ),
+      actionDecodedBytesTotal: summarize(rows.map((row) => row.actionDecodedBytesTotal)),
+      actionTransferredBytesTotal: transferred.length > 0 ? summarize(transferred) : null,
+      syntheticOwnerAllowlistedEveryRun: rows.every((row) => row.syntheticOwnerAllowlisted),
+      privateQuestionVisibleEveryRun: rows.every((row) => row.rendered.privateQuestionVisible),
+      preRevealAnswerHiddenEveryRun: rows.every((row) => row.rendered.preRevealAnswerHidden),
+      localDraftAbsentFromActionsEveryRun: rows.every(
+        (row) => row.rendered.localDraftAbsentFromActions,
+      ),
+      localDraftVisibleAfterRevealEveryRun: rows.every(
+        (row) => row.rendered.localDraftVisibleAfterReveal,
+      ),
+      postRevealAnswerVisibleEveryRun: rows.every((row) => row.rendered.postRevealAnswerVisible),
+      completionVisibleEveryRun: rows.every((row) => row.rendered.completionVisible),
+      completedDbStateEveryRun: rows.every((row) => (
+        row.persisted.attemptCount === 1
+        && row.persisted.attemptLifecycleState === 'completed'
+        && row.persisted.confidence === 'high'
+        && row.persisted.outcome === 'remembered'
+        && row.persisted.hintUsed === false
+        && row.persisted.scheduleState === 'd7_pending'
+        && row.persisted.scheduleVersion === 2
+        && row.persisted.practiceStatus === 'known'
+        && row.persisted.dueMatchesAttempt === true
+      )),
+      browserErrorCount: rows.reduce((total, row) => total + row.browserErrorCount, 0),
+      durationMs: summarize(rows.map((row) => row.durationMs)),
+      screenshotMinimum: Math.min(...rows.map((row) => row.screenshots.length)),
+    }];
+  }));
+  return { projects, runs: metrics };
+}
+
 export function renderAuthenticatedThinkingHistorySummary(summary) {
   if (!summary) {
     return [
@@ -345,11 +395,48 @@ export function renderAuthenticatedMobileApiSummary(summary) {
   ].join('\n');
 }
 
+export function renderAuthenticatedRecallSummary(summary) {
+  if (!summary) {
+    return [
+      '## Recall private review path',
+      '',
+      'Not enabled for this run. Recall enrollment stays production-default-off; rendered evidence requires the allowlisted Preview synthetic owner.',
+      '',
+    ].join('\n');
+  }
+
+  return [
+    '## Recall private review path',
+    '',
+    '| Project | Runs | Route status; ready median / worst; HTML bytes | Server Action requests median / worst; status flow | Action headers total median / worst | Decoded median / worst | Transfer median / worst | Privacy/render gates | Persisted completion | Browser errors | Total duration median / worst | Screenshots minimum |',
+    '| --- | ---: | --- | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |',
+    ...Object.entries(summary.projects).map(([project, value]) => {
+      const transfer = value.actionTransferredBytesTotal
+        ? `${formatBytes(value.actionTransferredBytesTotal.median)} / ${formatBytes(value.actionTransferredBytesTotal.worst)}`
+        : 'n/a';
+      const renderGates = value.syntheticOwnerAllowlistedEveryRun
+        && value.privateQuestionVisibleEveryRun
+        && value.preRevealAnswerHiddenEveryRun
+        && value.localDraftAbsentFromActionsEveryRun
+        && value.localDraftVisibleAfterRevealEveryRun
+        && value.postRevealAnswerVisibleEveryRun
+        && value.completionVisibleEveryRun
+        ? 'allowlisted; draft not sent; hidden -> revealed -> complete'
+        : 'failed';
+      return `| ${project} | ${value.runs} | ${value.routeStatuses.join(', ')}; ${value.routeReadyMs.median} ms / ${value.routeReadyMs.worst} ms; ${formatBytes(value.routeHtmlBytes.median)} / ${formatBytes(value.routeHtmlBytes.worst)} | ${value.serverActionRequests.median} / ${value.serverActionRequests.worst}; ${value.actionFlows.join(', ')} | ${value.actionResponseHeadersTotalMs.median} ms / ${value.actionResponseHeadersTotalMs.worst} ms | ${formatBytes(value.actionDecodedBytesTotal.median)} / ${formatBytes(value.actionDecodedBytesTotal.worst)} | ${transfer} | ${renderGates} | ${value.completedDbStateEveryRun ? 'completed; D+7; due matched' : 'failed'} | ${value.browserErrorCount} | ${value.durationMs.median} ms / ${value.durationMs.worst} ms | ${value.screenshotMinimum} |`;
+    }),
+    '',
+    'Synthetic owner-and-ID-scoped Preview evidence. Four explicit Server Actions must remain 200, the browser-local draft must be absent from every request, and cleanup removes only this deterministic Recall fixture after each device run.',
+    '',
+  ].join('\n');
+}
+
 export function renderAuthenticatedOverlaySummary(
   summary,
   thinkingHistory = null,
   mobileApi = null,
   mcpProvider = null,
+  recall = null,
 ) {
   const projectEntries = Object.entries(summary.projects);
   const overlay = projectEntries.length === 0
@@ -374,7 +461,7 @@ export function renderAuthenticatedOverlaySummary(
       'Synthetic Playwright measurements. Overlay timing ends at response headers, and byte counts include data received through canvas display so streaming RSC responses do not block the evidence run. These are not production user telemetry.',
       '',
     ].join('\n');
-  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}\n${renderAuthenticatedMobileApiSummary(mobileApi)}\n${renderAuthenticatedMcpProviderSummary(mcpProvider)}`;
+  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}\n${renderAuthenticatedMobileApiSummary(mobileApi)}\n${renderAuthenticatedMcpProviderSummary(mcpProvider)}\n${renderAuthenticatedRecallSummary(recall)}`;
 }
 
 export async function summarizeAuthenticatedOverlayResults(
@@ -418,6 +505,15 @@ export async function summarizeAuthenticatedOverlayResults(
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error;
   }
+  const recallDirectory = path.join(resultsDirectory, 'recall');
+  let recallNames = [];
+  try {
+    recallNames = (await fs.readdir(recallDirectory))
+      .filter((name) => name.endsWith('.json'))
+      .sort();
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
   const mobileApiMetrics = await Promise.all(mobileApiNames.map(async (name) => (
     JSON.parse(await fs.readFile(path.join(mobileApiDirectory, name), 'utf8'))
   )));
@@ -440,11 +536,18 @@ export async function summarizeAuthenticatedOverlayResults(
   const mcpProvider = mcpProviderMetrics.length > 0
     ? buildAuthenticatedMcpProviderSummary(mcpProviderMetrics)
     : null;
+  const recallMetrics = await Promise.all(recallNames.map(async (name) => (
+    JSON.parse(await fs.readFile(path.join(recallDirectory, name), 'utf8'))
+  )));
+  const recall = recallMetrics.length > 0
+    ? buildAuthenticatedRecallSummary(recallMetrics)
+    : null;
   if (
     metrics.length === 0
     && thinkingHistoryMetrics.length === 0
     && mobileApiMetrics.length === 0
     && mcpProviderMetrics.length === 0
+    && recallMetrics.length === 0
   ) {
     throw new Error(`No authenticated evidence metrics found at ${resultsDirectory}.`);
   }
@@ -456,12 +559,14 @@ export async function summarizeAuthenticatedOverlayResults(
     thinkingHistory,
     mobileApi,
     mcpProvider,
+    recall,
   };
   const markdown = renderAuthenticatedOverlaySummary(
     summary,
     thinkingHistory,
     mobileApi,
     mcpProvider,
+    recall,
   );
 
   await fs.mkdir(resultsDirectory, { recursive: true });

@@ -15,6 +15,30 @@ The selected mobile direction and screen-level behavior are documented in the
 validation run is defined in the
 [seven-day pilot](../../docs/operations/recall-ping-pilot.md).
 
+### Implemented partial runtime: Manual Recall Review R1
+
+R1 deliberately exposes the already-migrated schedule and attempt lifecycle as
+an authenticated, manual web review. It does not activate notification consent,
+device registration, delivery jobs, automatic approval enrollment, memory cues,
+research collection, or mobile delivery. Production defaults to enrollment
+off; turning enrollment off later does not strand an already-enrolled user, who
+can still finish or cancel the existing owner-scoped lifecycle.
+
+| R1 criterion | Executable contract |
+| --- | --- |
+| `R1-01` | Only an explicitly selected eligible item can be enrolled. The server re-checks ownership, current revision, active lifecycle, approved current-conversation provenance, and supported type. |
+| `R1-02` | The manual route starts or resumes a due D+1/D+7 attempt; rollout controls new enrollment only. |
+| `R1-03` | On route/start, stale unresolved D+1 moves to D+7 at 168 hours and unresolved D+1/D+7 moves to ordinary Practice at 192 hours through schedule CAS. |
+| `R1-04` | Before reveal, the SQL projection, Server Action result, and DOM omit approved structured content, detailed provenance, source URL, selectors, and next interval. |
+| `R1-05` | Free-recall text remains component-local, has no form field name, and is absent from every Server Action request. Confidence is required before reveal. |
+| `R1-06` | Reveal re-checks owner, item revision, schedule generation, enrollment anchor, due window, lifecycle, and provenance before returning the current approved bundle and safe source details. |
+| `R1-07` | Completion accepts only self-assessed outcome, forces `hintUsed=false`, and derives the next due instant on the server. Cancellation uses item-version, schedule-version, and enrollment-anchor CAS and invalidates a matching active attempt in the same transaction. |
+| `R1-08` | The route and Practice entry point are localized in all six supported locales, retain logical-direction layout, and give interactive controls a 44px minimum target. |
+
+The complete `AC-01` through `AC-14` contract remains the product target. R1 is
+not evidence that the deferred notification, type-native spatial interaction,
+memory-cue, mobile, research-consent, or physical-device requirements are done.
+
 ## Scope
 
 In scope:
@@ -219,41 +243,55 @@ in a notification log, or to a different signed-in account.
 
 ## Verification
 
+Manual R1 evidence:
+
+| R1 criterion | Evidence |
+| --- | --- |
+| `R1-01` | `recall-action-input.test.ts` rejects caller identity and extra fields; `recall-persistence.test.ts` proves exact owner/version eligibility and content-free enrollment. |
+| `R1-02` | `recall-actions.ts` exposes authenticated start/resume while `recall-runtime.test.ts` proves only new enrollment is rollout-gated. |
+| `R1-03` | `recall-runtime.test.ts`, `recall-persistence.test.ts`, and `packages/shared/src/recall-schedule.test.mjs` cover the 168/192-hour rollover decisions and full-snapshot CAS. |
+| `R1-04` | `recall-runtime.test.ts` inspects the pre-reveal SQL projection and serialized result for approved-answer, source-detail, selector, URL, and next-interval absence. `authenticated-recall.spec.ts` asserts the synthetic approved definition is absent from rendered HTML before reveal and visible afterward on desktop and mobile. |
+| `R1-05` | `recall-action-input.test.ts` rejects recalled text and `recall-runtime.test.ts` proves the unnamed local textarea value is absent from all action invocations. `authenticated-recall.spec.ts` enters a unique browser-local sentence and proves it is absent from the start, confidence, reveal, and completion request bodies. |
+| `R1-06` | `recall-attempts.test.ts` and `recall-runtime.test.ts` cover reveal authorization, stale invalidation, exact current provenance, sanitized URL, and content release only after reveal. |
+| `R1-07` | `recall-attempts.test.ts`, `recall-persistence.test.ts`, and `recall-runtime.test.ts` cover server-owned due computation, forced no-hint completion, generation CAS, and transactional attempt invalidation on cancellation. The authenticated Preview spec re-reads the exact owner/item row and requires one completed, high-confidence, remembered, no-hint attempt whose resulting due instant matches the D+7 schedule. |
+| `R1-08` | `messages.test.ts` checks all six catalogs; `recall-runtime.test.ts` checks logical-direction classes and 44px controls. `authenticated-recall.spec.ts` is the desktop/mobile rendered Preview gate and records containment, zero browser errors, action timing/size metrics, and three screenshots per device. |
+
 | Criterion | Evidence |
 | --- | --- |
-| `AC-01` | `apps/web/src/lib/recall-persistence.test.ts` exercises a separate owner-scoped predicate for current-version typed items, approved current-conversation drafts/batches, matching conversation provenance, lifecycle exclusions, and content-free results. Approval/enrollment runtime wiring remains planned. |
+| `AC-01` | `apps/web/src/lib/recall-persistence.test.ts` exercises a separate owner-scoped predicate for current-version typed items, approved current-conversation drafts/batches, matching conversation provenance, lifecycle exclusions, and content-free results. Manual R1 wires explicit per-item enrollment through the same predicate; automatic approval enrollment remains planned. |
 | `AC-02` | Planned mobile settings tests cover consent-before-OS-permission, timezone selection, preview, snooze, disable, and device revocation; real-device permission denial and recovery remain rollout evidence. |
-| `AC-03` | Planned notification-contract tests recursively reject private fields in title, body, data payload, logs, and error metadata; a deep-link integration test proves auth occurs before the due-item fetch. |
-| `AC-04` | Planned web/mobile component tests and focused browser coverage prove answer/source/interval absence before confidence and reveal, including the `I don't know` path. |
+| `AC-03` | Notification payload and deep-link coverage remain planned. Manual R1 has no delivery payload and requires authentication before its owner-scoped route read. |
+| `AC-04` | `recall-runtime.test.ts` proves the pre-reveal SQL projection and response omit approved content, detailed provenance, source URL, selectors, and next interval. It also verifies the client sends no recall text and includes the `I don't know` path. Authenticated rendered-browser evidence remains a release gate. |
 | `AC-05` | Planned shared activity-builder tests cover all three bundle types and missing-field fallback; mobile accessibility tests plus VoiceOver/TalkBack inspection cover non-drag ordering and non-color meaning. |
-| `AC-06` | Migration `0022_recall_ping_persistence.sql` and ingestion tests bind every newly created conversation source to its exact immutable item revision while leaving historical sources null. Correction-view rendering and edited-after-source labeling remain planned. |
-| `AC-07` | Planned persistence tests prove free responses and ordering never enter requests, storage, analytics, or logs; memory-cue tests prove explicit save, owner scope, edit/delete, and exclusion from projections. |
-| `AC-08` | `packages/shared/src/recall-schedule.test.mjs` proves the runtime-inert 24/48/168/192-hour boundaries and transition decisions. `apps/web/src/lib/recall-persistence.test.ts`, `recall-attempts.test.ts`, and `apps/web/scripts/recall-persistence-postgres.test.mjs` prove honest projections and that completion evaluates the shared decision at one database-owned instant before one writable-CTE compare-and-swap advances the schedule, Practice projection, attempt result, and sole `due_at` together. Approval and production runtime wiring remain planned. |
+| `AC-06` | Migration `0022_recall_ping_persistence.sql` and ingestion tests bind every newly created conversation source to its exact immutable item revision while leaving historical sources null. Manual R1 reveals only an exact current-revision source, selector count, sanitized link, and `not recorded` independent-verification label. Edited-after-source history remains planned. |
+| `AC-07` | `recall-action-input.test.ts` and `recall-runtime.test.ts` prove Manual R1 free-response text has no action field and never enters its requests; the component clears that local state at session boundaries. Optional persisted memory cues and their lifecycle tests remain planned. |
+| `AC-08` | `packages/shared/src/recall-schedule.test.mjs` proves the 24/48/168/192-hour boundaries and transition decisions. `apps/web/src/lib/recall-persistence.test.ts`, `recall-attempts.test.ts`, `recall-runtime.test.ts`, and `apps/web/scripts/recall-persistence-postgres.test.mjs` cover schedule persistence, manual stale-window reconciliation, and atomic completion. R1 adds explicit older-item enrollment only; approval-time auto-enrollment remains deferred. |
 | `AC-09` | The shared schedule tests, migrations `0022` and `0024`, repository CAS tests, and `recall-persistence-postgres.test.mjs` prove one persisted `due_at`, idempotent enrollment, stale-snapshot rejection, and executable Practice due/rating SQL. `recall-attempts.test.ts` and the live PostgreSQL test prove serialized start/resume permits one active owner/item-version/milestone attempt across devices, then concurrent completion converges to `completed` plus `unchanged` for the same outcome/hint or `completed` plus `conflict` for different semantics. A completed replay remains immutable even after the schedule advances. `private-practice-cards.test.ts` and `stabilization.test.ts` prove due terminal private `known/review` selection without admitting public or guest known cards, keep future unassessed and active Recall milestones out of generic Practice, make the legacy rating path fail closed without erasing terminal D+7 metadata, and derive the review-pool count from the same due predicate. Delivery operations, daily caps, and durable snooze consumption remain planned. |
 | `AC-10` | Migration `0024` constrains the attempt table to identifiers, exact schedule binding, milestone/exercise enums, confidence, outcome, hint use, a coarse duration bucket, lifecycle timestamps, resulting due time, and retention. `recall-attempts.test.ts`, `apply-preview-schema.test.mjs`, and the live PostgreSQL test prove the completion input accepts only outcome and hint use, all returned fields remain content-free, server timestamps derive completion and duration, and completion never extends retention. The telemetry allowlist and log redaction remain planned. |
-| `AC-11` | Recall schedule repository tests re-check owner, current version, active lifecycle, supersession, and source eligibility on reads and writes; cancellation preserves an assessed Practice projection or removes an unassessed row, and its item-version/enrollment-anchor/schedule-version CAS rejects delayed cancellation from an earlier enrollment generation. `recall-attempts.test.ts` and `recall-persistence-postgres.test.mjs` prove resume, confidence, and reveal invalidate mismatched item revisions, schedule generations, lifecycle states, and provenance before returning an active session. Private Practice removal takes the Recall item lock and invalidates the active attempt before deleting its row, while all-progress reset locks every schedule/attempt item and deletes attempt history before owner rows in one account transaction; the live PostgreSQL test executes both paths against isolated synthetic rows. Disable/sign-out/token behavior remains planned. |
+| `AC-11` | Recall schedule repository tests re-check owner, current version, active lifecycle, supersession, and source eligibility on reads and writes; Manual R1 cancellation preserves an assessed Practice projection or removes an unassessed row, invalidates the exactly matching active attempt, and uses item-version/enrollment-anchor/schedule-version CAS to reject an earlier generation. `recall-attempts.test.ts` and `recall-persistence-postgres.test.mjs` prove resume, confidence, and reveal invalidate mismatched item revisions, schedule generations, lifecycle states, and provenance before returning an active session. Private Practice removal takes the Recall item lock and invalidates the active attempt before deleting its row, while all-progress reset locks every schedule/attempt item and deletes attempt history before owner rows in one account transaction; the live PostgreSQL test executes both paths against isolated synthetic rows. Disable/sign-out/token behavior remains planned. |
 | `AC-12` | `pnpm --filter @stem-brain/mobile check`, `pnpm harness`, Preview checks, and separate physical iOS/Android notification/deep-link smoke provide repository and device evidence. |
 | `AC-13` | Migration `0024`, `recall-attempts.test.ts`, the scheduled private-product purge, and account-deletion source tests prove attempt retention is capped at 365 days, all-progress reset may delete it earlier, and full account deletion removes attempts before Practice state and knowledge. No preference, device-token, delivery, standalone milestone, or cue record exists yet; provider cancellation remains a requirement for the later delivery tables. |
 | `AC-14` | Planned consent-version, decline, withdrawal, export-deletion, account-deletion propagation, and sink-allowlist tests plus a reviewed participant notice prove research and product consent remain separate. |
 
-The shared scheduling, persistence, and content-free attempt repositories are
-executable. The existing private Practice queue recognizes
-due terminal assessed Recall rows. Active milestones stay outside generic
-Practice until the prepared-session action advances them; start/resume,
+The shared scheduling, persistence, content-free attempt repositories, and
+manual web actions are executable. The existing private Practice queue
+recognizes due terminal assessed Recall rows. Active milestones stay outside
+generic Practice until the prepared-session action advances them; start/resume,
 confidence, reveal authorization, completion, stale invalidation, item removal,
-reset, retention, and account deletion now share the same item lock and schedule
-generation. Completion is still repository-only: no user-facing server action,
-approval hook, notification delivery, or visible Recall behavior calls it yet.
-The authenticated scheduled-purge route invokes only its bounded retention cleanup.
-Unchecked criteria remain end-to-end requirements, not activation claims.
+reset, retention, cancellation, and account deletion use the same owner/item
+scope and schedule generation. R1 adds no approval hook or notification
+delivery. The authenticated scheduled-purge route invokes only its bounded
+retention cleanup. Unchecked criteria remain end-to-end requirements, not
+activation claims.
 
 ## Rollout
 
-Implementation requires additive checked-in Drizzle migrations. The first
-persistence slice extends `user_private_card_states` with a content-free current
-schedule snapshot, while `user_private_card_states.due_at` remains the single
-scheduling authority. The prepared-session slice adds content-free attempt
-records with a bounded retention path. Preference, delivery, device-token,
+The additive persistence migration `0022_recall_ping_persistence.sql` and
+[0024_recall_prepared_attempts.sql](../../apps/web/drizzle/migrations/0024_recall_prepared_attempts.sql)
+already provide the content-free schedule and
+attempt records used by Manual R1; R1 adds no migration.
+`user_private_card_states.due_at` remains the single scheduling authority.
+Preference, delivery, device-token,
 standalone milestone, and optional memory-cue records remain deferred until
 their enrollment-generation, claim/lease, idempotency, and retention contracts
 are specified with the lifecycle stage that uses them.
@@ -310,16 +348,23 @@ Activation order:
 1. Land the shared scheduling contract and boundary tests with no runtime hook.
 2. Apply the additive migration to an isolated Preview database and verify that
    existing Practice states keep their current due behavior.
-3. Add the mobile notification adapter, OS permission UI, and authenticated
-   deep link behind a default-off feature flag.
+3. Keep Manual R1 enrollment production-default-off, validate its authenticated
+   route against isolated Preview data, then separately add the mobile
+   notification adapter, OS permission UI, and authenticated deep link behind a
+   default-off feature flag.
 4. Verify generic payloads, token revocation, stale versions, retries, and real
    notification taps on physical iOS and Android devices.
 5. Run the documented seven-day closed pilot before enabling a broader cohort.
 
-Rollback disables scheduling and delivery, revokes outstanding device delivery
-work, and returns users to the existing Practice entry point without deleting
-knowledge or attempt history. Additive columns/tables remain dormant until a
-separate reviewed cleanup migration is safe.
+Manual R1 rollback sets `RECALL_RUNTIME_ROLLOUT=off`, which prevents new
+enrollment while preserving completion and cancellation for existing schedules.
+A checked-in Preview deployment uses `allowlist`, populated only with the
+marker-validated authenticated E2E synthetic owner; production remains `off`
+and the production authenticated workflow does not enable the Recall spec.
+A later delivery rollback also disables scheduling/delivery, revokes outstanding
+device work, and returns users to the existing Practice entry point without
+deleting knowledge or attempt history. Additive columns/tables remain dormant
+until a separate reviewed cleanup migration is safe.
 
 Repository checks cannot prove APNs/FCM or notification-provider credentials,
 OS permission presentation, background delivery, device timezone behavior,

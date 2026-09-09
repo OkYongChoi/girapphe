@@ -87,3 +87,15 @@ Rollback sets `AI_THINKING_HISTORY_ROLLOUT=off` and redeploys. This disables new
 selected-export imports and intelligence generation only. Existing inbox
 review, approved knowledge, context packs, export, and deletion remain
 available so rollback cannot strand private user data.
+
+Manual Recall Review uses a separate `RECALL_RUNTIME_ROLLOUT` value with the
+same `off`, `allowlist`, and `all` modes. Production configuration remains
+`off` by default; Preview uses `all`. When intentionally activating an
+allowlist, store at most 500 exact Clerk user IDs in the untracked
+`RECALL_RUNTIME_USER_IDS` secret.
+
+The flag gates only discovery and new per-item enrollment. It never blocks an
+already-enrolled user's start, confidence, reveal, completion, or stop actions;
+rollback must not strand an active schedule outside the ordinary Practice
+queue. This manual slice sends no notification and adds no notification,
+preference, device, or recall-response storage.

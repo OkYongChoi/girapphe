@@ -633,10 +633,40 @@ export async function cancelRecallScheduleForItem(
   requirePositiveInteger(expected.itemVersion, 'expected.itemVersion');
   requirePositiveInteger(expected.scheduleVersion, 'expected.scheduleVersion');
   const expectedEnrolledAt = normalizeInstant(expected.enrolledAt, 'expected.enrolledAt');
-  const [, deleted, cleared, probe] = await db.accountTransaction<RecallCancellationRow>(userId, [
+  const [, , deleted, cleared, probe] = await db.accountTransaction<RecallCancellationRow>(userId, [
     {
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
       params: [recallScheduleLockKey(userId, knowledgeItemId)],
+    },
+    {
+      text: `UPDATE recall_attempts a
+      SET lifecycle_state = 'invalidated',
+          invalidated_at = NOW(),
+          invalidation_reason = 'item_removed',
+          updated_at = NOW()
+      WHERE a.user_id = $1
+        AND a.knowledge_item_id = $2
+        AND a.item_version = $3
+        AND a.schedule_version = $4
+        AND a.recall_enrolled_at = $5::timestamptz
+        AND a.lifecycle_state IN ('prepared', 'confidence_selected', 'revealed')
+        AND EXISTS (
+          SELECT 1
+          FROM user_private_card_states s
+          WHERE s.user_id = a.user_id
+            AND s.knowledge_item_id = a.knowledge_item_id
+            AND s.recall_item_version = a.item_version
+            AND s.recall_schedule_version = a.schedule_version
+            AND s.recall_enrolled_at = a.recall_enrolled_at
+        )
+      RETURNING a.id`,
+      params: [
+        userId,
+        knowledgeItemId,
+        expected.itemVersion,
+        expected.scheduleVersion,
+        expectedEnrolledAt,
+      ],
     },
     {
       text: `DELETE FROM user_private_card_states s

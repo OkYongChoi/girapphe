@@ -58,6 +58,7 @@ function revalidateKnowledgeSurfaces(batchId?: string) {
   revalidatePath('/knowledge');
   revalidatePath('/insights');
   revalidatePath('/account/delete');
+  revalidatePath('/recall');
 }
 
 export async function getKnowledgeDraftBatches(): Promise<KnowledgeDraftBatch[]> {

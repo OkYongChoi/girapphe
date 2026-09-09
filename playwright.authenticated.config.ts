@@ -46,7 +46,7 @@ export default defineConfig({
     {
       name: 'authenticated-desktop',
       testMatch:
-        /authenticated-(?:overlay-performance|settings|thinking-history|mcp-provider-setup(?:-fault)?|my-notes-tags)\.spec\.ts/,
+        /authenticated-(?:overlay-performance|settings|thinking-history|mcp-provider-setup(?:-fault)?|my-notes-tags|recall)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 900 },
@@ -57,7 +57,7 @@ export default defineConfig({
     {
       name: 'authenticated-mobile',
       testMatch:
-        /authenticated-(?:overlay-performance|settings|thinking-history|mcp-provider-setup|my-notes-tags|mobile-api)\.spec\.ts/,
+        /authenticated-(?:overlay-performance|settings|thinking-history|mcp-provider-setup|my-notes-tags|mobile-api|recall)\.spec\.ts/,
       use: {
         ...devices['Pixel 7'],
         storageState: 'playwright/.clerk/authenticated-overlay-user.json',
@@ -73,7 +73,7 @@ export default defineConfig({
         storageState: 'playwright/.clerk/authenticated-overlay-user.json',
       },
       // Logging out revokes the shared synthetic browser session, so this
-      // project must run only after every read-only authenticated check.
+      // project must run only after every authenticated check and exact-ID cleanup.
       dependencies: ['authenticated-desktop', 'authenticated-mobile'],
     },
   ],

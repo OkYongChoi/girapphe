@@ -214,6 +214,17 @@ finalization, require the exact canonical request retry to restore all four
 events, and separately prove that a new duplicate-only session cannot claim
 candidates ready.
 
+Preview evidence also exercises Manual Recall Review for the same dedicated
+synthetic owner. Each desktop and mobile run creates or resets one deterministic,
+eligible typed item and one due D+1 schedule for only that owner/item pair. The
+browser proves the approved bundle is absent before reveal,
+the local recall draft is absent from all four Server Action requests, the
+approved bundle appears after reveal, and completion persists a matching D+7
+schedule and completed attempt. Per-stage status, response-header timing,
+decoded/transfer bytes, browser errors, and pre-reveal/post-reveal/completion
+screenshots are included in the artifact summary. A `finally` cleanup removes
+only the deterministic Recall IDs owned by that synthetic account.
+
 Runtime inputs are injected temporarily; do not copy their values into tracked
 files:
 
@@ -226,6 +237,13 @@ E2E_CLERK_USER_EMAIL
 E2E_CLERK_AUTH_MODE
 PLAYWRIGHT_RUNS
 ```
+
+`E2E_RECALL_ENABLED=true` is a workflow-owned Preview gate, not a value to put
+in a production environment. `wrangler.jsonc` keeps production Recall
+enrollment off and Preview in `allowlist` mode. Before the Preview Worker is
+uploaded, the deployment workflow validates the marker-named Clerk account and
+injects only that synthetic user ID as `RECALL_RUNTIME_USER_IDS`; it never opens
+Recall enrollment to all Preview users.
 
 `E2E_CLERK_USER_EMAIL` must contain the exact
 `+clerk_test_girapphe_overlay_e2e` marker. Setup rejects an existing account
@@ -292,7 +310,9 @@ headers; the ignored storage state is never uploaded with evidence artifacts.
 Prefer the manual **Authenticated overlay performance** GitHub workflow:
 
 1. Configure `AUTHENTICATED_OVERLAY_E2E_USER_EMAIL_PREVIEW` as a repository
-   variable using the required marker.
+   variable using the required marker before the PR Preview deployment. The
+   deployment uses it to prepare the exact Recall runtime allowlist without
+   printing the Clerk user ID.
 2. After the PR Preview deploy succeeds, apply the `authenticated-performance`
    label to run the opt-in preview job from that PR, or dispatch
    `target=preview` with an open `preview_pr_number`. The workflow rejects closed
@@ -310,6 +330,8 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    mutate PATs. The mobile API mutation journey is testing-token Preview-only,
    and its summary is deployed browser evidence, not physical-device,
    accessibility, signed-binary, or store-release evidence.
+   Each device also runs one destructive-but-cleaned Recall lifecycle against
+   the deterministic synthetic fixture.
 3. Review the uploaded summary before changing performance code. Separate
    Clerk, Worker-to-Neon, private-graph, and link-target time if the result is
    slow.
@@ -320,7 +342,10 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    rejects every other ref before exposing production credentials. Desktop and
    mobile each run once against `https://www.girapphe.com`, after its health
    revision matches the checked-out `main` SHA. This sign-in-token path does not
-   reset, create, revoke, or permanently delete MCP tokens.
+   reset, create, revoke, or permanently delete MCP tokens. Recall evidence
+   remains skipped there
+   because production enrollment is default-off and has no E2E allowlist
+   activation.
 
 The deployment workflow attaches `GIRAPPHE_REVISION` atomically to each uploaded
 Worker version. Production bulk-secret synchronization intentionally excludes

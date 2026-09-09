@@ -672,6 +672,295 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
   }
 });
 
+test('Recall reconciliation acquires its full ordered item-lock batch before updating', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = databaseUrl;
+  const importedDb = await import('../src/lib/db.ts');
+  const repositoryDb = importedDb.default ?? importedDb;
+  const importedRuntime = await import('../src/lib/recall-runtime.ts');
+  const runtime = importedRuntime.default ?? importedRuntime;
+  const originalAccountTransaction = repositoryDb.accountTransaction;
+  const observerPool = new Pool({ connectionString: databaseUrl, max: 3 });
+  const reconciliationPool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const blocker = await observerPool.connect();
+  const rowProbe = await observerPool.connect();
+  const userId = `live-recall-barrier-owner-${crypto.randomUUID()}`;
+  const batchId = `live-recall-barrier-batch-${crypto.randomUUID()}`;
+  const itemIds = [
+    `live-recall-barrier-a-${crypto.randomUUID()}`,
+    `live-recall-barrier-b-${crypto.randomUUID()}`,
+  ];
+  const at = '2026-09-09T03:00:00.000Z';
+  const enrolledAt = [
+    '2026-09-01T00:00:00.000Z',
+    '2026-09-02T00:00:00.000Z',
+  ];
+  const firstDueAt = [
+    '2026-09-02T00:00:00.000Z',
+    '2026-09-03T00:00:00.000Z',
+  ];
+  let reconciliationBackendPid = null;
+  let reconciliationPromise = null;
+  let blockerTransactionOpen = false;
+  let rowProbeTransactionOpen = false;
+  let bodyCompleted = false;
+
+  // Isolate the item-lock contract under test. The ordinary account guard is
+  // intentionally omitted here because it would serialize the blocker before
+  // the reconciliation query reaches its per-item lock batch.
+  repositoryDb.accountTransaction = async (actorUserId, queries) => {
+    assert.equal(actorUserId, userId);
+    const client = await reconciliationPool.connect();
+    try {
+      await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+      // Exercise a legal row-at-a-time join plan that exposed the missing
+      // aggregate barrier in the original query.
+      await client.query('SET LOCAL enable_hashjoin = off');
+      await client.query('SET LOCAL enable_mergejoin = off');
+      reconciliationBackendPid = (await client.query(
+        'SELECT pg_backend_pid()::integer AS pid',
+      )).rows[0]?.pid ?? null;
+      const results = [];
+      for (const query of queries) {
+        const result = await client.query(query.text, query.params ?? []);
+        results.push({ rows: result.rows });
+      }
+      await client.query('COMMIT');
+      return results;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
+  try {
+    await runtime.reconcileActiveRecallSchedulesForUser(userId, at);
+    await observerPool.query(
+      `INSERT INTO knowledge_ingestion_batches (
+         id, user_id, source_type, provider, scope, request_id, status, committed_at
+       ) VALUES ($1, $2, 'conversation', 'chatgpt', 'current_conversation', $3, 'approved', NOW())`,
+      [batchId, userId, `live-recall-barrier-request-${crypto.randomUUID()}`],
+    );
+
+    for (const [index, itemId] of itemIds.entries()) {
+      const revisionId = `live-recall-barrier-revision-${crypto.randomUUID()}`;
+      const draftId = `live-recall-barrier-draft-${crypto.randomUUID()}`;
+      await observerPool.query(
+        `INSERT INTO user_knowledge_items (
+           id, user_id, title, summary, content, topic, tags, knowledge_type,
+           central_question, structured_content, bundle_schema_version, version
+         ) VALUES (
+           $1, $2, 'Recall barrier fixture', '', '', 'recall-live', '[]'::jsonb,
+           'concept', 'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1, 1
+         )`,
+        [itemId, userId],
+      );
+      await observerPool.query(
+        `INSERT INTO knowledge_item_revisions
+           (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+         VALUES ($1, $2, $3, 1, '{}'::jsonb, 'confirmed')`,
+        [revisionId, userId, itemId],
+      );
+      await observerPool.query(
+        `INSERT INTO knowledge_card_drafts (
+           id, batch_id, user_id, client_card_id, title, knowledge_type,
+           central_question, structured_content, bundle_schema_version,
+           status, knowledge_item_id, approved_at
+         ) VALUES (
+           $1, $2, $3, $4, 'Recall barrier fixture', 'concept',
+           'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1,
+           'approved', $5, NOW()
+         )`,
+        [draftId, batchId, userId, `live-recall-barrier-card-${crypto.randomUUID()}`, itemId],
+      );
+      await observerPool.query(
+        `INSERT INTO knowledge_card_sources (
+           id, user_id, knowledge_item_id, batch_id, draft_id, source_type,
+           provider, conversation_ref, supported_item_version, confirmed_at
+         ) VALUES ($1, $2, $3, $4, $5, 'conversation', 'chatgpt', $6, 1, NOW())`,
+        [
+          `live-recall-barrier-source-${crypto.randomUUID()}`,
+          userId,
+          itemId,
+          batchId,
+          draftId,
+          `conversation-${crypto.randomUUID()}`,
+        ],
+      );
+      await observerPool.query(
+        `INSERT INTO user_private_card_states (
+           user_id, knowledge_item_id, status, knowledge_state, progress_state,
+           due_at, last_seen, recall_enrolled_at, recall_item_version,
+           recall_schedule_state, recall_d1_finalized_incomplete,
+           recall_d7_outcome, recall_schedule_version
+         ) VALUES (
+           $1, $2,
+           CASE WHEN $3::integer = 0 THEN 'saved' ELSE NULL END,
+           CASE WHEN $3::integer = 0 THEN 'unknown' ELSE NULL END,
+           CASE WHEN $3::integer = 0 THEN 'learning' ELSE NULL END,
+           $4, CASE WHEN $3::integer = 0 THEN $5::timestamptz ELSE NULL END,
+           $6, 1, 'd1_pending', FALSE, NULL, 1
+         )`,
+        [
+          userId,
+          itemId,
+          index,
+          firstDueAt[index],
+          '2026-09-03T12:00:00.000Z',
+          enrolledAt[index],
+        ],
+      );
+    }
+
+    await blocker.query('BEGIN');
+    blockerTransactionOpen = true;
+    await blocker.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      `recall-schedule:${userId}:${itemIds[1]}`,
+    ]);
+
+    reconciliationPromise = runtime.reconcileActiveRecallSchedulesForUser(userId, at);
+    let activity = null;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (reconciliationBackendPid !== null) {
+        activity = (await observerPool.query(
+          `SELECT wait_event_type, wait_event
+           FROM pg_stat_activity
+           WHERE pid = $1`,
+          [reconciliationBackendPid],
+        )).rows[0] ?? null;
+        if (activity?.wait_event === 'advisory') break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.deepEqual(activity, { wait_event_type: 'Lock', wait_event: 'advisory' });
+    assert.deepEqual((await observerPool.query(
+      `SELECT granted, COUNT(*)::integer AS count
+       FROM pg_locks
+       WHERE pid = $1 AND locktype = 'advisory'
+       GROUP BY granted
+       ORDER BY granted`,
+      [reconciliationBackendPid],
+    )).rows, [
+      { granted: false, count: 1 },
+      { granted: true, count: 1 },
+    ]);
+
+    await rowProbe.query('BEGIN');
+    rowProbeTransactionOpen = true;
+    await rowProbe.query(
+      `SELECT knowledge_item_id
+       FROM user_private_card_states
+       WHERE user_id = $1 AND knowledge_item_id = $2
+       FOR UPDATE NOWAIT`,
+      [userId, itemIds[0]],
+    );
+    await rowProbe.query('ROLLBACK');
+    rowProbeTransactionOpen = false;
+
+    await blocker.query(
+      `UPDATE user_private_card_states
+       SET due_at = $3::timestamptz,
+           recall_schedule_state = 'd7_pending',
+           recall_d1_finalized_incomplete = TRUE,
+           recall_schedule_version = recall_schedule_version + 1
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemIds[1], at],
+    );
+    await blocker.query('COMMIT');
+    blockerTransactionOpen = false;
+    await reconciliationPromise;
+
+    assert.deepEqual((await observerPool.query(
+      `SELECT
+         knowledge_item_id,
+         status,
+         knowledge_state,
+         progress_state,
+         last_seen::text,
+         due_at::text,
+         recall_schedule_state,
+         recall_d1_finalized_incomplete,
+         recall_d7_outcome,
+         recall_schedule_version
+       FROM user_private_card_states
+       WHERE user_id = $1
+       ORDER BY knowledge_item_id`,
+      [userId],
+    )).rows, [
+      {
+        knowledge_item_id: itemIds[0],
+        status: 'saved',
+        knowledge_state: 'unknown',
+        progress_state: 'learning',
+        last_seen: '2026-09-03 12:00:00+00',
+        due_at: '2026-09-09 00:00:00+00',
+        recall_schedule_state: 'ordinary_practice',
+        recall_d1_finalized_incomplete: true,
+        recall_d7_outcome: 'unassessed',
+        recall_schedule_version: 2,
+      },
+      {
+        knowledge_item_id: itemIds[1],
+        status: null,
+        knowledge_state: null,
+        progress_state: null,
+        last_seen: null,
+        due_at: '2026-09-09 03:00:00+00',
+        recall_schedule_state: 'd7_pending',
+        recall_d1_finalized_incomplete: true,
+        recall_d7_outcome: null,
+        recall_schedule_version: 2,
+      },
+    ]);
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    if (rowProbeTransactionOpen) {
+      await collectCleanupFailure(cleanupFailures, 'rollback barrier row probe', async () => {
+        await rowProbe.query('ROLLBACK');
+        rowProbeTransactionOpen = false;
+      });
+    }
+    if (blockerTransactionOpen) {
+      await collectCleanupFailure(cleanupFailures, 'release blocked barrier lock', async () => {
+        await blocker.query('ROLLBACK');
+        blockerTransactionOpen = false;
+      });
+    }
+    await collectCleanupFailure(cleanupFailures, 'finish barrier reconciliation', async () => {
+      await reconciliationPromise?.catch((error) => {
+        if (bodyCompleted) throw error;
+      });
+    });
+    repositoryDb.accountTransaction = originalAccountTransaction;
+    rowProbe.release();
+    blocker.release();
+    await collectCleanupFailure(cleanupFailures, 'delete barrier knowledge items', () => (
+      observerPool.query(
+        'DELETE FROM user_knowledge_items WHERE user_id = $1 AND id = ANY($2::text[])',
+        [userId, itemIds],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete barrier ingestion batch', () => (
+      observerPool.query(
+        'DELETE FROM knowledge_ingestion_batches WHERE id = $1 AND user_id = $2',
+        [batchId, userId],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'close barrier reconciliation pool', () => (
+      reconciliationPool.end()
+    ));
+    await collectCleanupFailure(cleanupFailures, 'close barrier observer pool', () => observerPool.end());
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});
+
 test('Recall attempt migration enforces content-free lifecycle shapes and one active milestone', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
 }, async () => {

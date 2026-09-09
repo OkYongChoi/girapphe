@@ -41,6 +41,15 @@ function authenticatedOverlayFixtureError(code, cause) {
   return error;
 }
 
+export const AUTHENTICATED_RECALL_FIXTURE = Object.freeze({
+  title: 'Girapphe authenticated Recall fixture',
+  centralQuestion: 'How does the synthetic lighthouse keep one owner\'s recall private?',
+  definition:
+    'The synthetic lighthouse keeps Recall bound to one authenticated owner and reveals approved details only after confidence is recorded.',
+  keyPoint:
+    'Its due schedule and prepared attempt use the same owner-scoped private knowledge item.',
+  sourceUrl: 'https://chatgpt.com',
+});
 function requireValue(value, name) {
   const normalized = String(value ?? '').trim();
   if (!normalized) throw new Error(`${name} is required for authenticated overlay evidence.`);
@@ -290,6 +299,17 @@ export function fixtureIdsForUser(userIdInput) {
     privateEdgeId: `e2e_overlay_edge_${suffix}_private`,
     secondaryPrivateEdgeId: `e2e_overlay_edge_${suffix}_private_secondary`,
     publicEdgeId: `e2e_overlay_edge_${suffix}_public`,
+    recall: {
+      itemId: `e2e_recall_item_${suffix}`,
+      revisionId: `e2e_recall_revision_${suffix}`,
+      batchId: `e2e_recall_batch_${suffix}`,
+      draftId: `e2e_recall_draft_${suffix}`,
+      sourceId: `e2e_recall_source_${suffix}`,
+      evidenceId: `e2e_recall_evidence_${suffix}`,
+      requestId: `e2e-recall-request-${suffix}`,
+      clientCardId: `e2e-recall-card-${suffix}`,
+      conversationRef: `e2e-recall-conversation-${suffix}`,
+    },
   };
 }
 
@@ -1013,6 +1033,533 @@ export async function inspectPendingAuthenticatedOverlayImport({
     }),
   );
 }
+export async function ensureAuthenticatedOverlayOwner({
+  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
+  secretKey = process.env.CLERK_SECRET_KEY,
+} = {}) {
+  const email = normalizeSyntheticEmail(emailAddress);
+  const clerkClient = createClerkClient({ secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY') });
+  const { user, created } = await ensureSyntheticClerkUser({ clerkClient, emailAddress: email });
+  return { user, createdClerkUser: created };
+}
+
+function normalizeFixtureInstant(value) {
+  if (value === null || value === undefined) return null;
+  const instant = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(instant.getTime())) throw new Error('Authenticated Recall fixture returned an invalid instant.');
+  return instant.toISOString();
+}
+
+export async function readAuthenticatedRecallFixtureStateWithClient(client, userIdInput) {
+  const userId = requireValue(userIdInput, 'Clerk user ID');
+  const { recall } = fixtureIdsForUser(userId);
+  const result = await client.query(
+    `SELECT
+       s.status,
+       s.knowledge_state,
+       s.progress_state,
+       s.due_at,
+       s.last_seen,
+       s.recall_enrolled_at,
+       s.recall_item_version,
+       s.recall_schedule_state,
+       s.recall_d1_finalized_incomplete,
+       s.recall_d7_outcome,
+       s.recall_schedule_version,
+       latest.lifecycle_state AS attempt_lifecycle_state,
+       latest.confidence AS attempt_confidence,
+       latest.self_assessed_outcome AS attempt_outcome,
+       latest.hint_used AS attempt_hint_used,
+       latest.resulting_due_at AS attempt_resulting_due_at,
+       (SELECT COUNT(DISTINCT i.id)::integer
+        FROM user_knowledge_items i
+        JOIN knowledge_item_revisions revision
+          ON revision.id = $3
+         AND revision.user_id = i.user_id
+         AND revision.knowledge_item_id = i.id
+         AND revision.version = i.version
+        JOIN knowledge_card_drafts draft
+          ON draft.id = $5
+         AND draft.user_id = i.user_id
+         AND draft.knowledge_item_id = i.id
+         AND draft.status = 'approved'
+         AND draft.approved_at IS NOT NULL
+        JOIN knowledge_ingestion_batches batch
+          ON batch.id = $4
+         AND batch.id = draft.batch_id
+         AND batch.user_id = i.user_id
+         AND batch.source_type = 'conversation'
+         AND batch.scope = 'current_conversation'
+         AND batch.status IN ('partial', 'approved')
+        JOIN knowledge_card_sources source
+          ON source.id = $6
+         AND source.user_id = i.user_id
+         AND source.knowledge_item_id = i.id
+         AND source.batch_id = batch.id
+         AND source.draft_id = draft.id
+         AND source.source_type = 'conversation'
+         AND source.supported_item_version = i.version
+        JOIN knowledge_evidence_spans evidence
+          ON evidence.id = $7
+         AND evidence.user_id = i.user_id
+         AND evidence.knowledge_item_id = i.id
+         AND evidence.source_id = source.id
+        WHERE i.id = $2
+          AND i.user_id = $1
+          AND i.version = 1
+          AND i.knowledge_type = 'concept'
+          AND i.bundle_schema_version = 1
+          AND i.central_question IS NOT NULL
+          AND i.structured_content IS NOT NULL
+          AND i.archived_at IS NULL
+          AND i.deleted_at IS NULL
+          AND i.purge_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM knowledge_item_supersessions supersession
+            WHERE supersession.user_id = i.user_id
+              AND supersession.superseded_item_id = i.id
+          )) AS eligible_item_count,
+       (SELECT COUNT(*)::integer
+        FROM recall_attempts counted
+        WHERE counted.user_id = $1
+          AND counted.knowledge_item_id = $2) AS attempt_count
+     FROM user_private_card_states s
+     LEFT JOIN LATERAL (
+       SELECT
+         a.lifecycle_state,
+         a.confidence,
+         a.self_assessed_outcome,
+         a.hint_used,
+         a.resulting_due_at
+       FROM recall_attempts a
+       WHERE a.user_id = s.user_id
+         AND a.knowledge_item_id = s.knowledge_item_id
+       ORDER BY a.started_at DESC, a.id DESC
+       LIMIT 1
+     ) latest ON TRUE
+     WHERE s.user_id = $1
+       AND s.knowledge_item_id = $2`,
+    [
+      userId,
+      recall.itemId,
+      recall.revisionId,
+      recall.batchId,
+      recall.draftId,
+      recall.sourceId,
+      recall.evidenceId,
+    ],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    schedule: {
+      status: row.status ?? null,
+      knowledgeState: row.knowledge_state ?? null,
+      progressState: row.progress_state ?? null,
+      dueAt: normalizeFixtureInstant(row.due_at),
+      lastSeen: normalizeFixtureInstant(row.last_seen),
+      enrolledAt: normalizeFixtureInstant(row.recall_enrolled_at),
+      itemVersion: Number(row.recall_item_version),
+      state: row.recall_schedule_state,
+      d1FinalizedIncomplete: row.recall_d1_finalized_incomplete,
+      d7Outcome: row.recall_d7_outcome ?? null,
+      version: Number(row.recall_schedule_version),
+    },
+    attempt: row.attempt_lifecycle_state
+      ? {
+          lifecycleState: row.attempt_lifecycle_state,
+          confidence: row.attempt_confidence ?? null,
+          outcome: row.attempt_outcome ?? null,
+          hintUsed: row.attempt_hint_used ?? null,
+          resultingDueAt: normalizeFixtureInstant(row.attempt_resulting_due_at),
+        }
+      : null,
+    eligibleItemCount: Number(row.eligible_item_count),
+    attemptCount: Number(row.attempt_count),
+  };
+}
+
+export async function resetAuthenticatedRecallFixtureWithClient(client, userIdInput) {
+  const userId = requireValue(userIdInput, 'Clerk user ID');
+  const ids = fixtureIdsForUser(userId);
+  const { recall } = ids;
+  const structuredContent = {
+    type: 'concept',
+    definition: AUTHENTICATED_RECALL_FIXTURE.definition,
+    key_points: [AUTHENTICATED_RECALL_FIXTURE.keyPoint],
+    examples: ['A synthetic browser reveals this sentence only after confidence is selected.'],
+    non_examples: ['A public or foreign-owned card is never used as the fixture.'],
+    misconceptions: [{
+      claim: 'The free-recall draft is submitted for grading.',
+      correction: 'The draft stays component-local and is absent from every Server Action request.',
+    }],
+  };
+  const revisionSnapshot = {
+    title: AUTHENTICATED_RECALL_FIXTURE.title,
+    summary: 'Synthetic private Recall item for authenticated Preview evidence.',
+    content: AUTHENTICATED_RECALL_FIXTURE.definition,
+    topic: 'synthetic-recall',
+    tags: ['e2e', 'synthetic', 'authenticated-recall'],
+    version: 1,
+    knowledge_type: 'concept',
+    central_question: AUTHENTICATED_RECALL_FIXTURE.centralQuestion,
+    structured_content: structuredContent,
+    bundle_schema_version: 1,
+  };
+
+  await client.query('BEGIN');
+  try {
+    await client.query(
+      `DELETE FROM recall_attempts
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, recall.itemId],
+    );
+    await client.query(
+      `DELETE FROM knowledge_item_supersessions
+       WHERE user_id = $1
+         AND (superseded_item_id = $2 OR replacement_item_id = $2)`,
+      [userId, recall.itemId],
+    );
+    await client.query(
+      `INSERT INTO user_knowledge_items (
+         id, user_id, title, summary, content, topic, tags, version, dedupe_key,
+         knowledge_type, central_question, structured_content, bundle_schema_version,
+         created_at, updated_at, deleted_at, purge_at, archived_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, 'synthetic-recall', $6::jsonb, 1, $7,
+         'concept', $8, $9::jsonb, 1, NOW(), NOW(), NULL, NULL, NULL
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         title = EXCLUDED.title,
+         summary = EXCLUDED.summary,
+         content = EXCLUDED.content,
+         topic = EXCLUDED.topic,
+         tags = EXCLUDED.tags,
+         version = 1,
+         dedupe_key = EXCLUDED.dedupe_key,
+         knowledge_type = 'concept',
+         central_question = EXCLUDED.central_question,
+         structured_content = EXCLUDED.structured_content,
+         bundle_schema_version = 1,
+         updated_at = NOW(),
+         deleted_at = NULL,
+         purge_at = NULL,
+         archived_at = NULL
+       WHERE user_knowledge_items.user_id = EXCLUDED.user_id`,
+      [
+        recall.itemId,
+        userId,
+        AUTHENTICATED_RECALL_FIXTURE.title,
+        revisionSnapshot.summary,
+        AUTHENTICATED_RECALL_FIXTURE.definition,
+        JSON.stringify(revisionSnapshot.tags),
+        `e2e-recall-${ids.suffix}`,
+        AUTHENTICATED_RECALL_FIXTURE.centralQuestion,
+        JSON.stringify(structuredContent),
+      ],
+    );
+    await client.query(
+      `INSERT INTO knowledge_item_revisions (
+         id, user_id, knowledge_item_id, version, snapshot, change_reason, created_at
+       ) VALUES ($1, $2, $3, 1, $4::jsonb, 'confirmed', NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         version = 1,
+         snapshot = EXCLUDED.snapshot,
+         change_reason = 'confirmed'
+       WHERE knowledge_item_revisions.user_id = EXCLUDED.user_id
+         AND knowledge_item_revisions.knowledge_item_id = EXCLUDED.knowledge_item_id`,
+      [recall.revisionId, userId, recall.itemId, JSON.stringify(revisionSnapshot)],
+    );
+    await client.query(
+      `INSERT INTO knowledge_ingestion_batches (
+         id, user_id, source_type, provider, scope, request_id, conversation_ref,
+         status, source_url, discussed_at, created_at, updated_at, committed_at, discarded_at
+       ) VALUES (
+         $1, $2, 'conversation', 'chatgpt', 'current_conversation', $3, $4,
+         'approved', $5, NOW() - INTERVAL '2 days', NOW(), NOW(), NOW(), NULL
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         provider = 'chatgpt',
+         scope = 'current_conversation',
+         request_id = EXCLUDED.request_id,
+         conversation_ref = EXCLUDED.conversation_ref,
+         status = 'approved',
+         source_url = EXCLUDED.source_url,
+         discussed_at = EXCLUDED.discussed_at,
+         updated_at = NOW(),
+         committed_at = NOW(),
+         discarded_at = NULL
+       WHERE knowledge_ingestion_batches.user_id = EXCLUDED.user_id
+         AND knowledge_ingestion_batches.source_type = 'conversation'`,
+      [
+        recall.batchId,
+        userId,
+        recall.requestId,
+        recall.conversationRef,
+        AUTHENTICATED_RECALL_FIXTURE.sourceUrl,
+      ],
+    );
+    await client.query(
+      `INSERT INTO knowledge_card_drafts (
+         id, batch_id, user_id, client_card_id, title, summary, explanation, topic,
+         tags, proposed_relations, status, version, knowledge_item_id,
+         knowledge_type, central_question, structured_content, bundle_schema_version,
+         dedupe_key, resolution_action, resolved_at, proposed_evidence,
+         created_at, updated_at, approved_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, 'synthetic-recall', $8::jsonb, '[]'::jsonb,
+         'approved', 1, $9, 'concept', $10, $11::jsonb, 1,
+         $12, 'create', NOW(), $13::jsonb, NOW(), NOW(), NOW()
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         batch_id = EXCLUDED.batch_id,
+         client_card_id = EXCLUDED.client_card_id,
+         title = EXCLUDED.title,
+         summary = EXCLUDED.summary,
+         explanation = EXCLUDED.explanation,
+         topic = EXCLUDED.topic,
+         tags = EXCLUDED.tags,
+         proposed_relations = '[]'::jsonb,
+         status = 'approved',
+         version = 1,
+         knowledge_item_id = EXCLUDED.knowledge_item_id,
+         knowledge_type = 'concept',
+         central_question = EXCLUDED.central_question,
+         structured_content = EXCLUDED.structured_content,
+         bundle_schema_version = 1,
+         dedupe_key = EXCLUDED.dedupe_key,
+         resolution_action = 'create',
+         target_knowledge_item_id = NULL,
+         resolved_at = NOW(),
+         proposed_evidence = EXCLUDED.proposed_evidence,
+         updated_at = NOW(),
+         approved_at = NOW()
+       WHERE knowledge_card_drafts.user_id = EXCLUDED.user_id`,
+      [
+        recall.draftId,
+        recall.batchId,
+        userId,
+        recall.clientCardId,
+        AUTHENTICATED_RECALL_FIXTURE.title,
+        revisionSnapshot.summary,
+        AUTHENTICATED_RECALL_FIXTURE.definition,
+        JSON.stringify(revisionSnapshot.tags),
+        recall.itemId,
+        AUTHENTICATED_RECALL_FIXTURE.centralQuestion,
+        JSON.stringify(structuredContent),
+        `e2e-recall-${ids.suffix}`,
+        JSON.stringify([{ selector_type: 'message', selector: { message_id: 'synthetic-recall-message' } }]),
+      ],
+    );
+    await client.query(
+      `INSERT INTO knowledge_card_sources (
+         id, user_id, knowledge_item_id, batch_id, draft_id, source_type,
+         provider, conversation_ref, source_url, source_locator, discussed_at,
+         relation_origin, confirmed_at, supported_item_version, created_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, 'conversation', 'chatgpt', $6, $7,
+         $8::jsonb, NOW() - INTERVAL '2 days', 'extracted_from_source', NOW(), 1, NOW()
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         batch_id = EXCLUDED.batch_id,
+         draft_id = EXCLUDED.draft_id,
+         source_type = 'conversation',
+         provider = 'chatgpt',
+         conversation_ref = EXCLUDED.conversation_ref,
+         source_url = EXCLUDED.source_url,
+         source_locator = EXCLUDED.source_locator,
+         discussed_at = EXCLUDED.discussed_at,
+         relation_origin = 'extracted_from_source',
+         confirmed_at = NOW(),
+         supported_item_version = 1
+       WHERE knowledge_card_sources.user_id = EXCLUDED.user_id
+         AND knowledge_card_sources.knowledge_item_id = EXCLUDED.knowledge_item_id`,
+      [
+        recall.sourceId,
+        userId,
+        recall.itemId,
+        recall.batchId,
+        recall.draftId,
+        recall.conversationRef,
+        AUTHENTICATED_RECALL_FIXTURE.sourceUrl,
+        JSON.stringify({ message_id: 'synthetic-recall-message' }),
+      ],
+    );
+    await client.query(
+      `INSERT INTO knowledge_evidence_spans (
+         id, user_id, knowledge_item_id, source_id, selector_type, selector,
+         polarity, quality, relation_origin, confirmed_at, created_at
+       ) VALUES (
+         $1, $2, $3, $4, 'message', $5::jsonb,
+         'supports', 'unknown', 'extracted_from_source', NOW(), NOW()
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         source_id = EXCLUDED.source_id,
+         selector_type = 'message',
+         selector = EXCLUDED.selector,
+         polarity = 'supports',
+         quality = 'unknown',
+         relation_origin = 'extracted_from_source',
+         confirmed_at = NOW()
+       WHERE knowledge_evidence_spans.user_id = EXCLUDED.user_id
+         AND knowledge_evidence_spans.knowledge_item_id = EXCLUDED.knowledge_item_id`,
+      [
+        recall.evidenceId,
+        userId,
+        recall.itemId,
+        recall.sourceId,
+        JSON.stringify({ message_id: 'synthetic-recall-message' }),
+      ],
+    );
+    await client.query(
+      `INSERT INTO user_private_card_states (
+         user_id, knowledge_item_id, status, knowledge_state, progress_state,
+         due_at, last_seen, recall_enrolled_at, recall_item_version,
+         recall_schedule_state, recall_d1_finalized_incomplete,
+         recall_d7_outcome, recall_schedule_version
+       ) VALUES (
+         $1, $2, NULL, NULL, NULL,
+         NOW() - INTERVAL '1 hour', NULL, NOW() - INTERVAL '25 hours', 1,
+         'd1_pending', FALSE, NULL, 1
+       )
+       ON CONFLICT (user_id, knowledge_item_id) DO UPDATE SET
+         status = NULL,
+         knowledge_state = NULL,
+         progress_state = NULL,
+         due_at = NOW() - INTERVAL '1 hour',
+         last_seen = NULL,
+         recall_enrolled_at = NOW() - INTERVAL '25 hours',
+         recall_item_version = 1,
+         recall_schedule_state = 'd1_pending',
+         recall_d1_finalized_incomplete = FALSE,
+         recall_d7_outcome = NULL,
+         recall_schedule_version = 1`,
+      [userId, recall.itemId],
+    );
+
+    const state = await readAuthenticatedRecallFixtureStateWithClient(client, userId);
+    if (
+      !state
+      || state.eligibleItemCount !== 1
+      || state.schedule.state !== 'd1_pending'
+      || state.schedule.itemVersion !== 1
+      || state.attemptCount !== 0
+    ) {
+      throw new Error('Authenticated Recall fixture verification did not find one due owner-scoped schedule.');
+    }
+    await client.query('COMMIT');
+    return {
+      ...recall,
+      counts: { eligibleItems: 1, dueSchedules: 1, attempts: 0 },
+      state,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  }
+}
+
+export async function cleanupAuthenticatedRecallFixtureWithClient(client, userIdInput) {
+  const userId = requireValue(userIdInput, 'Clerk user ID');
+  const { recall } = fixtureIdsForUser(userId);
+  await client.query('BEGIN');
+  try {
+    await client.query(
+      'DELETE FROM recall_attempts WHERE user_id = $1 AND knowledge_item_id = $2',
+      [userId, recall.itemId],
+    );
+    await client.query(
+      `DELETE FROM user_private_card_states
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, recall.itemId],
+    );
+    await client.query(
+      `DELETE FROM knowledge_evidence_spans
+       WHERE id = $2 AND user_id = $1 AND knowledge_item_id = $3`,
+      [userId, recall.evidenceId, recall.itemId],
+    );
+    await client.query(
+      `DELETE FROM knowledge_card_sources
+       WHERE id = $2 AND user_id = $1 AND knowledge_item_id = $3`,
+      [userId, recall.sourceId, recall.itemId],
+    );
+    await client.query(
+      `DELETE FROM knowledge_card_drafts
+       WHERE id = $2 AND user_id = $1 AND batch_id = $3`,
+      [userId, recall.draftId, recall.batchId],
+    );
+    await client.query(
+      `DELETE FROM knowledge_item_revisions
+       WHERE id = $2 AND user_id = $1 AND knowledge_item_id = $3`,
+      [userId, recall.revisionId, recall.itemId],
+    );
+    await client.query(
+      `DELETE FROM user_knowledge_items
+       WHERE id = $2 AND user_id = $1`,
+      [userId, recall.itemId],
+    );
+    await client.query(
+      `DELETE FROM knowledge_ingestion_batches
+       WHERE id = $2 AND user_id = $1`,
+      [userId, recall.batchId],
+    );
+    const verification = await client.query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM user_knowledge_items
+          WHERE id = $2 AND user_id = $1) AS items,
+         (SELECT COUNT(*)::integer FROM knowledge_item_revisions
+          WHERE id = $3 AND user_id = $1 AND knowledge_item_id = $2) AS revisions,
+         (SELECT COUNT(*)::integer FROM knowledge_ingestion_batches
+          WHERE id = $4 AND user_id = $1) AS batches,
+         (SELECT COUNT(*)::integer FROM knowledge_card_drafts
+          WHERE id = $5 AND user_id = $1) AS drafts,
+         (SELECT COUNT(*)::integer FROM knowledge_card_sources
+          WHERE id = $6 AND user_id = $1 AND knowledge_item_id = $2) AS sources,
+         (SELECT COUNT(*)::integer FROM knowledge_evidence_spans
+          WHERE id = $7 AND user_id = $1 AND knowledge_item_id = $2) AS evidence,
+         (SELECT COUNT(*)::integer FROM user_private_card_states
+          WHERE user_id = $1 AND knowledge_item_id = $2) AS schedules,
+         (SELECT COUNT(*)::integer FROM recall_attempts
+          WHERE user_id = $1 AND knowledge_item_id = $2) AS attempts`,
+      [
+        userId,
+        recall.itemId,
+        recall.revisionId,
+        recall.batchId,
+        recall.draftId,
+        recall.sourceId,
+        recall.evidenceId,
+      ],
+    );
+    const counts = Object.fromEntries(
+      Object.entries(verification.rows[0] ?? {}).map(([key, value]) => [key, Number(value)]),
+    );
+    if (Object.values(counts).some((value) => value !== 0)) {
+      throw new Error('Authenticated Recall fixture cleanup left deterministic owner-scoped rows behind.');
+    }
+    await client.query('COMMIT');
+    return counts;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  }
+}
+
+export async function writeRecallRuntimeUserIdToGitHubEnv(
+  userIdInput,
+  githubEnvPath = process.env.GITHUB_ENV,
+) {
+  const userId = requireValue(userIdInput, 'Clerk user ID');
+  if (!/^[A-Za-z0-9_-]+$/.test(userId)) {
+    throw new Error('The synthetic Clerk user ID is unsafe for GitHub environment output.');
+  }
+  const outputPath = requireValue(githubEnvPath, 'GITHUB_ENV');
+  await fs.appendFile(outputPath, `RECALL_RUNTIME_USER_IDS=${userId}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+}
+
 export async function seedAuthenticatedOverlayFixtureWithClient(
   client,
   syntheticUser,
@@ -1356,9 +1903,10 @@ export async function ensureAuthenticatedOverlayFixture({
   databaseUrl = process.env.DATABASE_URL,
   resetMcpAccessTokens = false,
 } = {}) {
-  const email = normalizeSyntheticEmail(emailAddress);
-  const clerkClient = createClerkClient({ secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY') });
-  const { user, created } = await ensureSyntheticClerkUser({ clerkClient, emailAddress: email });
+  const { user, createdClerkUser } = await ensureAuthenticatedOverlayOwner({
+    emailAddress,
+    secretKey,
+  });
   const pool = new Pool({ connectionString: requireValue(databaseUrl, 'DATABASE_URL'), max: 1 });
   const client = await pool.connect();
   try {
@@ -1367,7 +1915,7 @@ export async function ensureAuthenticatedOverlayFixture({
       user,
       { resetMcpAccessTokens },
     );
-    return { user, createdClerkUser: created, fixture };
+    return { user, createdClerkUser, fixture };
   } finally {
     client.release();
     await pool.end();
@@ -1382,12 +1930,22 @@ const isMain = /(?:^|[/\\\\])authenticated-overlay-fixture\.mjs$/.test(
 );
 
 if (isMain) {
-  ensureAuthenticatedOverlayFixture()
-    .then((result) => {
-      console.log(JSON.stringify({
+  const writeRecallAllowlist = process.argv.includes('--write-recall-user-id-to-github-env');
+  const run = writeRecallAllowlist
+    ? ensureAuthenticatedOverlayOwner().then(async (result) => {
+        await writeRecallRuntimeUserIdToGitHubEnv(result.user.id);
+        return {
+          createdClerkUser: result.createdClerkUser,
+          recallRuntimeAllowlistPrepared: true,
+        };
+      })
+    : ensureAuthenticatedOverlayFixture().then((result) => ({
         createdClerkUser: result.createdClerkUser,
         ...result.fixture.counts,
       }));
+  run
+    .then((result) => {
+      console.log(JSON.stringify(result));
     })
     .catch((error) => {
       console.error(error instanceof Error ? error.message : String(error));
