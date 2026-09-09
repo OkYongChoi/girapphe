@@ -31,6 +31,7 @@ export default async function KnowledgePage() {
           <KnowledgeMap
           initialCards={cardPage.cards}
           initialHasMoreCards={cardPage.hasMore}
+          initialTotalCards={cardPage.totalCount}
           initialGraphSnapshot={graphSnapshot}
           personalItems={personalMapItems}
           privateGraph={actor.isGuest ? null : privateGraph}

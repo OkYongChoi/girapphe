@@ -414,7 +414,11 @@ test.describe('browser smoke', () => {
     }
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
     const conceptsHeader = page.getByTestId('concepts-header');
-    await expect(conceptsHeader.getByRole('status')).toHaveAccessibleName(/\d+ of \d+ concepts/);
+    const conceptsStatus = conceptsHeader.getByRole('status');
+    await expect(conceptsStatus).toHaveAccessibleName(/\d+ of \d+ concepts/);
+    const conceptCounts = (await conceptsStatus.getAttribute('aria-label'))?.match(/\d+/g)?.map(Number) ?? [];
+    expect(conceptCounts).toHaveLength(2);
+    expect(conceptCounts[1], 'Concepts header total must include cards behind Load more').toBeGreaterThan(conceptCounts[0]);
     if (exercisesViewportResize) {
       await expect(page.getByTestId('concept-filters')).toBeHidden();
       const mobileHeaderBox = await conceptsHeader.boundingBox();

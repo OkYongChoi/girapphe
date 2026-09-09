@@ -81,6 +81,7 @@ type EditableCardValues = {
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
   initialHasMoreCards?: boolean;
+  initialTotalCards: number;
   initialGraphSnapshot?: KnowledgeGraphSnapshot | null;
   initialView?: 'grid' | 'graph';
   personalItems?: KnowledgeMapPersonalItem[];
@@ -128,6 +129,7 @@ function fallbackEndpointLabel(id: string) {
 export default function KnowledgeMap({
   initialCards,
   initialHasMoreCards = false,
+  initialTotalCards,
   initialGraphSnapshot = null,
   initialView = 'graph',
   personalItems = [],
@@ -239,6 +241,14 @@ export default function KnowledgeMap({
     [baseCards, generatedCards, includeGenerated]
   );
   const cards = useMemo<MapCard[]>(() => [...publicCards, ...personalCards], [publicCards, personalCards]);
+  const coreTotalCardCount = useMemo(
+    () => Math.max(initialTotalCards + personalCards.length, cards.length),
+    [cards.length, initialTotalCards, personalCards.length],
+  );
+  const totalCardCount = useMemo(
+    () => includeGenerated && generatedCards ? cards.length : coreTotalCardCount,
+    [cards.length, coreTotalCardCount, generatedCards, includeGenerated],
+  );
   const graphPublicCards = graphSnapshot?.cards ?? EMPTY_GRAPH_CARDS;
   const graphEdges = useMemo<KnowledgeGraphEdgeView[]>(() => {
     const canonicalEdges: KnowledgeGraphEdgeView[] = (graphSnapshot?.edges ?? []).map((edge) => ({
@@ -481,12 +491,12 @@ export default function KnowledgeMap({
                 <span
                   role="status"
                   aria-live="polite"
-                  aria-label={t('knowledge.showing', { filtered: filteredCards.length, total: cards.length })}
+                  aria-label={t('knowledge.showing', { filtered: filteredCards.length, total: totalCardCount })}
                   className="shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-600"
                 >
                   {filteredCards.length === cards.length
-                    ? formatNumber(cards.length)
-                    : `${formatNumber(filteredCards.length)}/${formatNumber(cards.length)}`}
+                    ? formatNumber(totalCardCount)
+                    : `${formatNumber(filteredCards.length)}/${formatNumber(totalCardCount)}`}
                 </span>
               </div>
 
@@ -494,7 +504,7 @@ export default function KnowledgeMap({
                 type="button"
                 onClick={openGraphView}
                 disabled={isOpeningGraph}
-                className="min-h-11 shrink-0 whitespace-nowrap rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
+                className="min-h-11 shrink-0 whitespace-nowrap rounded-md border border-blue-200 bg-white px-2 py-2 text-xs font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-70 sm:px-3 sm:text-sm"
               >
                 {isOpeningGraph ? t('knowledge.loadingGraph') : t('knowledge.graphView')}
               </button>
