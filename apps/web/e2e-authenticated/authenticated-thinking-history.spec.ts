@@ -87,6 +87,48 @@ async function importSubmissionEvents(page: Page): Promise<Record<string, unknow
   ));
 }
 
+async function waitForImportSubmissionEventCount(
+  page: Page,
+  expectedCount: number,
+): Promise<Record<string, unknown>[]> {
+  let observed: Record<string, unknown>[] = [];
+  await expect.poll(async () => {
+    observed = await importSubmissionEvents(page);
+    return observed.length;
+  }, {
+    message: `owner export reaches ${expectedCount} import submission events`,
+    timeout: 30_000,
+    intervals: [250, 500, 1_000],
+  }).toBe(expectedCount);
+  return observed;
+}
+
+async function deleteSubmittedImportThroughOwnerUi(page: Page, batchId: string): Promise<void> {
+  // A failed confirm-driven assertion can leave a one-shot dialog listener
+  // behind. Cleanup owns the next dialog and must not race that stale handler.
+  page.removeAllListeners("dialog");
+  let firstAttempt = true;
+  await expect.poll(async () => {
+    if (firstAttempt) {
+      firstAttempt = false;
+      await page.goto("/account/delete#knowledge-data", { waitUntil: "domcontentloaded" });
+    } else {
+      await page.reload({ waitUntil: "domcontentloaded" });
+    }
+    return page.getByText(batchId, { exact: true }).count();
+  }, {
+    message: `submitted import ${batchId} reaches its owner deletion surface`,
+    timeout: 30_000,
+    intervals: [250, 500, 1_000],
+  }).toBe(1);
+
+  const batchRow = page.getByText(batchId, { exact: true }).locator("xpath=ancestor::li[1]");
+  page.once("dialog", (dialog) => dialog.accept());
+  await batchRow.getByRole("button", { name: deleteImportCopy }).click();
+  await expect(page.getByText(batchId, { exact: true })).toHaveCount(0);
+  await waitForImportSubmissionEventCount(page, 0);
+}
+
 function contextFormat(response: Response): ContextFormat | null {
   if (!isContextPackResponse(response)) return null;
   const format = responseBody(response)?.format;
@@ -164,7 +206,7 @@ test.skip(
 test("proves selected import, private evidence, portable context, dismissal, and deletion", async ({
   page,
 }, testInfo) => {
-  testInfo.setTimeout(120_000);
+  testInfo.setTimeout(180_000);
   const startedAt = Date.now();
   const browserErrors = installBrowserErrorGuards(page);
   const messageResponses: Response[] = [];
@@ -376,79 +418,100 @@ test("proves selected import, private evidence, portable context, dismissal, and
   const submitOutboundRequestStart = outboundRequestMaterial.length;
   await page.getByRole("button", { name: /Create 2 review candidates/i }).click();
   await expect(page).toHaveURL(/\/knowledge-inbox\/[^/?#]+$/, { timeout: 30_000 });
-  const submittedBodies = postBodies.slice(submitRequestStart).join("\n");
-  expect(submittedBodies).toContain(selectedQuestionA);
-  expect(submittedBodies).toContain(selectedAnswerA);
-  expect(submittedBodies).toContain(selectedQuestionB);
-  expect(submittedBodies).toContain(selectedAnswerB);
-  expect(submittedBodies).not.toContain(unselectedMarker);
-  expect(submittedBodies).not.toContain(filenameMarker);
-  const submittedRequestMaterial = outboundRequestMaterial.slice(submitOutboundRequestStart).join("\n");
-  expect(submittedRequestMaterial).not.toContain(unselectedMarker);
-  expect(submittedRequestMaterial).not.toContain(filenameMarker);
-  const postConsentImportEvents = await importSubmissionEvents(page);
-  for (const eventName of IMPORT_SUBMISSION_EVENT_NAMES) {
-    expect(
-      postConsentImportEvents.filter((event) => event.event_name === eventName),
-      `${eventName} is recorded once after selected-content submission`,
-    ).toHaveLength(1);
-  }
-  expect(
-    postConsentImportEvents.find((event) => event.event_name === "conversation_import_parsed")
-      ?.selection_count,
-  ).toBe(3);
-  expect(
-    postConsentImportEvents.find((event) => event.event_name === "conversation_import_confirmed")
-      ?.selection_count,
-  ).toBe(2);
-  expect(
-    postConsentImportEvents.find((event) => event.event_name === "conversation_import_candidates_ready")
-      ?.selection_count,
-  ).toBe(2);
-
   const batchId = decodeURIComponent(new URL(page.url()).pathname.split("/").at(-1) ?? "");
-  expect(batchId).toMatch(/^[0-9a-f-]{36}$/i);
-  const transformationSummary = page.getByRole("region", {
-    name: transformationSummaryCopy,
-  });
-  await expect(transformationSummary).toContainText("Candidate · not confirmed");
-  await expect(transformationSummary.getByText("Evidence (2)", { exact: true })).toBeVisible();
-  await expect(transformationSummary.getByText("1 Relationship", { exact: true })).toBeVisible();
-  const reviewLinks = page.getByRole("link", { name: /Review resolution/i });
-  await expect(reviewLinks).toHaveCount(2);
-  for (let index = 0; index < 2; index += 1) {
-    await expect(reviewLinks.nth(index).locator("xpath=ancestor::article[1]"))
-      .toContainText("Candidate · not confirmed");
+  let postConsentImportEvents: Record<string, unknown>[] = [];
+  let evidenceError: unknown;
+  try {
+    expect(batchId).toMatch(/^[0-9a-f-]{36}$/i);
+    const submittedBodies = postBodies.slice(submitRequestStart).join("\n");
+    expect(submittedBodies).toContain(selectedQuestionA);
+    expect(submittedBodies).toContain(selectedAnswerA);
+    expect(submittedBodies).toContain(selectedQuestionB);
+    expect(submittedBodies).toContain(selectedAnswerB);
+    expect(submittedBodies).not.toContain(unselectedMarker);
+    expect(submittedBodies).not.toContain(filenameMarker);
+    const submittedRequestMaterial = outboundRequestMaterial.slice(submitOutboundRequestStart).join("\n");
+    expect(submittedRequestMaterial).not.toContain(unselectedMarker);
+    expect(submittedRequestMaterial).not.toContain(filenameMarker);
+    postConsentImportEvents = await waitForImportSubmissionEventCount(
+      page,
+      IMPORT_SUBMISSION_EVENT_NAMES.size,
+    );
+    for (const eventName of IMPORT_SUBMISSION_EVENT_NAMES) {
+      expect(
+        postConsentImportEvents.filter((event) => event.event_name === eventName),
+        `${eventName} is recorded once after selected-content submission`,
+      ).toHaveLength(1);
+    }
+    expect(
+      postConsentImportEvents.find((event) => event.event_name === "conversation_import_parsed")
+        ?.selection_count,
+    ).toBe(3);
+    expect(
+      postConsentImportEvents.find((event) => event.event_name === "conversation_import_confirmed")
+        ?.selection_count,
+    ).toBe(2);
+    expect(
+      postConsentImportEvents.find((event) => event.event_name === "conversation_import_candidates_ready")
+        ?.selection_count,
+    ).toBe(2);
+
+    const transformationSummary = page.getByRole("region", {
+      name: transformationSummaryCopy,
+    });
+    await expect(transformationSummary).toContainText("Candidate · not confirmed");
+    await expect(transformationSummary.getByText("Evidence (2)", { exact: true })).toBeVisible();
+    await expect(transformationSummary.getByText("1 Relationship", { exact: true })).toBeVisible();
+    const reviewLinks = page.getByRole("link", { name: /Review resolution/i });
+    await expect(reviewLinks).toHaveCount(2);
+    for (let index = 0; index < 2; index += 1) {
+      await expect(reviewLinks.nth(index).locator("xpath=ancestor::article[1]"))
+        .toContainText("Candidate · not confirmed");
+    }
+    await reviewLinks.first().click();
+    await expect(page).toHaveURL(/\/knowledge-inbox\/[^/]+\/[^/]+\/resolve$/);
+    const evidenceGroup = page.getByRole("group", { name: "Evidence selectors to retain" });
+    await expect(evidenceGroup).toContainText(/chatgpt-message:[0-9a-f]{48}/);
+    await expect(evidenceGroup).not.toContainText(conversationId);
+    await expect(evidenceGroup).not.toContainText(`answer-a-${marker}`);
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Ignore candidate" }).click();
+    await expect(page).toHaveURL(new RegExp(`/knowledge-inbox/${batchId}$`));
+    await expect(page.getByRole("link", { name: /Review resolution/i })).toHaveCount(1);
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Ignore whole batch" }).click();
+    await expect(page).toHaveURL(/\/knowledge-inbox(?:[/?#]|$)/);
+
+    await page.goto("/account/delete#knowledge-data", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { name: accountDataTitleCopy })).toBeVisible();
+    const exportBeforeDelete = await downloadText(page, downloadExportCopy);
+    expect(exportBeforeDelete).toContain(batchId);
+    expect(exportBeforeDelete).toContain(selectedQuestionA);
+    expect(exportBeforeDelete).toContain(selectedAnswerB);
+    expect(exportBeforeDelete).not.toContain(unselectedMarker);
+    expect(exportBeforeDelete).not.toContain(filenameMarker);
+
+    const batchRow = page.getByText(batchId, { exact: true }).locator("xpath=ancestor::li[1]");
+    await expect(batchRow).toContainText(/0 pending · 0 approved/);
+  } catch (error) {
+    evidenceError = error;
+    throw error;
+  } finally {
+    try {
+      await test.step("delete submitted import and await telemetry cleanup", async () => {
+        await deleteSubmittedImportThroughOwnerUi(page, batchId);
+      });
+    } catch (cleanupError) {
+      if (evidenceError) {
+        throw new AggregateError(
+          [evidenceError, cleanupError],
+          "Thinking History evidence and owner-scoped import cleanup both failed.",
+        );
+      }
+      throw cleanupError;
+    }
   }
-  await reviewLinks.first().click();
-  await expect(page).toHaveURL(/\/knowledge-inbox\/[^/]+\/[^/]+\/resolve$/);
-  const evidenceGroup = page.getByRole("group", { name: "Evidence selectors to retain" });
-  await expect(evidenceGroup).toContainText(/chatgpt-message:[0-9a-f]{48}/);
-  await expect(evidenceGroup).not.toContainText(conversationId);
-  await expect(evidenceGroup).not.toContainText(`answer-a-${marker}`);
-
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Ignore candidate" }).click();
-  await expect(page).toHaveURL(new RegExp(`/knowledge-inbox/${batchId}$`));
-  await expect(page.getByRole("link", { name: /Review resolution/i })).toHaveCount(1);
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Ignore whole batch" }).click();
-  await expect(page).toHaveURL(/\/knowledge-inbox(?:[/?#]|$)/);
-
-  await page.goto("/account/delete#knowledge-data", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("heading", { name: accountDataTitleCopy })).toBeVisible();
-  const exportBeforeDelete = await downloadText(page, downloadExportCopy);
-  expect(exportBeforeDelete).toContain(batchId);
-  expect(exportBeforeDelete).toContain(selectedQuestionA);
-  expect(exportBeforeDelete).toContain(selectedAnswerB);
-  expect(exportBeforeDelete).not.toContain(unselectedMarker);
-  expect(exportBeforeDelete).not.toContain(filenameMarker);
-
-  const batchRow = page.getByText(batchId, { exact: true }).locator("xpath=ancestor::li[1]");
-  await expect(batchRow).toContainText(/0 pending · 0 approved/);
-  page.once("dialog", (dialog) => dialog.accept());
-  await batchRow.getByRole("button", { name: deleteImportCopy }).click();
-  await expect(page.getByText(batchId, { exact: true })).toHaveCount(0);
   const exportAfterDelete = await downloadText(page, downloadExportCopy);
   for (const rawMarker of [
     selectedQuestionA,

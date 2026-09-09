@@ -52,6 +52,13 @@ The local import preview is scoped through each exchange checkbox's accessible
 name, then requires one visible list row containing the exact synthetic question;
 selection reuses that same row instead of depending on incidental text-node
 boundaries around the localized Question and Answer labels.
+Because the owner export can briefly lag the completed Server Action across
+separate Worker database connections, the test polls for exactly four committed
+import events with a 30-second bound. Import deletion must then return that count
+to zero before the next desktop or mobile project can begin. The submitted batch
+ID is captured before that poll, and the same owner-scoped deletion UI runs from
+a `finally` block even when a later evidence assertion fails, so one project
+cannot satisfy or contaminate the other's privacy evidence.
 
 The importer assertion is deliberately about one extracted
 `conversations.json`. It is not evidence for ZIP archives, numbered/split

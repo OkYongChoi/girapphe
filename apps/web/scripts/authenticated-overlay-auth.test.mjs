@@ -103,6 +103,27 @@ test('Thinking History local import evidence targets unique visible exchange row
   assert.doesNotMatch(source, /getByText\(question, \{ exact: true \}\)/);
 });
 
+test('Thinking History import-event evidence waits for commit visibility and cleans between projects', async () => {
+  const testUrl = new URL(
+    '../e2e-authenticated/authenticated-thinking-history.spec.ts',
+    import.meta.url,
+  );
+  const source = await fs.readFile(testUrl, 'utf8');
+
+  assert.match(source, /async function waitForImportSubmissionEventCount\([\s\S]{0,700}expect\.poll\([\s\S]{0,500}timeout: 30_000[\s\S]{0,300}\.toBe\(expectedCount\)/);
+  assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await batchRow\.getByRole\("button", \{ name: deleteImportCopy \}\)\.click\(\)[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
+  const batchCapture = source.indexOf('const batchId = decodeURIComponent');
+  const evidenceTry = source.indexOf('  try {', batchCapture);
+  const batchAssertion = source.indexOf('expect(batchId).toMatch', batchCapture);
+  const visibilityPoll = source.indexOf('postConsentImportEvents = await waitForImportSubmissionEventCount');
+  const finallyBlock = source.indexOf('} finally {', visibilityPoll);
+  const cleanupCall = source.indexOf('await deleteSubmittedImportThroughOwnerUi(page, batchId)', finallyBlock);
+  assert.ok(batchCapture >= 0 && batchCapture < visibilityPoll, 'batch ID must be captured before telemetry polling');
+  assert.ok(evidenceTry > batchCapture && batchAssertion > evidenceTry, 'batch validation must stay inside the cleanup boundary');
+  assert.ok(finallyBlock > visibilityPoll && cleanupCall > finallyBlock, 'owner cleanup must run from finally');
+  assert.doesNotMatch(source, /const postConsentImportEvents = await importSubmissionEvents\(page\)/);
+});
+
 test('production-compatible sign-in ticket is short lived and owner scoped', async () => {
   const calls = [];
   const ticket = await createSyntheticSignInTicket({
