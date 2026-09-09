@@ -36,6 +36,58 @@ test('preview schema update contains only bounded idempotent statements', async 
   }
 });
 
+test('preview schema update rejects SQL appended after an allowlisted statement', () => {
+  for (const statement of [
+    'CREATE TABLE IF NOT EXISTS safe_preview_probe (id text); DELETE FROM knowledge_cards',
+    'CREATE TABLE IF NOT EXISTS safe_preview_probe (id text); /* separator */ DELETE FROM knowledge_cards',
+    'CREATE TABLE IF NOT EXISTS safe_preview_probe (id text); -- separator\nDELETE FROM knowledge_cards',
+  ]) {
+    assert.throws(
+      () => assertSafePreviewStatement(statement),
+      /multiple top-level SQL statements/,
+    );
+  }
+});
+
+test('preview schema update allows one statement with quoted and commented semicolons', () => {
+  for (const statement of [
+    `CREATE TABLE IF NOT EXISTS preview_quoted_values (
+      "semi;colon" text DEFAULT 'ordinary;value',
+      escaped_value text DEFAULT E'escaped\\';still-string'
+    );`,
+    `CREATE TABLE IF NOT EXISTS preview_commented_values (
+      id text, -- line-comment semicolon; is not a statement boundary
+      value text /* outer comment; /* nested comment; */ still outer */
+    );`,
+    `CREATE TABLE IF NOT EXISTS preview_trailing_comment (id text);
+     -- a trailing comment may contain ; DELETE FROM knowledge_cards
+     /* a nested trailing comment; /* still a comment; */ remains harmless */`,
+  ]) {
+    assert.doesNotThrow(() => assertSafePreviewStatement(statement));
+  }
+});
+
+test('preview schema update allows semicolons in tagged and untagged dollar quotes', () => {
+  for (const statement of [
+    'CREATE TABLE IF NOT EXISTS preview_untagged_dollar (value text DEFAULT $$one;two$$);',
+    'CREATE TABLE IF NOT EXISTS preview_tagged_dollar (value text DEFAULT $body$one;two$body$);',
+  ]) {
+    assert.doesNotThrow(() => assertSafePreviewStatement(statement));
+  }
+});
+
+test('preview schema update rejects unterminated PostgreSQL lexical constructs', () => {
+  for (const statement of [
+    "CREATE TABLE IF NOT EXISTS preview_bad_single (value text DEFAULT 'unterminated);",
+    'CREATE TABLE IF NOT EXISTS preview_bad_double ("unterminated text);',
+    'CREATE TABLE IF NOT EXISTS preview_bad_dollar (value text DEFAULT $$unterminated);',
+    'CREATE TABLE IF NOT EXISTS preview_bad_tagged (value text DEFAULT $body$unterminated);',
+    'CREATE TABLE IF NOT EXISTS preview_bad_comment (id text); /* unterminated',
+  ]) {
+    assert.throws(() => assertSafePreviewStatement(statement), /unterminated/);
+  }
+});
+
 test('legacy preview bootstrap cannot hide procedural SQL inside a multi-statement batch', () => {
   assert.throws(
     () => parseLegacyAdditiveMigration('CREATE TABLE IF NOT EXISTS safe (id text); DO $$ BEGIN END $$;'),
