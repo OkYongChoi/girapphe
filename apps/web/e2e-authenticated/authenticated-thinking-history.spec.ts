@@ -152,8 +152,7 @@ async function deleteSubmittedImportThroughOwnerUi(page: Page, batchId: string):
   // A failed confirm-driven assertion can leave a one-shot dialog listener
   // behind. Cleanup owns the next dialog and must not race that stale handler.
   page.removeAllListeners("dialog");
-  await page.goto("/account/delete#knowledge-data", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("heading", { name: accountDataTitleCopy })).toBeVisible();
+  await gotoOwnerKnowledgeData(page);
   await expect(
     page.getByText(batchId, { exact: true }),
     `submitted import ${batchId} reaches its owner deletion surface`,
@@ -202,24 +201,63 @@ function errorSummary(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
-async function clickActionableLinkBelowStickyChrome(link: Locator): Promise<void> {
-  await link.evaluate(async (element) => {
-    element.scrollIntoView({ block: "center", inline: "nearest" });
-    await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
-  });
-  await expect.poll(async () => link.evaluate((element) => {
-    const bounds = element.getBoundingClientRect();
-    const hitTarget = document.elementFromPoint(
-      bounds.left + bounds.width / 2,
-      bounds.top + bounds.height / 2,
-    );
-    return hitTarget !== null && (hitTarget === element || element.contains(hitTarget));
-  }), {
-    message: "the centered review link receives the next pointer action",
+async function clickActionableLinkBelowStickyChrome(page: Page, link: Locator): Promise<string> {
+  let clickTarget: { x: number; y: number; href: string } | null = null;
+  await expect.poll(async () => {
+    clickTarget = await link.evaluate(async (element) => {
+      element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
+      await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+      const firstBounds = element.getBoundingClientRect();
+      await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+      const bounds = element.getBoundingClientRect();
+      const boundsAreStable = Math.abs(firstBounds.left - bounds.left) < 0.5
+        && Math.abs(firstBounds.top - bounds.top) < 0.5
+        && Math.abs(firstBounds.width - bounds.width) < 0.5
+        && Math.abs(firstBounds.height - bounds.height) < 0.5;
+      const point = {
+        x: bounds.left + bounds.width / 2,
+        y: bounds.top + bounds.height / 2,
+      };
+      const hitTarget = document.elementFromPoint(point.x, point.y);
+      return boundsAreStable
+        && element instanceof HTMLAnchorElement
+        && hitTarget !== null
+        && (hitTarget === element || element.contains(hitTarget))
+        ? { ...point, href: element.href }
+        : null;
+    });
+    return clickTarget !== null;
+  }, {
+    message: "the stable centered review link receives the next pointer action",
     timeout: 10_000,
     intervals: [100, 250, 500],
   }).toBe(true);
-  await link.click({ timeout: 10_000 });
+  const hasTouch = await page.evaluate(() => navigator.maxTouchPoints > 0);
+  if (hasTouch) await page.touchscreen.tap(clickTarget!.x, clickTarget!.y);
+  else await page.mouse.click(clickTarget!.x, clickTarget!.y);
+  return clickTarget!.href;
+}
+
+async function gotoOwnerKnowledgeData(page: Page): Promise<void> {
+  let lastStatus: number | null = null;
+  let lastHeading = "";
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const response = await page.goto("/account/delete#knowledge-data", {
+      waitUntil: "domcontentloaded",
+    });
+    lastStatus = response?.status() ?? null;
+    try {
+      await expect(page.getByRole("heading", { name: accountDataTitleCopy })).toBeVisible({
+        timeout: 5_000,
+      });
+      return;
+    } catch {
+      lastHeading = await page.locator("main h1").first().textContent().catch(() => "") ?? "";
+    }
+  }
+  throw new Error(
+    `Owner data controls did not render after 2 bounded attempts (status ${lastStatus ?? "none"}, heading ${JSON.stringify(lastHeading)}).`,
+  );
 }
 
 function assertPortableContext(format: ContextFormat, content: string) {
@@ -530,8 +568,8 @@ test("proves selected import, private evidence, portable context, dismissal, and
       await expect(reviewLinks.nth(index).locator("xpath=ancestor::article[1]"))
         .toContainText("Candidate · not confirmed");
     }
-    await clickActionableLinkBelowStickyChrome(reviewLinks.first());
-    await expect(page).toHaveURL(/\/knowledge-inbox\/[^/]+\/[^/]+\/resolve$/);
+    const resolutionUrl = await clickActionableLinkBelowStickyChrome(page, reviewLinks.first());
+    await expect(page).toHaveURL(resolutionUrl);
     const evidenceGroup = page.getByRole("group", { name: "Evidence selectors to retain" });
     await expect(evidenceGroup).toContainText(/chatgpt-message:[0-9a-f]{48}/);
     await expect(evidenceGroup).not.toContainText(conversationId);
@@ -545,8 +583,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
     await page.getByRole("button", { name: "Ignore whole batch" }).click();
     await expect(page).toHaveURL(/\/knowledge-inbox(?:[/?#]|$)/);
 
-    await page.goto("/account/delete#knowledge-data", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { name: accountDataTitleCopy })).toBeVisible();
+    await gotoOwnerKnowledgeData(page);
     const exportBeforeDelete = await downloadText(page, downloadExportCopy);
     expect(exportBeforeDelete).toContain(batchId);
     expect(exportBeforeDelete).toContain(selectedQuestionA);

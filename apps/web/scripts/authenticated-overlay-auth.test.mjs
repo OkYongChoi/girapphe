@@ -116,9 +116,14 @@ test('Thinking History import-event evidence waits for commit visibility and cle
     'the import route itself must not satisfy the submitted-batch redirect',
   );
   assert.match(source, /async function waitForSubmittedImportBatchId\([\s\S]{0,1400}submittedImportBatchIdsContainingMarker\([\s\S]{0,700}\.toBe\(1\)/);
-  assert.match(source, /async function clickActionableLinkBelowStickyChrome\([\s\S]{0,500}scrollIntoView\(\{ block: "center", inline: "nearest" \}\)[\s\S]{0,700}document\.elementFromPoint\([\s\S]{0,700}await link\.click\(\{ timeout: 10_000 \}\)/);
-  assert.match(source, /await clickActionableLinkBelowStickyChrome\(reviewLinks\.first\(\)\)/);
+  assert.match(source, /async function clickActionableLinkBelowStickyChrome\(page: Page, link: Locator\): Promise<string>/);
+  assert.match(source, /scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)/);
+  assert.match(source, /const firstBounds = element\.getBoundingClientRect\(\)[\s\S]{0,220}const bounds = element\.getBoundingClientRect\(\)[\s\S]{0,500}const boundsAreStable/);
+  assert.match(source, /document\.elementFromPoint\(point\.x, point\.y\)[\s\S]{0,500}\? \{ \.\.\.point, href: element\.href \}/);
+  assert.match(source, /page\.touchscreen\.tap\(clickTarget!\.x, clickTarget!\.y\)[\s\S]{0,120}page\.mouse\.click\(clickTarget!\.x, clickTarget!\.y\)[\s\S]{0,100}return clickTarget!\.href/);
+  assert.match(source, /const resolutionUrl = await clickActionableLinkBelowStickyChrome\(page, reviewLinks\.first\(\)\)[\s\S]{0,120}toHaveURL\(resolutionUrl\)/);
   assert.doesNotMatch(source, /click\(\{ force: true \}\)/);
+  assert.match(source, /async function gotoOwnerKnowledgeData\([\s\S]{0,1200}attempt <= 2[\s\S]{0,500}\/account\/delete#knowledge-data[\s\S]{0,700}Owner data controls did not render after 2 bounded attempts/);
   assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await batchRow\.getByRole\("button", \{ name: deleteImportCopy \}\)\.click\(\)[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
   const submissionClick = source.indexOf('await page.getByRole("button", { name: /Create 2 review candidates/i }).click()');
   const exactRedirect = source.indexOf('await expect(page).toHaveURL(IMPORT_BATCH_URL_PATTERN', submissionClick);

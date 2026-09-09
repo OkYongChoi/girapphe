@@ -64,10 +64,16 @@ recovers the batch ID from the owner export first. One project therefore cannot
 satisfy or contaminate the other's privacy evidence.
 
 On the mobile long-form review page, the resolution link is centered below the
-sticky navigation and its midpoint is verified as the browser's actual pointer
-target before the test clicks it. The click has a bounded action timeout, so an
-actionability regression cannot consume the whole test budget and prevent the
-owner-scoped cleanup from running.
+sticky navigation with instant scrolling, its bounds must stay unchanged across
+two animation frames, and its midpoint is verified as the browser's actual
+pointer target immediately before a real touch (or desktop mouse) input at that
+point. The resulting URL must equal that exact link's target. This avoids a
+second locator-driven auto-scroll moving the already actionable link back
+underneath sticky chrome or an unrelated review link satisfying the assertion.
+The hit-test has a bounded timeout, so an actionability regression cannot
+consume the whole test budget and prevent the owner-scoped cleanup from running.
+Owner-data navigation also permits exactly one retry after a transient Preview
+error page; it never enters an unbounded reload loop.
 
 The importer assertion is deliberately about one extracted
 `conversations.json`. It is not evidence for ZIP archives, numbered/split
