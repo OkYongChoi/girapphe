@@ -258,6 +258,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
   const eventModule = await import('../src/lib/knowledge-product-events.ts');
   const telemetryModule = await import('../src/lib/chatgpt-export-telemetry.ts');
   const accountLifecycleModule = await import('../src/lib/mcp-account-lifecycle.ts');
+  const accountDeletionLifecycleModule = await import('../src/lib/account-lifecycle.ts');
   const accountPurgeModule = await import('../src/lib/account-private-purge.ts');
   const {
     buildChatGptExportBatchInput,
@@ -284,6 +285,9 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     deriveMcpAccountAdvisoryLockKey,
     deriveMcpDeletedAccountScopeKey,
   } = accountLifecycleModule.default ?? accountLifecycleModule;
+  const { buildAccountDeletionFenceQueries } = (
+    accountDeletionLifecycleModule.default ?? accountDeletionLifecycleModule
+  );
   const { buildPrivateProductPurgeQuery } = accountPurgeModule.default ?? accountPurgeModule;
   const pool = new Pool({
     connectionString: databaseUrl,
@@ -317,8 +321,36 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       'utf8',
     );
     const migrationStatements = parsePreviewMigration(migrationSql);
-    for (let iteration = 0; iteration < 2; iteration += 1) {
+    for (const statement of migrationStatements) await pool.query(statement);
+    const backfillUserId = `live-selected-export-marker-backfill-${crypto.randomUUID()}`;
+    const backfillScopeKey = deriveMcpDeletedAccountScopeKey(backfillUserId);
+    try {
+      await pool.query(
+        `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
+         VALUES ($1, NOW())`,
+        [backfillScopeKey],
+      );
+      await pool.query(
+        `INSERT INTO knowledge_ingestion_request_tombstones (user_id, provider, request_id)
+         VALUES ($1, 'other', 'legacy-marker-backfill')`,
+        [backfillUserId],
+      );
       for (const statement of migrationStatements) await pool.query(statement);
+      assert.equal((await pool.query(
+        `SELECT COUNT(*)::integer AS count
+         FROM knowledge_ingestion_request_tombstones
+         WHERE user_id = $1`,
+        [backfillUserId],
+      )).rows[0].count, 0, 'migration replay must purge pre-existing marker tombstones');
+    } finally {
+      await pool.query(
+        'DELETE FROM knowledge_ingestion_request_tombstones WHERE user_id = $1',
+        [backfillUserId],
+      );
+      await pool.query(
+        'DELETE FROM mcp_deleted_account_markers WHERE scope_key = $1',
+        [backfillScopeKey],
+      );
     }
   }
   const fixtureId = crypto.randomUUID();
@@ -343,6 +375,11 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
   const mixedOldInsertFirstUserId = `live-selected-export-old-insert-first-${fixtureId}`;
   const accountPurgeUserId = `live-selected-export-account-purge-${fixtureId}`;
   const accountPurgeScopeKey = deriveMcpDeletedAccountScopeKey(accountPurgeUserId);
+  const accountBatchDeleteFirstUserId = `live-selected-export-account-batch-first-${fixtureId}`;
+  const accountMarkerFirstUserId = `live-selected-export-account-marker-first-${fixtureId}`;
+  const accountBlockedUserId = `live-selected-export-account-blocked-${fixtureId}`;
+  const accountBatchDeleteFirstScopeKey = deriveMcpDeletedAccountScopeKey(accountBatchDeleteFirstUserId);
+  const accountMarkerFirstScopeKey = deriveMcpDeletedAccountScopeKey(accountMarkerFirstUserId);
   const triggerInsertFirstUserId = `live-selected-export-trigger-insert-first-${fixtureId}`;
   const triggerDeleteFirstUserId = `live-selected-export-trigger-delete-first-${fixtureId}`;
   const fixtureUserIds = [
@@ -352,7 +389,8 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     mixedOldDeleteUserId, mixedOldCompletionUserId,
     eventGuardUserId, mixedOldBatchGuardUserId, mixedOldDeletionGuardUserId,
     mixedOldDeleteFirstUserId, mixedOldInsertFirstUserId,
-    accountPurgeUserId,
+    accountPurgeUserId, accountBatchDeleteFirstUserId, accountMarkerFirstUserId,
+    accountBlockedUserId,
     triggerInsertFirstUserId, triggerDeleteFirstUserId,
   ];
   const selection = (suffix, question) => ({
@@ -389,6 +427,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
         'knowledge_ingestion_batches_guard_selected_export_insert',
         'knowledge_product_events_cleanup_import_batch_update',
         'knowledge_product_events_guard_import_batch_insert',
+        'mcp_deleted_account_markers_purge_ingestion_tombstones',
       ]],
     )).rows;
     assert.deepEqual(installedTriggers.map((row) => ({
@@ -411,12 +450,24 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     }, {
       tgname: 'knowledge_product_events_guard_import_batch_insert',
       relname: 'knowledge_product_events', nspname: 'public', tgenabled: 'O',
+    }, {
+      tgname: 'mcp_deleted_account_markers_purge_ingestion_tombstones',
+      relname: 'mcp_deleted_account_markers', nspname: 'public', tgenabled: 'O',
     }]);
     assert.match(installedTriggers[0].definition, /BEFORE INSERT OR DELETE[\s\S]+FOR EACH ROW/);
     assert.match(installedTriggers[1].definition, /AFTER DELETE[\s\S]+REFERENCING OLD TABLE AS deleted_knowledge_ingestion_batches[\s\S]+FOR EACH STATEMENT/);
     assert.match(installedTriggers[2].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
     assert.match(installedTriggers[3].definition, /AFTER UPDATE OF subject_id[\s\S]+FOR EACH ROW/);
     assert.match(installedTriggers[4].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
+    assert.match(installedTriggers[5].definition, /BEFORE INSERT[\s\S]+FOR EACH ROW/);
+
+    const accountScopeIndex = (await pool.query(
+      `SELECT indexdef
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND indexname = 'idx_knowledge_ingestion_request_tombstones_account_scope'`,
+    )).rows[0]?.indexdef;
+    assert.match(accountScopeIndex, /derive_account_lifecycle_scope_key\(user_id\)/);
 
     const unicodeHashFixture = {
       userId: `소유자-${fixtureId}`,
@@ -436,6 +487,10 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       unicodeHashFixture.userId,
       unicodeHashFixture.batchId,
     ));
+    assert.equal((await pool.query(
+      'SELECT public.derive_account_lifecycle_scope_key($1) AS scope_key',
+      [unicodeHashFixture.userId],
+    )).rows[0].scope_key, deriveMcpDeletedAccountScopeKey(unicodeHashFixture.userId));
 
     const mixedOldBatchGuardInput = {
       source: 'chatgpt_export',
@@ -1618,12 +1673,168 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
          (SELECT COUNT(*)::integer FROM knowledge_product_events WHERE user_id = $1) AS events`,
       [accountPurgeUserId],
     )).rows[0], { batches: 3, events: 18 });
+    const drainingAccountDeleteSessionId = crypto.randomUUID();
+    const drainingAccountDeleteBatchId = crypto.randomUUID();
+    assert.equal((await directOldBatchInsert(
+      accountPurgeUserId,
+      drainingAccountDeleteBatchId,
+      `account-delete-window:session:${drainingAccountDeleteSessionId}`,
+    )).rowCount, 1);
+    assert.equal((await pool.query(
+      `DELETE FROM knowledge_ingestion_batches
+       WHERE id = $1 AND user_id = $2 RETURNING id`,
+      [drainingAccountDeleteBatchId, accountPurgeUserId],
+    )).rowCount, 1);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM knowledge_ingestion_request_tombstones
+       WHERE user_id = $1`,
+      [accountPurgeUserId],
+    )).rows[0].count, 2);
+    assert.equal((await pool.query(
+      `INSERT INTO knowledge_ingestion_request_tombstones (user_id, provider, request_id)
+       VALUES ($1, 'other', $2)`,
+      [otherUserId, `unrelated-account-delete:${fixtureId}`],
+    )).rowCount, 1);
     assert.equal((await pool.query(
       `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
        VALUES ($1, NOW())
        ON CONFLICT (scope_key) DO NOTHING`,
       [accountPurgeScopeKey],
     )).rowCount, 1);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM knowledge_ingestion_request_tombstones
+       WHERE user_id = $1`,
+      [accountPurgeUserId],
+    )).rows[0].count, 0, 'the deletion marker must purge draining-Worker tombstones');
+    assert.equal((await pool.query(
+      `INSERT INTO knowledge_ingestion_request_tombstones (user_id, provider, request_id)
+       VALUES ($1, 'other', $2)`,
+      [accountPurgeUserId, `account-delete-retry:${fixtureId}`],
+    )).rowCount, 1);
+    assert.equal((await pool.query(
+      `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (scope_key) DO UPDATE SET deleted_at = EXCLUDED.deleted_at`,
+      [accountPurgeScopeKey],
+    )).rowCount, 1);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM knowledge_ingestion_request_tombstones
+       WHERE user_id = $1`,
+      [accountPurgeUserId],
+    )).rows[0].count, 0, 'an account deletion retry must purge a late legacy tombstone');
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM knowledge_ingestion_request_tombstones
+       WHERE user_id = $1`,
+      [otherUserId],
+    )).rows[0].count, 1, 'an unrelated owner tombstone must survive marker cleanup');
+
+    const exerciseAccountDeletionBridgeOrder = async (owner, scopeKey, markerFirst) => {
+      const batchId = crypto.randomUUID();
+      assert.equal((await directOldBatchInsert(
+        owner,
+        batchId,
+        `account-delete-race:session:${crypto.randomUUID()}`,
+      )).rowCount, 1);
+      const firstClient = await pool.connect();
+      const waitingClient = await pool.connect();
+      let firstOpen = false;
+      let waitingOpen = false;
+      let waitingPromise;
+      try {
+        await firstClient.query('BEGIN');
+        firstOpen = true;
+        if (markerFirst) {
+          assert.equal((await firstClient.query(
+            `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
+             VALUES ($1, NOW()) RETURNING scope_key`,
+            [scopeKey],
+          )).rowCount, 1);
+        } else {
+          assert.equal((await firstClient.query(
+            `DELETE FROM knowledge_ingestion_batches
+             WHERE id = $1 AND user_id = $2 RETURNING id`,
+            [batchId, owner],
+          )).rowCount, 1);
+        }
+
+        await waitingClient.query('BEGIN');
+        waitingOpen = true;
+        const waitingPid = (await waitingClient.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+        let waitingSettled = false;
+        waitingPromise = (markerFirst
+          ? waitingClient.query(
+            `DELETE FROM knowledge_ingestion_batches
+             WHERE id = $1 AND user_id = $2 RETURNING id`,
+            [batchId, owner],
+          )
+          : waitingClient.query(
+            `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
+             VALUES ($1, NOW()) RETURNING scope_key`,
+            [scopeKey],
+          )).then((result) => {
+          waitingSettled = true;
+          return result;
+        });
+        await waitForBackendLockWait(pool, waitingPid);
+        assert.equal(waitingSettled, false, 'the second account lifecycle operation must wait');
+        await firstClient.query('COMMIT');
+        firstOpen = false;
+        assert.equal((await waitingPromise).rowCount, 1);
+        await waitingClient.query('COMMIT');
+        waitingOpen = false;
+      } finally {
+        if (firstOpen) await firstClient.query('ROLLBACK').catch(() => undefined);
+        if (waitingPromise) await waitingPromise.catch(() => undefined);
+        if (waitingOpen) await waitingClient.query('ROLLBACK').catch(() => undefined);
+        waitingClient.release();
+        firstClient.release();
+      }
+      assert.deepEqual((await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::integer FROM knowledge_ingestion_batches WHERE user_id = $1) AS batches,
+           (SELECT COUNT(*)::integer FROM knowledge_ingestion_request_tombstones WHERE user_id = $1) AS tombstones,
+           (SELECT COUNT(*)::integer FROM mcp_deleted_account_markers WHERE scope_key = $2) AS markers`,
+        [owner, scopeKey],
+      )).rows[0], { batches: 0, tombstones: 0, markers: 1 });
+    };
+    await exerciseAccountDeletionBridgeOrder(
+      accountBatchDeleteFirstUserId,
+      accountBatchDeleteFirstScopeKey,
+      false,
+    );
+    await exerciseAccountDeletionBridgeOrder(
+      accountMarkerFirstUserId,
+      accountMarkerFirstScopeKey,
+      true,
+    );
+
+    assert.equal((await pool.query(
+      `INSERT INTO knowledge_ingestion_request_tombstones (user_id, provider, request_id)
+       VALUES ($1, 'other', $2)`,
+      [accountBlockedUserId, `blocked-account-delete:${fixtureId}`],
+    )).rowCount, 1);
+    await pool.query(
+      `INSERT INTO billing_acquisition_blocks
+         (user_id, reason, operation_owner_token, resolved_at)
+       VALUES ($1, 'mobile_purchase_pending', $2, NULL)`,
+      [accountBlockedUserId, `selected-export-test-${fixtureId}`],
+    );
+    const blockedFenceResults = await executePgTransaction(
+      pool,
+      (tx) => buildAccountDeletionFenceQueries(accountBlockedUserId)
+        .map((query) => tx.query(query.text, query.params)),
+    );
+    assert.equal(blockedFenceResults[1].length, 0);
+    assert.deepEqual((await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM mcp_deleted_account_markers WHERE scope_key = $1) AS markers,
+         (SELECT COUNT(*)::integer FROM knowledge_ingestion_request_tombstones WHERE user_id = $2) AS tombstones`,
+      [deriveMcpDeletedAccountScopeKey(accountBlockedUserId), accountBlockedUserId],
+    )).rows[0], { markers: 0, tombstones: 1 }, 'a billing-blocked deletion must not purge tombstones');
     const accountPurgeQuery = buildPrivateProductPurgeQuery(accountPurgeUserId);
     await executePgTransaction(
       pool,
@@ -1652,8 +1863,15 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     await collectCleanupFailure(cleanupFailures, 'delete isolated product events', () => (
       pool.query('DELETE FROM knowledge_product_events WHERE user_id = ANY($1::text[])', [fixtureUserIds])
     ));
-    await collectCleanupFailure(cleanupFailures, 'delete isolated account marker', () => (
-      pool.query('DELETE FROM mcp_deleted_account_markers WHERE scope_key = $1', [accountPurgeScopeKey])
+    await collectCleanupFailure(cleanupFailures, 'delete isolated billing acquisition block', () => (
+      pool.query('DELETE FROM billing_acquisition_blocks WHERE user_id = $1', [accountBlockedUserId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete isolated account markers', () => (
+      pool.query('DELETE FROM mcp_deleted_account_markers WHERE scope_key = ANY($1::text[])', [[
+        accountPurgeScopeKey,
+        accountBatchDeleteFirstScopeKey,
+        accountMarkerFirstScopeKey,
+      ]])
     ));
     await collectCleanupFailure(cleanupFailures, 'verify isolated fixture removal', async () => {
       const remaining = (await pool.query(

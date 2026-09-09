@@ -254,6 +254,30 @@ CREATE TABLE IF NOT EXISTS knowledge_ingestion_request_tombstones (
     PRIMARY KEY (user_id, provider, request_id)
 );
 
+CREATE OR REPLACE FUNCTION public.derive_account_lifecycle_scope_key(account_user_id text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+STRICT
+PARALLEL SAFE
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+  SELECT pg_catalog.encode(
+    pg_catalog.sha256(
+      pg_catalog.convert_to('girapphe:mcp-account-lifecycle:v1', 'UTF8')
+      || pg_catalog.decode('00', 'hex')
+      || pg_catalog.convert_to(account_user_id, 'UTF8')
+    ),
+    'hex'
+  )
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_ingestion_request_tombstones_account_scope
+ON knowledge_ingestion_request_tombstones (
+  public.derive_account_lifecycle_scope_key(user_id)
+);
+
 CREATE TABLE IF NOT EXISTS knowledge_card_drafts (
   id TEXT PRIMARY KEY,
   batch_id TEXT NOT NULL REFERENCES knowledge_ingestion_batches(id) ON DELETE CASCADE,
@@ -1182,6 +1206,31 @@ ON knowledge_product_events(user_id, subject_id);
 -- live, deletable batch even while an old Worker version overlaps a deployment.
 -- These triggers are the database-level expand/contract bridge for the
 -- application transaction changes.
+CREATE OR REPLACE FUNCTION public.purge_deleted_account_ingestion_tombstones()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('mcp-account-lifecycle:' || NEW.scope_key)
+  );
+  DELETE FROM public.knowledge_ingestion_request_tombstones AS tombstone
+  WHERE public.derive_account_lifecycle_scope_key(tombstone.user_id) = NEW.scope_key;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER mcp_deleted_account_markers_purge_ingestion_tombstones
+  BEFORE INSERT ON public.mcp_deleted_account_markers
+  FOR EACH ROW
+  EXECUTE FUNCTION public.purge_deleted_account_ingestion_tombstones();
+
+DELETE FROM public.knowledge_ingestion_request_tombstones AS tombstone
+USING public.mcp_deleted_account_markers AS marker
+WHERE public.derive_account_lifecycle_scope_key(tombstone.user_id) = marker.scope_key;
+
 CREATE OR REPLACE FUNCTION public.lock_selected_export_batch_owner()
 RETURNS trigger
 LANGUAGE plpgsql

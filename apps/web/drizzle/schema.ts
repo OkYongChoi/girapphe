@@ -376,6 +376,9 @@ export const knowledgeIngestionRequestTombstones = pgTable("knowledge_ingestion_
     columns: [t.userId, t.provider, t.requestId],
     name: "knowledge_ingestion_request_tombstones_user_provider_request_pk",
   }),
+  index("idx_knowledge_ingestion_request_tombstones_account_scope").on(sql`
+    public.derive_account_lifecycle_scope_key(${t.userId})
+  `),
   check("knowledge_ingestion_request_tombstones_provider_check", sql`${t.provider} IN ('chatgpt', 'claude', 'gemini', 'other')`),
 ]);
 

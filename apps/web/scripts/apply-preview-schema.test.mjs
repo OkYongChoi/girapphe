@@ -25,7 +25,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0020_knowledge_intelligence_events.sql', 3, parsePreviewMigration],
     ['0021_billing_v1_domain.sql', 63, parsePreviewMigration],
     ['0022_recall_ping_persistence.sql', 15, parsePreviewMigration],
-    ['0023_knowledge_ingestion_request_tombstones.sql', 13, parsePreviewMigration],
+    ['0023_knowledge_ingestion_request_tombstones.sql', 18, parsePreviewMigration],
   ];
   for (const [name, expectedCount, parse] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
@@ -273,9 +273,22 @@ test('selected export migration widens only the explicit ingestion scope', async
 test('selected export deletion tombstones are content-free and owner scoped', async () => {
   const sql = await readFile(new URL('../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql', import.meta.url), 'utf8');
   const statements = parsePreviewMigration(sql);
-  assert.ok(statements.every((statement) => !/^\s*(?:UPDATE|DELETE|INSERT)\b/i.test(statement)));
+  const dataMutations = statements.filter((statement) => /^\s*(?:UPDATE|DELETE|INSERT)\b/i.test(statement));
+  assert.equal(dataMutations.length, 1);
+  assert.match(
+    dataMutations[0],
+    /^DELETE FROM public\.knowledge_ingestion_request_tombstones AS tombstone[\s\S]+USING public\.mcp_deleted_account_markers AS marker[\s\S]+derive_account_lifecycle_scope_key\(tombstone\.user_id\) = marker\.scope_key;$/,
+  );
   assert.match(sql, /PRIMARY KEY\("user_id", "provider", "request_id"\)/);
   assert.match(sql, /"created_at" timestamp with time zone DEFAULT now\(\) NOT NULL/);
+  assert.match(sql, /CREATE OR REPLACE FUNCTION public\.derive_account_lifecycle_scope_key\(account_user_id text\)/);
+  assert.match(sql, /LANGUAGE sql[\s\S]+IMMUTABLE[\s\S]+STRICT[\s\S]+PARALLEL SAFE/);
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS "idx_knowledge_ingestion_request_tombstones_account_scope"/);
+  assert.match(sql, /derive_account_lifecycle_scope_key\("user_id"\)/);
+  assert.match(sql, /CREATE OR REPLACE FUNCTION public\.purge_deleted_account_ingestion_tombstones\(\)/);
+  assert.match(sql, /pg_advisory_xact_lock\([\s\S]+mcp-account-lifecycle:[\s\S]+NEW\.scope_key/);
+  assert.match(sql, /derive_account_lifecycle_scope_key\(tombstone\.user_id\) = NEW\.scope_key/);
+  assert.match(sql, /BEFORE INSERT ON public\.mcp_deleted_account_markers/);
   assert.match(sql, /DROP CONSTRAINT IF EXISTS "knowledge_ingestion_batches_user_provider_request_key"/);
   assert.match(sql, /DROP CONSTRAINT IF EXISTS "knowledge_ingestion_batches_user_id_provider_request_id_key"/);
   assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS "idx_knowledge_ingestion_batches_user_provider_scope_request"/);
@@ -312,7 +325,7 @@ test('selected export deletion tombstones are content-free and owner scoped', as
   assert.match(sql, /NEW\.event_name = 'knowledge_candidate_resolved'/);
   assert.match(sql, /NEW\.event_name IN \('conversation_import_started', 'conversation_import_parsed'\)/);
   assert.match(sql, /batch\.provider = 'chatgpt' AND batch\.scope = 'selected_export'/);
-  assert.equal((sql.match(/pg_catalog\.decode\('00', 'hex'\)/g) ?? []).length, 5);
+  assert.equal((sql.match(/pg_catalog\.decode\('00', 'hex'\)/g) ?? []).length, 6);
   for (const statement of statements.slice(3)) {
     assert.doesNotThrow(() => assertSafePreviewStatement(statement));
   }
