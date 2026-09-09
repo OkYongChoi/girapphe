@@ -35,14 +35,29 @@ test('strict API tags reject invalid shapes while permissive form tags retain ex
   assert.equal(parseStrictKnowledgeTags(['valid', 7]), null);
   assert.equal(parseStrictKnowledgeTags(['!!!']), null);
   assert.equal(parseStrictKnowledgeTags(['general']), null);
-  assert.equal(
-    parseStrictKnowledgeTags(Array.from({ length: MAX_KNOWLEDGE_TAGS + 1 }, (_, index) => `tag-${index}`)),
-    null,
-  );
   assert.equal(canonicalizeKnowledgeTag('  Machine / Learning  '), 'machine-learning');
   assert.equal(normalizeKnowledgeTag('!!!'), null);
   assert.deepEqual(
     sanitizeKnowledgeTags(['Machine Learning', 'machine/learning', 'general']),
+    ['machine-learning'],
+  );
+});
+
+test('strict API tag count is enforced after canonicalization and deduplication', () => {
+  assert.equal(
+    parseStrictKnowledgeTags(Array.from(
+      { length: MAX_KNOWLEDGE_TAGS + 1 },
+      (_, index) => `tag-${index}`,
+    )),
+    null,
+  );
+  assert.deepEqual(
+    parseStrictKnowledgeTags(Array.from(
+      { length: MAX_KNOWLEDGE_TAGS + 1 },
+      (_, index) => index % 2 === 0
+        ? ' Machine / Learning '
+        : 'ＭＡＣＨＩＮＥ　／　ＬＥＡＲＮＩＮＧ',
+    )),
     ['machine-learning'],
   );
 });

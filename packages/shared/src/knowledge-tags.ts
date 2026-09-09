@@ -44,15 +44,16 @@ export function splitKnowledgeTagInput(input: string): string[] {
 }
 
 export function parseStrictKnowledgeTags(value: unknown): string[] | null {
-  if (!Array.isArray(value) || value.length > MAX_KNOWLEDGE_TAGS) return null;
+  if (!Array.isArray(value)) return null;
 
-  const normalized: string[] = [];
+  const normalized = new Set<string>();
   for (const input of value) {
     if (typeof input !== 'string') return null;
     const tag = canonicalizeKnowledgeTag(input);
     if (!isMeaningfulKnowledgeTag(tag)) return null;
     if (Array.from(tag).length > MAX_KNOWLEDGE_TAG_CODE_POINTS) return null;
-    normalized.push(tag);
+    normalized.add(tag);
+    if (normalized.size > MAX_KNOWLEDGE_TAGS) return null;
   }
-  return Array.from(new Set(normalized));
+  return Array.from(normalized);
 }
