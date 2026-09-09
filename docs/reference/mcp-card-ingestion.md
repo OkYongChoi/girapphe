@@ -46,8 +46,8 @@ configure `profile` as a default scope because some MCP clients omit `scope`.
 
 ### Personal access tokens
 
-Create a scoped access token from the MCP Connections section of the Knowledge
-Inbox. Send it only in the authorization header:
+Create a scoped access token from the **AI connections** section in Settings at
+`/settings#ai-connections`. Send it only in the authorization header:
 
 ```http
 Authorization: Bearer <token shown once by Girapphe>
@@ -68,7 +68,8 @@ OAuth verifier.
 
 ### Provider-specific setup
 
-The Knowledge Inbox keeps the hosted-chat and bearer-token paths separate so a
+The **AI connections** disclosure in Settings keeps the hosted-chat and
+bearer-token paths separate so a
 user does not paste a Girapphe PAT into an unsupported connector field.
 
 For **ChatGPT web**, a Business admin or owner enables developer mode and opens
@@ -86,10 +87,11 @@ A server-side **OpenAI Responses API** integration can use a Girapphe PAT in
 the remote MCP tool's top-level `authorization` field. Put the raw PAT value in
 `GIRAPPHE_MCP_TOKEN`; the Responses API turns that field into MCP
 authorization, so do not add a second `Bearer` wrapper. Do not embed the value
-in browser code or a committed file. The Knowledge Inbox generates the exact
+in browser code or a committed file. The Settings guide generates the exact
 endpoint-specific tool object and keeps tool approval enabled. Its allowlist
 includes the draft-creation tools plus `get_topic_context`; the MCP server still
-exposes only the tools authorized by the PAT's selected scopes. See OpenAI's current
+exposes only the tools authorized by the PAT's selected scopes. See OpenAI's
+current
 [remote MCP reference](https://platform.openai.com/docs/guides/tools-connectors-mcp).
 
 For **Claude web or Desktop**, Free, Pro, and Max users open Customize →
@@ -102,7 +104,7 @@ Free, Pro, Max, Team, and Enterprise. See Anthropic's current
 [custom connector guide](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).
 
 **Claude Code** accepts the PAT through a custom Streamable HTTP header. Store
-the token as `GIRAPPHE_MCP_TOKEN`, then use the Knowledge Inbox's generated
+the token as `GIRAPPHE_MCP_TOKEN`, then use the Settings guide's generated
 `claude mcp add-json` command. The user-scoped configuration retains the
 environment-variable reference instead of writing the raw secret into project
 configuration. See Anthropic's current
@@ -112,6 +114,20 @@ Provider plan, workspace policy, connector registration, and a successful
 OAuth sign-in or bearer-authenticated tool call remain external activation
 gates. Deploying this UI or receiving an MCP authentication challenge is not
 proof that either provider is connected.
+
+### Browser settings boundary
+
+Settings stores only a versioned, enum-only browser preference for which
+external AI client's setup guide to show (`chatgpt`, `claude`, `gemini`, or
+`other`) and the default Context Pack format (`markdown`, `yaml`, or `json`).
+The saved client controls the short localized guidance at the top of Settings.
+The detailed provider guide's ChatGPT/Claude radio is a transient view choice
+and does not overwrite that saved preference.
+It stores no MCP token, provider credential, conversation text, private
+knowledge, or provenance. The guide preference does not override the
+`provider` declared by an MCP request, and the exact AI model remains selected
+inside the connected external client. Missing, malformed, or unavailable
+browser storage falls back to the ChatGPT guide and Markdown.
 
 ## Structured bundle input
 

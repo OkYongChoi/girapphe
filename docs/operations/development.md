@@ -99,6 +99,13 @@ Preview databases may have no public graph rows; there the required fixture
 remains two private nodes and their private edge, and the reported public-link
 count is zero.
 
+The same opt-in authenticated run checks Settings on desktop and mobile. It
+opens the hash-targeted AI-connections disclosure, exercises keyboard toggling,
+restores validated browser-local AI-app and Context Pack choices, verifies the
+Preview Thinking History default when that surface is enabled, checks Arabic
+RTL/mobile containment and 44 px interaction targets, and saves a synthetic
+success screenshot without creating or revoking a token.
+
 Runtime inputs are injected temporarily; do not copy their values into tracked
 files:
 

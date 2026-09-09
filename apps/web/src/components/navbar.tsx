@@ -37,6 +37,18 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
             {user ? (
               <div className="flex shrink-0 items-center gap-1 text-sm font-medium min-[400px]:gap-2">
                 <LanguageSwitcher compact />
+                <LocalizedLink
+                  href="/settings"
+                  prefetch={false}
+                  aria-label={t('nav.settingsAria')}
+                  className={`inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 min-[440px]:px-3 ${isHome ? 'border-white/20 text-white hover:bg-white/10' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                >
+                  <svg aria-hidden="true" viewBox="0 0 20 20" className="size-4" fill="none">
+                    <path d="M10 7.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6Z" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M16.2 11.1v-2.2l-1.8-.5a5 5 0 0 0-.5-1.1l.9-1.7-1.6-1.5-1.6.9a5 5 0 0 0-1.2-.5L9.9 2.8H7.7l-.5 1.8a5 5 0 0 0-1.1.5l-1.7-.9-1.5 1.6.9 1.6a5 5 0 0 0-.5 1.2l-1.7.5v2.2l1.8.5a5 5 0 0 0 .5 1.1L3 14.6l1.6 1.5 1.6-.9a5 5 0 0 0 1.2.5l.5 1.7h2.2l.5-1.8a5 5 0 0 0 1.1-.5l1.7.9 1.5-1.6-.9-1.6a5 5 0 0 0 .5-1.2l1.7-.5Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.35" />
+                  </svg>
+                  <span className="hidden min-[440px]:inline">{t('nav.settings')}</span>
+                </LocalizedLink>
                 {user.email ? (
                   <span
                     className={`hidden rounded-md px-2 py-1 text-xs md:inline ${isHome ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-600'}`}

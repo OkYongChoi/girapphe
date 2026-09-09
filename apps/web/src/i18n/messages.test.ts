@@ -117,3 +117,17 @@ test('non-English catalogs are genuine locale-specific translations', () => {
 
   assert.equal(heroCopy.size, SUPPORTED_LOCALES.length, 'every locale needs distinct home copy');
 });
+
+test('ChatGPT quick guides separate web OAuth from server-side PAT use', () => {
+  for (const locale of SUPPORTED_LOCALES) {
+    const guide = variants(MESSAGE_CATALOGS[locale]['settings.aiGuide.chatgpt']).join(' ');
+    assert.match(guide, /OAuth/u, `${locale} ChatGPT guide must name the web OAuth route`);
+    assert.match(guide, /PAT/u, `${locale} ChatGPT guide must warn about PAT handling`);
+    assert.match(guide, /Responses API/u, `${locale} ChatGPT guide must reserve PAT use for an API client`);
+  }
+
+  assert.match(
+    variants(MESSAGE_CATALOGS.en['settings.aiGuide.chatgpt']).join(' '),
+    /do not paste a Girapphe PAT/u,
+  );
+});

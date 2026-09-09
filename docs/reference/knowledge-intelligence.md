@@ -77,8 +77,10 @@ the rule, its date, and the number of source selectors. A link opens the
 owner-scoped Topic Hub at the approved item. No transcript excerpt is exposed.
 
 Context creation is a second explicit selection. The user checks one or more
-supporting active items and chooses Markdown, YAML, or JSON. The existing
-`POST /api/knowledge/context-pack` contract revalidates:
+supporting active items and chooses Markdown, YAML, or JSON. Topic Context and
+Thinking History initialize that choice from the saved Settings format, while
+still allowing the user to override it for the current context pack. The
+existing `POST /api/knowledge/context-pack` contract revalidates:
 
 - same-origin authenticated POST;
 - current signal ownership and signal membership when `signalId` is supplied;

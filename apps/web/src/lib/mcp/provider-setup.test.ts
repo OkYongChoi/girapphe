@@ -69,7 +69,7 @@ test('provider snippets reject unsafe absolute endpoint schemes', () => {
   assert.doesNotMatch(snippet, /javascript:/u);
 });
 
-test('Knowledge Inbox renders the provider guide without receiving the raw PAT', () => {
+test('Settings renders the provider guide without receiving the raw PAT', () => {
   const componentSource = readFileSync(
     new URL('../../components/mcp-provider-setup-guide.tsx', import.meta.url),
     'utf8',
@@ -78,9 +78,15 @@ test('Knowledge Inbox renders the provider guide without receiving the raw PAT',
     new URL('../../components/draft-review-mcp-connections.tsx', import.meta.url),
     'utf8',
   );
+  const settingsSource = readFileSync(
+    new URL('../../app/settings/page.tsx', import.meta.url),
+    'utf8',
+  );
 
   assert.match(componentSource, /name="mcp-provider-setup"/u);
   assert.match(componentSource, /MCP_PROVIDER_SETUP_GUIDES/u);
+  assert.match(componentSource, /lang="en"[\s\S]*dir="ltr"/u);
+  assert.match(settingsSource, /<DraftReviewMcpConnections tokens=\{tokens\} \/>/u);
   assert.match(connectionsSource, /<McpProviderSetupGuide endpointUrl=\{endpointUrl\} tokenReady=\{Boolean\(rawToken\)\} \/>/u);
   assert.doesNotMatch(connectionsSource, /<McpProviderSetupGuide[^>]+rawToken=/u);
 });
