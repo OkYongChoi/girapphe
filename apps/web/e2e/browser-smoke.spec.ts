@@ -279,6 +279,17 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('Clerk auth flow subroutes stay inside the auth entrypoints', async ({ request }) => {
+    for (const route of [
+      '/login/factor-one',
+      '/signup/continue',
+      '/signup/sso-callback',
+    ]) {
+      const response = await request.get(route);
+      expect(response.status(), `${route} should be handled by its auth entrypoint`).toBe(200);
+    }
+  });
+
   test('capacity dashboard stays behind admin authentication', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
