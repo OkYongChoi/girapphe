@@ -231,7 +231,7 @@ pnpm harness:deploy
 ```
 
 This runs the local harness, builds the Cloudflare/OpenNext Worker, and verifies
-that its compressed upload stays within the guarded release-size budget.
+that its uncompressed upload stays within the guarded release-size budget.
 
 Browser smoke checks use Playwright and start the web dev server automatically:
 
@@ -342,8 +342,10 @@ Branch flow:
 feature branch -> PR preview -> PR merge to main -> production deploy
 ```
 
-- Pull requests deploy an isolated Cloudflare Preview Worker. They never run migrations.
-- `main` deploys to Cloudflare `prod`, runs migrations, then smoke tests production.
+- Pull requests deploy an isolated Cloudflare Preview Worker and apply only the
+  explicitly allowlisted, idempotent migration subset required by Preview.
+- `main` deploys to Cloudflare `prod`, runs the full migration history, then smoke
+  tests production.
 - Do not commit real `.env*` files. Keep local values in `apps/web/.env.local`;
   inject CI values with GitHub Secrets/Variables and Cloudflare runtime values
   with Wrangler Worker secrets.

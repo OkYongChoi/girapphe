@@ -191,6 +191,11 @@ test('web Practice clears both round sets before either kind of cycle reset', ()
     actionHandler,
     /if \(result\.cycled\) \{\s*ratedIds\.current\.clear\(\);\s*skippedIds\.current\.clear\(\);\s*\}/,
   );
+  assert.match(
+    actionHandler,
+    /const roundExclusions = mergePracticeRoundExclusions\(\[\s*\[\.\.\.ratedIds\.current\],\s*\[\.\.\.skippedIds\.current\],\s*\[card\.id\],\s*\]\);/,
+  );
+  assert.match(actionHandler, /excludeIds: roundExclusions/);
   assert.match(skipHandler, /ratedIds\.current\.clear\(\)/);
   assert.match(skipHandler, /skippedIds\.current\.clear\(\)/);
   assert.ok(skipHandler.indexOf('ratedIds.current.clear()') < skipHandler.indexOf('getNextCard(mode, undefined, locale)'));

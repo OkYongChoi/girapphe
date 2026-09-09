@@ -28,6 +28,7 @@ const PREVIEW_MIGRATIONS = [
   { url: new URL('../drizzle/migrations/0022_recall_ping_persistence.sql', import.meta.url) },
   { url: new URL('../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql', import.meta.url) },
   { url: new URL('../drizzle/migrations/0024_recall_prepared_attempts.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0025_mobile_practice_owner_cursor.sql', import.meta.url) },
 ];
 
 const SAFE_STATEMENT_PREFIXES = [

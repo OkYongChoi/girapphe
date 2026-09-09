@@ -21,7 +21,11 @@ test('mobile Practice keeps its stateless cursor request small and bounded', () 
 
 test('mixed Practice actions exclude rated and currently skipped cards once', () => {
   assert.deepEqual(
-    mergePracticeRoundExclusions([['rated-a', 'shared'], ['skipped-b', 'shared']]),
-    ['rated-a', 'shared', 'skipped-b'],
+    mergePracticeRoundExclusions([
+      ['rated-a', 'shared'],
+      ['skipped-b', 'shared'],
+      ['current-c'],
+    ]),
+    ['rated-a', 'shared', 'skipped-b', 'current-c'],
   );
 });

@@ -131,13 +131,18 @@ export default function CardViewer({
     setHistory(prev => [...prev, { card, action: status }]);
     const wasSkipped = skippedIds.current.has(card.id);
     skippedIds.current.delete(card.id); // rated → no longer needs cycling back
+    const roundExclusions = mergePracticeRoundExclusions([
+      [...ratedIds.current],
+      [...skippedIds.current],
+      [card.id],
+    ]);
 
     try {
       const result = await rateCardAndAdvance({
         cardId: card.id,
         status,
         mode,
-        excludeIds: [...ratedIds.current, card.id],
+        excludeIds: roundExclusions,
         locale,
       });
       if (!result.success) {
