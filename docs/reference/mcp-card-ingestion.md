@@ -66,6 +66,45 @@ custom authorization header. OAuth and Girapphe PATs are distinguished before
 authentication; an invalid Girapphe-prefixed token never falls through to the
 OAuth verifier.
 
+### Provider-specific setup
+
+The Knowledge Inbox keeps the hosted-chat and bearer-token paths separate so a
+user does not paste a Girapphe PAT into an unsupported connector field.
+
+For **ChatGPT web**, enable developer mode, create a custom app with the
+Girapphe `https://www.girapphe.com/api/mcp` endpoint, choose OAuth, scan tools,
+and complete the Girapphe sign-in. Full write-capable MCP apps currently
+require a ChatGPT Business or Enterprise/Edu web workspace; Pro custom apps
+are limited to read/fetch actions and therefore cannot create Girapphe drafts.
+See OpenAI's current
+[ChatGPT MCP app guide](https://help.openai.com/en/articles/12584461).
+
+A server-side **OpenAI Responses API** integration can use a Girapphe PAT in
+the remote MCP tool's `Authorization` header. Put the value in
+`GIRAPPHE_MCP_TOKEN`; do not embed it in browser code or a committed file. The
+Knowledge Inbox generates the exact endpoint-specific tool object and keeps
+tool approval enabled. See OpenAI's current
+[remote MCP reference](https://platform.openai.com/docs/guides/tools-connectors-mcp).
+
+For **Claude web or Desktop**, open Settings → Connectors, add the same remote
+MCP endpoint, select Connect, and complete the Girapphe OAuth sign-in. Remote
+custom connectors currently require Claude Pro, Max, Team, or Enterprise;
+Team and Enterprise owners must first enable the connector for their
+organization. See Anthropic's current
+[custom connector guide](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).
+
+**Claude Code** accepts the PAT through a custom Streamable HTTP header. Store
+the token as `GIRAPPHE_MCP_TOKEN`, then use the Knowledge Inbox's generated
+`claude mcp add-json` command. The user-scoped configuration retains the
+environment-variable reference instead of writing the raw secret into project
+configuration. See Anthropic's current
+[Claude Code MCP reference](https://code.claude.com/docs/en/mcp).
+
+Provider plan, workspace policy, connector registration, and a successful
+OAuth sign-in or bearer-authenticated tool call remain external activation
+gates. Deploying this UI or receiving an MCP authentication challenge is not
+proof that either provider is connected.
+
 ## Structured bundle input
 
 `create_knowledge_bundle_drafts` accepts a strict discriminated union. Every
