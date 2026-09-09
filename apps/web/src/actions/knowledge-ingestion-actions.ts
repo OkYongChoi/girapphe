@@ -231,6 +231,7 @@ export async function createMcpAccessToken(formData: FormData): Promise<{ token:
     scopes,
   );
   revalidatePath('/knowledge-inbox');
+  revalidatePath('/settings');
   return result;
 }
 
@@ -240,4 +241,5 @@ export async function revokeMcpAccessToken(formData: FormData): Promise<void> {
   if (!tokenId) return;
   await revokeMcpAccessTokenForUser(user.id, tokenId);
   revalidatePath('/knowledge-inbox');
+  revalidatePath('/settings');
 }

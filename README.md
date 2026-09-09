@@ -126,6 +126,7 @@ Core routes:
 - `/my-notes` (legacy `/my-knowledge` URLs redirect here)
 - `/knowledge-inbox`
 - `/knowledge-inbox/import`
+- `/settings` (signed-in AI connections, reuse defaults, and account/data links)
 - `/insights`
 - `/topics`
 - `/subscription`
@@ -178,6 +179,10 @@ pnpm db:studio
 ## UX Defaults
 
 - `/knowledge` opens in **3D Graph View** by default.
+- `/settings` defaults its external-AI setup guide to ChatGPT and reusable
+  context to Markdown. These versioned, enum-only browser preferences guide
+  setup and output format; the connected external client still chooses the
+  exact AI model.
 - Navbar highlights the active route for signed-in users.
 - Home page shows quick progress summary for signed-in users.
 - Saved/My Notes filters include a `Clear` action. My Notes keeps secondary

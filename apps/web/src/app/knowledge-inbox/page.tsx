@@ -1,9 +1,7 @@
 import Navbar from '@/components/navbar';
 import {
   getKnowledgeDraftBatches,
-  getMcpAccessTokens,
 } from '@/actions/knowledge-ingestion-actions';
-import DraftReviewMcpConnections from '@/components/draft-review-mcp-connections';
 import OpenPendingReviewWebMcp from '@/components/open-pending-review-webmcp';
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
@@ -48,10 +46,7 @@ export default async function KnowledgeInboxPage({ searchParams }: KnowledgeInbo
   const params = (await searchParams) ?? {};
   const approved = Math.max(0, Number.parseInt(params.approved ?? '0', 10) || 0);
   const skippedEdges = Math.max(0, Number.parseInt(params.skippedEdges ?? '0', 10) || 0);
-  const [batches, tokens] = await Promise.all([
-    getKnowledgeDraftBatches(),
-    getMcpAccessTokens(),
-  ]);
+  const batches = await getKnowledgeDraftBatches();
   const pendingReviewSummaries = batches.flatMap((batch) => {
     const id = readString(asRecord(batch), 'id', 'batch_id');
     return id ? [{ id }] : [];
@@ -146,7 +141,15 @@ export default async function KnowledgeInboxPage({ searchParams }: KnowledgeInbo
           </ol>
         )}
 
-        <DraftReviewMcpConnections tokens={tokens} />
+        <section className="mt-8 flex flex-col gap-4 rounded-2xl border border-violet-200 bg-violet-50/60 p-5 sm:flex-row sm:items-center sm:justify-between" aria-labelledby="inbox-connections-title">
+          <div>
+            <h2 id="inbox-connections-title" className="text-lg font-black text-violet-950">{t('inbox.connectionsTitle')}</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-violet-900">{t('inbox.connectionsBody')}</p>
+          </div>
+          <LocalizedLink href="/settings#ai-connections" className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-violet-700 px-4 text-sm font-bold text-white hover:bg-violet-800 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2">
+            {t('inbox.manageConnections')}
+          </LocalizedLink>
+        </section>
       </section>
     </main>
   );

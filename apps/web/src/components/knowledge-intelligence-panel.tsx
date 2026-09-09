@@ -7,8 +7,12 @@ import type {
 } from '@stem-brain/shared/ai-thinking-history';
 import { useI18n } from '@/i18n/client';
 import { LocalizedLink } from '@/i18n/navigation';
+import {
+  DEFAULT_SETTINGS_PREFERENCES,
+  readSettingsPreferences,
+  type ContextPackFormat,
+} from '@/lib/settings-preferences';
 
-type ContextFormat = 'markdown' | 'yaml' | 'json';
 type DismissOutcome = Extract<KnowledgeProductEventOutcome, 'unhelpful' | 'incorrect' | 'scope_changed'>;
 
 async function recordSignalEvent(body: Record<string, unknown>) {
@@ -47,7 +51,7 @@ export default function KnowledgeIntelligencePanel({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
-  const [format, setFormat] = useState<ContextFormat>('markdown');
+  const [format, setFormat] = useState<ContextPackFormat>(DEFAULT_SETTINGS_PREFERENCES.contextFormat);
   const [status, setStatus] = useState<Record<string, string>>({});
   const [pending, startTransition] = useTransition();
   const signalIds = useMemo(() => signals.map((signal) => signal.id), [signals]);
@@ -65,6 +69,10 @@ export default function KnowledgeIntelligencePanel({
       }, () => { if (active) setMessages({}); });
     return () => { active = false; };
   }, [locale]);
+
+  useEffect(() => {
+    setFormat(readSettingsPreferences().contextFormat);
+  }, []);
 
   useEffect(() => {
     if (signalIds.length > 0) {
@@ -271,7 +279,7 @@ export default function KnowledgeIntelligencePanel({
                       <div className="thinking-context-actions">
                         <label className="thinking-format-label">
                           {t('insights.context.format')}
-                          <select value={format} onChange={(event) => setFormat(event.target.value as ContextFormat)} className="thinking-format-select">
+                          <select value={format} onChange={(event) => setFormat(event.target.value as ContextPackFormat)} className="thinking-format-select">
                             <option value="markdown">Markdown</option><option value="yaml">YAML</option><option value="json">JSON</option>
                           </select>
                         </label>

@@ -1,9 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { KnowledgeBundleType } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 import type { MessageKey } from '@/i18n/messages';
+import {
+  DEFAULT_SETTINGS_PREFERENCES,
+  readSettingsPreferences,
+  type ContextPackFormat,
+} from '@/lib/settings-preferences';
 
 const MAX_CONTEXT_ITEMS = 100;
 
@@ -17,9 +22,13 @@ type ContextItem = {
 export default function TopicContextPackSelector({ topic, items }: { topic: string; items: ContextItem[] }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [format, setFormat] = useState<'markdown' | 'yaml' | 'json'>('markdown');
+  const [format, setFormat] = useState<ContextPackFormat>(DEFAULT_SETTINGS_PREFERENCES.contextFormat);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFormat(readSettingsPreferences().contextFormat);
+  }, []);
 
   const setItem = (id: string, checked: boolean) => {
     if (checked && selected.size >= MAX_CONTEXT_ITEMS && !selected.has(id)) {
@@ -114,7 +123,7 @@ export default function TopicContextPackSelector({ topic, items }: { topic: stri
         <div className="mt-5 flex flex-wrap items-end justify-between gap-3 border-t border-slate-100 pt-4">
           <label className="grid gap-1 text-xs font-bold text-slate-700">
             {t('topic.context.format')}
-            <select value={format} onChange={(event) => setFormat(event.target.value as typeof format)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold">
+            <select value={format} onChange={(event) => setFormat(event.target.value as ContextPackFormat)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold">
               <option value="markdown">Markdown</option>
               <option value="yaml">YAML</option>
               <option value="json">JSON</option>
