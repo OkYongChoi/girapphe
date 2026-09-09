@@ -241,11 +241,13 @@ export default function KnowledgeMap({
     [baseCards, generatedCards, includeGenerated]
   );
   const cards = useMemo<MapCard[]>(() => [...publicCards, ...personalCards], [publicCards, personalCards]);
+  const coreTotalCardCount = useMemo(
+    () => Math.max(initialTotalCards + personalCards.length, cards.length),
+    [cards.length, initialTotalCards, personalCards.length],
+  );
   const totalCardCount = useMemo(
-    () => includeGenerated
-      ? cards.length
-      : Math.max(initialTotalCards + personalCards.length, cards.length),
-    [cards.length, includeGenerated, initialTotalCards, personalCards.length],
+    () => includeGenerated && generatedCards ? cards.length : coreTotalCardCount,
+    [cards.length, coreTotalCardCount, generatedCards, includeGenerated],
   );
   const graphPublicCards = graphSnapshot?.cards ?? EMPTY_GRAPH_CARDS;
   const graphEdges = useMemo<KnowledgeGraphEdgeView[]>(() => {

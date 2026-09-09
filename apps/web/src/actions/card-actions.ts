@@ -1885,7 +1885,7 @@ async function getKnowledgeMapCardTotal() {
     return sourceCards.filter((card) => !isExcludedFromKnowledgeMap(card.id)).length;
   };
 
-  if (!process.env.DATABASE_URL) return getFallbackCount();
+  if (user.isGuest || !process.env.DATABASE_URL) return getFallbackCount();
 
   try {
     await ensureCardSchema();
