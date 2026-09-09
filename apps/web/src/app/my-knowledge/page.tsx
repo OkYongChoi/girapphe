@@ -31,6 +31,7 @@ import { isKnowledgeBundleType, KNOWLEDGE_BUNDLE_TYPES } from '@stem-brain/share
 import KnowledgeIntelligencePanel from '@/components/knowledge-intelligence-loader';
 import { getKnowledgeIntelligenceForUser } from '@/lib/knowledge-intelligence';
 import { isAiThinkingHistoryEnabledForUser } from '@/lib/ai-thinking-history-rollout';
+import KnowledgeDateRangeFilter from '@/components/knowledge-date-range-filter';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,6 +187,9 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
     : Object.entries(Object.groupBy(filteredItems, (item) => groupLabel(item.created_at, groupBy, formatDate, t)))
       .map(([label, grouped]) => ({ label, items: grouped ?? [] }));
   const hasActiveFilter = !!params.q || (params.topic && params.topic !== 'all') || typeFilter !== 'all' || sortBy !== 'created' || period !== 'all' || groupBy !== 'none';
+  const activeFacetCount = Number(typeFilter !== 'all') + Number(topicFilter !== 'all') + Number(period !== 'all');
+  const activeViewOptionCount = Number(sortBy !== 'created') + Number(groupBy !== 'none');
+  const showFilterControls = items.length > 0 || hasActiveFilter;
   const createRequestId = randomUUID();
 
   return (
@@ -242,11 +246,17 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
           </div>
         ) : null}
 
-        {/* Filter form */}
-        <form role="search" aria-label={t('notes.filterAria')} className="mt-4 rounded-xl border bg-white p-3">
-          <input type="hidden" name="view" value={view} />
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
+        <div className="mt-4 flex items-center gap-2 text-sm">
+          <LocalizedLink href="/my-notes" className={`rounded-lg border px-3 py-1.5 ${isActive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.title')}</LocalizedLink>
+          {!actor.isGuest ? <LocalizedLink href="/my-notes?view=archive" className={`rounded-lg border px-3 py-1.5 ${isArchive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.archive')}</LocalizedLink> : null}
+          <LocalizedLink href="/my-notes?view=trash" className={`rounded-lg border px-3 py-1.5 ${isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.trash')}</LocalizedLink>
+        </div>
+
+        {/* Search stays visible once notes exist; secondary controls disclose on demand. */}
+        {showFilterControls ? (
+          <form role="search" aria-label={t('notes.filterAria')} className="mt-3 rounded-xl border bg-white p-2 sm:p-3">
+            <input type="hidden" name="view" value={view} />
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <label htmlFor="knowledge-search" className="sr-only">
                 {t('notes.search')}
               </label>
@@ -258,90 +268,103 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                 placeholder={t('notes.searchPlaceholder')}
                 className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
+              <button
+                type="submit"
+                className="min-h-10 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500"
+              >
+                {t('common.search')}
+              </button>
             </div>
 
-            <select name="type" defaultValue={typeFilter} className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('bundle.format')}>
-              <option value="all">{t('common.allStatus')}</option>
-              <option value="legacy">{t('bundle.quickNote')}</option>
-              {KNOWLEDGE_BUNDLE_TYPES.map((value) => <option key={value} value={value}>{t(`bundle.type.${value}`)}</option>)}
-            </select>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <details open={activeFacetCount > 0} className="group min-w-0 rounded-lg border bg-gray-50 open:col-span-2 open:bg-white">
+                <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
+                  <span>{t('common.filter')}{activeFacetCount > 0 ? ` (${activeFacetCount})` : ''}</span>
+                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180">
+                    <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </summary>
+                <div className="grid gap-2 border-t p-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <select name="type" defaultValue={typeFilter} className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('bundle.format')}>
+                    <option value="all">{t('common.allStatus')}</option>
+                    <option value="legacy">{t('bundle.quickNote')}</option>
+                    {KNOWLEDGE_BUNDLE_TYPES.map((value) => <option key={value} value={value}>{t(`bundle.type.${value}`)}</option>)}
+                  </select>
 
-            <div className="flex min-w-0 flex-col gap-1">
-              <label htmlFor="knowledge-topic" className="sr-only">
-                {t('notes.topicFilter')}
-              </label>
-              <select
-                id="knowledge-topic"
-                name="topic"
-                defaultValue={topicFilter}
-                className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
-                <option value="all">{t('notes.allTopics')}</option>
-                {topics.map((topic) => (
-                  <option key={topic} value={topic.toLowerCase()}>
-                    {topic}
-                  </option>
-                ))}
-              </select>
+                  <select
+                    id="knowledge-topic"
+                    name="topic"
+                    defaultValue={topicFilter}
+                    className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    aria-label={t('notes.topicFilter')}
+                  >
+                    <option value="all">{t('notes.allTopics')}</option>
+                    {topics.map((topic) => (
+                      <option key={topic} value={topic.toLowerCase()}>
+                        {topic}
+                      </option>
+                    ))}
+                  </select>
+
+                  <KnowledgeDateRangeFilter
+                    defaultPeriod={period}
+                    defaultStart={params.start ?? ''}
+                    defaultEnd={params.end ?? ''}
+                    labels={{
+                      dateRange: t('notes.dateRange'),
+                      anyDate: t('notes.anyDate'),
+                      today: t('notes.today'),
+                      thisWeek: t('notes.thisWeek'),
+                      thisMonth: t('notes.thisMonth'),
+                      customRange: t('notes.customRange'),
+                      from: t('notes.from'),
+                      to: t('notes.to'),
+                    }}
+                  />
+                </div>
+              </details>
+
+              <details open={activeViewOptionCount > 0} className="group min-w-0 rounded-lg border bg-gray-50 open:col-span-2 open:bg-white">
+                <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
+                  <span>{t('notes.sort')}{activeViewOptionCount > 0 ? ` (${activeViewOptionCount})` : ''}</span>
+                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180">
+                    <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </summary>
+                <div className="grid gap-2 border-t p-3 sm:grid-cols-2">
+                  <select
+                    id="knowledge-sort"
+                    name="sort"
+                    defaultValue={sortBy}
+                    className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    aria-label={t('notes.sort')}
+                  >
+                    <option value="created">{t('notes.recentAdded')}</option>
+                    <option value="updated">{t('notes.recentUpdated')}</option>
+                    <option value="title">{t('notes.titleSort')}</option>
+                  </select>
+
+                  <select name="group" defaultValue={groupBy} className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('notes.groupByDate')}>
+                    <option value="none">{t('notes.noGrouping')}</option>
+                    <option value="week">{t('notes.byWeek')}</option>
+                    <option value="month">{t('notes.byMonth')}</option>
+                  </select>
+                </div>
+              </details>
             </div>
 
-            <div className="flex min-w-0 flex-col gap-1">
-              <label htmlFor="knowledge-sort" className="sr-only">
-                {t('notes.sort')}
-              </label>
-              <select
-                id="knowledge-sort"
-                name="sort"
-                defaultValue={sortBy}
-                className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
-                <option value="created">{t('notes.recentAdded')}</option>
-                <option value="updated">{t('notes.recentUpdated')}</option>
-                <option value="title">{t('notes.titleSort')}</option>
-              </select>
-            </div>
-
-            <select name="period" defaultValue={period} className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('notes.dateRange')}>
-              <option value="all">{t('notes.anyDate')}</option>
-              <option value="today">{t('notes.today')}</option>
-              <option value="week">{t('notes.thisWeek')}</option>
-              <option value="month">{t('notes.thisMonth')}</option>
-              <option value="custom">{t('notes.customRange')}</option>
-            </select>
-
-            <select name="group" defaultValue={groupBy} className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('notes.groupByDate')}>
-              <option value="none">{t('notes.noGrouping')}</option>
-              <option value="week">{t('notes.byWeek')}</option>
-              <option value="month">{t('notes.byMonth')}</option>
-            </select>
-
-            <button
-              type="submit"
-              className="w-full min-w-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500"
-            >
-              {t('common.search')}
-            </button>
-
-            {hasActiveFilter && (
-              <LocalizedLink
-                href={clearFiltersHref}
-                className="w-full min-w-0 rounded-lg border px-4 py-2 text-center text-sm text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {t('common.clear')}
-              </LocalizedLink>
-            )}
-          </div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:max-w-md">
-            <label className="text-xs text-gray-600">{t('notes.from')}<input type="date" name="start" defaultValue={params.start ?? ''} className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm" /></label>
-            <label className="text-xs text-gray-600">{t('notes.to')}<input type="date" name="end" defaultValue={params.end ?? ''} className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm" /></label>
-          </div>
-        </form>
-
-        <div className="mt-3 flex items-center gap-2 text-sm">
-          <LocalizedLink href="/my-notes" className={`rounded-lg border px-3 py-1.5 ${isActive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.title')}</LocalizedLink>
-          {!actor.isGuest ? <LocalizedLink href="/my-notes?view=archive" className={`rounded-lg border px-3 py-1.5 ${isArchive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.archive')}</LocalizedLink> : null}
-          <LocalizedLink href="/my-notes?view=trash" className={`rounded-lg border px-3 py-1.5 ${isTrash ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.trash')}</LocalizedLink>
-        </div>
+            {hasActiveFilter ? (
+              <div className="mt-2 text-right">
+                <LocalizedLink
+                  href={clearFiltersHref}
+                  className="inline-flex min-h-8 items-center rounded-lg px-2 text-sm font-medium text-blue-700 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {t('common.clear')}
+                </LocalizedLink>
+              </div>
+            ) : null}
+          </form>
+        ) : null}
 
         {isActive && linkTargets.length > 0 ? (
           <datalist id="knowledge-relation-targets">
