@@ -15,6 +15,14 @@ function requireValue(value, name) {
   return normalized;
 }
 
+function requireSyntheticFixtureUser(userInput) {
+  const userId = requireValue(userInput?.id, 'Clerk user ID');
+  if (userInput?.publicMetadata?.girappheSyntheticPurpose !== AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE) {
+    throw new Error('Database fixture mutations require the dedicated authenticated overlay synthetic user.');
+  }
+  return userId;
+}
+
 export function normalizeSyntheticEmail(value) {
   const email = requireValue(value, 'E2E_CLERK_USER_EMAIL').toLowerCase();
   const [localPart, domain, ...extra] = email.split('@');
@@ -78,8 +86,12 @@ export async function ensureSyntheticClerkUser({ clerkClient, emailAddress }) {
   return { user, created: true };
 }
 
-export async function seedAuthenticatedOverlayFixtureWithClient(client, userIdInput) {
-  const userId = requireValue(userIdInput, 'Clerk user ID');
+export async function seedAuthenticatedOverlayFixtureWithClient(
+  client,
+  syntheticUser,
+  { resetMcpAccessTokens = false } = {},
+) {
+  const userId = requireSyntheticFixtureUser(syntheticUser);
   const ids = fixtureIdsForUser(userId);
   const items = [
     {
@@ -102,6 +114,15 @@ export async function seedAuthenticatedOverlayFixtureWithClient(client, userIdIn
 
   await client.query('BEGIN');
   try {
+    if (resetMcpAccessTokens) {
+      // Keep repeated Preview evidence runs below the immutable application
+      // quota without widening cleanup beyond the validated synthetic owner.
+      await client.query(
+        'DELETE FROM mcp_access_tokens WHERE user_id = $1',
+        [userId],
+      );
+    }
+
     const productEventsTable = await client.query(
       `SELECT to_regclass('public.knowledge_product_events') IS NOT NULL AS available`,
     );
@@ -262,6 +283,7 @@ export async function ensureAuthenticatedOverlayFixture({
   emailAddress = process.env.E2E_CLERK_USER_EMAIL,
   secretKey = process.env.CLERK_SECRET_KEY,
   databaseUrl = process.env.DATABASE_URL,
+  resetMcpAccessTokens = false,
 } = {}) {
   const email = normalizeSyntheticEmail(emailAddress);
   const clerkClient = createClerkClient({ secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY') });
@@ -269,7 +291,11 @@ export async function ensureAuthenticatedOverlayFixture({
   const pool = new Pool({ connectionString: requireValue(databaseUrl, 'DATABASE_URL'), max: 1 });
   const client = await pool.connect();
   try {
-    const fixture = await seedAuthenticatedOverlayFixtureWithClient(client, user.id);
+    const fixture = await seedAuthenticatedOverlayFixtureWithClient(
+      client,
+      user,
+      { resetMcpAccessTokens },
+    );
     return { user, createdClerkUser: created, fixture };
   } finally {
     client.release();

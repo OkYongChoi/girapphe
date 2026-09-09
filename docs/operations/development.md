@@ -103,8 +103,16 @@ The same opt-in authenticated run checks Settings on desktop and mobile. It
 opens the hash-targeted AI-connections disclosure, exercises keyboard toggling,
 restores validated browser-local AI-app and Context Pack choices, verifies the
 Preview Thinking History default when that surface is enabled, checks Arabic
-RTL/mobile containment and 44 px interaction targets, and saves a synthetic
-success screenshot without creating or revoking a token.
+RTL/mobile containment and 44 px interaction targets, and saves synthetic
+success screenshots. In a testing-token Preview run only, fixture setup first
+deletes `mcp_access_tokens` rows for the validated synthetic owner inside the
+same fixture transaction. The desktop and mobile provider checks then each
+create a real PAT, capture its one-time value and immediately hide that surface,
+prove the copied OpenAI and Claude snippets retain `GIRAPPHE_MCP_TOKEN` while
+omitting the captured value, clear the clipboard, revoke the PAT, and reload
+before any durable success screenshot. This reset is intentionally destructive
+only for the marker-validated synthetic account; its exact owner predicate does
+not relax the application's token quotas or permit cleanup of a normal account.
 
 Runtime inputs are injected temporarily; do not copy their values into tracked
 files:
@@ -115,6 +123,7 @@ CLERK_PUBLISHABLE_KEY
 CLERK_SECRET_KEY
 DATABASE_URL
 E2E_CLERK_USER_EMAIL
+E2E_CLERK_AUTH_MODE
 PLAYWRIGHT_RUNS
 ```
 
@@ -125,7 +134,12 @@ normal user cannot become the fixture owner accidentally. Preview authentication
 uses Clerk's Playwright testing token and `clerk.signIn()` by email address.
 Production cannot mint testing tokens, so its explicitly confirmed one-shot run
 uses a five-minute backend sign-in token for the same marked synthetic owner.
-Both paths write only an ignored `playwright/.clerk/` storage-state file. See
+When `E2E_CLERK_AUTH_MODE` is omitted, the suite uses the same resolver in setup
+and provider tests: a test Clerk secret selects `testing-token`, while a live
+secret selects `sign-in-token`. Production sign-in-token runs neither reset MCP
+token rows nor execute the PAT creation/revocation evidence; those mutations
+remain Preview-only. Both paths write only an ignored `playwright/.clerk/`
+storage-state file. See
 Clerk's current
 [Playwright testing guide](https://clerk.com/docs/guides/development/testing/playwright/overview)
 and [authentication-state reuse guide](https://clerk.com/docs/guides/development/testing/playwright/test-authenticated-flows),
@@ -166,7 +180,9 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    and fork PRs, resolves the exact same-repository PR head SHA through GitHub,
    checks out that SHA, and waits until `/api/health` reports the same deployed
    revision. Desktop and mobile each run three times against that PR's Preview
-   Worker, preview Clerk instance, and preview database.
+   Worker, preview Clerk instance, and preview database. The validated Preview
+   synthetic owner's prior MCP token rows are reset before the provider test;
+   each created evidence PAT is revoked before its screenshot.
 3. Review the uploaded summary before changing performance code. Separate
    Clerk, Worker-to-Neon, private-graph, and link-target time if the result is
    slow.
@@ -176,7 +192,8 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    `RUN_PRODUCTION_SYNTHETIC` from the protected `main` branch; the workflow
    rejects every other ref before exposing production credentials. Desktop and
    mobile each run once against `https://www.girapphe.com`, after its health
-   revision matches the checked-out `main` SHA.
+   revision matches the checked-out `main` SHA. This sign-in-token path does not
+   reset, create, or revoke MCP tokens.
 
 The deployment workflow attaches `GIRAPPHE_REVISION` atomically to each uploaded
 Worker version. Production bulk-secret synchronization intentionally excludes

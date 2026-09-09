@@ -1,57 +1,60 @@
+import type { MessageKey } from '@/i18n/messages';
+
 export const MCP_TOKEN_ENVIRONMENT_VARIABLE = 'GIRAPPHE_MCP_TOKEN';
 
 export type McpProviderSetupId = 'chatgpt' | 'claude';
+type McpProviderSetupMessageKey = Extract<MessageKey, `mcp.providerSetup.${string}`>;
 
 export type McpProviderSetupGuide = {
   id: McpProviderSetupId;
-  name: string;
-  nativeClient: string;
-  nativeAuthLabel: string;
-  nativeSteps: readonly string[];
-  availability: string;
-  tokenClient: string;
-  tokenSummary: string;
-  officialGuideLabel: string;
+  nameKey: McpProviderSetupMessageKey;
+  nativeClientKey: McpProviderSetupMessageKey;
+  nativeAuthLabelKey: McpProviderSetupMessageKey;
+  nativeStepKeys: readonly [McpProviderSetupMessageKey, McpProviderSetupMessageKey, McpProviderSetupMessageKey];
+  availabilityKey: McpProviderSetupMessageKey;
+  tokenClientKey: McpProviderSetupMessageKey;
+  tokenSummaryKey: McpProviderSetupMessageKey;
+  officialGuideLabelKey: McpProviderSetupMessageKey;
   officialGuideUrl: string;
-  tokenGuideLabel: string;
+  tokenGuideLabelKey: McpProviderSetupMessageKey;
   tokenGuideUrl: string;
 };
 
 export const MCP_PROVIDER_SETUP_GUIDES: Record<McpProviderSetupId, McpProviderSetupGuide> = {
   chatgpt: {
     id: 'chatgpt',
-    name: 'ChatGPT',
-    nativeClient: 'ChatGPT web app',
-    nativeAuthLabel: 'Connect with OAuth — do not paste a Girapphe PAT',
-    nativeSteps: [
-      'On Business, an admin or owner enables developer mode and opens Workspace settings → Apps → Create. On Enterprise/Edu, an admin first grants developer-mode access; an authorized user then enables it in Settings → Apps → Advanced Settings.',
-      'Enter the Girapphe MCP endpoint, choose OAuth, and scan the available tools.',
-      'Finish the Girapphe sign-in prompt. In a new chat, select the Girapphe app before asking it to create drafts from your explicit selection.',
+    nameKey: 'mcp.providerSetup.chatgpt.name',
+    nativeClientKey: 'mcp.providerSetup.chatgpt.nativeClient',
+    nativeAuthLabelKey: 'mcp.providerSetup.chatgpt.nativeAuthLabel',
+    nativeStepKeys: [
+      'mcp.providerSetup.chatgpt.nativeStep1',
+      'mcp.providerSetup.chatgpt.nativeStep2',
+      'mcp.providerSetup.chatgpt.nativeStep3',
     ],
-    availability: 'Full MCP write support is available on Business and Enterprise/Edu web workspaces. Business setup is admin/owner-only; Enterprise/Edu requires admin-granted access, and only admins/owners publish. Pro custom apps remain limited to read/fetch actions.',
-    tokenClient: 'OpenAI Responses API',
-    tokenSummary: 'Pass the PAT through the remote MCP tool’s top-level authorization field. Keep it in a server-side secret or environment variable, never in browser code.',
-    officialGuideLabel: 'Official ChatGPT app setup',
+    availabilityKey: 'mcp.providerSetup.chatgpt.availability',
+    tokenClientKey: 'mcp.providerSetup.chatgpt.tokenClient',
+    tokenSummaryKey: 'mcp.providerSetup.chatgpt.tokenSummary',
+    officialGuideLabelKey: 'mcp.providerSetup.chatgpt.officialGuideLabel',
     officialGuideUrl: 'https://help.openai.com/en/articles/12584461',
-    tokenGuideLabel: 'Official OpenAI remote MCP reference',
+    tokenGuideLabelKey: 'mcp.providerSetup.chatgpt.tokenGuideLabel',
     tokenGuideUrl: 'https://platform.openai.com/docs/guides/tools-connectors-mcp',
   },
   claude: {
     id: 'claude',
-    name: 'Claude',
-    nativeClient: 'Claude web or Desktop',
-    nativeAuthLabel: 'Connect with OAuth — do not paste a Girapphe PAT',
-    nativeSteps: [
-      'On Free, Pro, or Max, open Customize → Connectors and choose + → Add custom connector. On Team or Enterprise, an owner first adds it under Organization settings → Connectors.',
-      'Enter the public Girapphe MCP endpoint, add the connector, and select Connect.',
-      'Finish the Girapphe sign-in prompt. Enable the Girapphe tools for the current conversation before sending an explicit selection.',
+    nameKey: 'mcp.providerSetup.claude.name',
+    nativeClientKey: 'mcp.providerSetup.claude.nativeClient',
+    nativeAuthLabelKey: 'mcp.providerSetup.claude.nativeAuthLabel',
+    nativeStepKeys: [
+      'mcp.providerSetup.claude.nativeStep1',
+      'mcp.providerSetup.claude.nativeStep2',
+      'mcp.providerSetup.claude.nativeStep3',
     ],
-    availability: 'Remote custom connectors are available on Free (one custom connector), Pro, Max, Team, and Enterprise. Team and Enterprise owners must add the connector for their organization first.',
-    tokenClient: 'Claude Code',
-    tokenSummary: 'Claude Code accepts a custom Authorization header. This user-scoped setup stores only an environment-variable reference instead of putting the PAT in project configuration.',
-    officialGuideLabel: 'Official Claude connector setup',
+    availabilityKey: 'mcp.providerSetup.claude.availability',
+    tokenClientKey: 'mcp.providerSetup.claude.tokenClient',
+    tokenSummaryKey: 'mcp.providerSetup.claude.tokenSummary',
+    officialGuideLabelKey: 'mcp.providerSetup.claude.officialGuideLabel',
     officialGuideUrl: 'https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp',
-    tokenGuideLabel: 'Official Claude Code MCP reference',
+    tokenGuideLabelKey: 'mcp.providerSetup.claude.tokenGuideLabel',
     tokenGuideUrl: 'https://code.claude.com/docs/en/mcp',
   },
 };

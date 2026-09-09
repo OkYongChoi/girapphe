@@ -25,6 +25,24 @@ test('Clerk auth mode keeps testing tokens away from production instances', () =
   );
 });
 
+test('provider PAT evidence gates on the same resolved Clerk auth mode as setup', async () => {
+  const testUrl = new URL(
+    '../e2e-authenticated/authenticated-mcp-provider-setup.spec.ts',
+    import.meta.url,
+  );
+  const source = await fs.readFile(testUrl, 'utf8');
+
+  assert.match(source, /resolveAuthenticatedOverlayAuthMode\(\)/);
+  assert.match(
+    source,
+    /authMode !== AUTHENTICATED_OVERLAY_AUTH_MODES\.testingToken/,
+  );
+  assert.doesNotMatch(
+    source,
+    /process\.env\.E2E_CLERK_AUTH_MODE !== ['"]testing-token['"]/,
+  );
+});
+
 test('production-compatible sign-in ticket is short lived and owner scoped', async () => {
   const calls = [];
   const ticket = await createSyntheticSignInTicket({

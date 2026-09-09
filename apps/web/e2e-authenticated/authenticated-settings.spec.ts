@@ -102,9 +102,14 @@ test('keeps AI connection guidance honest and restores browser-local reuse defau
   await expect(page.locator('#settings-ai-client')).toHaveValue('claude');
   await expect(page.locator('#settings-context-format')).toHaveValue('json');
   await expect(page.locator('a[href="/ar/subscription"] span[aria-hidden="true"]')).toHaveText('←');
-  await expect(page.locator('section[lang="en"][dir="ltr"]').filter({
-    has: page.getByRole('heading', { name: 'Use Girapphe with ChatGPT or Claude' }),
+  const providerGuide = page.locator('section[aria-labelledby="mcp-provider-setup-title"]');
+  await expect(providerGuide.getByRole('heading', {
+    name: 'استخدم Girapphe مع ChatGPT أو Claude',
   })).toBeVisible();
+  const providerSnippet = providerGuide.locator('pre');
+  await expect(providerSnippet).toHaveAttribute('dir', 'ltr');
+  await expect(providerSnippet).toHaveCSS('direction', 'ltr');
+  await expect(providerSnippet).toHaveCSS('text-align', 'left');
 
   await expectNoHorizontalOverflow(page);
   await expectSettingsTouchTargets(page);
