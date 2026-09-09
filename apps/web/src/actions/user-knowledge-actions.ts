@@ -61,6 +61,10 @@ import { parseKnowledgeBundleFields, projectKnowledgeBundle, type KnowledgeBundl
 import { KNOWLEDGE_ITEM_UPDATE_QUERY } from '@/lib/knowledge-item-update-query';
 import { sanitizeKnowledgeTagFormValues } from '@/lib/knowledge-tag-normalization';
 import {
+  buildRecallLifecycleLockQuery,
+  buildStaleRecallEnrollmentCleanupQuery,
+} from '@/lib/recall-lifecycle-cleanup';
+import {
   readKnowledgeResolutionTimestampField,
   readOptionalTimestampPatchField,
 } from '@/lib/local-datetime';
@@ -769,6 +773,7 @@ export async function updateKnowledgeItem(formData: FormData): Promise<Knowledge
     centralQuestion: finalCentralQuestion,
   });
   const resultSets = await pool.accountTransaction<{ id: string }>(user.id, [
+    buildRecallLifecycleLockQuery(user.id, id),
     {
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
       params: [`knowledge-item:${user.id}:${id}`],
@@ -783,9 +788,10 @@ export async function updateKnowledgeItem(formData: FormData): Promise<Knowledge
         randomUUID(), randomUUID(), randomUUID(),
       ],
     },
+    buildStaleRecallEnrollmentCleanupQuery(user.id, id),
   ]);
 
-  if (!resultSets.at(-1)?.rows[0]) {
+  if (!resultSets[2]?.rows[0]) {
     return { updated: false, version: null, stale: true };
   }
 
@@ -958,6 +964,7 @@ export async function restoreKnowledgeItem(formData: FormData): Promise<void> {
       randomUUID(),
     ];
     await pool.accountTransaction(user.id, [
+      buildRecallLifecycleLockQuery(user.id, id),
       {
         text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
         params: [`knowledge-item:${user.id}:${id}`],
@@ -967,6 +974,7 @@ export async function restoreKnowledgeItem(formData: FormData): Promise<void> {
         params: [`guest-knowledge:${user.id}`],
       }] : []),
       { text: restoreQuery, params: restoreParams },
+      buildStaleRecallEnrollmentCleanupQuery(user.id, id),
     ]);
   }
 

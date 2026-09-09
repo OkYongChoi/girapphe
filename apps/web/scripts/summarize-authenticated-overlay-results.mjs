@@ -328,6 +328,16 @@ export function buildAuthenticatedRecallSummary(metrics) {
       ),
       postRevealAnswerVisibleEveryRun: rows.every((row) => row.rendered.postRevealAnswerVisible),
       completionVisibleEveryRun: rows.every((row) => row.rendered.completionVisible),
+      measuredTouchTargetMinimum: Math.min(
+        ...rows.map((row) => row.rendered.minimumTouchTargetPx),
+      ),
+      touchTargetsAtLeast44EveryRun: rows.every(
+        (row) => row.rendered.measuredTouchTargetCount > 0
+          && row.rendered.minimumTouchTargetPx >= 44,
+      ),
+      rtlRouteStatuses: [...new Set(rows.map((row) => row.rtlRouteStatus))],
+      rtlDirectionEveryRun: rows.every((row) => row.rendered.rtlDirection === 'rtl'),
+      rtlContainedEveryRun: rows.every((row) => row.rendered.rtlContained === true),
       completedDbStateEveryRun: rows.every((row) => (
         row.persisted.attemptCount === 1
         && row.persisted.attemptLifecycleState === 'completed'
@@ -421,7 +431,11 @@ export function renderAuthenticatedRecallSummary(summary) {
         && value.localDraftVisibleAfterRevealEveryRun
         && value.postRevealAnswerVisibleEveryRun
         && value.completionVisibleEveryRun
-        ? 'allowlisted; draft not sent; hidden -> revealed -> complete'
+        && value.touchTargetsAtLeast44EveryRun
+        && value.rtlDirectionEveryRun
+        && value.rtlContainedEveryRun
+        && value.rtlRouteStatuses.every((status) => status === 200)
+        ? `allowlisted; draft not sent; hidden -> revealed -> complete; targets >= ${value.measuredTouchTargetMinimum}px; RTL contained`
         : 'failed';
       return `| ${project} | ${value.runs} | ${value.routeStatuses.join(', ')}; ${value.routeReadyMs.median} ms / ${value.routeReadyMs.worst} ms; ${formatBytes(value.routeHtmlBytes.median)} / ${formatBytes(value.routeHtmlBytes.worst)} | ${value.serverActionRequests.median} / ${value.serverActionRequests.worst}; ${value.actionFlows.join(', ')} | ${value.actionResponseHeadersTotalMs.median} ms / ${value.actionResponseHeadersTotalMs.worst} ms | ${formatBytes(value.actionDecodedBytesTotal.median)} / ${formatBytes(value.actionDecodedBytesTotal.worst)} | ${transfer} | ${renderGates} | ${value.completedDbStateEveryRun ? 'completed; D+7; due matched' : 'failed'} | ${value.browserErrorCount} | ${value.durationMs.median} ms / ${value.durationMs.worst} ms | ${value.screenshotMinimum} |`;
     }),

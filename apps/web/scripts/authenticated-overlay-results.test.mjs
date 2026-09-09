@@ -389,7 +389,12 @@ test('authenticated summary links Recall render, action, database, and browser e
       localDraftVisibleAfterReveal: true,
       postRevealAnswerVisible: true,
       completionVisible: true,
+      measuredTouchTargetCount: 13,
+      minimumTouchTargetPx: 44,
+      rtlDirection: 'rtl',
+      rtlContained: true,
     },
+    rtlRouteStatus: 200,
     routeStatus: 200,
     routeReadyMs,
     routeHtmlBytes: 4_096,
@@ -426,6 +431,9 @@ test('authenticated summary links Recall render, action, database, and browser e
   assert.equal(summary.projects['authenticated-desktop'].preRevealAnswerHiddenEveryRun, true);
   assert.equal(summary.projects['authenticated-desktop'].localDraftAbsentFromActionsEveryRun, true);
   assert.equal(summary.projects['authenticated-mobile'].completedDbStateEveryRun, true);
+  assert.equal(summary.projects['authenticated-mobile'].touchTargetsAtLeast44EveryRun, true);
+  assert.equal(summary.projects['authenticated-mobile'].rtlDirectionEveryRun, true);
+  assert.equal(summary.projects['authenticated-mobile'].rtlContainedEveryRun, true);
   assert.deepEqual(summary.projects['authenticated-desktop'].serverActionRequests, {
     median: 4,
     worst: 4,
@@ -435,6 +443,7 @@ test('authenticated summary links Recall render, action, database, and browser e
   ]);
   const markdown = renderAuthenticatedRecallSummary(summary);
   assert.match(markdown, /hidden -> revealed -> complete/);
+  assert.match(markdown, /targets >= 44px; RTL contained/);
   assert.match(markdown, /start:200 -> confidence:200 -> reveal:200 -> complete:200/);
   assert.match(markdown, /completed; D\+7; due matched/);
   assert.match(markdown, /owner-and-ID-scoped Preview evidence/);
@@ -511,7 +520,12 @@ test('authenticated result loader merges private-path metrics into persisted sum
         localDraftVisibleAfterReveal: true,
         postRevealAnswerVisible: true,
         completionVisible: true,
+        measuredTouchTargetCount: 13,
+        minimumTouchTargetPx: 44,
+        rtlDirection: 'rtl',
+        rtlContained: true,
       },
+      rtlRouteStatus: 200,
       routeStatus: 200,
       routeReadyMs: 700,
       routeHtmlBytes: 4_096,

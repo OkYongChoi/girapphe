@@ -1,7 +1,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { expect, test, type Page, type Request, type Response } from './authenticated-test';
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type Request,
+  type Response,
+} from './authenticated-test';
 import pg from 'pg';
 
 const { Pool } = pg;
@@ -35,6 +42,12 @@ type RecallFixtureMetadata = {
   recall: { itemId: string } | null;
 };
 
+type TouchTargetMeasurement = {
+  label: string;
+  width: number;
+  height: number;
+};
+
 function readHeader(headers: Record<string, string>, name: string): string {
   const expected = name.toLowerCase();
   return Object.entries(headers).find(([key]) => key.toLowerCase() === expected)?.[1] ?? '';
@@ -66,6 +79,44 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow).toBeLessThanOrEqual(1);
+}
+
+async function measureMinimumTouchTarget(
+  locator: Locator,
+  label: string,
+): Promise<TouchTargetMeasurement> {
+  await expect(locator, `${label} is visible for rendered target measurement`).toBeVisible();
+  const box = await locator.boundingBox();
+  expect(box, `${label} has a rendered bounding box`).not.toBeNull();
+  expect(box!.width, `${label} rendered width`).toBeGreaterThanOrEqual(44);
+  expect(box!.height, `${label} rendered height`).toBeGreaterThanOrEqual(44);
+  return {
+    label,
+    width: Math.round(box!.width * 10) / 10,
+    height: Math.round(box!.height * 10) / 10,
+  };
+}
+
+async function expectArabicRtlContainment(page: Page): Promise<{
+  direction: string;
+  contained: boolean;
+}> {
+  const html = page.locator('html');
+  const main = page.locator('main');
+  await expect(html).toHaveAttribute('dir', 'rtl');
+  await expect(main).toBeVisible();
+  const direction = await main.evaluate((element) => getComputedStyle(element).direction);
+  expect(direction).toBe('rtl');
+  const contained = await page.evaluate(() => {
+    const content = document.querySelector('main');
+    if (!content) return false;
+    const bounds = content.getBoundingClientRect();
+    return bounds.left >= -1
+      && bounds.right <= document.documentElement.clientWidth + 1
+      && document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1;
+  });
+  expect(contained).toBe(true);
+  return { direction, contained };
 }
 
 function readFixtureMetadata(): RecallFixtureMetadata {
@@ -199,6 +250,7 @@ test('keeps approved Recall content private until reveal and persists one comple
       decodedBytesAtSettledUi: number;
       transferredBytesAtSettledUi: number | null;
     }> = [];
+    const touchTargetMeasurements: TouchTargetMeasurement[] = [];
 
     async function performAction(
       stage: RecallActionStage,
@@ -252,9 +304,11 @@ test('keeps approved Recall content private until reveal and persists one comple
       });
     }
 
+    const startButton = page.getByRole('button', { name: 'Start recall' });
+    touchTargetMeasurements.push(await measureMinimumTouchTarget(startButton, 'Start recall'));
     await performAction(
       'start',
-      () => page.getByRole('button', { name: 'Start recall' }).click(),
+      () => startButton.click(),
       async () => {
         await expect(page.getByRole('heading', {
           name: AUTHENTICATED_RECALL_FIXTURE.centralQuestion,
@@ -271,6 +325,18 @@ test('keeps approved Recall content private until reveal and persists one comple
     await expect(revealButton).toBeDisabled();
     expect(await page.content()).not.toContain(AUTHENTICATED_RECALL_FIXTURE.definition);
     expect(await page.content()).not.toContain(AUTHENTICATED_RECALL_FIXTURE.keyPoint);
+    for (const [label, locator] of [
+      ['Recall workspace', workspace],
+      ['Close session', page.getByRole('button', { name: 'Close' })],
+      ['Low confidence', page.getByRole('button', { name: 'Low confidence' })],
+      ['Medium confidence', page.getByRole('button', { name: 'Medium confidence' })],
+      ['High confidence', page.getByRole('button', { name: 'High confidence' })],
+      ["I don't know yet", page.getByRole('button', { name: "I don't know yet" })],
+      ['Reveal approved version', revealButton],
+      ['Stop Recall', page.getByRole('button', { name: 'Stop Recall' })],
+    ] as const) {
+      touchTargetMeasurements.push(await measureMinimumTouchTarget(locator, label));
+    }
 
     await performAction(
       'confidence',
@@ -306,6 +372,14 @@ test('keeps approved Recall content private until reveal and persists one comple
     const postRevealAnswerVisible = (await page.content())
       .includes(AUTHENTICATED_RECALL_FIXTURE.definition);
     expect(postRevealAnswerVisible).toBe(true);
+    for (const [label, locator] of [
+      ['Open sanitized source link', page.getByRole('link', { name: 'Open sanitized source link' })],
+      ['Remembered', page.getByRole('button', { name: 'Remembered', exact: true })],
+      ['Partly remembered', page.getByRole('button', { name: 'Partly remembered' })],
+      ['Missed', page.getByRole('button', { name: 'Missed', exact: true })],
+    ] as const) {
+      touchTargetMeasurements.push(await measureMinimumTouchTarget(locator, label));
+    }
     const postRevealScreenshot = resolve(
       evidenceDirectory,
       `${testInfo.project.name}-post-reveal.png`,
@@ -365,6 +439,16 @@ test('keeps approved Recall content private until reveal and persists one comple
       `${testInfo.project.name}-completed.png`,
     );
     await page.screenshot({ path: completionScreenshot, fullPage: true });
+    const arabicResponse = await page.goto('/ar/recall', { waitUntil: 'domcontentloaded' });
+    expect(arabicResponse?.status()).toBe(200);
+    await expect(page.getByRole('heading', { name: 'مراجعة الاستدعاء', level: 1 })).toBeVisible();
+    const rtlEvidence = await expectArabicRtlContainment(page);
+    await expectNoHorizontalOverflow(page);
+    expect(browserErrors).toEqual([]);
+    const minimumTouchTargetPx = Math.min(
+      ...touchTargetMeasurements.flatMap((measurement) => [measurement.width, measurement.height]),
+    );
+    expect(minimumTouchTargetPx).toBeGreaterThanOrEqual(44);
     const transferredValues = actionMetrics
       .map((metric) => metric.transferredBytesAtSettledUi)
       .filter((value): value is number => value !== null);
@@ -380,7 +464,12 @@ test('keeps approved Recall content private until reveal and persists one comple
         localDraftVisibleAfterReveal: true,
         postRevealAnswerVisible,
         completionVisible,
+        measuredTouchTargetCount: touchTargetMeasurements.length,
+        minimumTouchTargetPx,
+        rtlDirection: rtlEvidence.direction,
+        rtlContained: rtlEvidence.contained,
       },
+      rtlRouteStatus: arabicResponse!.status(),
       routeStatus: routeResponse!.status(),
       routeReadyMs,
       routeHtmlBytes,

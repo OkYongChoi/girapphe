@@ -1940,3 +1940,194 @@ test('Private Practice executes Recall-compatible due, rating, removal, and rese
     surfaceCleanupFailures(bodyCompleted, cleanupFailures);
   }
 });
+
+test('knowledge revision cleanup removes stale Recall state and permits owner re-enrollment', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const importedRecall = await import('../src/lib/recall-persistence.ts');
+  const recall = importedRecall.default ?? importedRecall;
+  const importedLifecycle = await import('../src/lib/recall-lifecycle-cleanup.ts');
+  const lifecycle = importedLifecycle.default ?? importedLifecycle;
+  const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
+  const userId = `live-recall-revision-owner-${crypto.randomUUID()}`;
+  const itemId = `live-recall-revision-item-${crypto.randomUUID()}`;
+  const batchId = `live-recall-revision-batch-${crypto.randomUUID()}`;
+  const draftId = `live-recall-revision-draft-${crypto.randomUUID()}`;
+  const sourceId = `live-recall-revision-source-${crypto.randomUUID()}`;
+  let bodyCompleted = false;
+
+  try {
+    await pool.query(
+      `INSERT INTO user_knowledge_items (
+         id, user_id, title, summary, content, topic, tags, knowledge_type,
+         central_question, structured_content, bundle_schema_version, version
+       ) VALUES (
+         $1, $2, 'Recall revision fixture', '', '', 'recall-live', '[]'::jsonb,
+         'concept', 'What changed?', '{"type":"concept"}'::jsonb, 1, 1
+       )`,
+      [itemId, userId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_item_revisions
+         (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+       VALUES ($1, $2, $3, 1, '{}'::jsonb, 'confirmed')`,
+      [crypto.randomUUID(), userId, itemId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_ingestion_batches (
+         id, user_id, source_type, provider, scope, request_id, status, committed_at
+       ) VALUES ($1, $2, 'conversation', 'chatgpt', 'current_conversation', $3, 'approved', NOW())`,
+      [batchId, userId, `live-recall-revision-${crypto.randomUUID()}`],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_card_drafts (
+         id, batch_id, user_id, client_card_id, title, knowledge_type,
+         central_question, structured_content, bundle_schema_version,
+         status, knowledge_item_id, approved_at
+       ) VALUES (
+         $1, $2, $3, $4, 'Recall revision fixture', 'concept', 'What changed?',
+         '{"type":"concept"}'::jsonb, 1, 'approved', $5, NOW()
+       )`,
+      [draftId, batchId, userId, `live-recall-revision-card-${crypto.randomUUID()}`, itemId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_card_sources (
+         id, user_id, knowledge_item_id, batch_id, draft_id, source_type,
+         provider, conversation_ref, supported_item_version, confirmed_at
+       ) VALUES ($1, $2, $3, $4, $5, 'conversation', 'chatgpt', $6, 1, NOW())`,
+      [sourceId, userId, itemId, batchId, draftId, `conversation-${crypto.randomUUID()}`],
+    );
+
+    const firstEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      itemId,
+      1,
+      '2026-09-03T00:00:00.000Z',
+      '2026-09-04T00:00:00.000Z',
+    );
+    assert.equal(firstEnrollment.kind, 'enrolled');
+    await pool.query(
+      `INSERT INTO recall_attempts (
+         id, user_id, knowledge_item_id, item_version, schedule_version,
+         recall_enrolled_at, milestone, exercise_type
+       ) VALUES ($1, $2, $3, 1, 1, $4, 'd1', 'concept')`,
+      [crypto.randomUUID(), userId, itemId, firstEnrollment.schedule.snapshot.enrolledAt],
+    );
+
+    const firstLock = lifecycle.buildRecallLifecycleLockQuery(userId, itemId);
+    const firstCleanup = lifecycle.buildStaleRecallEnrollmentCleanupQuery(userId, itemId);
+    const firstResults = await repositoryAdapter.transaction([
+      firstLock,
+      {
+        text: `INSERT INTO knowledge_item_revisions
+          (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+          VALUES ($1, $2, $3, 2, '{}'::jsonb, 'manual_update')`,
+        params: [crypto.randomUUID(), userId, itemId],
+      },
+      {
+        text: 'UPDATE user_knowledge_items SET version = 2, updated_at = NOW() WHERE id = $1 AND user_id = $2',
+        params: [itemId, userId],
+      },
+      {
+        text: 'UPDATE knowledge_card_sources SET supported_item_version = 2 WHERE id = $1 AND user_id = $2',
+        params: [sourceId, userId],
+      },
+      firstCleanup,
+    ]);
+    assert.deepEqual(firstResults.at(-1)?.rows, [{
+      invalidated_attempts: 1,
+      deleted_states: 1,
+      cleared_states: 0,
+    }]);
+    assert.deepEqual((await pool.query(
+      `SELECT lifecycle_state, invalidation_reason
+       FROM recall_attempts WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemId],
+    )).rows, [{ lifecycle_state: 'invalidated', invalidation_reason: 'stale_context' }]);
+
+    const secondEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      itemId,
+      2,
+      '2026-09-10T00:00:00.000Z',
+      '2026-09-11T00:00:00.000Z',
+    );
+    assert.equal(secondEnrollment.kind, 'enrolled');
+    await pool.query(
+      `UPDATE user_private_card_states
+       SET status = 'saved', knowledge_state = 'unknown', progress_state = 'learning', last_seen = NOW()
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemId],
+    );
+    await pool.query(
+      `INSERT INTO recall_attempts (
+         id, user_id, knowledge_item_id, item_version, schedule_version,
+         recall_enrolled_at, milestone, exercise_type
+       ) VALUES ($1, $2, $3, 2, 1, $4, 'd1', 'concept')`,
+      [crypto.randomUUID(), userId, itemId, secondEnrollment.schedule.snapshot.enrolledAt],
+    );
+
+    const secondCleanup = lifecycle.buildStaleRecallEnrollmentCleanupQuery(userId, itemId);
+    const secondResults = await repositoryAdapter.transaction([
+      firstLock,
+      {
+        text: `INSERT INTO knowledge_item_revisions
+          (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+          VALUES ($1, $2, $3, 3, '{}'::jsonb, 'manual_update')`,
+        params: [crypto.randomUUID(), userId, itemId],
+      },
+      {
+        text: 'UPDATE user_knowledge_items SET version = 3, updated_at = NOW() WHERE id = $1 AND user_id = $2',
+        params: [itemId, userId],
+      },
+      {
+        text: 'UPDATE knowledge_card_sources SET supported_item_version = 3 WHERE id = $1 AND user_id = $2',
+        params: [sourceId, userId],
+      },
+      secondCleanup,
+    ]);
+    assert.deepEqual(secondResults.at(-1)?.rows, [{
+      invalidated_attempts: 1,
+      deleted_states: 0,
+      cleared_states: 1,
+    }]);
+    assert.deepEqual((await pool.query(
+      `SELECT status, knowledge_state, progress_state, recall_enrolled_at, recall_item_version
+       FROM user_private_card_states WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemId],
+    )).rows, [{
+      status: 'saved',
+      knowledge_state: 'unknown',
+      progress_state: 'learning',
+      recall_enrolled_at: null,
+      recall_item_version: null,
+    }]);
+
+    const thirdEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      itemId,
+      3,
+      '2026-09-20T00:00:00.000Z',
+      '2026-09-21T00:00:00.000Z',
+    );
+    assert.equal(thirdEnrollment.kind, 'enrolled');
+    assert.equal(thirdEnrollment.schedule.practice.status, 'saved');
+    assert.equal(thirdEnrollment.schedule.practice.knowledgeState, 'unknown');
+    assert.equal(thirdEnrollment.schedule.practice.progressState, 'learning');
+    assert.match(thirdEnrollment.schedule.practice.lastSeen, /^\d{4}-\d{2}-\d{2}T/);
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    repositoryAdapter.restore();
+    await collectCleanupFailure(cleanupFailures, 'delete revision lifecycle knowledge item', () => (
+      pool.query('DELETE FROM user_knowledge_items WHERE id = $1 AND user_id = $2', [itemId, userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete revision lifecycle ingestion batch', () => (
+      pool.query('DELETE FROM knowledge_ingestion_batches WHERE id = $1 AND user_id = $2', [batchId, userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'close revision lifecycle database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});
