@@ -3,17 +3,21 @@ import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 const PREVIEW_MIGRATIONS = [
-  new URL('../drizzle/migrations/0005_add_quiz_rate_limits.sql', import.meta.url),
-  new URL('../drizzle/migrations/0014_guest_knowledge_limits.sql', import.meta.url),
-  new URL('../drizzle/migrations/0015_typed_knowledge_bundles.sql', import.meta.url),
-  new URL('../drizzle/migrations/0016_conversation_knowledge_hub.sql', import.meta.url),
-  new URL('../drizzle/migrations/0017_supersession_replacement_tombstones.sql', import.meta.url),
-  new URL('../drizzle/migrations/0018_expression_history_causality.sql', import.meta.url),
-  new URL('../drizzle/migrations/0019_selected_export_ingestion.sql', import.meta.url),
-  new URL('../drizzle/migrations/0020_knowledge_intelligence_events.sql', import.meta.url),
-  new URL('../drizzle/migrations/0021_billing_v1_domain.sql', import.meta.url),
-  new URL('../drizzle/migrations/0022_recall_ping_persistence.sql', import.meta.url),
-  new URL('../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql', import.meta.url),
+  { url: new URL('../drizzle/migrations/0005_add_quiz_rate_limits.sql', import.meta.url) },
+  {
+    url: new URL('../drizzle/migrations/0008_billing_entitlements.sql', import.meta.url),
+    parse: parseLegacyAdditiveMigration,
+  },
+  { url: new URL('../drizzle/migrations/0014_guest_knowledge_limits.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0015_typed_knowledge_bundles.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0016_conversation_knowledge_hub.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0017_supersession_replacement_tombstones.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0018_expression_history_causality.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0019_selected_export_ingestion.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0020_knowledge_intelligence_events.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0021_billing_v1_domain.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0022_recall_ping_persistence.sql', import.meta.url) },
+  { url: new URL('../drizzle/migrations/0023_knowledge_ingestion_request_tombstones.sql', import.meta.url) },
 ];
 
 const SAFE_STATEMENT_PREFIXES = [
@@ -355,6 +359,16 @@ export function parsePreviewMigration(sql) {
     .filter(Boolean);
 }
 
+export function parseLegacyAdditiveMigration(sql) {
+  if (sql.includes('--> statement-breakpoint') || sql.includes('$$')) {
+    throw new Error('Legacy additive preview migrations must contain only semicolon-delimited SQL');
+  }
+  return sql
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
 export function assertSafePreviewStatement(statement) {
   const isBoundedRetentionBackfill = /^UPDATE "user_knowledge_items"\s+SET "purge_at"\s*=/i.test(statement)
     && /AND "purge_at" IS NULL;?$/i.test(statement);
@@ -386,9 +400,9 @@ export async function applyPreviewSchema({ databaseUrl, appEnv }) {
   }
 
   const migrations = await Promise.all(
-    PREVIEW_MIGRATIONS.map(async (url) => ({
+    PREVIEW_MIGRATIONS.map(async ({ url, parse = parsePreviewMigration }) => ({
       name: url.pathname.split('/').at(-1),
-      statements: parsePreviewMigration(await readFile(url, 'utf8')),
+      statements: parse(await readFile(url, 'utf8')),
     })),
   );
   for (const migration of migrations) {

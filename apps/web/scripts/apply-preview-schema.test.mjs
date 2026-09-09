@@ -5,29 +5,38 @@ import {
   PREVIEW_BILLING_ENVIRONMENT_STATEMENTS,
   applyPreviewSchema,
   assertSafePreviewStatement,
+  parseLegacyAdditiveMigration,
   parsePreviewMigration,
 } from './apply-preview-schema.mjs';
 
 test('preview schema update contains only bounded idempotent statements', async () => {
   const migrations = [
-    ['0005_add_quiz_rate_limits.sql', 1],
-    ['0014_guest_knowledge_limits.sql', 5],
-    ['0015_typed_knowledge_bundles.sql', 4],
-    ['0016_conversation_knowledge_hub.sql', 39],
-    ['0017_supersession_replacement_tombstones.sql', 7],
-    ['0018_expression_history_causality.sql', 11],
-    ['0019_selected_export_ingestion.sql', 3],
-    ['0020_knowledge_intelligence_events.sql', 3],
-    ['0021_billing_v1_domain.sql', 63],
-    ['0022_recall_ping_persistence.sql', 15],
-    ['0023_knowledge_ingestion_request_tombstones.sql', 13],
+    ['0005_add_quiz_rate_limits.sql', 1, parsePreviewMigration],
+    ['0008_billing_entitlements.sql', 18, parseLegacyAdditiveMigration],
+    ['0014_guest_knowledge_limits.sql', 5, parsePreviewMigration],
+    ['0015_typed_knowledge_bundles.sql', 4, parsePreviewMigration],
+    ['0016_conversation_knowledge_hub.sql', 39, parsePreviewMigration],
+    ['0017_supersession_replacement_tombstones.sql', 7, parsePreviewMigration],
+    ['0018_expression_history_causality.sql', 11, parsePreviewMigration],
+    ['0019_selected_export_ingestion.sql', 3, parsePreviewMigration],
+    ['0020_knowledge_intelligence_events.sql', 3, parsePreviewMigration],
+    ['0021_billing_v1_domain.sql', 63, parsePreviewMigration],
+    ['0022_recall_ping_persistence.sql', 15, parsePreviewMigration],
+    ['0023_knowledge_ingestion_request_tombstones.sql', 13, parsePreviewMigration],
   ];
-  for (const [name, expectedCount] of migrations) {
+  for (const [name, expectedCount, parse] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
-    const statements = parsePreviewMigration(sql);
+    const statements = parse(sql);
     assert.equal(statements.length, expectedCount, name);
     for (const statement of statements) assert.doesNotThrow(() => assertSafePreviewStatement(statement));
   }
+});
+
+test('legacy preview bootstrap cannot hide procedural SQL inside a multi-statement batch', () => {
+  assert.throws(
+    () => parseLegacyAdditiveMigration('CREATE TABLE IF NOT EXISTS safe (id text); DO $$ BEGIN END $$;'),
+    /semicolon-delimited SQL/,
+  );
 });
 
 test('preview upgrade reclassifies existing legacy billing rows and compatibility defaults', () => {
