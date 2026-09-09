@@ -71,28 +71,34 @@ OAuth verifier.
 The Knowledge Inbox keeps the hosted-chat and bearer-token paths separate so a
 user does not paste a Girapphe PAT into an unsupported connector field.
 
-For **ChatGPT web**, enable developer mode, create a custom app with the
-Girapphe `https://www.girapphe.com/api/mcp` endpoint, choose OAuth, scan tools,
-and complete the Girapphe sign-in. Full write-capable MCP apps currently
-require a ChatGPT Business or Enterprise/Edu web workspace; Pro custom apps
-are limited to read/fetch actions and therefore cannot create Girapphe drafts.
-See OpenAI's current
+For **ChatGPT web**, a Business admin or owner enables developer mode and opens
+Workspace settings → Apps → Create. On Enterprise/Edu, an admin first grants
+developer-mode access through RBAC; an authorized user then enables it in
+Settings → Apps → Advanced Settings. Add the Girapphe
+`https://www.girapphe.com/api/mcp` endpoint, choose OAuth, scan tools, and
+complete the Girapphe sign-in. Full write-capable MCP apps currently require a
+Business or Enterprise/Edu web workspace, and only admins/owners publish them;
+Pro custom apps are limited to read/fetch actions and therefore cannot create
+Girapphe drafts. See OpenAI's current
 [ChatGPT MCP app guide](https://help.openai.com/en/articles/12584461).
 
 A server-side **OpenAI Responses API** integration can use a Girapphe PAT in
-the remote MCP tool's `Authorization` header. Put the value in
-`GIRAPPHE_MCP_TOKEN`; do not embed it in browser code or a committed file. The
-Knowledge Inbox generates the exact endpoint-specific tool object and keeps
-tool approval enabled. Its allowlist includes the draft-creation tools plus
-`get_topic_context`; the MCP server still exposes only the tools authorized by
-the PAT's selected scopes. See OpenAI's current
+the remote MCP tool's top-level `authorization` field. Put the raw PAT value in
+`GIRAPPHE_MCP_TOKEN`; the Responses API turns that field into MCP
+authorization, so do not add a second `Bearer` wrapper. Do not embed the value
+in browser code or a committed file. The Knowledge Inbox generates the exact
+endpoint-specific tool object and keeps tool approval enabled. Its allowlist
+includes the draft-creation tools plus `get_topic_context`; the MCP server still
+exposes only the tools authorized by the PAT's selected scopes. See OpenAI's current
 [remote MCP reference](https://platform.openai.com/docs/guides/tools-connectors-mcp).
 
-For **Claude web or Desktop**, open Settings → Connectors, add the same remote
-MCP endpoint, select Connect, and complete the Girapphe OAuth sign-in. Remote
-custom connectors currently require Claude Pro, Max, Team, or Enterprise;
-Team and Enterprise owners must first enable the connector for their
-organization. See Anthropic's current
+For **Claude web or Desktop**, Free, Pro, and Max users open Customize →
+Connectors, choose + → Add custom connector, add the public Girapphe MCP
+endpoint, select Connect, and complete the Girapphe OAuth sign-in. Free plans
+are limited to one custom connector. On Team and Enterprise, an owner first
+adds it under Organization settings → Connectors; members then connect to and
+enable it individually. Remote custom connectors are currently available on
+Free, Pro, Max, Team, and Enterprise. See Anthropic's current
 [custom connector guide](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).
 
 **Claude Code** accepts the PAT through a custom Streamable HTTP header. Store
