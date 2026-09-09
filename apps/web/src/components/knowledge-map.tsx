@@ -552,10 +552,10 @@ export default function KnowledgeMap({
                 </summary>
                 <div
                   data-testid="concept-filters"
-                  className="absolute end-0 top-full z-30 mt-2 max-h-[calc(100dvh-20rem)] w-[calc(100vw-2rem)] max-w-80 overflow-y-auto overscroll-contain rounded-xl border bg-white p-4 shadow-lg sm:w-80"
+                  className="absolute end-0 top-full z-30 mt-2 max-h-[calc(100dvh-22rem)] w-[calc(100vw-2rem)] max-w-80 overflow-y-auto overscroll-contain rounded-xl border bg-white p-4 shadow-lg sm:w-80 [@media(max-height:32rem)]:fixed [@media(max-height:32rem)]:bottom-4 [@media(max-height:32rem)]:end-4 [@media(max-height:32rem)]:top-auto [@media(max-height:32rem)]:z-50 [@media(max-height:32rem)]:mt-0 [@media(max-height:32rem)]:max-h-[calc(100dvh-2rem)]"
                 >
-                  <div className="grid gap-3">
-                    <p className="text-xs leading-5 text-gray-500">
+                  <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-3 flex items-start gap-3 rounded-t-xl border-b bg-white px-4 py-3">
+                    <p className="min-w-0 flex-1 text-xs leading-5 text-gray-500">
                       {t('knowledge.generatedSummary', {
                         core: coreCardCount,
                         generated: generatedCardCount,
@@ -565,7 +565,22 @@ export default function KnowledgeMap({
                       })}
                       {personalCards.length > 0 ? ` ${t('knowledge.privateCount', { count: personalCards.length })}` : ''}
                     </p>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        const details = event.currentTarget.closest('details');
+                        if (!details) return;
 
+                        details.open = false;
+                        details.querySelector<HTMLElement>('summary')?.focus();
+                      }}
+                      className="min-h-11 shrink-0 rounded-md border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    >
+                      {t('common.close')}
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3">
                     <label className="grid gap-1 text-sm font-medium text-gray-700" htmlFor="concept-domain">
                       {t('common.domain')}
                       <select

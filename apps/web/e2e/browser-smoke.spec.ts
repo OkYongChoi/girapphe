@@ -509,15 +509,47 @@ test.describe('browser smoke', () => {
         expandedHeaderBox?.height ?? Number.POSITIVE_INFINITY,
         'expanded mobile Concepts header height',
       ).toBeLessThanOrEqual(160);
-      await page.locator('html').evaluate((element) => element.setAttribute('dir', 'rtl'));
-      const rtlFilterPanel = await page.getByTestId('concept-filters').boundingBox();
-      const rtlViewport = page.viewportSize();
-      expect(rtlFilterPanel?.x ?? -1, 'RTL filter panel left edge').toBeGreaterThanOrEqual(0);
+
+      await page.setViewportSize({ width: 568, height: 320 });
+      const landscapeFilterPanel = await page.getByTestId('concept-filters').boundingBox();
+      const landscapeViewport = page.viewportSize();
+      expect(landscapeFilterPanel?.x ?? -1, 'landscape filter panel left edge').toBeGreaterThanOrEqual(0);
+      expect(landscapeFilterPanel?.y ?? -1, 'landscape filter panel top edge').toBeGreaterThanOrEqual(0);
       expect(
-        (rtlFilterPanel?.x ?? 0) + (rtlFilterPanel?.width ?? 0),
-        'RTL filter panel right edge',
-      ).toBeLessThanOrEqual(rtlViewport?.width ?? 0);
-      await page.locator('html').evaluate((element) => element.setAttribute('dir', 'ltr'));
+        (landscapeFilterPanel?.x ?? 0) + (landscapeFilterPanel?.width ?? 0),
+        'landscape filter panel right edge',
+      ).toBeLessThanOrEqual(landscapeViewport?.width ?? 0);
+      expect(
+        (landscapeFilterPanel?.y ?? 0) + (landscapeFilterPanel?.height ?? 0),
+        'landscape filter panel bottom edge',
+      ).toBeLessThanOrEqual(landscapeViewport?.height ?? 0);
+      expect(
+        landscapeFilterPanel?.height ?? 0,
+        'landscape filter panel keeps a usable scrollport',
+      ).toBeGreaterThanOrEqual(280);
+      expect(
+        await page.getByTestId('concept-filters').evaluate((element) => element.scrollHeight > element.clientHeight),
+        'landscape filter panel scrolls when its controls exceed the viewport',
+      ).toBe(true);
+
+      const closeFilters = page.getByTestId('concept-filters').getByRole('button', { name: 'Close' });
+      await page.getByTestId('concept-filters').evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+      await expect(closeFilters).toBeVisible();
+      const resetFilters = page.getByTestId('concept-filters').getByRole('button', { name: 'Reset all' });
+      await expect(resetFilters).toBeVisible();
+      const resetFiltersBox = await resetFilters.boundingBox();
+      expect(resetFiltersBox?.height ?? 0, 'landscape reset touch target height').toBeGreaterThanOrEqual(44);
+      expect(resetFiltersBox?.y ?? -1, 'landscape reset top edge').toBeGreaterThanOrEqual(0);
+      expect(
+        (resetFiltersBox?.y ?? 0) + (resetFiltersBox?.height ?? 0),
+        'landscape reset bottom edge',
+      ).toBeLessThanOrEqual(landscapeViewport?.height ?? 0);
+      await closeFilters.click();
+      await expect(page.getByTestId('concept-filters')).toBeHidden();
+      await expect(filters).toBeFocused();
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await filters.click();
     }
     await page.getByRole('button', { name: 'Reset all' }).click();
     await expect(sort).toHaveValue('newest');
@@ -529,6 +561,89 @@ test.describe('browser smoke', () => {
     await expect(page.getByRole('heading', { name: 'Knowledge Graph' })).toBeVisible({ timeout: 20_000 });
     await page.getByRole('button', { name: 'Back to Concepts' }).click();
     await expect(page.getByRole('heading', { name: 'Concepts' })).toBeVisible();
+
+    await assertNoBrowserFailures();
+  });
+
+  test('Arabic Concepts controls stay compact and viewport-bound in RTL', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-mobile', 'responsive RTL coverage runs in the mobile project');
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/ar/grid');
+
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ar');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+    await expect(page.getByRole('heading', { name: 'المفاهيم' })).toBeVisible();
+    const conceptsHeader = page.getByTestId('concepts-header');
+    await expect(conceptsHeader.getByRole('status')).toHaveAccessibleName(/مفهوم/);
+    await expect(page.getByRole('button', { name: 'عرض الشبكة ثلاثية الأبعاد' })).toBeVisible();
+
+    const headerBox = await conceptsHeader.boundingBox();
+    expect(headerBox?.height ?? Number.POSITIVE_INFINITY, 'Arabic mobile Concepts header height').toBeLessThanOrEqual(160);
+    expect(
+      await conceptsHeader.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      'Arabic mobile Concepts header has no horizontal overflow',
+    ).toBe(true);
+
+    const sort = page.getByLabel('ترتيب المفاهيم');
+    const groupBy = page.getByLabel('تجميع حسب');
+    const filters = page.locator('summary').filter({ hasText: 'الفلاتر' });
+    for (const control of [sort, groupBy, filters]) {
+      const box = await control.boundingBox();
+      expect(box?.height ?? 0, 'Arabic discovery touch target height').toBeGreaterThanOrEqual(44);
+    }
+
+    await filters.click();
+    await expect(page.getByTestId('concept-filters').getByText(/^أساسي:/)).toBeVisible();
+    await page.locator('#concept-added-range').selectOption('month');
+    const filteredHeaderBox = await conceptsHeader.boundingBox();
+    expect(
+      filteredHeaderBox?.height ?? Number.POSITIVE_INFINITY,
+      'Arabic mobile Concepts header height with an active filter',
+    ).toBeLessThanOrEqual(160);
+    expect(
+      await conceptsHeader.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      'Arabic mobile Concepts header with an active filter has no horizontal overflow',
+    ).toBe(true);
+
+    await page.setViewportSize({ width: 844, height: 390 });
+    const panel = page.getByTestId('concept-filters');
+    const panelBox = await panel.boundingBox();
+    const viewport = page.viewportSize();
+    expect(panelBox?.x ?? -1, 'Arabic landscape filter panel left edge').toBeGreaterThanOrEqual(0);
+    expect(panelBox?.x ?? Number.POSITIVE_INFINITY, 'Arabic landscape filter panel logical end').toBeLessThanOrEqual(17);
+    expect(panelBox?.y ?? -1, 'Arabic landscape filter panel top edge').toBeGreaterThanOrEqual(0);
+    expect(
+      (panelBox?.x ?? 0) + (panelBox?.width ?? 0),
+      'Arabic landscape filter panel right edge',
+    ).toBeLessThanOrEqual(viewport?.width ?? 0);
+    expect(
+      (panelBox?.y ?? 0) + (panelBox?.height ?? 0),
+      'Arabic landscape filter panel bottom edge',
+    ).toBeLessThanOrEqual(viewport?.height ?? 0);
+
+    const closeFilters = panel.getByRole('button', { name: 'إغلاق' });
+    await expect(closeFilters).toBeVisible();
+    await closeFilters.click();
+    await expect(panel).toBeHidden();
+    await expect(filters).toBeFocused();
+
+    await page.setViewportSize({ width: 320, height: 600 });
+    await filters.click();
+    const narrowPanelBox = await panel.boundingBox();
+    const narrowViewport = page.viewportSize();
+    expect(narrowPanelBox?.x ?? -1, 'narrow Arabic filter panel left edge').toBeGreaterThanOrEqual(0);
+    expect(narrowPanelBox?.y ?? -1, 'narrow Arabic filter panel top edge').toBeGreaterThanOrEqual(0);
+    expect(
+      (narrowPanelBox?.x ?? 0) + (narrowPanelBox?.width ?? 0),
+      'narrow Arabic filter panel right edge',
+    ).toBeLessThanOrEqual(narrowViewport?.width ?? 0);
+    expect(
+      (narrowPanelBox?.y ?? 0) + (narrowPanelBox?.height ?? 0),
+      'narrow Arabic filter panel bottom edge',
+    ).toBeLessThanOrEqual(narrowViewport?.height ?? 0);
+    expect(narrowPanelBox?.height ?? 0, 'narrow Arabic filter panel keeps a usable scrollport').toBeGreaterThanOrEqual(240);
 
     await assertNoBrowserFailures();
   });
