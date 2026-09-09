@@ -1,0 +1,36 @@
+{
+  "name": "girapphe",
+  "version": "0.1.0",
+  "description": "Repository-aware workflows for maintaining, validating, and releasing Girapphe.",
+  "author": {
+    "name": "OkYongChoi",
+    "url": "https://github.com/OkYongChoi"
+  },
+  "homepage": "https://github.com/OkYongChoi/girapphe",
+  "repository": "https://github.com/OkYongChoi/girapphe",
+  "keywords": [
+    "girapphe",
+    "knowledge-graph",
+    "release",
+    "validation"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Girapphe",
+    "shortDescription": "Maintain and release Girapphe safely.",
+    "longDescription": "Repository-aware skills for Girapphe graph maintenance, database hygiene, validation, and protected releases.",
+    "developerName": "OkYongChoi",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Knowledge graph maintenance",
+      "Database operations",
+      "Release validation"
+    ],
+    "websiteURL": "https://github.com/OkYongChoi/girapphe",
+    "defaultPrompt": [
+      "Validate this Girapphe change with the repository harness.",
+      "Safely update the Girapphe knowledge graph.",
+      "Deliver this Girapphe change through the protected release flow."
+    ]
+  }
+}

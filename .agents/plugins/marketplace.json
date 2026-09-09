@@ -1,0 +1,20 @@
+{
+  "name": "girapphe",
+  "interface": {
+    "displayName": "Girapphe"
+  },
+  "plugins": [
+    {
+      "name": "girapphe",
+      "source": {
+        "source": "local",
+        "path": "./plugins/girapphe"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

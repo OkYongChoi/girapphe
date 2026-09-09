@@ -1,0 +1,4 @@
+interface:
+  display_name: "Girapphe Protected Release"
+  short_description: "Verify Girapphe PRs through production release"
+  default_prompt: "Use $girapphe-protected-release to deliver this Girapphe change through PR checks, merge, deployment, and rendered smoke verification."
