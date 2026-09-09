@@ -28,6 +28,7 @@ test('ChatGPT token example uses a server-side OpenAI MCP Authorization header',
   assert.match(snippet, /server_url: "https:\/\/www\.girapphe\.com\/api\/mcp"/u);
   assert.match(snippet, new RegExp(`process\\.env\\.${MCP_TOKEN_ENVIRONMENT_VARIABLE}`, 'u'));
   assert.match(snippet, /create_knowledge_bundle_drafts/u);
+  assert.match(snippet, /get_topic_context/u);
   assert.match(snippet, /require_approval: "always"/u);
   assert.doesNotMatch(snippet, /girapphe_mcp_[A-Za-z0-9_-]+/u);
 });

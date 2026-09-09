@@ -83,7 +83,9 @@ A server-side **OpenAI Responses API** integration can use a Girapphe PAT in
 the remote MCP tool's `Authorization` header. Put the value in
 `GIRAPPHE_MCP_TOKEN`; do not embed it in browser code or a committed file. The
 Knowledge Inbox generates the exact endpoint-specific tool object and keeps
-tool approval enabled. See OpenAI's current
+tool approval enabled. Its allowlist includes the draft-creation tools plus
+`get_topic_context`; the MCP server still exposes only the tools authorized by
+the PAT's selected scopes. See OpenAI's current
 [remote MCP reference](https://platform.openai.com/docs/guides/tools-connectors-mcp).
 
 For **Claude web or Desktop**, open Settings → Connectors, add the same remote

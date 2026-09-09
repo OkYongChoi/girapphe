@@ -91,6 +91,7 @@ export function buildMcpProviderTokenSnippet(
       '  allowed_tools: [',
       '    "create_knowledge_bundle_drafts",',
       '    "create_card_drafts",',
+      '    "get_topic_context",',
       '  ],',
       '  require_approval: "always",',
       '}',

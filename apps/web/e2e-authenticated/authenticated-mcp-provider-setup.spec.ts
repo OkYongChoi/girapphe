@@ -32,6 +32,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   expect(openAiSnippet).toContain('type: "mcp"');
   expect(openAiSnippet).toContain(`${new URL(page.url()).origin}/api/mcp`);
   expect(openAiSnippet).toContain('process.env.GIRAPPHE_MCP_TOKEN');
+  expect(openAiSnippet).toContain('get_topic_context');
 
   await claude.check();
   await expect(claude).toBeChecked();
