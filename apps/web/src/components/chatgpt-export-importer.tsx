@@ -4,7 +4,6 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, 
 import { useRouter } from 'next/navigation';
 import { localizePathname } from '@stem-brain/shared';
 import { createChatGptExportDrafts } from '@/actions/knowledge-ingestion-actions';
-import { recordKnowledgeProductEvents } from '@/actions/knowledge-product-event-actions';
 import { useI18n } from '@/i18n/client';
 import type { ChatGptExportExchange, ParsedChatGptExport } from '@/lib/chatgpt-export';
 
@@ -36,13 +35,6 @@ export default function ChatGptExportImporter({ loadingLabel, unavailableLabel }
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, startSubmitting] = useTransition();
   const importSessionId = useRef<string | null>(null);
-  const pendingImportEvents = useRef<Promise<void>>(Promise.resolve());
-
-  function queueImportEvents(values: Parameters<typeof recordKnowledgeProductEvents>[0]) {
-    pendingImportEvents.current = pendingImportEvents.current
-      .then(() => recordKnowledgeProductEvents(values))
-      .then(() => undefined, () => undefined);
-  }
 
   useEffect(() => {
     let active = true;
@@ -100,9 +92,6 @@ export default function ChatGptExportImporter({ loadingLabel, unavailableLabel }
     if (!file) return;
     const sessionId = crypto.randomUUID();
     importSessionId.current = sessionId;
-    queueImportEvents([{
-      eventName: 'conversation_import_started', eventVersion: 1, subjectId: sessionId,
-    }]);
     setError(null);
     setArchive(null);
     setSelectedIds(new Set());
@@ -121,10 +110,6 @@ export default function ChatGptExportImporter({ loadingLabel, unavailableLabel }
       ]);
       const parsed = parseChatGptExportText(source);
       setArchive(parsed);
-      queueImportEvents([{
-        eventName: 'conversation_import_parsed', eventVersion: 1,
-        subjectId: sessionId, selectionCount: parsed.exchangeCount,
-      }]);
     } catch (fileError) {
       const code = errorCode(fileError);
       setError(code === 'too_large'
@@ -166,7 +151,6 @@ export default function ChatGptExportImporter({ loadingLabel, unavailableLabel }
       try {
         const sessionId = importSessionId.current;
         if (!sessionId) throw new Error('Import session is unavailable.');
-        await pendingImportEvents.current;
         const result = await createChatGptExportDrafts({
           source: 'chatgpt_export',
           consent: true,
@@ -179,6 +163,8 @@ export default function ChatGptExportImporter({ loadingLabel, unavailableLabel }
             answer: exchange.answer,
             createdAt: exchange.createdAt,
           })),
+        }, {
+          parsedExchangeCount: archive?.exchangeCount ?? selectedExchanges.length,
         });
         setArchive(null);
         setSelectedIds(new Set());

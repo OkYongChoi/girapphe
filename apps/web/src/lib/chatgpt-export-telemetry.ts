@@ -8,6 +8,7 @@ import { hasMemoryKnowledgeImportBatchForUser } from '@/lib/knowledge-ingestion'
 
 type ChatGptExportCompletion = {
   importSessionId: string;
+  parsedExchangeCount?: number;
   selectionCount: number;
   result: {
     batchId: string | null;
@@ -31,6 +32,7 @@ const defaultDependencies: ChatGptExportTelemetryDependencies = {
     {
       importSessionId: completion.importSessionId,
       batchId: completion.result.batchId!,
+      parsedExchangeCount: completion.parsedExchangeCount,
       selectionCount: completion.selectionCount,
       created: completion.result.created,
       draftCount: completion.result.draftCount,

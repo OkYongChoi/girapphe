@@ -53,6 +53,24 @@ export function buildAuthenticatedThinkingHistorySummary(metrics) {
         ...rows.map((row) => row.contextRequestsBeforeIntent),
       ),
       contextFlows: [...new Set(rows.map((row) => row.contextApiStatuses.join(' -> ')))],
+      signalOperations: [...new Set(rows.flatMap((row) => row.signalOperations ?? []))].sort(),
+      contextFormats: [...new Set(rows.flatMap((row) => row.contextFormats ?? []).filter(Boolean))].sort(),
+      importCloseoutPassed: rows.every((row) => (
+        row.importEvidence?.selectedCount === 2
+        && row.importEvidence?.preConsentPostCount === 0
+        && row.importEvidence?.preConsentImportEventRows === 0
+        && row.importEvidence?.preSubmitImportEventRows === 0
+        && row.importEvidence?.postConsentImportEventNames?.join(',') === [
+          'conversation_import_candidates_ready',
+          'conversation_import_confirmed',
+          'conversation_import_parsed',
+          'conversation_import_started',
+        ].join(',')
+        && row.importEvidence?.unselectedContentSent === false
+        && row.importEvidence?.archiveFilenameSent === false
+        && row.importEvidence?.pendingCandidatesBeforeReview === 2
+        && row.importEvidence?.batchDeleted === true
+      )),
       contextBytes: summarize(rows.map((row) => row.contextBytes)),
       browserErrorCount: rows.reduce((total, row) => total + row.browserErrorCount, 0),
       durationMs: summarize(rows.map((row) => row.durationMs)),
@@ -74,13 +92,13 @@ export function renderAuthenticatedThinkingHistorySummary(summary) {
   return [
     '## Thinking History private path',
     '',
-    '| Project | Runs | Message asset requests median / worst; statuses | Private evidence minimum | Pre-intent context requests worst | Context API flow | Context bytes median / worst | Browser errors | Duration median / worst |',
-    '| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |',
+    '| Project | Runs | Message asset requests median / worst; statuses | Private evidence minimum | Pre-intent context requests worst | Signal operations | Context formats | Context API flow | Import closeout | Context bytes median / worst | Browser errors | Duration median / worst |',
+    '| --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: |',
     ...Object.entries(summary.projects).map(([project, value]) => (
-      `| ${project} | ${value.runs} | ${value.messageAssetRequests.median} / ${value.messageAssetRequests.worst}; ${value.messageAssetStatuses.join(', ')} | ${value.privateEvidenceMinimum} | ${value.contextRequestsBeforeIntentWorst} | ${value.contextFlows.join(', ')} | ${formatBytes(value.contextBytes.median)} / ${formatBytes(value.contextBytes.worst)} | ${value.browserErrorCount} | ${value.durationMs.median} ms / ${value.durationMs.worst} ms |`
+      `| ${project} | ${value.runs} | ${value.messageAssetRequests.median} / ${value.messageAssetRequests.worst}; ${value.messageAssetStatuses.join(', ')} | ${value.privateEvidenceMinimum} | ${value.contextRequestsBeforeIntentWorst} | ${value.signalOperations.join(', ')} | ${value.contextFormats.join(', ')} | ${value.contextFlows.join(', ')} | ${value.importCloseoutPassed ? 'passed' : 'failed'} | ${formatBytes(value.contextBytes.median)} / ${formatBytes(value.contextBytes.worst)} | ${value.browserErrorCount} | ${value.durationMs.median} ms / ${value.durationMs.worst} ms |`
     )),
     '',
-    'Synthetic owner-scoped Playwright evidence. The context flow must remain 204 viewed event followed by one 200 selected-context export; this is not production user telemetry.',
+    'Synthetic owner-scoped Playwright evidence. It separately proves privacy-safe signal operations, copy/download for JSON, Markdown, and YAML, and selected-import deletion; this is not production user telemetry.',
     '',
   ].join('\n');
 }

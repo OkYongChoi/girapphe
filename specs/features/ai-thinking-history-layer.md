@@ -2,6 +2,10 @@
 
 Status: Active
 
+The repository-owned implementation is complete. The spec remains Active until
+current provider compatibility and the expanded credentialed release evidence
+pass their separate gates.
+
 ## Product thesis
 
 Girapphe should help an individual see how their thinking developed across AI
@@ -76,7 +80,8 @@ Primary job:
 
 In scope:
 
-- an opt-in ChatGPT export upload as the first historical source adapter;
+- an opt-in upload of one extracted ChatGPT `conversations.json` file as the
+  first historical source adapter;
 - local archive parsing, validation, date/topic preview, and explicit
   conversation or snippet selection before any server-side processing;
 - bounded transformation of selected material into the existing typed,
@@ -94,9 +99,8 @@ In scope:
   in another AI tool;
 - privacy-safe product analytics for activation, retention, intelligence use,
   and context reuse; and
-- a provider-neutral ingestion boundary so Claude, Gemini, Codex, and other
-  adapters can follow after ChatGPT without changing the canonical knowledge
-  model.
+- a provider-neutral ingestion boundary that can accept a future independently
+  verified adapter without changing the canonical knowledge model.
 
 Out of scope:
 
@@ -109,7 +113,8 @@ Out of scope:
 - a note editor, document editor, task manager, calendar, team workspace, or
   general-purpose PKM replacement;
 - direct write access to a provider's private memory;
-- provider adapters beyond ChatGPT in the first release;
+- ZIP archives, split or numbered conversation files, and provider adapters
+  beyond the single-file ChatGPT format in the first release;
 - email or push briefings, team intelligence, and enterprise connectors; and
 - a new quiz engine or changes to public mastery and ranking behavior.
 
@@ -123,13 +128,16 @@ Out of scope:
    this stage.
 3. The user explicitly selects conversations or narrower snippets and confirms
    that the selection may be processed into private draft knowledge.
-4. Girapphe creates bounded, typed candidates with central questions,
-   source-selector provenance, dates, topics, and proposed relationships. The
-   user can leave while the job completes.
+4. Girapphe deterministically creates bounded, typed candidates with central
+   questions, source-selector provenance, dates, topics, and proposed
+   relationships in one server transaction. The first release makes no model
+   call and has no background job to leave running.
 5. A first-value view summarizes candidate topic clusters and chronology. It
    clearly distinguishes unreviewed candidates from approved knowledge.
-6. The user reviews candidates and chooses save as new, merge/update, edit,
-   ignore, or cancel. Only approval changes private canonical knowledge.
+6. The user reviews candidates and chooses save as new, merge/update, edit, or
+   ignore, and can discard the remaining batch. Only approval changes private
+   canonical knowledge. Ignored candidates leave active review but remain in
+   the owner-scoped import record until the user deletes that import.
 7. Girapphe derives evidence-linked intelligence from approved knowledge and
    surfaces the highest-value changes, contradictions, connections, and
    forgotten items.
@@ -140,12 +148,17 @@ Out of scope:
 
 ### Import
 
-- `FR-01`: Accept a documented ChatGPT export format through file upload. Reject
-  unsupported, malformed, encrypted, and over-limit files before processing.
+- `FR-01`: Accept one extracted `conversations.json` file through file upload.
+  Reject ZIP, split/numbered, malformed, encrypted, and over-limit inputs before
+  processing.
 - `FR-02`: Parse the archive in the browser and expose only metadata required
   for selection until the user confirms a bounded content selection.
-- `FR-03`: Support cancellation, retry, duplicate detection, and a visible job
-  state without silently expanding the user's selection.
+- `FR-03`: Support pre-confirmation cancellation, transport retry, duplicate
+  detection, candidate ignore, and whole-import discard without silently
+  expanding the user's selection. Ignore and discard mark affected candidates
+  rejected and remove them from active review, while **Delete import** removes
+  their retained owner-scoped import content and events immediately. None of
+  these actions deletes separately approved knowledge.
 
 ### Transformation and review
 
@@ -184,9 +197,15 @@ Out of scope:
   a selectable conversation/date/topic preview; no raw message content leaves
   the browser before the user confirms a bounded selection.
 - [ ] `AC-02`: Import consent states what will be processed, retained, and
-  deleted. Cancel, failure, completion, account deletion, and timeout paths
-  retain no raw transcript or archive file in application storage, logs,
-  analytics, traces, or error reports.
+  deleted. Cancelling before confirmation creates no import job. Ignoring a
+  candidate or discarding a batch removes it from active review but retains the
+  structured candidate in the owner-scoped import record and export until
+  explicit import deletion; **Delete import** then removes pending and ignored
+  candidate content and job events immediately with no recovery window.
+  Success, failure, and account deletion retain no raw transcript or archive
+  file in application storage, logs, analytics, traces, or error reports. The
+  deterministic first release has no model call, background job, or timeout
+  state.
 - [ ] `AC-03`: Processing creates only owner-scoped pending bundles with a
   central question, typed structured content, date metadata when available,
   and selector-only provenance. It does not alter private canonical knowledge,
@@ -195,11 +214,13 @@ Out of scope:
   proposed relationships with a visible pending state and direct entry into
   review; a user can trace every displayed candidate insight to its selected
   source location.
-- [ ] `AC-05`: The user can edit and independently save as new, merge/update,
-  ignore, or cancel each candidate. Approval atomically preserves ownership,
-  provenance, revision history, and valid private relationships under the
-  existing knowledge lifecycle.
-- [ ] `AC-06`: Every thought-change, contradiction, connection, or rediscovery
+- [x] `AC-05`: The user can edit and independently save as new, merge/update,
+  or ignore each candidate, and can discard an import to reject all remaining
+  pending candidates. Ignored candidates remain exportable until explicit
+  import deletion. Approval atomically preserves ownership, provenance,
+  revision history, and valid private relationships under the existing
+  knowledge lifecycle.
+- [x] `AC-06`: Every thought-change, contradiction, connection, or rediscovery
   signal is private, bounded, uncertainty-labelled, and backed by at least two
   eligible approved knowledge items or revisions where the signal type
   requires comparison. Unsupported signals fail closed and are not shown.
@@ -210,10 +231,10 @@ Out of scope:
   create a bounded JSON, Markdown, or YAML context pack that can be copied or
   downloaded, contains no pending/archived/foreign item, and records a reuse
   activity for each included item.
-- [ ] `AC-09`: The ChatGPT adapter depends only on a shared provider-neutral
+- [x] `AC-09`: The ChatGPT adapter depends only on a shared provider-neutral
   import result contract; adding a future provider adapter does not change the
   canonical bundle, approval, intelligence, or context-pack contracts.
-- [ ] `AC-10`: Product events measure the defined funnel and reuse outcomes
+- [x] `AC-10`: Product events measure the defined funnel and reuse outcomes
   using opaque user/job/item identifiers and aggregate counts only. Event
   payloads contain no message text, knowledge content, title, topic, source URL,
   exported context, or archive filename.
@@ -221,10 +242,11 @@ Out of scope:
   import job, pending candidates, intelligence feedback, reuse records, and
   approved private knowledge they own; deletion behavior and any recovery
   window are visible before confirmation.
-- [ ] `AC-12`: Import limits, processing limits, model-cost limits, and failure
-  recovery are enforced per owner. An oversized, malformed, duplicated, or
-  partially processed import cannot create an unbounded retry loop, duplicate
-  canonical knowledge, or cross-owner data access.
+- [x] `AC-12`: Import and processing limits are enforced per owner, and the
+  first release's model-cost ceiling is zero. The deterministic transaction is
+  atomic rather than partially processed; oversized, malformed, duplicated, or
+  retried imports cannot create an unbounded retry loop, duplicate canonical
+  knowledge, or cross-owner data access.
 
 ## Success metrics
 
@@ -260,8 +282,8 @@ The minimum privacy-safe funnel events are:
 
 | Event | Trigger |
 | --- | --- |
-| `conversation_import_started` | A user opens the importer and chooses a source type. |
-| `conversation_import_parsed` | Local validation produces a selectable preview. |
+| `conversation_import_started` | A user submits an explicitly selected and consented import. |
+| `conversation_import_parsed` | The same submission records that local validation produced a selectable preview, with only its aggregate exchange count. |
 | `conversation_import_confirmed` | A user confirms a bounded selection and consent. |
 | `conversation_import_candidates_ready` | Processing produces pending candidates. |
 | `conversation_import_first_value_viewed` | The candidate topic/timeline view becomes visible. |
@@ -297,9 +319,10 @@ current conversation. It never gives a connector permission to revisit history.
 
 For archive import, the user initiates each file operation and sees a local
 preview before selecting content. The archive and raw messages are transient
-inputs, not Girapphe records. If selected text must reach a model service for
-extraction, it is sent only after explicit consent, in bounded batches, through
-an approved no-training/no-retention configuration. Application persistence
+inputs, not Girapphe records. Only the bounded selection and content-free
+aggregate preview count cross the server boundary after explicit consent and
+submission. The first release transforms it with a
+deterministic parser and makes no model-service request. Application persistence
 contains only pending or approved structured knowledge, opaque selectors,
 minimal source metadata, job state, and privacy-safe aggregate events.
 
@@ -319,25 +342,25 @@ provider credentials, raw archive names, and content never enter analytics.
 
 | Criterion | Evidence |
 | --- | --- |
-| `AC-01` | `chatgpt-export.test.mjs` covers supported parsing and rejects malformed, dangling, or cyclic active-branch traversal without falling back to abandoned branches. A current authorized provider fixture plus a browser test proving local preview and zero pre-consent processing requests remain required. |
-| `AC-02` | `chatgpt-export.test.mjs`, `knowledge-product-events.test.mjs`, and the live PostgreSQL selected-export fixture prove post-commit analytics failures do not fail a persisted import, pre-confirmation started/parsed events survive created-batch and active duplicate-only batch-ID transitions without moving unrelated events, and completion versus deletion is serialized in both lock orders. Completion exact-checks the live owner/provider/scope batch and atomically reassigns existing events even when the new-event quota is exhausted; deletion atomically purges its subject. Migration `0023` additionally covers mixed-version insert/delete ordering, late first-value and candidate events, legacy subject reassignment, and multi-batch account deletion. A detached or tombstoned no-batch result removes only pre-confirmation events without writing confirmation telemetry. Cancel, timeout, failure, logging, tracing, account-deletion, and browser/network raw-input evidence remain required. |
-| `AC-03` | `chatgpt-export.test.mjs` and the existing ingestion lifecycle cover pending-only typed bundles, hashed per-exchange selectors, per-draft timestamps, ownership, and approval-only promotion. Live PostgreSQL evidence remains required. |
-| `AC-04` | `DraftReviewPanel` renders pending labels, topic clusters, per-exchange timeline, source-selector counts, proposed relationship counts, and direct resolution entry. Desktop and mobile-width browser evidence remain required. |
-| `AC-05` | Existing knowledge lifecycle tests plus planned archive-import cases cover edit, save, merge/update, ignore, cancel, atomic approval, provenance, revisions, and relationship validation. |
-| `AC-06` | `packages/shared/src/ai-thinking-history.test.mjs` exercises material revisions, confirmed contradiction/connection relations, rediscovery relevance, bounds, and fail-closed unsupported contradiction; `apps/web/src/lib/knowledge-intelligence.ts` limits the corpus to owner-scoped active graph items. |
-| `AC-07` | `/my-notes?view=insights`, the owner-validated context-pack event operation, and `knowledge-product-events.test.mjs` expose approved evidence, validate the live owner signal before feedback, retain only an opaque dismissal, and prove cross-owner dismissal isolation. Authenticated rendered evidence remains required. |
-| `AC-08` | `/my-notes?view=insights` requires an explicit evidence-item selection and reuses the existing three-format context endpoint; the endpoint revalidates signal membership, active Topic Hub membership, payload size, and complete per-item reuse recording. Authenticated rendered and live PostgreSQL evidence remain required. |
-| `AC-09` | `SelectedConversationImportResult` in the shared package is consumed by the generic batch builder; the shared fixture passes a synthetic provider through the same contract while strict validation rejects raw archive fields. |
-| `AC-10` | Shared event-schema tests reject content-bearing fields, migration tests forbid content columns, memory-store tests prove per-owner hashed subjects, and `computeKnowledgeProductMetrics` fixtures recompute activation, meaningful D7/D30 return, and Knowledge Reuse Rate. |
-| `AC-11` | `/account/delete#knowledge-data` provides a complete owner-scoped JSON export and immediate import-job deletion that preserves approved knowledge; My Notes discloses the 14-day knowledge Trash boundary and the same account page discloses irreversible full deletion. Source and memory-path tests exist; live PostgreSQL and browser evidence remain required. |
-| `AC-12` | `chatgpt-export.test.mjs` covers collision-free local selection and canonical request identities, order-independent transport retries, selection growth after a lost response across both current and pre-rollout batches, explicit re-selection after ignore, fail-closed branch corruption, owner-scoped A then A+B candidate deduplication, durable source-fingerprint deduplication after approval with no retained evidence, legacy-session idempotency after ignore, ingestion-scope request isolation, and a content-free permanent guard against delayed retries after pending-job deletion. Fixed and independently calculated parent-v1 fixtures prove the exact historical request hash, full legacy draft-identity match including the reverse delimiter-collision case, ignore behavior, and session tombstone behavior rather than treating a stripped v2 hash as legacy data. Migration `0023_knowledge_ingestion_request_tombstones.sql` and the Preview PostgreSQL test cover request/session tombstones, an owner-lock trigger that serializes both delete/replay commit orders, database triggers that create the guard for draining-Worker deletions and block exact or same-session old-Worker replay, a still-linked source-fingerprint backfill, the exact old-Worker source-detach CTE preserving an approved no-evidence fingerprint, scope-aware uniqueness, the 40,000-slot owner bound across live selected-export reservations and durable tombstones, and a fenced account purge that does not recreate the guard. Import creation, ignore, discard, completion telemetry, and import-job deletion share the account/ingestion lock order. Partial-retry and future model-cost ceiling evidence remain required. |
+| `AC-01` | `chatgpt-export.test.mjs` covers the supported single-file parser and fail-closed active-branch traversal. The expanded authenticated browser test requires zero same-origin POSTs and zero import-event rows both before consent and before submission, inspects every outbound request URL/body for selected and raw markers, then uploads only two selected synthetic exchanges. It still needs a credentialed Preview run and a current authorized provider export fixture before this criterion can close. |
+| `AC-02` | Parser, event, ingestion, migration, and live PostgreSQL tests cover transient input, content-free analytics, idempotent submission telemetry, deletion/retry ordering, and account purge. The expanded authenticated test asserts that the raw filename and unselected message never cross the boundary, verifies the four post-consent import events once each, then verifies explicit import deletion removes retained selected candidate content from the full export. Its credentialed run is still required; application logs and traces must remain disabled or separately inspected without retaining private input. |
+| `AC-03` | Unit tests cover owner-scoped pending bundles, hashed selectors, dates, and approval-only promotion. `chatgpt-export-postgres.test.mjs` now asserts zero canonical knowledge, graph, mastery, and ranking rows immediately before approval; a new isolated Preview PostgreSQL run is required for that assertion. |
+| `AC-04` | `DraftReviewPanel` implements pending labels, topic/timeline grouping, source evidence, relationship counts, and direct review. The expanded desktop/mobile authenticated path exercises those elements but has not yet run against a deployed commit. |
+| `AC-05` | Knowledge lifecycle and selected-export tests cover edit, save as new, merge/update, individual ignore, whole-import discard, atomic approval, provenance, revisions, and valid relationships. Import work is synchronous: ignore/discard marks candidates rejected and removes them from active review; explicit import deletion removes their retained owner-scoped content. |
+| `AC-06` | `packages/shared/src/ai-thinking-history.test.mjs` exercises material revisions, confirmed contradiction/connection relations, rediscovery relevance, bounds, and fail-closed unsupported contradiction; `knowledge-intelligence.ts` limits the corpus to owner-scoped active graph items. |
+| `AC-07` | Source and event tests validate owner-scoped evidence and opaque feedback. Authenticated Preview run `34038249111` established the prior private evidence surface; the expanded test adds underlying-knowledge navigation and dismiss/removal assertions and still needs a new credentialed run. |
+| `AC-08` | The context endpoint revalidates explicit selection, signal and active Topic Hub membership, payload size, and per-item reuse recording. Run `34038249111` established Markdown download; the expanded test asserts JSON, YAML, and Markdown copy plus download content, and still needs a new credentialed run. |
+| `AC-09` | `SelectedConversationImportResult` is consumed by the provider-neutral batch builder; shared tests pass a synthetic provider through the same contract and reject raw archive fields. No second provider is claimed or enabled. |
+| `AC-10` | Event-schema, migration, memory-store, and metric tests reject content fields, keep opaque owner-scoped subjects, and recompute activation, meaningful return, and reuse metrics. |
+| `AC-11` | The account surface exports owner-scoped data and separates immediate import deletion, 14-day knowledge Trash, and irreversible account deletion. Live PostgreSQL run `34305134986` established selected-export lifecycle coverage; the expanded authenticated test adds pre/post deletion export assertions and still needs a new credentialed run. |
+| `AC-12` | Parser and ingestion tests cover hard limits, collision-free identities, idempotent retries, owner isolation, active-source deduplication, durable tombstones, mixed-version races, and bounded retry guards. The first release makes no model call, and selected-export creation is one serialized transaction, so model cost is zero and there is no partial background job or unbounded retry loop. Preview PostgreSQL run `34305134986` passed the live concurrency/deletion fixture. |
 
-Before this spec can become `Implemented`, run the focused tests named by the
-implementation, `pnpm harness`, browser-visible coverage through
-`pnpm harness:browser`, and Cloudflare/runtime coverage through
-`pnpm harness:deploy`. Database-backed ownership, concurrency, and deletion
-tests require an isolated Preview database; local fallback is not production
-evidence.
+Before the expanded closeout gate can be marked passed, run the focused tests,
+`pnpm harness`, browser-visible coverage, and Cloudflare/runtime coverage on the
+exact commit. The authenticated import/intelligence flow requires a deployed
+Preview plus the isolated synthetic Clerk/Database fixture, and the new
+pre-approval database assertions require an isolated Preview database. Local
+fallback is not production evidence.
 
 ## Rollout
 
@@ -360,9 +383,10 @@ evidence.
 
 Rollback disables new imports and intelligence generation while preserving the
 existing review, approved knowledge, export, deletion, and context-pack paths.
-Queued transient work is cancelled and raw inputs are discarded. A rollback
-must not strand pending candidates or make already approved owner-scoped
-knowledge inaccessible. Keep migration `0023`'s telemetry and source-detach
+There is no queued import or model work in the first release. A rollback must
+not strand pending candidates or make already approved owner-scoped knowledge
+inaccessible; existing review and deletion stay available. Keep migration
+`0023`'s telemetry and source-detach
 compatibility triggers through the old-Worker drain window; contracting them is a separate
 post-rollout change.
 

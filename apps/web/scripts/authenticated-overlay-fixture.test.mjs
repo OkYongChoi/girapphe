@@ -73,7 +73,13 @@ test('database fixture is owner-bound and repeatable', async () => {
       calls.push({ text, values });
       if (text.startsWith('SELECT id FROM graph_nodes')) return { rows: [{ id: 'public_node' }] };
       if (text.includes('AS private_nodes')) {
-        return { rows: [{ private_nodes: 2, private_edges: 1, public_links: 1, draft_probes: 0 }] };
+        return { rows: [{
+          private_nodes: 4,
+          private_edges: 2,
+          public_links: 1,
+          draft_probes: 0,
+          import_submission_events: 0,
+        }] };
       }
       return { rows: [] };
     },
@@ -90,7 +96,12 @@ test('database fixture is owner-bound and repeatable', async () => {
     { resetMcpAccessTokens: true },
   );
   assert.deepEqual(first, second);
-  assert.deepEqual(first.counts, { privateNodes: 2, privateEdges: 1, publicLinks: 1 });
+  assert.deepEqual(first.counts, {
+    privateNodes: 4,
+    privateEdges: 2,
+    publicLinks: 1,
+    importSubmissionEvents: 0,
+  });
   assert.equal(calls.filter((call) => call.text === 'BEGIN').length, 2);
   assert.equal(calls.filter((call) => call.text === 'COMMIT').length, 2);
   assert.equal(calls.some((call) => call.text === 'ROLLBACK'), false);
@@ -130,8 +141,13 @@ test('database fixture is owner-bound and repeatable', async () => {
   assert.ok(mutations.every((call) => !call.text.includes('user_synthetic')));
   assert.ok(mutations.every((call) => call.values.includes('user_synthetic')));
   const privateEdgeMutation = mutations.find((call) => call.values.includes(first.privateEdgeId));
+  const secondaryPrivateEdgeMutation = mutations.find((call) => call.values.includes(first.secondaryPrivateEdgeId));
   assert.match(privateEdgeMutation?.text ?? '', /type = 'related'/);
   assert.doesNotMatch(privateEdgeMutation?.text ?? '', /supports/);
+  assert.match(secondaryPrivateEdgeMutation?.text ?? '', /type = 'related'/);
+  assert.ok(calls
+    .filter((call) => call.text.startsWith('DELETE FROM knowledge_ingestion'))
+    .every((call) => call.values.length === 1 && call.values[0] === 'user_synthetic'));
 });
 
 test('database fixture remains valid when a schema-only preview has no public nodes', async () => {
@@ -141,19 +157,30 @@ test('database fixture remains valid when a schema-only preview has no public no
       calls.push({ text, values });
       if (text.startsWith('SELECT id FROM graph_nodes')) return { rows: [] };
       if (text.includes('AS private_nodes')) {
-        return { rows: [{ private_nodes: 2, private_edges: 1, public_links: 0, draft_probes: 0 }] };
+        return { rows: [{
+          private_nodes: 4,
+          private_edges: 2,
+          public_links: 0,
+          draft_probes: 0,
+          import_submission_events: 0,
+        }] };
       }
       return { rows: [] };
     },
   };
 
   const fixture = await seedAuthenticatedOverlayFixtureWithClient(client, SYNTHETIC_USER);
-  assert.deepEqual(fixture.counts, { privateNodes: 2, privateEdges: 1, publicLinks: 0 });
+  assert.deepEqual(fixture.counts, {
+    privateNodes: 4,
+    privateEdges: 2,
+    publicLinks: 0,
+    importSubmissionEvents: 0,
+  });
   assert.equal(
     calls.some((call) => call.text === 'DELETE FROM mcp_access_tokens WHERE user_id = $1'),
     false,
   );
-  assert.equal(calls.filter((call) => call.text.startsWith('INSERT INTO user_graph_edges')).length, 1);
+  assert.equal(calls.filter((call) => call.text.startsWith('INSERT INTO user_graph_edges')).length, 2);
   assert.equal(calls.some((call) => call.text === 'ROLLBACK'), false);
 });
 
@@ -174,4 +201,31 @@ test('database fixture refuses to mutate an account without the synthetic purpos
     /dedicated authenticated overlay synthetic user/,
   );
   assert.deepEqual(calls, []);
+});
+
+test('database fixture refuses a nonzero pre-consent import-event baseline', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.startsWith('SELECT id FROM graph_nodes')) return { rows: [] };
+      if (text.includes('AS private_nodes')) {
+        return { rows: [{
+          private_nodes: 4,
+          private_edges: 2,
+          public_links: 0,
+          draft_probes: 0,
+          import_submission_events: 1,
+        }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  await assert.rejects(
+    () => seedAuthenticatedOverlayFixtureWithClient(client, SYNTHETIC_USER),
+    /required owner-scoped rows/,
+  );
+  assert.equal(calls.some((call) => call.text === 'COMMIT'), false);
+  assert.equal(calls.some((call) => call.text === 'ROLLBACK'), true);
 });

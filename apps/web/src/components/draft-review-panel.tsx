@@ -15,6 +15,7 @@ import { draftDependencies, includeDraftDependencies } from '@/components/draft-
 import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
 import { isKnowledgeBundleType, type KnowledgeBundleContent, type KnowledgeBundleType } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
+import type { MessageKey } from '@/i18n/messages';
 import { LocalizedLink, localizeHref } from '@/i18n/navigation';
 
 const RELATION_TYPES = [
@@ -192,13 +193,14 @@ function DraftRelationsEditor({
   targetListId: string;
   onDirty: () => void;
 }) {
+  const { t } = useI18n();
   const [relations, setRelations] = useState(initialRelations);
 
   return (
     <fieldset className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-      <legend className="px-1 text-xs font-semibold text-slate-700">Relationships</legend>
+      <legend className="px-1 text-xs font-semibold text-slate-700">{t('inbox.relationships')}</legend>
       <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        Only relationships saved here become graph edges. Use stable concept IDs; no semantic matching is performed.
+        {t('inbox.relationshipsBody')}
       </p>
       <input
         type="hidden"
@@ -214,13 +216,13 @@ function DraftRelationsEditor({
       />
       {relations.length === 0 ? (
         <p className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
-          No relationship selected. The card can still be added and linked later from My Knowledge.
+          {t('inbox.noRelationships')}
         </p>
       ) : (
         <div className="space-y-2">
           {relations.map((relation, index) => (
             <div key={`${draftId}-${index}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_8rem_7rem_9rem_auto]">
-              <label className="sr-only" htmlFor={`${draftId}-relation-target-${index}`}>Relationship target</label>
+              <label className="sr-only" htmlFor={`${draftId}-relation-target-${index}`}>{t('inbox.relationTarget')}</label>
               <input
                 id={`${draftId}-relation-target-${index}`}
                 list={targetListId}
@@ -231,10 +233,10 @@ function DraftRelationsEditor({
                     ? { ...item, targetId: event.target.value, targetKind: inferTargetKind(event.target.value, item.targetKind) }
                     : item));
                 }}
-                placeholder="graph_concept_id or personal:item-id"
+                placeholder={t('inbox.relationTargetPlaceholder')}
                 className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               />
-              <label className="sr-only" htmlFor={`${draftId}-relation-evidence-${index}`}>Evidence selector indexes</label>
+              <label className="sr-only" htmlFor={`${draftId}-relation-evidence-${index}`}>{t('inbox.relationEvidence')}</label>
               <input
                 id={`${draftId}-relation-evidence-${index}`}
                 value={relation.evidenceSelectorIndexes.join(', ')}
@@ -247,11 +249,11 @@ function DraftRelationsEditor({
                     .filter((value) => Number.isInteger(value) && value >= 0))];
                   setRelations((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, evidenceSelectorIndexes: indexes } : item));
                 }}
-                placeholder="Evidence: 0, 1"
-                title="Zero-based evidence selector indexes. Causal relationships require at least one."
+                placeholder={t('inbox.relationEvidencePlaceholder')}
+                title={t('inbox.relationEvidenceHint')}
                 className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               />
-              <label className="sr-only" htmlFor={`${draftId}-relation-type-${index}`}>Relationship type</label>
+              <label className="sr-only" htmlFor={`${draftId}-relation-type-${index}`}>{t('inbox.relationType')}</label>
               <select
                 id={`${draftId}-relation-type-${index}`}
                 value={relation.type}
@@ -263,9 +265,9 @@ function DraftRelationsEditor({
                 }}
                 className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               >
-                {RELATION_TYPES.map((type) => <option key={type} value={type}>{type.replace('_', ' ')}</option>)}
+                {RELATION_TYPES.map((type) => <option key={type} value={type}>{t(`inbox.relation.${type}` as MessageKey)}</option>)}
               </select>
-              <label className="sr-only" htmlFor={`${draftId}-relation-direction-${index}`}>Relationship direction</label>
+              <label className="sr-only" htmlFor={`${draftId}-relation-direction-${index}`}>{t('inbox.relationDirection')}</label>
               <select
                 id={`${draftId}-relation-direction-${index}`}
                 value={relation.direction}
@@ -278,10 +280,10 @@ function DraftRelationsEditor({
                 }}
                 className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               >
-                <option value="outgoing">{relation.type === 'related' || relation.type === 'equivalent_to' ? 'Two-way' : 'This → target'}</option>
-                <option value="incoming">Target → this</option>
+                <option value="outgoing">{relation.type === 'related' || relation.type === 'equivalent_to' ? t('inbox.relationTwoWay') : t('inbox.relationThisToTarget')}</option>
+                <option value="incoming">{t('inbox.relationTargetToThis')}</option>
               </select>
-              <label className="sr-only" htmlFor={`${draftId}-relation-weight-${index}`}>Relationship weight</label>
+              <label className="sr-only" htmlFor={`${draftId}-relation-weight-${index}`}>{t('inbox.relationWeight')}</label>
               <input
                 id={`${draftId}-relation-weight-${index}`}
                 type="number"
@@ -297,7 +299,7 @@ function DraftRelationsEditor({
                     ? { ...item, weight: Math.min(1, Math.max(0.05, value)) }
                     : item));
                 }}
-                title="Relationship strength from 0.05 to 1"
+                title={t('inbox.relationWeightHint')}
                 className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               />
               <button
@@ -308,7 +310,7 @@ function DraftRelationsEditor({
                 }}
                 className="min-h-10 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 hover:bg-red-50"
               >
-                Remove
+                {t('common.remove')}
               </button>
             </div>
           ))}
@@ -330,7 +332,7 @@ function DraftRelationsEditor({
         }}
         className="mt-3 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
       >
-        Add relationship
+        {t('inbox.addRelationship')}
       </button>
     </fieldset>
   );
@@ -379,13 +381,13 @@ function DraftCardEditor({
           checked={selected}
           disabled={dependencyRequired}
           onChange={(event) => onSelectedChange(event.target.checked)}
-          title={dependencyRequired ? 'Required by a relationship from another selected draft' : undefined}
+          title={dependencyRequired ? t('inbox.requiredByRelationship') : undefined}
           className="mt-1 h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
         />
         <label htmlFor={`select-${id}`} className="min-w-0 flex-1 cursor-pointer">
           <span className="block text-xs font-semibold uppercase tracking-wide text-amber-700">{t('inbox.candidateUnconfirmed')}</span>
           <span className="mt-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">{knowledgeType ? `${t('bundle.structuredView')} · ${t(`bundle.type.${knowledgeType}`)}` : t('bundle.quickNote')}</span>
-          <span className="mt-1 block truncate text-base font-semibold text-slate-950">{title || 'Untitled draft'}</span>
+          <span className="mt-1 block truncate text-base font-semibold text-slate-950">{title || t('inbox.untitledDraft')}</span>
           <span className="mt-1 block text-xs text-slate-500">
             {[formatObservedAt(observedAt, locale), t('topic.graph.evidence', { count: evidenceCount }), `${relations.length} ${t('bundle.visual.relationship')}`]
               .filter(Boolean).join(' · ')}
@@ -393,7 +395,7 @@ function DraftCardEditor({
           <span className="mt-1 block font-mono text-[10px] text-slate-400">{id}</span>
         </label>
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${selected ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
-          {dependencyRequired ? 'Required by relation' : selected ? 'Selected' : 'Not selected'}
+          {dependencyRequired ? t('inbox.requiredByRelation') : selected ? t('inbox.selectedState') : t('inbox.notSelectedState')}
         </span>
       </div>
 
@@ -417,7 +419,7 @@ function DraftCardEditor({
               setSaveError(null);
               onDirtyChange(false);
             } catch {
-              setSaveError('This draft changed before your edit was saved. Reload the batch and try again.');
+              setSaveError(t('inbox.draftChanged'));
               onDirtyChange(true);
             }
           }}
@@ -427,11 +429,11 @@ function DraftCardEditor({
           <input type="hidden" name="version" value={Number.isFinite(version) ? version : 1} />
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-1 text-xs font-semibold text-slate-700">
-              Title
+              {t('notes.titleLabel')}
               <input name="title" required defaultValue={title} maxLength={120} className="min-h-10 rounded-lg border px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-400" />
             </label>
             <label className="grid gap-1 text-xs font-semibold text-slate-700">
-              Topic
+              {t('notes.newTopic')}
               <input name="topic" defaultValue={topic} maxLength={48} className="min-h-10 rounded-lg border px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-400" />
             </label>
           </div>
@@ -441,17 +443,17 @@ function DraftCardEditor({
             defaultContent={structuredContent}
           />
           <label className="grid gap-1 text-xs font-semibold text-slate-700">
-            Summary
+            {t('knowledge.summaryLabel')}
             <textarea name="summary" defaultValue={summary} maxLength={500} className="min-h-20 rounded-lg border p-3 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-400" />
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-700">
-            Explanation
+            {t('notes.contentLabel')}
             <textarea name="explanation" defaultValue={explanation} maxLength={6000} className="min-h-36 rounded-lg border p-3 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-400" />
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-700">
-            Tags
-            <input name="tags" defaultValue={readTags(record)} maxLength={599} placeholder="ml, optimization, #gradient-descent" className="min-h-10 rounded-lg border px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-400" />
-            <span className="font-normal text-slate-500">Up to 12 comma-separated tags, 48 characters each. Semantic search is not used.</span>
+            {t('knowledge.tagsLabel')}
+            <input name="tags" defaultValue={readTags(record)} maxLength={599} placeholder={t('inbox.tagsPlaceholder')} className="min-h-10 rounded-lg border px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-400" />
+            <span className="font-normal text-slate-500">{t('inbox.tagsHint')}</span>
           </label>
 
           <DraftRelationsEditor draftId={id} initialRelations={relations} targetListId={targetListId} onDirty={() => onDirtyChange(true)} />
@@ -464,8 +466,8 @@ function DraftCardEditor({
 
           <div>
             <SubmitButton
-              label="Save draft changes"
-              loadingLabel="Saving draft…"
+              label={t('inbox.saveDraft')}
+              loadingLabel={t('inbox.savingDraft')}
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
             />
           </div>
@@ -516,10 +518,10 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
     const record = asRecord(draft);
     return {
       id: `draft:${readString(record, 'id', 'draft_id')}`,
-      label: readString(record, 'title') || 'Untitled draft',
+      label: readString(record, 'title') || t('inbox.untitledDraft'),
       scope: 'draft',
     };
-  }), [drafts]);
+  }), [drafts, t]);
   const targets = useMemo(() => [...draftTargets, ...linkTargets], [draftTargets, linkTargets]);
   const dependencyMap = useMemo(() => draftDependencies(drafts.flatMap((draft) => {
     const record = asRecord(draft);
@@ -568,8 +570,8 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
     const result = await approveKnowledgeDrafts(formData);
     if (result.approved === 0) {
       setApprovalError(result.requiresEvidenceReview
-        ? 'Causal relationships require a detailed review of their evidence. Open each highlighted candidate with Review resolution, choose its evidence, and save it there.'
-        : 'No cards were added. This batch may have changed in another session; reload it before approving again.');
+        ? t('inbox.causalReviewError')
+        : t('inbox.noApproval'));
       router.refresh();
       return;
     }
@@ -578,24 +580,24 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
 
   return (
     <div className="grid gap-6">
-      <section className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 md:p-5" aria-label="Current import scope">
+      <section className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 md:p-5" aria-label={t('inbox.currentScope')}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">Current batch only</p>
-            <h2 className="mt-1 text-lg font-bold text-slate-950">{provider} · {drafts.length} draft cards</h2>
+            <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">{t('inbox.currentBatchOnly')}</p>
+            <h2 className="mt-1 text-lg font-bold text-slate-950">{t('inbox.batchDrafts', { provider, count: drafts.length })}</h2>
             <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
-              Approval below applies only to this explicitly sent batch. Girapphe does not fetch other or historical conversations.
+              {t('inbox.approvalBoundary')}
             </p>
           </div>
           <div className="rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-right">
-            <p className="font-mono text-[10px] text-slate-500">Batch {batchId}</p>
-            {sourceReference ? <p className="mt-1 max-w-xs truncate text-xs text-slate-600">Source {sourceReference}</p> : null}
+            <p className="font-mono text-[10px] text-slate-500">{t('inbox.batchId', { id: batchId })}</p>
+            {sourceReference ? <p className="mt-1 max-w-xs truncate text-xs text-slate-600">{t('inbox.sourceId', { reference: sourceReference })}</p> : null}
             {sourceUrl.startsWith('https://') ? <a href={sourceUrl} target="_blank" rel="noreferrer noopener" className="mt-1 block text-xs font-semibold text-blue-700 hover:underline">{t('inbox.openSelectedSource')} ↗</a> : null}
           </div>
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-[linear-gradient(120deg,#ecfdf5_0%,#ffffff_58%,#eff6ff_100%)] p-4 md:p-5" aria-label="Candidate transformation summary">
+      <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-[linear-gradient(120deg,#ecfdf5_0%,#ffffff_58%,#eff6ff_100%)] p-4 md:p-5" aria-label={t('inbox.transformationSummary')}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">{t('inbox.candidateUnconfirmed')}</p>
@@ -620,7 +622,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
       <datalist id="knowledge-draft-relation-targets">
         {targets.map((target) => (
           <option key={`${target.scope}:${target.id}`} value={target.id}>
-            {target.label} ({target.scope})
+            {target.label} ({t(`resolution.target.${target.scope}` as MessageKey)})
           </option>
         ))}
       </datalist>
@@ -628,14 +630,14 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
       <div className="sticky top-[7.5rem] z-30 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur md:p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-slate-900">{effectiveSelectedIds.size} of {drafts.length} selected</p>
+            <p className="text-sm font-semibold text-slate-900">{t('inbox.selectionCount', { selected: effectiveSelectedIds.size, total: drafts.length })}</p>
             <div className="mt-1 flex gap-3 text-xs">
-              <button type="button" onClick={() => setSelectedIds(new Set(selectableDraftIds))} className="font-semibold text-blue-700 hover:underline">Select all</button>
-              <button type="button" onClick={() => setSelectedIds(new Set())} className="font-semibold text-slate-600 hover:underline">Clear</button>
+              <button type="button" onClick={() => setSelectedIds(new Set(selectableDraftIds))} className="font-semibold text-blue-700 hover:underline">{t('inbox.selectAll')}</button>
+              <button type="button" onClick={() => setSelectedIds(new Set())} className="font-semibold text-slate-600 hover:underline">{t('common.clear')}</button>
             </div>
             {dirtyIds.size > 0 ? (
               <p className="mt-1 text-xs font-semibold text-amber-700">
-                {dirtyIds.size} draft{dirtyIds.size === 1 ? ' has' : 's have'} unsaved edits. Save selected drafts before approval; adding the whole batch is disabled.
+                {t('inbox.unsavedEdits', { count: dirtyIds.size })}
               </p>
             ) : null}
             <p className="mt-1 text-xs text-slate-500">
@@ -643,7 +645,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
             </p>
             {causalReviewRequiredIds.size > 0 ? (
               <p className="mt-1 text-xs font-semibold text-amber-700">
-                {causalReviewRequiredIds.size} causal candidate{causalReviewRequiredIds.size === 1 ? '' : 's'} must be opened with Review resolution so you can inspect and choose the supporting evidence before approval.
+                {t('inbox.causalReviewRequired', { count: causalReviewRequiredIds.size })}
               </p>
             ) : null}
           </div>
@@ -694,8 +696,8 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
 
       {drafts.length === 0 ? (
         <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-          <h2 className="font-semibold text-slate-900">No pending cards in this batch</h2>
-          <p className="mt-1 text-sm text-slate-500">They may already have been approved or discarded.</p>
+          <h2 className="font-semibold text-slate-900">{t('inbox.noPending')}</h2>
+          <p className="mt-1 text-sm text-slate-500">{t('inbox.noPendingBody')}</p>
           <LocalizedLink href="/knowledge-inbox" className="mt-4 inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">{t('inbox.back')}</LocalizedLink>
         </section>
       ) : (

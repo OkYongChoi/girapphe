@@ -58,9 +58,10 @@ export function fixtureIdsForUser(userIdInput) {
 
   return {
     suffix,
-    itemIds: [`e2e_overlay_item_${suffix}_a`, `e2e_overlay_item_${suffix}_b`],
-    nodeIds: [`e2e_overlay_node_${suffix}_a`, `e2e_overlay_node_${suffix}_b`],
+    itemIds: ['a', 'b', 'c', 'd'].map((label) => `e2e_overlay_item_${suffix}_${label}`),
+    nodeIds: ['a', 'b', 'c', 'd'].map((label) => `e2e_overlay_node_${suffix}_${label}`),
     privateEdgeId: `e2e_overlay_edge_${suffix}_private`,
+    secondaryPrivateEdgeId: `e2e_overlay_edge_${suffix}_private_secondary`,
     publicEdgeId: `e2e_overlay_edge_${suffix}_public`,
   };
 }
@@ -119,6 +120,22 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
       content: 'This synthetic item forms one private relationship with fixture node A.',
       dedupeKey: `e2e-overlay-${ids.suffix}-b`,
     },
+    {
+      id: ids.itemIds[2],
+      nodeId: ids.nodeIds[2],
+      title: `${AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX} C`,
+      summary: 'Synthetic private node C for independent Thinking History evidence.',
+      content: 'This synthetic item starts a second owner-scoped private relationship.',
+      dedupeKey: `e2e-overlay-${ids.suffix}-c`,
+    },
+    {
+      id: ids.itemIds[3],
+      nodeId: ids.nodeIds[3],
+      title: `${AUTHENTICATED_OVERLAY_FIXTURE_TITLE_PREFIX} D`,
+      summary: 'Synthetic private node D for independent Thinking History dismissal.',
+      content: 'This synthetic item completes the second private relationship.',
+      dedupeKey: `e2e-overlay-${ids.suffix}-d`,
+    },
   ];
 
   await client.query('BEGIN');
@@ -154,6 +171,19 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
       );
     }
 
+    // The setup caller validates the dedicated marker-owned Clerk account.
+    // Clear failed-run import residue for this exact owner so every evidence
+    // run starts with no partial pending content; never broaden the predicates.
+    await client.query(
+      `DELETE FROM knowledge_ingestion_batches
+       WHERE user_id = $1 AND scope = 'selected_export'`,
+      [userId],
+    );
+    await client.query(
+      `DELETE FROM knowledge_ingestion_request_tombstones
+       WHERE user_id = $1 AND provider = 'chatgpt'`,
+      [userId],
+    );
     const productEventsTable = await client.query(
       `SELECT to_regclass('public.knowledge_product_events') IS NOT NULL AS available`,
     );
@@ -225,31 +255,36 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
     );
     const publicNodeId = publicNodeResult.rows[0]?.id;
 
-    await client.query(
-      `INSERT INTO user_graph_edges (
-         id, user_id, source_private_node_id, source_public_node_id,
-         target_private_node_id, target_public_node_id, type, weight, origin,
-         relation_origin, confirmed_at, source_batch_id, created_at, deleted_at, purge_at
-       ) VALUES (
-         $1, $2, $3, NULL, $4, NULL, 'related', 1, 'manual',
-         'explicit_user', NOW(), NULL, NOW(), NULL, NULL
-       )
-       ON CONFLICT (id) DO UPDATE SET
-         source_private_node_id = EXCLUDED.source_private_node_id,
-         source_public_node_id = NULL,
-         target_private_node_id = EXCLUDED.target_private_node_id,
-         target_public_node_id = NULL,
-         type = 'related',
-         weight = 1,
-         origin = 'manual',
-         relation_origin = 'explicit_user',
-         confirmed_at = NOW(),
-         source_batch_id = NULL,
-         deleted_at = NULL,
-         purge_at = NULL
-       WHERE user_graph_edges.user_id = EXCLUDED.user_id`,
-      [ids.privateEdgeId, userId, ids.nodeIds[0], ids.nodeIds[1]],
-    );
+    for (const [edgeId, sourceNodeId, targetNodeId] of [
+      [ids.privateEdgeId, ids.nodeIds[0], ids.nodeIds[1]],
+      [ids.secondaryPrivateEdgeId, ids.nodeIds[2], ids.nodeIds[3]],
+    ]) {
+      await client.query(
+        `INSERT INTO user_graph_edges (
+           id, user_id, source_private_node_id, source_public_node_id,
+           target_private_node_id, target_public_node_id, type, weight, origin,
+           relation_origin, confirmed_at, source_batch_id, created_at, deleted_at, purge_at
+         ) VALUES (
+           $1, $2, $3, NULL, $4, NULL, 'related', 1, 'manual',
+           'explicit_user', NOW(), NULL, NOW(), NULL, NULL
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           source_private_node_id = EXCLUDED.source_private_node_id,
+           source_public_node_id = NULL,
+           target_private_node_id = EXCLUDED.target_private_node_id,
+           target_public_node_id = NULL,
+           type = 'related',
+           weight = 1,
+           origin = 'manual',
+           relation_origin = 'explicit_user',
+           confirmed_at = NOW(),
+           source_batch_id = NULL,
+           deleted_at = NULL,
+           purge_at = NULL
+         WHERE user_graph_edges.user_id = EXCLUDED.user_id`,
+        [edgeId, userId, sourceNodeId, targetNodeId],
+      );
+    }
 
     if (publicNodeId) {
       await client.query(
@@ -284,26 +319,30 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
          (SELECT COUNT(*)::int FROM user_graph_nodes
           WHERE user_id = $1 AND id = ANY($2::text[]) AND deleted_at IS NULL) AS private_nodes,
          (SELECT COUNT(*)::int FROM user_graph_edges
-          WHERE user_id = $1 AND id = $3 AND deleted_at IS NULL) AS private_edges,
+          WHERE user_id = $1 AND id = ANY($3::text[]) AND deleted_at IS NULL) AS private_edges,
          (SELECT COUNT(*)::int FROM user_graph_edges
           WHERE user_id = $1 AND id = $4 AND source_public_node_id IS NOT NULL
             AND target_private_node_id IS NOT NULL AND deleted_at IS NULL) AS public_links,
          (SELECT COUNT(*)::int FROM user_knowledge_items
-          WHERE user_id = $1 AND (title = $5 OR title LIKE $6)) AS draft_probes`,
+          WHERE user_id = $1 AND (title = $5 OR title LIKE $6)) AS draft_probes,
+         (SELECT COUNT(*)::int FROM knowledge_product_events
+          WHERE user_id = $1 AND event_name IN (
+            'conversation_import_started', 'conversation_import_parsed'
+          )) AS import_submission_events`,
       [
         userId,
         ids.nodeIds,
-        ids.privateEdgeId,
+        [ids.privateEdgeId, ids.secondaryPrivateEdgeId],
         ids.publicEdgeId,
         ...draftProbeTitles,
       ],
     );
     const counts = verification.rows[0] ?? {};
     if (
-      Number(counts.private_nodes) < 2
-      || Number(counts.private_edges) < 1
+      Number(counts.private_nodes) < 4
+      || Number(counts.private_edges) < 2
       || Number(counts.draft_probes) !== 0
-    ) {
+      || Number(counts.import_submission_events) !== 0) {
       throw new Error('Authenticated overlay fixture verification did not find the required owner-scoped rows.');
     }
 
@@ -314,6 +353,7 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
         privateNodes: Number(counts.private_nodes),
         privateEdges: Number(counts.private_edges),
         publicLinks: Number(counts.public_links),
+        importSubmissionEvents: Number(counts.import_submission_events),
       },
     };
   } catch (error) {
