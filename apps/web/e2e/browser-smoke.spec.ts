@@ -723,7 +723,7 @@ test.describe('browser smoke', () => {
     await expect(groupSelect).toHaveValue('week');
     await expect(page.getByRole('combobox', { name: 'Added date range' })).toBeHidden();
 
-    await filterForm.locator('summary').filter({ hasText: 'Filter' }).click();
+    await filterForm.getByRole('button', { name: /^Filter/ }).click();
     const periodSelect = page.getByRole('combobox', { name: 'Added date range' });
     await periodSelect.selectOption('custom');
     await expect(filterForm.getByRole('textbox', { name: 'From', exact: true })).toBeVisible();
@@ -805,7 +805,7 @@ test.describe('browser smoke', () => {
     await expect(structuredView.getByText('Use the protected release flow.', { exact: true })).toBeVisible();
 
     const filters = page.getByRole('search');
-    await filters.locator('summary').filter({ hasText: 'Filter' }).click();
+    await filters.getByRole('button', { name: /^Filter/ }).click();
     await filters.getByRole('combobox', { name: 'Format' }).selectOption('procedure');
     await filters.getByRole('combobox', { name: 'Added date range' }).selectOption('custom');
     await expect(filters.getByRole('textbox', { name: 'From', exact: true })).toBeVisible();
@@ -815,7 +815,9 @@ test.describe('browser smoke', () => {
     await page.getByRole('search').getByRole('link', { name: 'Clear' }).click();
     await expect(page).toHaveURL(/\/(?:en\/)?my-notes$/);
     const resetFilters = page.getByRole('search');
-    await resetFilters.locator('summary').filter({ hasText: 'Filter' }).click();
+    const resetFilterButton = resetFilters.getByRole('button', { name: /^Filter/ });
+    await expect(resetFilterButton).toHaveAttribute('aria-expanded', 'false');
+    await resetFilterButton.click();
     await expect(resetFilters.getByRole('combobox', { name: 'Added date range' })).toHaveValue('all');
     await expect(resetFilters.getByRole('textbox', { name: 'From', exact: true })).toHaveCount(0);
 

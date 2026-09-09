@@ -31,7 +31,7 @@ import { isKnowledgeBundleType, KNOWLEDGE_BUNDLE_TYPES } from '@stem-brain/share
 import KnowledgeIntelligencePanel from '@/components/knowledge-intelligence-loader';
 import { getKnowledgeIntelligenceForUser } from '@/lib/knowledge-intelligence';
 import { isAiThinkingHistoryEnabledForUser } from '@/lib/ai-thinking-history-rollout';
-import KnowledgeDateRangeFilter from '@/components/knowledge-date-range-filter';
+import KnowledgeDateRangeFilter, { KnowledgeFilterDisclosure } from '@/components/knowledge-date-range-filter';
 
 export const dynamic = 'force-dynamic';
 
@@ -277,14 +277,14 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
             </div>
 
             <div className="mt-2 grid grid-cols-2 gap-2">
-              <details open={activeFacetCount > 0} className="group min-w-0 rounded-lg border bg-gray-50 open:col-span-2 open:bg-white">
-                <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
-                  <span>{t('common.filter')}{activeFacetCount > 0 ? ` (${activeFacetCount})` : ''}</span>
-                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180">
-                    <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </summary>
-                <div className="grid gap-2 border-t p-3 sm:grid-cols-2 lg:grid-cols-3">
+              <KnowledgeFilterDisclosure
+                key={`filters:${typeFilter}:${topicFilter}:${period}:${params.start ?? ''}:${params.end ?? ''}`}
+                label={t('common.filter')}
+                activeCount={activeFacetCount}
+                defaultOpen={activeFacetCount > 0}
+                resetKey={`${typeFilter}:${topicFilter}:${period}:${params.start ?? ''}:${params.end ?? ''}`}
+                contentClassName="grid gap-2 border-t p-3 sm:grid-cols-2 lg:grid-cols-3"
+              >
                   <select name="type" defaultValue={typeFilter} className="w-full min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label={t('bundle.format')}>
                     <option value="all">{t('common.allStatus')}</option>
                     <option value="legacy">{t('bundle.quickNote')}</option>
@@ -307,7 +307,6 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                   </select>
 
                   <KnowledgeDateRangeFilter
-                    key={`${period}:${params.start ?? ''}:${params.end ?? ''}`}
                     defaultPeriod={period}
                     defaultStart={params.start ?? ''}
                     defaultEnd={params.end ?? ''}
@@ -322,17 +321,16 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                       to: t('notes.to'),
                     }}
                   />
-                </div>
-              </details>
+              </KnowledgeFilterDisclosure>
 
-              <details open={activeViewOptionCount > 0} className="group min-w-0 rounded-lg border bg-gray-50 open:col-span-2 open:bg-white">
-                <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-400 [&::-webkit-details-marker]:hidden">
-                  <span>{t('notes.sort')}{activeViewOptionCount > 0 ? ` (${activeViewOptionCount})` : ''}</span>
-                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180">
-                    <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </summary>
-                <div className="grid gap-2 border-t p-3 sm:grid-cols-2">
+              <KnowledgeFilterDisclosure
+                key={`sort:${sortBy}:${groupBy}`}
+                label={t('notes.sort')}
+                activeCount={activeViewOptionCount}
+                defaultOpen={activeViewOptionCount > 0}
+                resetKey={`${sortBy}:${groupBy}`}
+                contentClassName="grid gap-2 border-t p-3 sm:grid-cols-2"
+              >
                   <select
                     id="knowledge-sort"
                     name="sort"
@@ -350,8 +348,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
                     <option value="week">{t('notes.byWeek')}</option>
                     <option value="month">{t('notes.byMonth')}</option>
                   </select>
-                </div>
-              </details>
+              </KnowledgeFilterDisclosure>
             </div>
 
             {hasActiveFilter ? (
