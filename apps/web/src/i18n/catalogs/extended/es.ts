@@ -378,7 +378,7 @@ export const EXTRA_ES_MESSAGES = {
   "settings.aiClient.gemini": "Gemini",
   "settings.aiClient.other": "Otro cliente MCP",
   "settings.guideTitle": "Conectar {app}",
-  "settings.aiGuide.chatgpt": "Crea abajo un token con permisos limitados y añade el punto de conexión MCP y el token de Girapphe en una configuración de conexión compatible de ChatGPT.",
+  "settings.aiGuide.chatgpt": "Para ChatGPT web, añade el punto de conexión MCP de Girapphe como aplicación personalizada y conéctate mediante OAuth; no pegues un PAT de Girapphe. Los clientes de Responses API del servidor pueden usar un token con permisos limitados según la guía detallada de abajo.",
   "settings.aiGuide.claude": "Crea abajo un token con permisos limitados y añade el punto de conexión MCP y el token de Girapphe en la configuración de tu cliente MCP de Claude.",
   "settings.aiGuide.gemini": "Crea abajo un token con permisos limitados y usa el punto de conexión MCP y el token de Girapphe desde un cliente de Gemini compatible con herramientas MCP remotas.",
   "settings.aiGuide.other": "Crea abajo un token con permisos limitados y configura cualquier cliente MCP que admita encabezados con el punto de conexión y el token de portador.",

@@ -378,7 +378,7 @@ export const EXTRA_HI_MESSAGES = {
   "settings.aiClient.gemini": "Gemini",
   "settings.aiClient.other": "अन्य MCP क्लाइंट",
   "settings.guideTitle": "{app} कनेक्ट करें",
-  "settings.aiGuide.chatgpt": "नीचे सीमित अनुमतियों वाला टोकन बनाएँ, फिर ChatGPT की समर्थित कनेक्शन सेटिंग में Girapphe MCP एंडपॉइंट और टोकन जोड़ें।",
+  "settings.aiGuide.chatgpt": "ChatGPT वेब के लिए, Girapphe MCP एंडपॉइंट को कस्टम ऐप के रूप में जोड़ें और OAuth से कनेक्ट करें—Girapphe PAT पेस्ट न करें। सर्वर-साइड Responses API क्लाइंट नीचे दी गई विस्तृत गाइड के अनुसार सीमित अनुमति वाला टोकन इस्तेमाल कर सकते हैं।",
   "settings.aiGuide.claude": "नीचे सीमित अनुमतियों वाला टोकन बनाएँ, फिर अपने Claude MCP क्लाइंट की सेटिंग में Girapphe MCP एंडपॉइंट और टोकन जोड़ें।",
   "settings.aiGuide.gemini": "नीचे सीमित अनुमतियों वाला टोकन बनाएँ, फिर रिमोट MCP टूल समर्थित करने वाले Gemini क्लाइंट से Girapphe MCP एंडपॉइंट और टोकन इस्तेमाल करें।",
   "settings.aiGuide.other": "नीचे सीमित अनुमतियों वाला टोकन बनाएँ और एंडपॉइंट व Bearer टोकन से किसी भी हेडर-समर्थित MCP क्लाइंट को कॉन्फ़िगर करें।",

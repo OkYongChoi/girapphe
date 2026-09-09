@@ -378,7 +378,7 @@ export const EXTRA_AR_MESSAGES = {
   "settings.aiClient.gemini": "Gemini",
   "settings.aiClient.other": "عميل MCP آخر",
   "settings.guideTitle": "توصيل {app}",
-  "settings.aiGuide.chatgpt": "أنشئ أدناه رمزًا محدود الصلاحيات، ثم أضف نقطة نهاية MCP ورمز Girapphe إلى إعدادات الاتصال المدعومة في ChatGPT.",
+  "settings.aiGuide.chatgpt": "بالنسبة إلى ChatGPT على الويب، أضف نقطة نهاية Girapphe MCP كتطبيق مخصص واتصل عبر OAuth—لا تلصق رمز Girapphe PAT. يمكن لعملاء Responses API من جهة الخادم استخدام رمز محدود الصلاحيات وفق الدليل المفصل أدناه.",
   "settings.aiGuide.claude": "أنشئ أدناه رمزًا محدود الصلاحيات، ثم أضف نقطة نهاية MCP ورمز Girapphe إلى إعدادات عميل Claude MCP.",
   "settings.aiGuide.gemini": "أنشئ أدناه رمزًا محدود الصلاحيات، ثم استخدم نقطة نهاية MCP ورمز Girapphe من عميل Gemini يدعم أدوات MCP البعيدة.",
   "settings.aiGuide.other": "أنشئ أدناه رمزًا محدود الصلاحيات، واضبط أي عميل MCP يدعم الترويسات باستخدام نقطة النهاية ورمز Bearer.",

@@ -378,7 +378,7 @@ export const EXTRA_EN_MESSAGES = {
   "settings.aiClient.gemini": "Gemini",
   "settings.aiClient.other": "Other MCP client",
   "settings.guideTitle": "Connect {app}",
-  "settings.aiGuide.chatgpt": "Create a scoped token below, then add the Girapphe MCP endpoint and token in ChatGPT’s supported connection settings.",
+  "settings.aiGuide.chatgpt": "For ChatGPT web, add the Girapphe MCP endpoint as a custom app and connect with OAuth—do not paste a Girapphe PAT. Server-side Responses API clients can use a scoped token in the detailed guide below.",
   "settings.aiGuide.claude": "Create a scoped token below, then add the Girapphe MCP endpoint and token in your Claude MCP client settings.",
   "settings.aiGuide.gemini": "Create a scoped token below, then use the Girapphe MCP endpoint and token from a Gemini client that supports remote MCP tools.",
   "settings.aiGuide.other": "Create a scoped token below and configure any header-capable MCP client with the endpoint and bearer token.",

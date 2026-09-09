@@ -40,8 +40,9 @@ Out of scope:
   area without adding another item to the already scrollable primary navigation.
 - [x] `AC-02`: Settings exposes a keyboard-operable Connect disclosure with a
   native AI-app selector, explains that the exact model is chosen externally,
-  and preserves the existing scoped-token create, one-time display, status,
-  expiry, last-use, and revoke behavior.
+  distinguishes ChatGPT web OAuth from server-side PAT use, and preserves the
+  existing scoped-token create, one-time display, status, expiry, last-use, and
+  revoke behavior.
 - [x] `AC-03`: Candidate Inbox links to Settings for connection management and
   no longer embeds the full token-management form.
 - [x] `AC-04`: The chosen connection guide and Context Pack format are stored as

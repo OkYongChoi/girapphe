@@ -378,7 +378,7 @@ export const EXTRA_ZH_CN_MESSAGES = {
   "settings.aiClient.gemini": "Gemini",
   "settings.aiClient.other": "其他MCP客户端",
   "settings.guideTitle": "连接{app}",
-  "settings.aiGuide.chatgpt": "在下方创建限定权限的令牌，然后在ChatGPT支持的连接设置中添加Girapphe MCP端点和令牌。",
+  "settings.aiGuide.chatgpt": "对于ChatGPT网页版，请将Girapphe MCP端点添加为自定义应用，并通过OAuth连接；不要粘贴Girapphe PAT。服务端Responses API客户端可按下方详细指南使用限定权限的令牌。",
   "settings.aiGuide.claude": "在下方创建限定权限的令牌，然后在Claude MCP客户端设置中添加Girapphe MCP端点和令牌。",
   "settings.aiGuide.gemini": "在下方创建限定权限的令牌，然后通过支持远程MCP工具的Gemini客户端使用Girapphe MCP端点和令牌。",
   "settings.aiGuide.other": "在下方创建限定权限的令牌，并使用端点和Bearer令牌配置任何支持请求头的MCP客户端。",

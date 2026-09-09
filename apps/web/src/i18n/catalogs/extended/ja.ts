@@ -378,7 +378,7 @@ export const EXTRA_JA_MESSAGES = {
   "settings.aiClient.gemini": "Gemini",
   "settings.aiClient.other": "その他のMCPクライアント",
   "settings.guideTitle": "{app}に接続",
-  "settings.aiGuide.chatgpt": "下で権限範囲を指定したトークンを作成し、ChatGPTの対応する接続設定にGirappheのMCPエンドポイントとトークンを追加します。",
+  "settings.aiGuide.chatgpt": "ChatGPT Webでは、GirappheのMCPエンドポイントをカスタムアプリとして追加し、OAuthで接続します。Girapphe PATは貼り付けないでください。サーバー側のResponses APIクライアントでは、下の詳細ガイドに従ってスコープ付きトークンを使用できます。",
   "settings.aiGuide.claude": "下で権限範囲を指定したトークンを作成し、Claude MCPクライアントの設定にGirappheのMCPエンドポイントとトークンを追加します。",
   "settings.aiGuide.gemini": "下で権限範囲を指定したトークンを作成し、リモートMCPツールに対応するGeminiクライアントからGirappheのMCPエンドポイントとトークンを使用します。",
   "settings.aiGuide.other": "下で権限範囲を指定したトークンを作成し、ヘッダーを設定できる任意のMCPクライアントにエンドポイントとBearerトークンを登録します。",

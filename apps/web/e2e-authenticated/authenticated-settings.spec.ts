@@ -69,6 +69,8 @@ test('keeps AI connection guidance honest and restores browser-local reuse defau
   await expect(aiClient).toHaveValue('chatgpt');
   await expect(contextFormat).toHaveValue('markdown');
   await expect(page.getByText('Model selection stays in the AI app.')).toBeVisible();
+  await expect(page.getByText(/For ChatGPT web, add the Girapphe MCP endpoint.*connect with OAuth/)).toBeVisible();
+  await expect(page.getByText(/do not paste a Girapphe PAT/).first()).toBeVisible();
 
   const saveAnnouncement = page.getByRole('status');
   await aiClient.selectOption('claude');
