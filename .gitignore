@@ -57,6 +57,7 @@ yarn-error.log*
 .vercel
 .open-next
 apps/web/public/localization/card-content.json
+apps/web/public/localization/clerk/
 .claude
 .omc
 

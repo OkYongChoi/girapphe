@@ -1,22 +1,42 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Locale } from '@stem-brain/shared';
 import { loadClerkLocalization, type ClerkLocalization } from './clerk';
 
-export function useClerkLocalization(locale: Locale): ClerkLocalization | null {
-  const [localization, setLocalization] = useState<ClerkLocalization | null>(null);
+type ClerkLocalizationState =
+  | { status: 'loading'; localization: null }
+  | { status: 'ready'; localization: ClerkLocalization }
+  | { status: 'error'; localization: null };
+
+export type ClerkLocalizationResult = ClerkLocalizationState & {
+  retry: () => void;
+};
+
+export function useClerkLocalization(locale: Locale): ClerkLocalizationResult {
+  const [state, setState] = useState<ClerkLocalizationState>({
+    status: 'loading',
+    localization: null,
+  });
+  const [loadVersion, setLoadVersion] = useState(0);
+  const retry = useCallback(() => setLoadVersion((version) => version + 1), []);
 
   useEffect(() => {
-    let active = true;
-    setLocalization(null);
-    void loadClerkLocalization(locale).then((value) => {
-      if (active) setLocalization(value);
-    });
-    return () => {
-      active = false;
-    };
-  }, [locale]);
+    const controller = new AbortController();
+    setState({ status: 'loading', localization: null });
+    void loadClerkLocalization(locale, { signal: controller.signal })
+      .then((localization) => {
+        if (!controller.signal.aborted) {
+          setState({ status: 'ready', localization });
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setState({ status: 'error', localization: null });
+        }
+      });
+    return () => controller.abort();
+  }, [loadVersion, locale]);
 
-  return localization;
+  return { ...state, retry };
 }

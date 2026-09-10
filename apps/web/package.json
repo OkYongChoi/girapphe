@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "assets:generate": "tsx ../../scripts/export-card-content-asset.ts && tsx ../../scripts/export-clerk-localization-assets.ts",
+    "predev": "pnpm assets:generate",
     "dev": "next dev",
-    "prebuild": "tsx ../../scripts/export-card-content-asset.ts",
+    "prebuild": "pnpm assets:generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

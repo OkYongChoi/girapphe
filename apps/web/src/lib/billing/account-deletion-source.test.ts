@@ -249,8 +249,9 @@ test('account deletion requires strict Clerk reverification on server and client
   assert.match(entrypoint, /import\('\.\/localized-account-deletion-panel'\)/);
   assert.match(entrypoint, /\{ ssr: false, loading: LoadingAccountDeletionPanel \}/);
   assert.match(entrypoint, /<LocalizedAccountDeletionPanel email=\{email\} locale=\{locale\} \/>/);
-  assert.match(localizedPanel, /const localization = useClerkLocalization\(locale\)/);
-  assert.match(localizedPanel, /<ClerkProvider localization=\{localization\}>[\s\S]*<AccountDeletionPanel email=\{email\} \/>[\s\S]*<\/ClerkProvider>/);
+  assert.match(localizedPanel, /const localizationState = useClerkLocalization\(locale\)/);
+  assert.match(localizedPanel, /localizationState\.status === 'error'[\s\S]*onClick=\{localizationState\.retry\}/);
+  assert.match(localizedPanel, /<ClerkProvider localization=\{localizationState\.localization\}>[\s\S]*<AccountDeletionPanel email=\{email\} \/>[\s\S]*<\/ClerkProvider>/);
   assert.match(panel, /useReverification\(requestAccountDeletion\)/);
   assert.match(panel, /isReverificationCancelledError/);
 });

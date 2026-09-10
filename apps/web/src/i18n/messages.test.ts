@@ -41,9 +41,13 @@ test('server message loading stays locale-lazy', () => {
   }
 });
 
-test('Clerk localization loading stays locale-lazy and maps every supported locale', async () => {
+test('Clerk localization loading stays outside the server graph and maps every supported locale', async () => {
   const clerkSource = readFileSync(new URL('./clerk.ts', import.meta.url), 'utf8');
-  assert.doesNotMatch(clerkSource, /^import\s+.+from\s+['"]@clerk\/localizations\//mu);
+  const exporterSource = readFileSync(
+    new URL('../../../../scripts/export-clerk-localization-assets.ts', import.meta.url),
+    'utf8',
+  );
+  assert.doesNotMatch(clerkSource, /@clerk\/localizations\//u);
 
   const expected = {
     en: ['en-US', 'en-US'],
@@ -57,12 +61,90 @@ test('Clerk localization loading stays locale-lazy and maps every supported loca
   for (const locale of SUPPORTED_LOCALES) {
     const [modulePath, resolvedLocale] = expected[locale];
     assert.match(
-      clerkSource,
-      new RegExp(`import\\(['"]@clerk/localizations/${modulePath}['"]\\)`, 'u'),
-      `${locale} must be loaded through its own dynamic import`,
+      exporterSource,
+      new RegExp(`from ['"]@clerk/localizations/${modulePath}['"]`, 'u'),
+      `${locale} must be exported from the matching Clerk dictionary`,
     );
-    assert.equal((await loadClerkLocalization(locale)).locale, resolvedLocale);
+    const requests: string[] = [];
+    const localization = await loadClerkLocalization(locale, {
+      fetcher: async (input) => {
+        requests.push(input);
+        return new Response(JSON.stringify({ locale: resolvedLocale }), { status: 200 });
+      },
+      retryDelayMs: 0,
+    });
+    assert.equal(localization.locale, resolvedLocale);
+    assert.deepEqual(requests, [`/localization/clerk/${locale}.json`]);
   }
+});
+
+test('Clerk localization loading retries once and then fails closed', async () => {
+  let transientAttempts = 0;
+  const recovered = await loadClerkLocalization('en', {
+    fetcher: async () => {
+      transientAttempts += 1;
+      return transientAttempts === 1
+        ? new Response(null, { status: 503 })
+        : new Response(JSON.stringify({ locale: 'en-US' }), { status: 200 });
+    },
+    retryDelayMs: 0,
+  });
+  assert.equal(recovered.locale, 'en-US');
+  assert.equal(transientAttempts, 2);
+
+  let permanentAttempts = 0;
+  await assert.rejects(
+    loadClerkLocalization('en', {
+      fetcher: async () => {
+        permanentAttempts += 1;
+        return new Response(null, { status: 503 });
+      },
+      retryDelayMs: 0,
+    }),
+    /Unable to load Clerk localization after two attempts/u,
+  );
+  assert.equal(permanentAttempts, 2);
+});
+
+test('Clerk localization loading times out hanging requests and preserves unmount cancellation', async () => {
+  let timeoutAttempts = 0;
+  await assert.rejects(
+    loadClerkLocalization('en', {
+      fetcher: () => {
+        timeoutAttempts += 1;
+        return new Promise<Response>(() => undefined);
+      },
+      retryDelayMs: 0,
+      timeoutMs: 5,
+    }),
+    /Unable to load Clerk localization after two attempts/u,
+  );
+  assert.equal(timeoutAttempts, 2);
+
+  const controller = new AbortController();
+  let abortedAttempts = 0;
+  const abortedLoad = loadClerkLocalization('en', {
+    fetcher: () => {
+      abortedAttempts += 1;
+      return new Promise<Response>(() => undefined);
+    },
+    retryDelayMs: 0,
+    signal: controller.signal,
+    timeoutMs: 1_000,
+  });
+  controller.abort();
+  await assert.rejects(abortedLoad, { name: 'AbortError' });
+  assert.equal(abortedAttempts, 1);
+});
+
+test('Turbo build caching restores every generated public localization asset', () => {
+  const turbo = JSON.parse(
+    readFileSync(new URL('../../../../turbo.json', import.meta.url), 'utf8'),
+  ) as { tasks?: { build?: { outputs?: string[] } } };
+  const outputs = turbo.tasks?.build?.outputs ?? [];
+
+  assert.ok(outputs.includes('public/localization/card-content.json'));
+  assert.ok(outputs.includes('public/localization/clerk/**'));
 });
 
 function variants(message: MessageValue): string[] {

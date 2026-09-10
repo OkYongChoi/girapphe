@@ -369,14 +369,24 @@ async function activateExactReviewLink(
     intervals: [100, 250, 500],
   }).toBe(true);
 
+  const mobileTapPosition = hasTouch
+    ? await link.evaluate((element) => ({
+      x: element.clientWidth / 2,
+      y: element.clientHeight / 2,
+    }))
+    : undefined;
+
   const activate = async (trial: boolean) => {
     if (trial) {
-      if (hasTouch) await link.tap({ trial: true, timeout: 10_000 });
-      else await link.click({ trial: true, timeout: 10_000 });
+      if (mobileTapPosition) {
+        await link.tap({ position: mobileTapPosition, trial: true, timeout: 10_000 });
+      } else {
+        await link.click({ trial: true, timeout: 10_000 });
+      }
       return;
     }
-    if (hasTouch) {
-      await link.tap({ timeout: 10_000 });
+    if (mobileTapPosition) {
+      await link.tap({ position: mobileTapPosition, timeout: 10_000 });
       return;
     }
     await link.focus();

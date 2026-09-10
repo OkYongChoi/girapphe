@@ -121,8 +121,9 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)/);
   assert.match(source, /const firstBounds = element\.getBoundingClientRect\(\)[\s\S]{0,220}const bounds = element\.getBoundingClientRect\(\)[\s\S]{0,500}const boundsAreStable/);
   assert.match(source, /document\.elementFromPoint\(point\.x, point\.y\)/);
-  assert.match(source, /if \(trial\)[\s\S]{0,120}if \(hasTouch\) await link\.tap\(\{ trial: true, timeout: 10_000 \}\)[\s\S]{0,120}else await link\.click\(\{ trial: true, timeout: 10_000 \}\)/);
-  assert.match(source, /if \(hasTouch\)[\s\S]{0,120}await link\.tap\(\{ timeout: 10_000 \}\)[\s\S]{0,180}link\.focus\(\)[\s\S]{0,120}expect\(link\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
+  assert.match(source, /const mobileTapPosition = hasTouch[\s\S]{0,180}x: element\.clientWidth \/ 2,[\s\S]{0,80}y: element\.clientHeight \/ 2/);
+  assert.match(source, /if \(trial\)[\s\S]{0,120}if \(mobileTapPosition\)[\s\S]{0,140}link\.tap\(\{ position: mobileTapPosition, trial: true, timeout: 10_000 \}\)[\s\S]{0,140}link\.click\(\{ trial: true, timeout: 10_000 \}\)/);
+  assert.match(source, /if \(mobileTapPosition\)[\s\S]{0,120}link\.tap\(\{ position: mobileTapPosition, timeout: 10_000 \}\)[\s\S]{0,180}link\.focus\(\)[\s\S]{0,120}expect\(link\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
   assert.match(source, /await activate\(true\)[\s\S]{0,1800}page\.on\("request", onRequest\)[\s\S]{0,300}await activate\(false\)/);
   assert.match(source, /REVIEW_ACTIVATION_NO_REQUEST/);
   assert.match(source, /REVIEW_DESTINATION_HTTP_ERROR/);
@@ -218,8 +219,9 @@ test('owner data controls depend only on the verified Clerk session subject', as
   assert.match(source, /<AccountDeletionPanelEntrypoint email=\{user\.email\} locale=\{locale\} \/>/);
   assert.match(entrypoint, /import\('\.\/localized-account-deletion-panel'\)/);
   assert.match(entrypoint, /\{ ssr: false, loading: LoadingAccountDeletionPanel \}/);
-  assert.match(localizedPanel, /const localization = useClerkLocalization\(locale\)/);
-  assert.match(localizedPanel, /<ClerkProvider localization=\{localization\}>[\s\S]*<AccountDeletionPanel email=\{email\} \/>[\s\S]*<\/ClerkProvider>/);
+  assert.match(localizedPanel, /const localizationState = useClerkLocalization\(locale\)/);
+  assert.match(localizedPanel, /localizationState\.status === 'error'[\s\S]*role="alert"[\s\S]*onClick=\{localizationState\.retry\}/);
+  assert.match(localizedPanel, /<ClerkProvider localization=\{localizationState\.localization\}>[\s\S]*<AccountDeletionPanel email=\{email\} \/>[\s\S]*<\/ClerkProvider>/);
 });
 
 test('production-compatible sign-in ticket is short lived and owner scoped', async () => {

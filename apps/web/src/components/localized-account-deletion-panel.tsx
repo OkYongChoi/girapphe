@@ -14,9 +14,9 @@ export function LocalizedAccountDeletionPanel({
   locale: Locale;
 }) {
   const { t } = useI18n();
-  const localization = useClerkLocalization(locale);
+  const localizationState = useClerkLocalization(locale);
 
-  if (!localization) {
+  if (localizationState.status === 'loading') {
     return (
       <div className="mt-8 min-h-48 animate-pulse rounded-2xl bg-red-100" role="status">
         <span className="sr-only">{t('common.loading')}</span>
@@ -24,8 +24,23 @@ export function LocalizedAccountDeletionPanel({
     );
   }
 
+  if (localizationState.status === 'error') {
+    return (
+      <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-6" role="alert">
+        <p className="text-sm text-red-900">{t('errors.body')}</p>
+        <button
+          type="button"
+          className="mt-4 min-h-11 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white"
+          onClick={localizationState.retry}
+        >
+          {t('errors.tryAgain')}
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <ClerkProvider localization={localization}>
+    <ClerkProvider localization={localizationState.localization}>
       <AccountDeletionPanel email={email} />
     </ClerkProvider>
   );
