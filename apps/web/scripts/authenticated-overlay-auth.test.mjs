@@ -419,13 +419,27 @@ test('provider PAT route fault proves exact fallback and original error identity
     source,
     /AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:\$\{randomUUID\(\)\}/,
   );
+  const testStartedAt = source.indexOf('const testStartedAt = Date.now()');
+  const faultEvidenceTimeout = source.indexOf(
+    'const faultEvidenceTimeoutMs = testInfo.timeout',
+    testStartedAt,
+  );
   const ownerResolution = source.indexOf(
     'const syntheticUser = await resolveAuthenticatedOverlaySyntheticUser()',
+    faultEvidenceTimeout,
   );
   const routeRegistration = source.indexOf("await page.route('**/*'", ownerResolution);
+  const cleanupReserve = source.indexOf(
+    'testInfo.setTimeout(Math.max(',
+    routeRegistration,
+  );
   const createClick = source.indexOf(
     "getByRole('button', { name: 'Create token' }).click()",
-    routeRegistration,
+    cleanupReserve,
+  );
+  const boundedFaultEvidence = source.indexOf(
+    '}, { timeout: faultEvidenceTimeoutMs });',
+    createClick,
   );
   const postFetch = source.indexOf('const response = await route.fetch()');
   const rawCapture = source.indexOf('rawToken = uniqueMatches[0]!', postFetch);
@@ -451,13 +465,19 @@ test('provider PAT route fault proves exact fallback and original error identity
   );
   const originalRethrow = source.indexOf('if (originalError) throw originalError', markerFallback);
   assert.ok(
-    ownerResolution >= 0
+    testStartedAt >= 0
+      && testStartedAt < faultEvidenceTimeout
+      && faultEvidenceTimeout < ownerResolution
       && ownerResolution < routeRegistration
       && routeRegistration < postFetch
       && postFetch < rawCapture
       && rawCapture < responseRedaction
       && responseRedaction < armFault
+      && armFault < cleanupReserve
+      && cleanupReserve < createClick
       && armFault < createClick
+      && createClick < boundedFaultEvidence
+      && boundedFaultEvidence < firstClipboardCleanup
       && armFault < firstClipboardCleanup
       && createClick < firstClipboardCleanup
       && firstClipboardCleanup < firstClipboardCleanupCatch
@@ -466,6 +486,24 @@ test('provider PAT route fault proves exact fallback and original error identity
       && secondUiPath < fallback
       && fallback < markerFallback
       && markerFallback < originalRethrow,
+  );
+  assert.match(
+    source.slice(routeRegistration, createClick),
+    /Date\.now\(\) - testStartedAt[\s\S]*elapsedBeforeCreateMs \+ faultEvidenceTimeoutMs \+ MCP_CLEANUP_RESERVE_MS/,
+  );
+  assert.doesNotMatch(
+    source.slice(createClick, firstClipboardCleanup),
+    /testInfo\.setTimeout/,
+    'the route-fault cleanup reserve must be allocated before PAT creation',
+  );
+  const cleanupReserveValue = source.match(
+    /const MCP_CLEANUP_RESERVE_MS = ([\d_]+);/,
+  );
+  assert.ok(cleanupReserveValue);
+  assert.equal(
+    Number(cleanupReserveValue[1].replaceAll('_', '')),
+    180_000,
+    'the route-fault path must retain the full post-create cleanup reserve',
   );
   assert.doesNotMatch(
     source.slice(createClick),

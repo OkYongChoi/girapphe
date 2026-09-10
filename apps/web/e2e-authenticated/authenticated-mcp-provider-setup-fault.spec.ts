@@ -20,6 +20,7 @@ import {
 
 const RAW_PAT_CAPTURE_PATTERN = /girapphe_mcp_[A-Za-z0-9_-]{43}/gu;
 const RAW_PAT_SHAPE = /^girapphe_mcp_[A-Za-z0-9_-]{43}$/u;
+const MCP_CLEANUP_RESERVE_MS = 180_000;
 const UI_FAULT_TIMEOUT_MS = 5_000;
 
 // Keep automatic failure artifacts from ever sampling a one-time synthetic
@@ -65,6 +66,8 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
   context,
   page,
 }, testInfo) => {
+  const testStartedAt = Date.now();
+  const faultEvidenceTimeoutMs = testInfo.timeout;
   test.skip(
     !isPatMutationPreview(testInfo),
     'PAT route-fault evidence runs once in the marker-validated testing-token Preview desktop project.',
@@ -72,7 +75,6 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
   // Complete the only unbounded Clerk request before the create Server Action
   // can commit a PAT. Fault cleanup then uses this already verified owner.
   const syntheticUser = await resolveAuthenticatedOverlaySyntheticUser();
-  testInfo.setTimeout(Math.max(testInfo.timeout, 180_000));
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/en/settings#ai-connections', { waitUntil: 'domcontentloaded' });
 
@@ -134,9 +136,18 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
     let cleanupError: unknown = null;
     try {
       await page.getByLabel('Connection label').fill(connectionLabel);
-      await page.getByRole('button', { name: 'Create token' }).click();
-      await expect.poll(() => postResponseCaptured, { timeout: 30_000 }).toBe(true);
-      if (!postResponseRedacted) throw new Error('MCP_PAT_ROUTE_RESPONSE_NOT_REDACTED');
+      const elapsedBeforeCreateMs = Math.max(0, Date.now() - testStartedAt);
+      // Preserve a bounded fault-evidence budget while reserving a separate
+      // post-create cleanup window after every pre-create operation completed.
+      testInfo.setTimeout(Math.max(
+        testInfo.timeout,
+        elapsedBeforeCreateMs + faultEvidenceTimeoutMs + MCP_CLEANUP_RESERVE_MS,
+      ));
+      await test.step('commit and redact route-fault PAT evidence', async () => {
+        await page.getByRole('button', { name: 'Create token' }).click();
+        await expect.poll(() => postResponseCaptured, { timeout: 30_000 }).toBe(true);
+        if (!postResponseRedacted) throw new Error('MCP_PAT_ROUTE_RESPONSE_NOT_REDACTED');
+      }, { timeout: faultEvidenceTimeoutMs });
       throw originalSentinel;
     } catch (error) {
       originalError = error;

@@ -126,7 +126,9 @@ then fails the run without producing accepted evidence.
 Both mutation paths resolve and validate the synthetic Clerk owner before the
 Create action. Their post-create hash, marker, and inactive-verification calls
 reuse that cached owner instead of starting an unbounded Clerk request inside
-the reserved cleanup window.
+the reserved cleanup window. Immediately before Create, each path accounts for
+elapsed setup work and adds a bounded evidence budget plus a separate 180-second
+cleanup reserve to the Playwright timeout.
 Provider JSON evidence and the generated job summary contain counts and
 booleans only. Automatic screenshots are disabled in PAT-bearing specs and
 automatic authenticated accessibility error snapshots are disabled suite-wide;
