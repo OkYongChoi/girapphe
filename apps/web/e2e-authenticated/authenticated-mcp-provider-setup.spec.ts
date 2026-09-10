@@ -202,7 +202,8 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
       const reloadedTokenRow = page.getByRole('listitem').filter({
         has: page.getByText(connectionLabel, { exact: true }),
       });
-      revokedAfterReload = await reloadedTokenRow.getByText('Revoked', { exact: true }).isVisible();
+      await expect(reloadedTokenRow.getByText('Revoked', { exact: true })).toBeVisible();
+      revokedAfterReload = true;
       rawSurfaceAbsentAfterReload = await page.locator(
         '#ai-connections [role="status"] code',
       ).count() === 0;

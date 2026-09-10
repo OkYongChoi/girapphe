@@ -70,6 +70,14 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     source,
     /process\.env\.E2E_CLERK_AUTH_MODE !== ['"]testing-token['"]/,
   );
+  assert.match(
+    source,
+    /await page\.reload\(\{ waitUntil: ['"]domcontentloaded['"] \}\);[\s\S]{0,400}await expect\(reloadedTokenRow\.getByText\(['"]Revoked['"], \{ exact: true \}\)\)\.toBeVisible\(\);[\s\S]{0,80}revokedAfterReload = true/,
+  );
+  assert.doesNotMatch(
+    source,
+    /revokedAfterReload = await reloadedTokenRow[\s\S]{0,120}\.isVisible\(\)/,
+  );
 });
 
 test('My Notes mutation evidence gates on the same resolved Clerk auth mode as setup', async () => {
