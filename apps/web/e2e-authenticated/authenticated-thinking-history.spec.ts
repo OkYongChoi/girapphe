@@ -192,6 +192,13 @@ async function clickAndAcceptConfirm(
     intervals: [100, 250, 500],
   }).toBe(true);
 
+  const mobileTapPosition = hasTouch
+    ? await control.evaluate((element) => ({
+      x: element.clientWidth / 2,
+      y: element.clientHeight / 2,
+    }))
+    : undefined;
+
   let dialogType: string | null = null;
   const confirmHandled = page.waitForEvent("dialog", { timeout: 5_000 })
     .then(async (dialog) => {
@@ -200,12 +207,12 @@ async function clickAndAcceptConfirm(
       else await dialog.dismiss();
     });
   const activateControl = async () => {
-    if (!hasTouch) {
+    if (!mobileTapPosition) {
       await control.click({ timeout: 5_000 });
       return;
     }
     await expect(control).toBeEnabled({ timeout: 5_000 });
-    await control.tap({ timeout: 5_000 });
+    await control.tap({ position: mobileTapPosition, timeout: 5_000 });
   };
   const [dialogResult, activationResult] = await Promise.allSettled([
     confirmHandled,
@@ -762,6 +769,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
   let databaseFallbackError: unknown;
   let preApprovalPublishedStateUnchanged = false;
   let preApprovalActivationRows = -1;
+  let evidenceStage = "import_submission";
   try {
     await page.getByRole("button", { name: /Create 2 review candidates/i }).click();
     await expect(page).toHaveURL(IMPORT_BATCH_URL_PATTERN, { timeout: 30_000 });
@@ -841,6 +849,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
     ].reduce((total, value) => total + value, 0);
     expect(preApprovalActivationRows).toBe(0);
 
+    evidenceStage = "pending_summary";
     const transformationSummary = page.getByRole("region", {
       name: transformationSummaryCopy,
     });
@@ -853,12 +862,14 @@ test("proves selected import, private evidence, portable context, dismissal, and
       await expect(reviewLinks.nth(index).locator("xpath=ancestor::article[1]"))
         .toContainText("Candidate · not confirmed");
     }
+    evidenceStage = "review_link";
     await activateExactReviewLink(
       page,
       reviewLinks.first(),
       batchId,
       testInfo.project.use.hasTouch === true,
     );
+    evidenceStage = "review_metadata";
     const metadataSummary = page.locator("summary").filter({
       hasText: resolutionMetadataCopy,
     });
@@ -874,6 +885,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
     await expect(evidenceGroup).not.toContainText(conversationId);
     await expect(evidenceGroup).not.toContainText(`answer-a-${marker}`);
 
+    evidenceStage = "ignore_candidate";
     await clickAndAcceptConfirm(
       page,
       page.getByRole("button", { name: "Ignore candidate" }),
@@ -881,6 +893,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
     );
     await expect(page).toHaveURL(new RegExp(`/knowledge-inbox/${batchId}$`));
     await expect(page.getByRole("link", { name: /Review resolution/i })).toHaveCount(1);
+    evidenceStage = "ignore_batch";
     await clickAndAcceptConfirm(
       page,
       page.getByRole("button", { name: "Ignore whole batch" }),
@@ -888,6 +901,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
     );
     await expect(page).toHaveURL(/\/knowledge-inbox(?:[/?#]|$)/);
 
+    evidenceStage = "export_verification";
     await gotoOwnerKnowledgeData(page);
     const exportBeforeDelete = await downloadText(page, downloadExportCopy);
     expect(exportBeforeDelete.includes(batchId), "the owner export contains the exact synthetic batch").toBe(true);
@@ -896,6 +910,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
     expect(exportBeforeDelete.includes(unselectedMarker), "the owner export omits unselected synthetic content").toBe(false);
     expect(exportBeforeDelete.includes(filenameMarker), "the owner export omits the local filename marker").toBe(false);
 
+    evidenceStage = "batch_row_verification";
     const batchRow = page.getByText(batchId, { exact: true }).locator("xpath=ancestor::li[1]");
     await expect(batchRow).toContainText(/0 pending · 0 approved/);
   } catch (error) {
@@ -942,7 +957,9 @@ test("proves selected import, private evidence, portable context, dismissal, and
     }
   }
   if (evidenceError || uiCleanupError) {
-    const evidenceStatus = evidenceError ? safeErrorSummary(evidenceError) : "passed";
+    const evidenceStatus = evidenceError
+      ? `${evidenceStage}:${safeErrorSummary(evidenceError)}`
+      : "passed";
     const cleanupStatus = uiCleanupError ? safeErrorSummary(uiCleanupError) : "passed";
     const fallbackStatus = databaseFallbackError
       ? `${databaseFallbackStatus}:${safeErrorSummary(databaseFallbackError)}`
