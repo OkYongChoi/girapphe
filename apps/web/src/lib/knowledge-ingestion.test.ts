@@ -20,6 +20,8 @@ import {
   getKnowledgeLinkTargetsForUser,
   getActiveKnowledgeItemVersionForUser,
   getMemoryMcpCredentialRateLimitRecordCountForTesting,
+  getMemoryMcpTokenCreationCountForTesting,
+  getMemoryMcpTokenRateLimitRecordCountForTesting,
   getMemoryKnowledgeEvidenceForUser,
   getMemoryKnowledgeActivityForUser,
   getMemoryKnowledgeRevisionsForUser,
@@ -36,6 +38,10 @@ import {
   MCP_CREDENTIAL_RATE_LIMIT_RETENTION_MS,
   MCP_DRAFT_CREATE_SCOPE,
   MCP_REQUESTS_PER_TOKEN_PER_MINUTE,
+  MCP_TOKEN_CREATION_BUCKET_MS,
+  MCP_TOKEN_CREATION_LIMIT_PER_DAY,
+  MCP_TOKEN_CREATION_RATE_CLEANUP_BATCH_SIZE,
+  MCP_TOKEN_CREATION_WINDOW_MS,
   McpDeletedAccountError,
   McpRequestRateLimitError,
   normalizeKnowledgeTopic,
@@ -55,7 +61,10 @@ import {
   type KnowledgeEvidenceSelector,
   type ProposedKnowledgeRelation,
 } from './knowledge-ingestion';
-import { deriveMcpDeletedAccountScopeKey } from './mcp-account-lifecycle';
+import {
+  deriveMcpDeletedAccountScopeKey,
+  deriveMcpTokenCreationRateScopeKey,
+} from './mcp-account-lifecycle';
 import { resolveMobileNoteUpdateVersion } from './mobile-note-update-version';
 import { getTopicKnowledgeHubForUser } from './topic-knowledge-hub';
 
@@ -1751,9 +1760,17 @@ test('permanently deletes only revoked MCP tokens and their memory rate state', 
   const userId = `user_token_delete_${crypto.randomUUID()}`;
   const { token, record } = await createMcpAccessTokenForUser(userId, 'Delete me');
 
+  assert.equal(getMemoryMcpTokenRateLimitRecordCountForTesting(record.id), 0);
+  assert.ok(await authenticateMcpAccessToken(`Bearer ${token}`));
+  assert.equal(getMemoryMcpTokenRateLimitRecordCountForTesting(record.id), 1);
+
+  await deleteRevokedMcpAccessTokenForUser(`${userId}_other`, record.id);
+  assert.equal((await getMcpAccessTokensForUser(userId)).length, 1);
+  assert.equal(getMemoryMcpTokenRateLimitRecordCountForTesting(record.id), 1);
+
   await deleteRevokedMcpAccessTokenForUser(userId, record.id);
   assert.equal((await getMcpAccessTokensForUser(userId)).length, 1);
-  assert.ok(await authenticateMcpAccessToken(`Bearer ${token}`));
+  assert.equal(getMemoryMcpTokenRateLimitRecordCountForTesting(record.id), 1);
 
   await revokeMcpAccessTokenForUser(userId, record.id);
   assert.equal((await getMcpAccessTokensForUser(userId))[0]?.revoked_at !== null, true);
@@ -1761,7 +1778,131 @@ test('permanently deletes only revoked MCP tokens and their memory rate state', 
 
   await deleteRevokedMcpAccessTokenForUser(userId, record.id);
   assert.deepEqual(await getMcpAccessTokensForUser(userId), []);
+  assert.equal(getMemoryMcpTokenRateLimitRecordCountForTesting(record.id), 0);
+  assert.equal(getMemoryMcpTokenCreationCountForTesting(userId), 1);
   assert.equal(await authenticateMcpAccessToken(`Bearer ${token}`), null);
+});
+
+test('permanent deletion cannot reset the daily MCP token creation quota', async () => {
+  const userId = `user_token_delete_quota_${crypto.randomUUID()}`;
+  for (let index = 0; index < MCP_TOKEN_CREATION_LIMIT_PER_DAY; index += 1) {
+    const { record } = await createMcpAccessTokenForUser(userId, `Delete cycle ${index + 1}`);
+    await revokeMcpAccessTokenForUser(userId, record.id);
+    await deleteRevokedMcpAccessTokenForUser(userId, record.id);
+  }
+
+  assert.deepEqual(await getMcpAccessTokensForUser(userId), []);
+  assert.equal(
+    getMemoryMcpTokenCreationCountForTesting(userId),
+    MCP_TOKEN_CREATION_LIMIT_PER_DAY,
+  );
+  await assert.rejects(
+    createMcpAccessTokenForUser(userId, 'Quota bypass attempt'),
+    /quota exceeded/i,
+  );
+});
+
+test('deleted MCP token creations remain bounded across a rolling-day boundary', async (context) => {
+  const originalDateNow = Date.now;
+  const userId = `user_token_delete_rolling_${crypto.randomUUID()}`;
+  const startedAt = Date.UTC(2026, 0, 1, 0, 0, 10);
+  context.after(() => {
+    Date.now = originalDateNow;
+  });
+
+  Date.now = () => startedAt;
+  const first = await createMcpAccessTokenForUser(userId, 'Rolling first');
+  await revokeMcpAccessTokenForUser(userId, first.record.id);
+  await deleteRevokedMcpAccessTokenForUser(userId, first.record.id);
+
+  Date.now = () => startedAt + 23 * 60 * 60 * 1000;
+  for (let index = 1; index < MCP_TOKEN_CREATION_LIMIT_PER_DAY; index += 1) {
+    const created = await createMcpAccessTokenForUser(userId, `Rolling recent ${index}`);
+    await revokeMcpAccessTokenForUser(userId, created.record.id);
+    await deleteRevokedMcpAccessTokenForUser(userId, created.record.id);
+  }
+  assert.equal(
+    getMemoryMcpTokenCreationCountForTesting(userId),
+    MCP_TOKEN_CREATION_LIMIT_PER_DAY,
+  );
+
+  Date.now = () => startedAt + MCP_TOKEN_CREATION_WINDOW_MS + MCP_TOKEN_CREATION_BUCKET_MS + 1;
+  assert.equal(
+    getMemoryMcpTokenCreationCountForTesting(userId),
+    MCP_TOKEN_CREATION_LIMIT_PER_DAY - 1,
+  );
+  await createMcpAccessTokenForUser(userId, 'One creation after the first bucket expires');
+  await assert.rejects(
+    createMcpAccessTokenForUser(userId, 'Rolling boundary bypass attempt'),
+    /quota exceeded/i,
+  );
+});
+
+test('database token deletion is owner scoped, revoked only, and removes only its token rate row', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const originalAccountTransaction = db.accountTransaction;
+  const userId = 'user_token_delete_database_owner';
+  const tokenId = 'token_delete_database_target';
+  let transactionUserId = '';
+  let transactionQueries: Array<{ text: string; params?: unknown[] }> = [];
+
+  context.after(() => {
+    db.query = originalQuery;
+    db.accountTransaction = originalAccountTransaction;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string) => {
+    if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
+    throw new Error(`Unexpected token deletion setup query: ${text}`);
+  }) as typeof db.query;
+  db.accountTransaction = (async (
+    ownerId: string,
+    queries: Array<{ text: string; params?: unknown[] }>,
+  ) => {
+    transactionUserId = ownerId;
+    transactionQueries = queries;
+    return queries.map(() => ({ rows: [] }));
+  }) as typeof db.accountTransaction;
+
+  await deleteRevokedMcpAccessTokenForUser(userId, tokenId);
+
+  assert.equal(transactionUserId, userId);
+  assert.equal(transactionQueries.length, 2);
+  assert.deepEqual(transactionQueries[0]!.params, [`mcp-token:${userId}`]);
+  assert.match(transactionQueries[0]!.text, /pg_advisory_xact_lock/);
+  const deletion = transactionQueries[1]!;
+  const selectedIndex = deletion.text.indexOf('selected_token AS MATERIALIZED');
+  const staleCreationRateIndex = deletion.text.indexOf('stale_creation_rates AS');
+  const creationRateIndex = deletion.text.indexOf('preserved_creation_rates AS');
+  const deletedRateIndex = deletion.text.indexOf('deleted_rate AS');
+  const deletedTokenIndex = deletion.text.indexOf('deleted_token AS');
+  assert.ok(selectedIndex >= 0 && selectedIndex < staleCreationRateIndex);
+  assert.ok(staleCreationRateIndex < creationRateIndex);
+  assert.ok(creationRateIndex < deletedRateIndex && deletedRateIndex < deletedTokenIndex);
+  assert.match(
+    deletion.text,
+    /WHERE id = \$1 AND user_id = \$2 AND revoked_at IS NOT NULL[\s\S]*FOR UPDATE/,
+  );
+  assert.match(deletion.text, /scope_key LIKE 'token-creation:%'/);
+  assert.match(deletion.text, /window_started_at <= NOW\(\) - INTERVAL '1 day'/);
+  assert.match(deletion.text, /SELECT \$3 \|\| ':' \|\|/);
+  assert.match(deletion.text, /scope_key = 'token:' \|\| selected\.id/);
+  assert.match(
+    deletion.text,
+    /GREATEST\([\s\S]*mcp_request_rate_limits\.request_count,[\s\S]*EXCLUDED\.request_count[\s\S]*\)/,
+  );
+  assert.doesNotMatch(deletion.text, /DELETE FROM knowledge_ingestion_batches/);
+  assert.deepEqual(deletion.params, [
+    tokenId,
+    userId,
+    deriveMcpTokenCreationRateScopeKey(userId),
+    MCP_TOKEN_CREATION_RATE_CLEANUP_BATCH_SIZE,
+  ]);
+  assert.equal(String(deletion.params?.[2]).includes(userId), false);
 });
 
 test('limits active MCP tokens and hourly drafts without breaking idempotent retries', async () => {
@@ -2117,7 +2258,24 @@ test('database MCP draft, token, and reuse writers lock then reject post-delete 
   assert.deepEqual(tokenTransaction!.calls[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);
   assert.deepEqual(tokenTransaction!.calls[1]!.params, [`mcp-token:${userId}`]);
   assert.match(tokenTransaction!.calls[2]!.text, /mcp_deleted_account_markers/);
-  assert.equal(tokenTransaction!.calls[2]!.params.at(-1), scopeKey);
+  assert.match(tokenTransaction!.calls[2]!.text, /effective_creation_rate AS/);
+  assert.match(tokenTransaction!.calls[2]!.text, /stale_creation_rates AS/);
+  assert.match(tokenTransaction!.calls[2]!.text, /creation_rate AS/);
+  assert.match(tokenTransaction!.calls[2]!.text, /INSERT INTO mcp_request_rate_limits/);
+  assert.equal(tokenTransaction!.calls[2]!.params?.[10], scopeKey);
+  assert.equal(
+    tokenTransaction!.calls[2]!.params?.[11],
+    deriveMcpTokenCreationRateScopeKey(userId),
+  );
+  assert.match(
+    String(tokenTransaction!.calls[2]!.params?.[12]),
+    new RegExp(`^${deriveMcpTokenCreationRateScopeKey(userId)}:\\d+$`),
+  );
+  assert.equal(
+    tokenTransaction!.calls[2]!.params?.[15],
+    MCP_TOKEN_CREATION_RATE_CLEANUP_BATCH_SIZE,
+  );
+  assert.equal(String(tokenTransaction!.calls[2]!.params?.[11]).includes(userId), false);
   assert.equal(poolTransactions.length, 1);
   assert.deepEqual(poolTransactions[0]!.options, { isolationLevel: 'ReadCommitted' });
   assert.deepEqual(poolTransactions[0]!.queries[0]!.params, [`mcp-account-lifecycle:${scopeKey}`]);

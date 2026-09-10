@@ -119,16 +119,19 @@ const MCP_PROVIDER_EVIDENCE_SCHEMAS = {
     },
     fields: [
       'artifactName',
+      'absentAfterDeleteReload',
       'browserErrorCount',
       'clearedOneTimePatImmediatelyOnRevoke',
       'clipboardEmptyAfterTest',
       'copiedWithoutRawPat',
       'createdOneTimePat',
+      'deletedPermanentlyBeforeScreenshot',
       'evidenceKind',
       'pageOverflow',
       'project',
       'remainingActiveAfterUiRevoke',
       'revokedBeforeScreenshot',
+      'revokedHiddenByDefault',
       'schemaVersion',
     ],
   },
@@ -215,8 +218,11 @@ export function buildAuthenticatedMcpProviderSummary(metrics) {
       metric.createdOneTimePat === true
       && metric.copiedWithoutRawPat === true
       && metric.revokedBeforeScreenshot === true
+      && metric.revokedHiddenByDefault === true
       && metric.clearedOneTimePatImmediatelyOnRevoke === true
       && metric.remainingActiveAfterUiRevoke === 0
+      && metric.deletedPermanentlyBeforeScreenshot === true
+      && metric.absentAfterDeleteReload === true
       && metric.clipboardEmptyAfterTest === true
       && metric.browserErrorCount === 0
       && metric.pageOverflow === false
@@ -282,7 +288,7 @@ export function renderAuthenticatedMcpProviderSummary(summary) {
   return [
     '## MCP provider PAT closeout',
     '',
-    '| PAT mutation runs | Read-only runs | Normal UI revoke active=0 | Route-fault exact fallback | Read-only provider checks |',
+    '| PAT mutation runs | Read-only runs | Normal UI revoke/delete closeout | Route-fault exact fallback | Read-only provider checks |',
     '| ---: | ---: | --- | --- | --- |',
     `| ${summary.patMutationRuns} | ${summary.readOnlyRuns} | ${summary.normalUiRevocationPassed ? 'passed' : 'not run or failed'} | ${summary.routeFaultFallbackPassed ? 'passed' : 'not run or failed'} | ${summary.readOnlyProviderChecksPassed ? 'passed' : 'failed'} |`,
     '',

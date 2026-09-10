@@ -173,6 +173,9 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
 
   assert.match(source, /test\.use\(\{ screenshot: ['"]off['"] \}\)/);
   assert.match(source, /evidenceKind: ['"]normal_ui_revocation['"]/);
+  assert.match(source, /revokedHiddenByDefault: revokedHiddenImmediately/);
+  assert.match(source, /deletedPermanentlyBeforeScreenshot: deletedPermanently/);
+  assert.match(source, /absentAfterDeleteReload/);
   assert.match(source, /project: testInfo\.project\.name/);
   assert.match(source, /isAuthenticatedOverlayMcpPatMutationPreview\(\)/);
   assert.match(
@@ -358,6 +361,10 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     reloadHelper,
     /page\.reload\(\{[\s\S]*?tokenRow\.getByText\(['"]Revoked['"], \{ exact: true \}\)[\s\S]*?\.toBeVisible\(/,
   );
+  assert.match(
+    reloadHelper,
+    /Show revoked connections[\s\S]*?revoked connections stay out of the default list[\s\S]*?tokenRow\.first\(\)\.waitFor/,
+  );
   assert.doesNotMatch(
     source,
     /revokedAfterReload = await reloadedTokenRow[\s\S]{0,120}\.isVisible\(\)/,
@@ -395,6 +402,29 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   assert.doesNotMatch(
     source,
     /await import\([\s\S]{0,120}authenticated-overlay-fixture\.mjs/,
+  );
+  const permanentDelete = source.indexOf(
+    'await permanentDeleteButton.click()',
+    cleanupEvidenceFailureResurface,
+  );
+  const reloadAfterDelete = source.indexOf(
+    "await page.reload({ waitUntil: 'domcontentloaded' })",
+    permanentDelete,
+  );
+  const absenceAfterDelete = source.indexOf(
+    'absentAfterDeleteReload = true',
+    reloadAfterDelete,
+  );
+  const successScreenshot = source.indexOf(
+    "testInfo.outputPath('mcp-provider-setup-success.png')",
+    absenceAfterDelete,
+  );
+  assert.ok(
+    permanentDelete > cleanupEvidenceFailureResurface
+      && reloadAfterDelete > permanentDelete
+      && absenceAfterDelete > reloadAfterDelete
+      && successScreenshot > absenceAfterDelete,
+    'permanent deletion and reloaded absence must be proved before safe screenshot capture',
   );
 });
 

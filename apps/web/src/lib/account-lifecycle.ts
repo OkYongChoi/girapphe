@@ -24,6 +24,10 @@ export function deriveAccountAdvisoryLockKey(userId: string): string {
   return `${ACCOUNT_LIFECYCLE_LOCK_PREFIX}:${deriveDeletedAccountScopeKey(userId)}`;
 }
 
+export function deriveMcpTokenCreationRateScopeKey(userId: string): string {
+  return `token-creation:${deriveDeletedAccountScopeKey(userId)}`;
+}
+
 export function deriveAccountBillingOperationScopeKey(userId: string): string {
   const fingerprint = createHash('sha256')
     .update(`${ACCOUNT_BILLING_OPERATION_DOMAIN}\0${userId}`, 'utf8')

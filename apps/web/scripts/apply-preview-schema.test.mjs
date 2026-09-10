@@ -28,6 +28,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0023_knowledge_ingestion_request_tombstones.sql', 21, parsePreviewMigration],
     ['0024_recall_prepared_attempts.sql', 4, parsePreviewMigration],
     ['0025_mobile_practice_owner_cursor.sql', 2, parsePreviewMigration],
+    ['0026_mcp_token_creation_rate_buckets.sql', 1, parsePreviewMigration],
   ];
   for (const [name, expectedCount, parse] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');

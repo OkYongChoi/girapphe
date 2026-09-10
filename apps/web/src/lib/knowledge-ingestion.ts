@@ -8,6 +8,7 @@ import pool from '@/lib/db';
 import {
   deriveMcpAccountAdvisoryLockKey,
   deriveMcpDeletedAccountScopeKey,
+  deriveMcpTokenCreationRateScopeKey,
 } from '@/lib/mcp-account-lifecycle';
 import { canRunRuntimeSchemaBootstrap } from '@/lib/schema-bootstrap';
 import { parseKnowledgeBundleFields, projectKnowledgeBundle } from '@/lib/knowledge-bundle-runtime';
@@ -34,6 +35,9 @@ export const MCP_CREDENTIAL_RATE_LIMIT_RETENTION_MS = 60 * 60 * 1000;
 export const MCP_CREDENTIAL_RATE_LIMIT_CLEANUP_BATCH_SIZE = 64;
 export const MCP_ACTIVE_TOKEN_LIMIT = 10;
 export const MCP_TOKEN_CREATION_LIMIT_PER_DAY = 20;
+export const MCP_TOKEN_CREATION_WINDOW_MS = 86_400_000;
+export const MCP_TOKEN_CREATION_BUCKET_MS = 60_000;
+export const MCP_TOKEN_CREATION_RATE_CLEANUP_BATCH_SIZE = 64;
 export const MCP_TOTAL_TOKEN_RECORD_LIMIT = 500;
 export const MCP_DRAFTS_PER_TOKEN_PER_HOUR = 250;
 export const MCP_DRAFTS_PER_USER_PER_HOUR = 500;
@@ -2177,6 +2181,70 @@ function consumeMemoryMcpRequestRate(scopeKey: string, limit: number, now: numbe
   return true;
 }
 
+function mcpTokenCreationBucketStart(timestamp: number): number {
+  return Math.ceil(timestamp / MCP_TOKEN_CREATION_BUCKET_MS) * MCP_TOKEN_CREATION_BUCKET_MS;
+}
+
+function mcpTokenCreationBucketScopeKey(userId: string, bucketStartedAt: number): string {
+  return `${deriveMcpTokenCreationRateScopeKey(userId)}:${bucketStartedAt}`;
+}
+
+function preserveMemoryMcpTokenCreationRate(userId: string, now: number): number {
+  const scopePrefix = `${deriveMcpTokenCreationRateScopeKey(userId)}:`;
+  const cutoff = now - MCP_TOKEN_CREATION_WINDOW_MS;
+  for (const [scopeKey, rate] of memoryMcpRequestRates) {
+    if (scopeKey.startsWith(scopePrefix) && rate.windowStartedAt <= cutoff) {
+      memoryMcpRequestRates.delete(scopeKey);
+    }
+  }
+
+  const retainedBucketCounts = new Map<number, number>();
+  for (const token of memoryTokens.values()) {
+    if (token.user_id !== userId) continue;
+    const createdAt = new Date(token.created_at).getTime();
+    if (!Number.isFinite(createdAt) || createdAt > now || createdAt <= cutoff) continue;
+    const bucketStartedAt = mcpTokenCreationBucketStart(createdAt);
+    retainedBucketCounts.set(
+      bucketStartedAt,
+      (retainedBucketCounts.get(bucketStartedAt) ?? 0) + 1,
+    );
+  }
+  for (const [bucketStartedAt, retainedCount] of retainedBucketCounts) {
+    const scopeKey = mcpTokenCreationBucketScopeKey(userId, bucketStartedAt);
+    const current = memoryMcpRequestRates.get(scopeKey);
+    if (!current) {
+      memoryMcpRequestRates.set(scopeKey, {
+        windowStartedAt: bucketStartedAt,
+        requestCount: retainedCount,
+      });
+    } else {
+      current.requestCount = Math.max(current.requestCount, retainedCount);
+    }
+  }
+
+  let recentCount = 0;
+  for (const [scopeKey, rate] of memoryMcpRequestRates) {
+    if (scopeKey.startsWith(scopePrefix) && rate.windowStartedAt > cutoff) {
+      recentCount += rate.requestCount;
+    }
+  }
+  return recentCount;
+}
+
+function consumeMemoryMcpTokenCreationRate(userId: string, now: number): boolean {
+  if (preserveMemoryMcpTokenCreationRate(userId, now) >= MCP_TOKEN_CREATION_LIMIT_PER_DAY) {
+    return false;
+  }
+  const bucketStartedAt = mcpTokenCreationBucketStart(now);
+  const scopeKey = mcpTokenCreationBucketScopeKey(userId, bucketStartedAt);
+  const current = memoryMcpRequestRates.get(scopeKey);
+  if (current) current.requestCount += 1;
+  else {
+    memoryMcpRequestRates.set(scopeKey, { windowStartedAt: bucketStartedAt, requestCount: 1 });
+  }
+  return true;
+}
+
 function cleanupExpiredMemoryMcpCredentialRates(currentScopeKey: string, now: number): number {
   // Inspect a rotating, bounded slice so cleanup cost stays constant even if a
   // development or test process has seen many OAuth clients. Re-adding live
@@ -2205,6 +2273,14 @@ function cleanupExpiredMemoryMcpCredentialRates(currentScopeKey: string, now: nu
 
 export function getMemoryMcpCredentialRateLimitRecordCountForTesting(): number {
   return memoryMcpCredentialRateKeys.size;
+}
+
+export function getMemoryMcpTokenRateLimitRecordCountForTesting(tokenId: string): number {
+  return Number(memoryMcpRequestRates.has(`token:${tokenId}`));
+}
+
+export function getMemoryMcpTokenCreationCountForTesting(userId: string): number {
+  return preserveMemoryMcpTokenCreationRate(userId, Date.now());
 }
 
 /**
@@ -2438,7 +2514,7 @@ export async function createMcpAccessTokenForUser(
     throw new Error('Select at least one supported MCP scope.');
   }
   const rawToken = `girapphe_mcp_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url')}`;
-  const now = new Date();
+  const now = new Date(Date.now());
   const record: McpAccessToken = {
     id: randomUUID(),
     label: sanitizeKnowledgeTitle(labelInput || 'MCP client') || 'MCP client',
@@ -2456,7 +2532,8 @@ export async function createMcpAccessTokenForUser(
     const createdInLastDay = userTokens.filter((token) => now.getTime() - new Date(token.created_at).getTime() < 86_400_000);
     if (activeTokens.length >= MCP_ACTIVE_TOKEN_LIMIT
       || createdInLastDay.length >= MCP_TOKEN_CREATION_LIMIT_PER_DAY
-      || userTokens.length >= MCP_TOTAL_TOKEN_RECORD_LIMIT) {
+      || userTokens.length >= MCP_TOTAL_TOKEN_RECORD_LIMIT
+      || !consumeMemoryMcpTokenCreationRate(userId, now.getTime())) {
       throw new Error('MCP token quota exceeded. Revoke an active token or try again later.');
     }
     memoryTokens.set(record.id, { ...record, user_id: userId, token_hash: tokenHash });
@@ -2464,6 +2541,8 @@ export async function createMcpAccessTokenForUser(
   }
   await ensureKnowledgeIngestionSchema();
   const deletedAccountScopeKey = deriveMcpDeletedAccountScopeKey(userId);
+  const creationRateScopePrefix = deriveMcpTokenCreationRateScopeKey(userId);
+  const creationBucketStartedAt = mcpTokenCreationBucketStart(now.getTime());
   const sql = getTransactionSql();
   const resultSets = await sql.transaction((tx) => [
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
@@ -2473,16 +2552,72 @@ export async function createMcpAccessTokenForUser(
        SELECT NOT EXISTS (
          SELECT 1 FROM mcp_deleted_account_markers marker WHERE marker.scope_key = $11
        ) AS account_active
+     ), token_counts AS MATERIALIZED (
+       SELECT
+         COUNT(*) FILTER (WHERE revoked_at IS NULL AND expires_at > NOW())::integer AS active_count,
+         COUNT(*)::integer AS retained_count
+       FROM mcp_access_tokens
+       WHERE user_id = $2
+     ), recent_token_buckets AS MATERIALIZED (
+       SELECT bucket_started_at, COUNT(*)::integer AS request_count
+       FROM (
+         SELECT date_trunc('minute', created_at)
+           + CASE
+               WHEN created_at > date_trunc('minute', created_at) THEN INTERVAL '1 minute'
+               ELSE INTERVAL '0 minutes'
+             END AS bucket_started_at
+         FROM mcp_access_tokens
+         WHERE user_id = $2
+           AND created_at > NOW() - INTERVAL '1 day'
+       ) recent_tokens
+       GROUP BY bucket_started_at
+     ), stale_creation_rate_candidates AS MATERIALIZED (
+       SELECT scope_key
+       FROM mcp_request_rate_limits
+       WHERE scope_key LIKE 'token-creation:%'
+         AND window_started_at <= NOW() - INTERVAL '1 day'
+       ORDER BY window_started_at, scope_key
+       LIMIT $16::integer
+       FOR UPDATE SKIP LOCKED
+     ), stale_creation_rates AS (
+       DELETE FROM mcp_request_rate_limits rate
+       USING stale_creation_rate_candidates stale
+       WHERE rate.scope_key = stale.scope_key
+       RETURNING rate.scope_key
+     ), recent_rate_buckets AS MATERIALIZED (
+       SELECT window_started_at AS bucket_started_at,
+         SUM(request_count)::integer AS request_count
+       FROM mcp_request_rate_limits
+       WHERE scope_key LIKE $12 || ':%'
+         AND window_started_at > NOW() - INTERVAL '1 day'
+         AND (SELECT COUNT(*) FROM stale_creation_rates) >= 0
+       GROUP BY window_started_at
+     ), effective_creation_rate AS MATERIALIZED (
+       SELECT COALESCE(SUM(GREATEST(
+         COALESCE(tokens.request_count, 0),
+         COALESCE(rates.request_count, 0)
+       )), 0)::integer AS recent_count
+       FROM recent_token_buckets tokens
+       FULL OUTER JOIN recent_rate_buckets rates USING (bucket_started_at)
+     ), creation_rate AS (
+       INSERT INTO mcp_request_rate_limits (scope_key, window_started_at, request_count, updated_at)
+       SELECT $13, $14::timestamptz, 1, NOW()
+       FROM account_state, token_counts, effective_creation_rate
+       WHERE account_active
+         AND active_count < $8
+         AND recent_count < $9
+         AND retained_count < $10
+       ON CONFLICT (scope_key) DO UPDATE SET
+         request_count = mcp_request_rate_limits.request_count + 1,
+         updated_at = NOW()
+       RETURNING scope_key
      ), inserted_token AS (
-       INSERT INTO mcp_access_tokens (id, user_id, token_hash, last_four, label, scopes, expires_at)
-       SELECT $1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz
+       INSERT INTO mcp_access_tokens
+         (id, user_id, token_hash, last_four, label, scopes, expires_at, created_at)
+       SELECT $1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz, $15::timestamptz
        FROM account_state
        WHERE account_active
-         AND (SELECT COUNT(*) FROM mcp_access_tokens t
-            WHERE t.user_id = $2 AND t.revoked_at IS NULL AND t.expires_at > NOW()) < $8
-         AND (SELECT COUNT(*) FROM mcp_access_tokens t
-            WHERE t.user_id = $2 AND t.created_at > NOW() - INTERVAL '1 day') < $9
-         AND (SELECT COUNT(*) FROM mcp_access_tokens t WHERE t.user_id = $2) < $10
+         AND EXISTS (SELECT 1 FROM creation_rate)
        RETURNING id
      )
      SELECT account_active,
@@ -2500,6 +2635,11 @@ export async function createMcpAccessTokenForUser(
         MCP_TOKEN_CREATION_LIMIT_PER_DAY,
         MCP_TOTAL_TOKEN_RECORD_LIMIT,
         deletedAccountScopeKey,
+        creationRateScopePrefix,
+        `${creationRateScopePrefix}:${creationBucketStartedAt}`,
+        new Date(creationBucketStartedAt).toISOString(),
+        record.created_at,
+        MCP_TOKEN_CREATION_RATE_CLEANUP_BATCH_SIZE,
       ]
     ),
   ], { isolationLevel: 'ReadCommitted' });
@@ -2558,23 +2698,90 @@ export async function deleteRevokedMcpAccessTokenForUser(userId: string, tokenId
   if (!process.env.DATABASE_URL) {
     const token = memoryTokens.get(tokenId);
     if (token?.user_id === userId && token.revoked_at) {
+      preserveMemoryMcpTokenCreationRate(userId, Date.now());
       memoryTokens.delete(tokenId);
       memoryMcpRequestRates.delete(`token:${tokenId}`);
     }
     return;
   }
   await ensureKnowledgeIngestionSchema();
-  await pool.query(
-    `WITH deleted_token AS (
-       DELETE FROM mcp_access_tokens
-       WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL
-       RETURNING id
-     )
-     DELETE FROM mcp_request_rate_limits rate
-     USING deleted_token
-     WHERE rate.scope_key = 'token:' || deleted_token.id`,
-    [tokenId, userId],
-  );
+  await pool.accountTransaction(userId, [
+    {
+      text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
+      params: [`mcp-token:${userId}`],
+    },
+    {
+      text: `WITH selected_token AS MATERIALIZED (
+         SELECT id
+         FROM mcp_access_tokens
+         WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL
+         FOR UPDATE
+       ), recent_token_creation_buckets AS MATERIALIZED (
+         SELECT bucket_started_at, COUNT(*)::integer AS request_count
+         FROM (
+           SELECT date_trunc('minute', created_at)
+             + CASE
+                 WHEN created_at > date_trunc('minute', created_at) THEN INTERVAL '1 minute'
+                 ELSE INTERVAL '0 minutes'
+               END AS bucket_started_at
+           FROM mcp_access_tokens
+           WHERE user_id = $2
+             AND created_at > NOW() - INTERVAL '1 day'
+             AND EXISTS (SELECT 1 FROM selected_token)
+         ) recent_tokens
+         GROUP BY bucket_started_at
+       ), stale_creation_rate_candidates AS MATERIALIZED (
+         SELECT scope_key
+         FROM mcp_request_rate_limits
+         WHERE scope_key LIKE 'token-creation:%'
+           AND window_started_at <= NOW() - INTERVAL '1 day'
+           AND EXISTS (SELECT 1 FROM selected_token)
+         ORDER BY window_started_at, scope_key
+         LIMIT $4::integer
+         FOR UPDATE SKIP LOCKED
+       ), stale_creation_rates AS (
+         DELETE FROM mcp_request_rate_limits rate
+         USING stale_creation_rate_candidates stale
+         WHERE rate.scope_key = stale.scope_key
+         RETURNING rate.scope_key
+       ), preserved_creation_rates AS (
+         INSERT INTO mcp_request_rate_limits (scope_key, window_started_at, request_count, updated_at)
+         SELECT $3 || ':' || ((EXTRACT(EPOCH FROM bucket_started_at) * 1000)::bigint)::text,
+           bucket_started_at, request_count, NOW()
+         FROM recent_token_creation_buckets
+         WHERE (SELECT COUNT(*) FROM stale_creation_rates) >= 0
+         ON CONFLICT (scope_key) DO UPDATE SET
+           request_count = GREATEST(
+             mcp_request_rate_limits.request_count,
+             EXCLUDED.request_count
+           ),
+           updated_at = NOW()
+         RETURNING scope_key
+       ), deleted_rate AS (
+         DELETE FROM mcp_request_rate_limits rate
+         USING selected_token selected
+         WHERE rate.scope_key = 'token:' || selected.id
+           AND (SELECT COUNT(*) FROM preserved_creation_rates) >= 0
+         RETURNING rate.scope_key
+       ), deleted_token AS (
+         DELETE FROM mcp_access_tokens token
+         USING selected_token selected
+         WHERE token.id = selected.id
+           AND (SELECT COUNT(*) FROM preserved_creation_rates) >= 0
+           AND (SELECT COUNT(*) FROM deleted_rate) >= 0
+         RETURNING token.id
+       )
+       SELECT
+         (SELECT COUNT(*) FROM deleted_token)::integer AS deleted_tokens,
+         (SELECT COUNT(*) FROM deleted_rate)::integer AS deleted_rate_limits`,
+      params: [
+        tokenId,
+        userId,
+        deriveMcpTokenCreationRateScopeKey(userId),
+        MCP_TOKEN_CREATION_RATE_CLEANUP_BATCH_SIZE,
+      ],
+    },
+  ]);
 }
 
 export function getMemoryKnowledgeItemsForUser(userId: string): MemoryKnowledgeItem[] {

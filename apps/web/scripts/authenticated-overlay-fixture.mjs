@@ -1111,6 +1111,18 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
     if (resetMcpAccessTokens) {
       // Keep repeated Preview evidence runs below the immutable application
       // quota without widening cleanup beyond the validated synthetic owner.
+      // The application keeps daily creation buckets after an individual
+      // revoked token is deleted, so reset those derived aggregates and any
+      // exact-token rate rows for this marker-owned fixture first.
+      await client.query(
+        `DELETE FROM mcp_request_rate_limits
+         WHERE scope_key = 'token-creation:' || public.derive_account_lifecycle_scope_key($1)
+            OR scope_key LIKE 'token-creation:' || public.derive_account_lifecycle_scope_key($1) || ':%'
+            OR scope_key IN (
+              SELECT 'token:' || id FROM mcp_access_tokens WHERE user_id = $1
+            )`,
+        [userId],
+      );
       await client.query(
         'DELETE FROM mcp_access_tokens WHERE user_id = $1',
         [userId],
