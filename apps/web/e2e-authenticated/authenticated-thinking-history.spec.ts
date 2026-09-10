@@ -10,7 +10,7 @@ import {
   type Request,
   type Response,
   type TestInfo,
-} from "@playwright/test";
+} from "./authenticated-test";
 import {
   classifyConfirmLocatorActivationFailure,
   classifyReviewLocatorActivationFailure,

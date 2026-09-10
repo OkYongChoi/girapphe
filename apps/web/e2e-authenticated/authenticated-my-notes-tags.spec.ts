@@ -5,7 +5,7 @@ import {
   type Locator,
   type Page,
   type Response,
-} from '@playwright/test';
+} from './authenticated-test';
 import {
   AUTHENTICATED_OVERLAY_AUTH_MODES,
   resolveAuthenticatedOverlayAuthMode,

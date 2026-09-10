@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './authenticated-test';
 
 const SETTINGS_STORAGE_KEY = 'girapphe:settings-preferences';
 

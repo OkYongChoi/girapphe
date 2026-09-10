@@ -1,7 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test, type APIResponse, type Page } from '@playwright/test';
+import { clerk } from '@clerk/testing/playwright';
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type APIResponse,
+  type Page,
+} from './authenticated-test';
 import {
   AUTHENTICATED_OVERLAY_AUTH_MODES,
   resolveAuthenticatedOverlayAuthMode,
@@ -38,8 +45,13 @@ async function privateJson(
   return json(response, label, expectedStatus);
 }
 
-function mobileHeaders() {
+async function mobileHeaders(page: Page) {
+  const token = await page.evaluate(async () => window.Clerk?.session?.getToken() ?? null);
+  if (typeof token !== 'string' || token.length === 0) {
+    throw new Error('MOBILE_API_CLERK_BEARER_UNAVAILABLE');
+  }
   return {
+    Authorization: `Bearer ${token}`,
     'X-Girapphe-Knowledge-Capabilities': CAPABILITIES,
   };
 }
@@ -56,30 +68,39 @@ function privateOnlyCursor(mode: 'new' | 'review') {
   })).toString('base64url');
 }
 
-async function postMobile(page: Page, data: JsonRecord) {
-  return page.request.post('/api/mobile', {
+async function postMobile(mobileApi: APIRequestContext, page: Page, data: JsonRecord) {
+  return mobileApi.post('/api/mobile', {
     data,
-    headers: mobileHeaders(),
+    headers: await mobileHeaders(page),
   });
 }
 
-async function loadNotes(page: Page, view?: 'archive' | 'trash') {
+async function loadNotes(
+  mobileApi: APIRequestContext,
+  page: Page,
+  view?: 'archive' | 'trash',
+) {
   const suffix = view ? `&view=${view}` : '';
   return privateJson(
-    await page.request.get(`/api/mobile?resource=notes&locale=en${suffix}`, {
-      headers: mobileHeaders(),
+    await mobileApi.get(`/api/mobile?resource=notes&locale=en${suffix}`, {
+      headers: await mobileHeaders(page),
     }),
     `notes ${view ?? 'active'}`,
   );
 }
 
-async function findPrivatePracticeCard(page: Page, mode: 'new' | 'review', cardId: string) {
+async function findPrivatePracticeCard(
+  mobileApi: APIRequestContext,
+  page: Page,
+  mode: 'new' | 'review',
+  cardId: string,
+) {
   let cursor: string | null = privateOnlyCursor(mode);
   for (let requestCount = 0; requestCount < 100; requestCount += 1) {
     const payload = await privateJson(
-      await page.request.post('/api/mobile?resource=practice&locale=en', {
+      await mobileApi.post('/api/mobile?resource=practice&locale=en', {
         data: { mode, cursor, cycleOnEmpty: false },
-        headers: mobileHeaders(),
+        headers: await mobileHeaders(page),
       }),
       `Practice ${mode} traversal`,
     );
@@ -92,9 +113,20 @@ async function findPrivatePracticeCard(page: Page, mode: 'new' | 'review', cardI
 }
 
 test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, notes, and candidates', async ({
+  bearerOnlyApi: mobileApi,
   page,
 }, testInfo) => {
   requirePreviewMobileProject(testInfo.project.name);
+  await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  await clerk.loaded({ page });
+  await expect.poll(
+    () => page.evaluate(() => Boolean(window.Clerk?.session)),
+    { message: 'the synthetic Clerk session becomes active before native API requests' },
+  ).toBe(true);
+  const configuredOrigin = new URL(process.env.PLAYWRIGHT_BASE_URL!).origin;
+  if (new URL(page.url()).origin !== configuredOrigin) {
+    throw new Error('MOBILE_API_UNEXPECTED_AUTH_ORIGIN');
+  }
   const marker = `E2E_MOBILE_API_${randomBytes(16).toString('hex')}`;
   const {
     cleanupAuthenticatedMobileApiFixture,
@@ -139,7 +171,7 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
       bundle_schema_version: 1,
     };
     const createdPayload = await privateJson(
-      await postMobile(page, createNotePayload),
+      await postMobile(mobileApi, page, createNotePayload),
       'create note',
       201,
     );
@@ -161,13 +193,13 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     };
     expect(editedRetryPayload.requestId).toBe(createNotePayload.requestId);
     const replayedPayload = await privateJson(
-      await postMobile(page, editedRetryPayload),
+      await postMobile(mobileApi, page, editedRetryPayload),
       'replay edited create note',
       200,
     );
     expect(replayedPayload.outcome).toBe('replayed');
 
-    const activeAfterCreate = await loadNotes(page);
+    const activeAfterCreate = await loadNotes(mobileApi, page);
     evidence.privateNoStoreReads += 1;
     const matchingNotes = (activeAfterCreate.items as JsonRecord[])
       .filter((item) => item.title === marker);
@@ -185,7 +217,7 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     let version = Number(created?.version);
     expect(version).toBe(1);
 
-    const update = await privateJson(await postMobile(page, {
+    const update = await privateJson(await postMobile(mobileApi, page, {
       action: 'update-note',
       id: noteId,
       version,
@@ -209,28 +241,28 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     version = Number(update.version);
     expect(Number.isSafeInteger(version) && version > Number(created?.version)).toBe(true);
 
-    const archived = await privateJson(await postMobile(page, {
+    const archived = await privateJson(await postMobile(mobileApi, page, {
       action: 'archive-note',
       id: noteId,
       version,
     }), 'archive note');
     version = Number(archived.version);
-    const archiveView = await loadNotes(page, 'archive');
+    const archiveView = await loadNotes(mobileApi, page, 'archive');
     evidence.privateNoStoreReads += 1;
     expect((archiveView.items as JsonRecord[]).some((item) => item.id === noteId)).toBe(true);
 
-    const restoredArchive = await privateJson(await postMobile(page, {
+    const restoredArchive = await privateJson(await postMobile(mobileApi, page, {
       action: 'restore-archived-note',
       id: noteId,
       version,
     }), 'restore archived note');
     version = Number(restoredArchive.version);
-    await privateJson(await postMobile(page, { action: 'delete-note', id: noteId }), 'trash note');
-    const trashView = await loadNotes(page, 'trash');
+    await privateJson(await postMobile(mobileApi, page, { action: 'delete-note', id: noteId }), 'trash note');
+    const trashView = await loadNotes(mobileApi, page, 'trash');
     evidence.privateNoStoreReads += 1;
     expect((trashView.items as JsonRecord[]).some((item) => item.id === noteId)).toBe(true);
-    await privateJson(await postMobile(page, { action: 'restore-note', id: noteId }), 'restore trashed note');
-    const activeAfterRestore = await loadNotes(page);
+    await privateJson(await postMobile(mobileApi, page, { action: 'restore-note', id: noteId }), 'restore trashed note');
+    const activeAfterRestore = await loadNotes(mobileApi, page);
     evidence.privateNoStoreReads += 1;
     const restored = (activeAfterRestore.items as JsonRecord[]).find((item) => item.id === noteId);
     expect(restored?.version).toBe(version + 1);
@@ -238,7 +270,9 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     evidence.noteLifecycle = true;
 
     const topics = await privateJson(
-      await page.request.get('/api/mobile?resource=topics&locale=en', { headers: mobileHeaders() }),
+      await mobileApi.get('/api/mobile?resource=topics&locale=en', {
+        headers: await mobileHeaders(page),
+      }),
       'topics',
     );
     evidence.privateNoStoreReads += 1;
@@ -246,9 +280,9 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
       topic.topic === 'mobile-api-evidence' && Number(topic.item_count) >= 1
     ))).toBe(true);
     const hub = await privateJson(
-      await page.request.get(
+      await mobileApi.get(
         '/api/mobile?resource=topic-hub&locale=en&topic=mobile-api-evidence',
-        { headers: mobileHeaders() },
+        { headers: await mobileHeaders(page) },
       ),
       'topic hub',
     );
@@ -256,18 +290,18 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     expect(((hub.hub as JsonRecord).items as JsonRecord[]).some((item) => item.id === noteId)).toBe(true);
     evidence.topicsAndHub = true;
 
-    const newPractice = await findPrivatePracticeCard(page, 'new', `personal:${noteId}`);
+    const newPractice = await findPrivatePracticeCard(mobileApi, page, 'new', `personal:${noteId}`);
     evidence.privateNoStoreReads += newPractice.requestCount;
     expect(newPractice.payload.nextCursor).toEqual(expect.any(String));
-    await privateJson(await postMobile(page, {
+    await privateJson(await postMobile(mobileApi, page, {
       action: 'rate-card',
       cardId: `personal:${noteId}`,
       status: 'saved',
     }), 'rate private card saved');
-    const reviewPractice = await findPrivatePracticeCard(page, 'review', `personal:${noteId}`);
+    const reviewPractice = await findPrivatePracticeCard(mobileApi, page, 'review', `personal:${noteId}`);
     evidence.privateNoStoreReads += reviewPractice.requestCount;
     expect(reviewPractice.payload.card).toEqual(expect.objectContaining({ id: `personal:${noteId}` }));
-    await privateJson(await postMobile(page, {
+    await privateJson(await postMobile(mobileApi, page, {
       action: 'rate-card',
       cardId: `personal:${noteId}`,
       status: 'known',
@@ -275,7 +309,9 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     evidence.practiceNewAndReview = true;
 
     const ranking = await privateJson(
-      await page.request.get('/api/mobile?resource=ranking&locale=en', { headers: mobileHeaders() }),
+      await mobileApi.get('/api/mobile?resource=ranking&locale=en', {
+        headers: await mobileHeaders(page),
+      }),
       'ranking',
     );
     evidence.privateNoStoreReads += 1;
@@ -302,17 +338,17 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     evidence.rankingAnonymous = true;
 
     const inbox = await privateJson(
-      await page.request.get('/api/mobile?resource=candidate-inbox&locale=en', {
-        headers: mobileHeaders(),
+      await mobileApi.get('/api/mobile?resource=candidate-inbox&locale=en', {
+        headers: await mobileHeaders(page),
       }),
       'candidate inbox',
     );
     evidence.privateNoStoreReads += 1;
     expect((inbox.batches as JsonRecord[]).some((batch) => batch.id === fixture.batchId)).toBe(true);
     const candidateBatch = await privateJson(
-      await page.request.get(
+      await mobileApi.get(
         `/api/mobile?resource=candidate-batch&locale=en&batchId=${encodeURIComponent(fixture.batchId)}`,
-        { headers: mobileHeaders() },
+        { headers: await mobileHeaders(page) },
       ),
       'candidate batch',
     );
@@ -322,14 +358,14 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
       fixture.drafts.ignore.id,
     ].sort());
 
-    const approved = await privateJson(await postMobile(page, {
+    const approved = await privateJson(await postMobile(mobileApi, page, {
       action: 'approve-candidate',
       batchId: fixture.batchId,
       draftId: fixture.drafts.approve.id,
       draftVersion: fixture.drafts.approve.version,
     }), 'approve candidate');
     expect(approved.resolved).toBe(true);
-    const staleApprove = await privateJson(await postMobile(page, {
+    const staleApprove = await privateJson(await postMobile(mobileApi, page, {
       action: 'approve-candidate',
       batchId: fixture.batchId,
       draftId: fixture.drafts.approve.id,
@@ -337,14 +373,14 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     }), 'reject stale approved candidate', 409);
     expect(staleApprove.code).toBe('CANDIDATE_STALE');
 
-    const ignored = await privateJson(await postMobile(page, {
+    const ignored = await privateJson(await postMobile(mobileApi, page, {
       action: 'ignore-candidate',
       batchId: fixture.batchId,
       draftId: fixture.drafts.ignore.id,
       draftVersion: fixture.drafts.ignore.version,
     }), 'ignore candidate');
     expect(ignored.resolved).toBe(true);
-    const staleIgnore = await privateJson(await postMobile(page, {
+    const staleIgnore = await privateJson(await postMobile(mobileApi, page, {
       action: 'ignore-candidate',
       batchId: fixture.batchId,
       draftId: fixture.drafts.ignore.id,
@@ -395,6 +431,7 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     } catch (error) {
       artifactError = error;
     }
+
   }
 
   const failures = [evidenceError, cleanupError, artifactError]

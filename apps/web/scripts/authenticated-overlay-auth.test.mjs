@@ -26,6 +26,34 @@ test('Clerk auth mode keeps testing tokens away from production instances', () =
   );
 });
 
+test('each authenticated browser context can refresh Clerk testing sessions', async () => {
+  const fixtureUrl = new URL(
+    '../e2e-authenticated/authenticated-test.ts',
+    import.meta.url,
+  );
+  const source = await fs.readFile(fixtureUrl, 'utf8');
+
+  assert.match(source, /clerkTestingEnvironment:[\s\S]{0,400}clerkSetup\(\{ dotenv: false \}\)/);
+  assert.match(source, /clerkTestingToken:[\s\S]{0,500}setupClerkTestingToken\(\{ context \}\)/);
+  assert.match(source, /AUTHENTICATED_OVERLAY_AUTH_MODES\.testingToken/);
+  assert.match(source, /\{ auto: true \}/);
+
+  const specDirectory = new URL('../e2e-authenticated/', import.meta.url);
+  const specNames = (await fs.readdir(specDirectory))
+    .filter((name) => name.endsWith('.spec.ts'));
+  const specSources = await Promise.all(specNames.map(async (name) => ({
+    name,
+    source: await fs.readFile(new URL(name, specDirectory), 'utf8'),
+  })));
+  for (const spec of specSources) {
+    assert.match(
+      spec.source,
+      /from ['"]\.\/authenticated-test['"];/,
+      `${spec.name} must install the per-context Clerk testing-token refresh fixture`,
+    );
+  }
+});
+
 test('provider PAT evidence gates on the same resolved Clerk auth mode as setup', async () => {
   const testUrl = new URL(
     '../e2e-authenticated/authenticated-mcp-provider-setup.spec.ts',

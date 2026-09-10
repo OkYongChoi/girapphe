@@ -9,13 +9,15 @@ const specUrl = new URL(
 const configUrl = new URL('../../../playwright.authenticated.config.ts', import.meta.url);
 const packageUrl = new URL('../../../package.json', import.meta.url);
 const routeUrl = new URL('../src/app/api/mobile/route.ts', import.meta.url);
+const fixtureUrl = new URL('../e2e-authenticated/authenticated-test.ts', import.meta.url);
 
 test('deployed mobile API evidence is isolated, owner-scoped, and cleanup-bound', async () => {
-  const [source, config, packageSource, route] = await Promise.all([
+  const [source, config, packageSource, route, fixture] = await Promise.all([
     fs.readFile(specUrl, 'utf8'),
     fs.readFile(configUrl, 'utf8'),
     fs.readFile(packageUrl, 'utf8'),
     fs.readFile(routeUrl, 'utf8'),
+    fs.readFile(fixtureUrl, 'utf8'),
   ]);
 
   const desktopProject = config.indexOf("name: 'authenticated-desktop'");
@@ -26,6 +28,18 @@ test('deployed mobile API evidence is isolated, owner-scoped, and cleanup-bound'
 
   assert.match(source, /resolveAuthenticatedOverlayAuthMode\(\)/);
   assert.match(source, /projectName !== 'authenticated-mobile'[\s\S]{0,160}AUTHENTICATED_OVERLAY_AUTH_MODES\.testingToken/);
+  assert.match(source, /page\.goto\('\/login',[\s\S]{0,160}clerk\.loaded\(\{ page \}\)/);
+  assert.match(source, /Boolean\(window\.Clerk\?\.session\)/);
+  assert.match(source, /new URL\(page\.url\(\)\)\.origin !== configuredOrigin/);
+  assert.match(source, /window\.Clerk\?\.session\?\.getToken\(\)/);
+  assert.match(source, /Authorization: `Bearer \$\{token\}`/);
+  assert.match(source, /bearerOnlyApi: mobileApi/);
+  assert.match(fixture, /playwrightRequest\.newContext\(\{[\s\S]{0,200}storageState: \{ cookies: \[\], origins: \[\] \}/);
+  assert.match(fixture, /baseURL: new URL\(configuredBaseUrl\)\.origin/);
+  assert.match(fixture, /try \{[\s\S]{0,80}await provide\(api\)[\s\S]{0,80}finally \{[\s\S]{0,80}await api\.dispose\(\)/);
+  assert.doesNotMatch(source, /page\.request/);
+  assert.match(source, /headers: await mobileHeaders\(page\)/);
+  assert.doesNotMatch(source, /headers: mobileHeaders\(\)/);
   assert.match(source, /cache-control[\s\S]{0,120}PRIVATE_CACHE/);
   assert.match(source, /E2E_MOBILE_API_\$\{randomBytes\(16\)\.toString\('hex'\)\}/);
   assert.match(source, /try \{[\s\S]*\} catch \(error\) \{[\s\S]{0,120}evidenceError = error;[\s\S]{0,80}\} finally \{[\s\S]{0,500}cleanupAuthenticatedMobileApiFixture/);
@@ -39,10 +53,10 @@ test('deployed mobile API evidence is isolated, owner-scoped, and cleanup-bound'
 
   assert.equal((route.match(/NextResponse\.json/g) ?? []).length, 1);
   assert.match(route, /function privateJson[\s\S]{0,240}Cache-Control['"], 'private, no-store'/);
-  assert.match(source, /postMobile\(page, createNotePayload\)[\s\S]{0,100}'create note',[\s\S]{0,40}201/);
+  assert.match(source, /postMobile\(mobileApi, page, createNotePayload\)[\s\S]{0,100}'create note',[\s\S]{0,40}201/);
   assert.match(source, /const editedRetryPayload = \{[\s\S]{0,800}\.\.\.createNotePayload,[\s\S]{0,800}edited-retry/);
   assert.match(source, /editedRetryPayload\.requestId\)\.toBe\(createNotePayload\.requestId\)/);
-  assert.match(source, /postMobile\(page, editedRetryPayload\)[\s\S]{0,100}'replay edited create note',[\s\S]{0,40}200/);
+  assert.match(source, /postMobile\(mobileApi, page, editedRetryPayload\)[\s\S]{0,100}'replay edited create note',[\s\S]{0,40}200/);
   assert.match(source, /createdPayload\.outcome\)\.toBe\('inserted'\)/);
   assert.match(source, /replayedPayload\.outcome\)\.toBe\('replayed'\)/);
   assert.match(source, /matchingNotes[\s\S]{0,160}toHaveLength\(1\)/);

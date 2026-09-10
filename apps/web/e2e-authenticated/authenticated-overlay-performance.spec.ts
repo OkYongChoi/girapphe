@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test, type Page, type Request } from '@playwright/test';
+import { expect, test, type Page, type Request } from './authenticated-test';
 import { isNoArgumentServerActionBody } from '../scripts/authenticated-overlay-network.mjs';
 
 const toleratedConsoleErrors = [/favicon\.ico/i];
