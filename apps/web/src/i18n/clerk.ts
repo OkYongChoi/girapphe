@@ -36,12 +36,12 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function fetchWithTimeout(
+async function loadLocalizationAttempt(
   fetcher: LocalizationFetcher,
-  input: string,
+  asset: { path: string; resolvedLocale: string },
   signal: AbortSignal | undefined,
   timeoutMs: number,
-): Promise<Response> {
+): Promise<ClerkLocalization> {
   const attemptController = new AbortController();
   let rejectCancellation: (reason: unknown) => void = () => undefined;
   const cancellation = new Promise<never>((_resolve, reject) => {
@@ -66,10 +66,21 @@ async function fetchWithTimeout(
 
   try {
     return await Promise.race([
-      fetcher(input, {
-        credentials: 'same-origin',
-        signal: attemptController.signal,
-      }),
+      (async () => {
+        const response = await fetcher(asset.path, {
+          credentials: 'same-origin',
+          signal: attemptController.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Localization asset returned ${response.status}.`);
+        }
+
+        const localization: unknown = await response.json();
+        if (!isExpectedLocalization(localization, asset.resolvedLocale)) {
+          throw new Error('Localization asset did not match the requested locale.');
+        }
+        return localization;
+      })(),
       cancellation,
     ]);
   } finally {
@@ -92,14 +103,7 @@ export async function loadClerkLocalization(
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const response = await fetchWithTimeout(fetcher, asset.path, signal, timeoutMs);
-      if (!response.ok) throw new Error(`Localization asset returned ${response.status}.`);
-
-      const localization: unknown = await response.json();
-      if (!isExpectedLocalization(localization, asset.resolvedLocale)) {
-        throw new Error('Localization asset did not match the requested locale.');
-      }
-      return localization;
+      return await loadLocalizationAttempt(fetcher, asset, signal, timeoutMs);
     } catch (error) {
       if (signal?.aborted) throw error;
       lastError = error;

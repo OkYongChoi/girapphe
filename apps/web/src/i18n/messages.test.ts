@@ -106,7 +106,7 @@ test('Clerk localization loading retries once and then fails closed', async () =
   assert.equal(permanentAttempts, 2);
 });
 
-test('Clerk localization loading times out hanging requests and preserves unmount cancellation', async () => {
+test('Clerk localization loading times out hanging requests and response bodies', async () => {
   let timeoutAttempts = 0;
   await assert.rejects(
     loadClerkLocalization('en', {
@@ -121,6 +121,22 @@ test('Clerk localization loading times out hanging requests and preserves unmoun
   );
   assert.equal(timeoutAttempts, 2);
 
+  let bodyAttempts = 0;
+  await assert.rejects(
+    loadClerkLocalization('en', {
+      fetcher: async () => {
+        bodyAttempts += 1;
+        return new Response(new ReadableStream({ start: () => undefined }), { status: 200 });
+      },
+      retryDelayMs: 0,
+      timeoutMs: 5,
+    }),
+    /Unable to load Clerk localization after two attempts/u,
+  );
+  assert.equal(bodyAttempts, 2);
+});
+
+test('Clerk localization loading preserves unmount cancellation without retrying', async () => {
   const controller = new AbortController();
   let abortedAttempts = 0;
   const abortedLoad = loadClerkLocalization('en', {
@@ -137,12 +153,17 @@ test('Clerk localization loading times out hanging requests and preserves unmoun
   assert.equal(abortedAttempts, 1);
 });
 
-test('Turbo build caching restores every generated public localization asset', () => {
+test('Turbo caching tracks the generators and restores every generated public localization asset', () => {
   const turbo = JSON.parse(
     readFileSync(new URL('../../../../turbo.json', import.meta.url), 'utf8'),
-  ) as { tasks?: { build?: { outputs?: string[] } } };
+  ) as {
+    globalDependencies?: string[];
+    tasks?: { build?: { outputs?: string[] } };
+  };
   const outputs = turbo.tasks?.build?.outputs ?? [];
 
+  assert.ok(turbo.globalDependencies?.includes('scripts/export-card-content-asset.ts'));
+  assert.ok(turbo.globalDependencies?.includes('scripts/export-clerk-localization-assets.ts'));
   assert.ok(outputs.includes('public/localization/card-content.json'));
   assert.ok(outputs.includes('public/localization/clerk/**'));
 });
