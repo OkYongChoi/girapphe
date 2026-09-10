@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
@@ -36,6 +36,12 @@ type Seed = {
   structured_content: KnowledgeCardDraft['structured_content'];
   bundle_schema_version: number | null;
 };
+
+function useHydratedConfirmation(): boolean {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  return hydrated;
+}
 
 function draftSeed(draft: KnowledgeCardDraft): Seed {
   return {
@@ -91,14 +97,15 @@ function evidenceLocation(
 function ResolutionButtons({ hasTarget, blocked }: { hasTarget: boolean; blocked: boolean }) {
   const { pending } = useFormStatus();
   const { t } = useI18n();
+  const hydrated = useHydratedConfirmation();
   return (
     <div className="flex flex-wrap gap-2">
       {hasTarget ? (
         <>
-          <button name="resolution_action" value="merge" disabled={pending || blocked} onClick={(event) => { if (!window.confirm(t('resolution.mergeConfirm'))) event.preventDefault(); }} className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
+          <button name="resolution_action" value="merge" disabled={!hydrated || pending || blocked} onClick={(event) => { if (!window.confirm(t('resolution.mergeConfirm'))) event.preventDefault(); }} className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
             {t('resolution.merge')}
           </button>
-          <button name="resolution_action" value="update" disabled={pending || blocked} onClick={(event) => { if (!window.confirm(t('resolution.updateConfirm'))) event.preventDefault(); }} className="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50">
+          <button name="resolution_action" value="update" disabled={!hydrated || pending || blocked} onClick={(event) => { if (!window.confirm(t('resolution.updateConfirm'))) event.preventDefault(); }} className="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50">
             {t('resolution.update')}
           </button>
         </>
@@ -114,7 +121,8 @@ function ResolutionButtons({ hasTarget, blocked }: { hasTarget: boolean; blocked
 function IgnoreButton() {
   const { pending } = useFormStatus();
   const { t } = useI18n();
-  return <button type="submit" disabled={pending} onClick={(event) => { if (!window.confirm(t('resolution.ignoreConfirm'))) event.preventDefault(); }} className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">{pending ? t('resolution.ignoring') : t('resolution.ignore')}</button>;
+  const hydrated = useHydratedConfirmation();
+  return <button type="submit" disabled={!hydrated || pending} onClick={(event) => { if (!window.confirm(t('resolution.ignoreConfirm'))) event.preventDefault(); }} className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">{pending ? t('resolution.ignoring') : t('resolution.ignore')}</button>;
 }
 
 function BundlePreview({ value, legacyExplanation = false }: { value: Seed; legacyExplanation?: boolean }) {

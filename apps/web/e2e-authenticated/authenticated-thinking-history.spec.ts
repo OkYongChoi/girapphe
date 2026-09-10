@@ -159,6 +159,26 @@ async function waitForImportSubmissionEventCount(
   return observed;
 }
 
+async function clickAndAcceptConfirm(page: Page, control: Locator): Promise<void> {
+  let dialogType: string | null = null;
+  const confirmHandled = page.waitForEvent("dialog", { timeout: 5_000 })
+    .then(async (dialog) => {
+      dialogType = dialog.type();
+      if (dialogType === "confirm") await dialog.accept();
+      else await dialog.dismiss();
+    });
+  const [dialogResult, clickResult] = await Promise.allSettled([
+    confirmHandled,
+    control.click({ timeout: 5_000 }),
+  ]);
+  if (clickResult.status === "rejected" && dialogResult.status === "rejected") {
+    throw clickResult.reason;
+  }
+  if (dialogResult.status === "rejected") throw dialogResult.reason;
+  if (dialogType !== "confirm") throw new Error(`UNEXPECTED_DIALOG_TYPE:${dialogType ?? "none"}`);
+  if (clickResult.status === "rejected") throw clickResult.reason;
+}
+
 async function deleteSubmittedImportThroughOwnerUi(page: Page, batchId: string): Promise<void> {
   // A failed confirm-driven assertion can leave a one-shot dialog listener
   // behind. Cleanup owns the next dialog and must not race that stale handler.
@@ -170,8 +190,10 @@ async function deleteSubmittedImportThroughOwnerUi(page: Page, batchId: string):
   ).toHaveCount(1);
 
   const batchRow = page.getByText(batchId, { exact: true }).locator("xpath=ancestor::li[1]");
-  page.once("dialog", (dialog) => dialog.accept());
-  await batchRow.getByRole("button", { name: deleteImportCopy }).click();
+  await clickAndAcceptConfirm(
+    page,
+    batchRow.getByRole("button", { name: deleteImportCopy }),
+  );
   await expect(page.getByText(batchId, { exact: true })).toHaveCount(0);
   await waitForImportSubmissionEventCount(page, 0);
 }
@@ -268,9 +290,9 @@ async function activateExactReviewLink(
   const smoothScrollOverride = await page.addStyleTag({
     content: "html { scroll-behavior: auto !important; }",
   });
-  let clickTargetReady = false;
+  let clickTarget: { x: number; y: number } | null = null;
   await expect.poll(async () => {
-    clickTargetReady = await link.evaluate(async (element) => {
+    clickTarget = await link.evaluate(async (element) => {
       element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
       await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
       const firstBounds = element.getBoundingClientRect();
@@ -285,15 +307,16 @@ async function activateExactReviewLink(
         y: bounds.top + bounds.height / 2,
       };
       const hitTarget = document.elementFromPoint(point.x, point.y);
-      return boundsAreStable
+      const ready = boundsAreStable
         && element instanceof HTMLAnchorElement
         && bounds.width > 0
         && bounds.height > 0
         && hitTarget !== null
         && (hitTarget === element || element.contains(hitTarget))
         && element.href.length > 0;
+      return ready ? point : null;
     });
-    return clickTargetReady;
+    return clickTarget !== null;
   }, {
     message: "the stable centered review link is the next pointer target",
     timeout: 10_000,
@@ -301,8 +324,13 @@ async function activateExactReviewLink(
   }).toBe(true);
 
   const activate = async (trial: boolean) => {
-    if (hasTouch) await link.tap({ trial, timeout: 10_000 });
-    else await link.click({ trial, timeout: 10_000 });
+    if (!hasTouch) {
+      await link.click({ trial, timeout: 10_000 });
+      return;
+    }
+    if (trial) return;
+    if (!clickTarget) throw new Error("REVIEW_TOUCH_TARGET_MISSING");
+    await page.touchscreen.tap(clickTarget.x, clickTarget.y);
   };
   try {
     await activate(true);
@@ -545,11 +573,13 @@ test("proves selected import, private evidence, portable context, dismissal, and
     name: openKnowledgeCopy,
   }).first();
   await expect(dismissedEvidenceLink).toHaveAttribute("href", /\/topics\/[^#]+#item-/);
-  page.once("dialog", (dialog) => dialog.accept());
   const dismissResponsePromise = page.waitForResponse(
     (response) => signalOperation(response) === "dismissed" && response.status() === 204,
   );
-  await dismissedSignalIdentity.getByRole("button", { name: dismissCopy }).click();
+  await clickAndAcceptConfirm(
+    page,
+    dismissedSignalIdentity.getByRole("button", { name: dismissCopy }),
+  );
   await dismissResponsePromise;
   await expect(dismissedSignalIdentity).toHaveCount(0);
   await expect(signalCards).toHaveCount(signalCountBeforeDismiss - 1);
@@ -781,12 +811,16 @@ test("proves selected import, private evidence, portable context, dismissal, and
     await expect(evidenceGroup).not.toContainText(conversationId);
     await expect(evidenceGroup).not.toContainText(`answer-a-${marker}`);
 
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Ignore candidate" }).click();
+    await clickAndAcceptConfirm(
+      page,
+      page.getByRole("button", { name: "Ignore candidate" }),
+    );
     await expect(page).toHaveURL(new RegExp(`/knowledge-inbox/${batchId}$`));
     await expect(page.getByRole("link", { name: /Review resolution/i })).toHaveCount(1);
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Ignore whole batch" }).click();
+    await clickAndAcceptConfirm(
+      page,
+      page.getByRole("button", { name: "Ignore whole batch" }),
+    );
     await expect(page).toHaveURL(/\/knowledge-inbox(?:[/?#]|$)/);
 
     await gotoOwnerKnowledgeData(page);

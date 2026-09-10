@@ -87,10 +87,12 @@ function ConfirmApprovalButton({
   className: string;
 }) {
   const { pending } = useFormStatus();
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
   return (
     <button
       type="submit"
-      disabled={pending || blocked}
+      disabled={!hydrated || pending || blocked}
       onClick={(event) => {
         if (!window.confirm(confirmMessage)) event.preventDefault();
       }}

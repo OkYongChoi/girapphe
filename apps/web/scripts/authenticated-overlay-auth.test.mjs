@@ -80,7 +80,7 @@ test('Thinking History dismissal evidence waits for rendering and tracks the exa
   );
   assert.match(source, /const dismissedSignalId = await dismissedSignal\.getAttribute\("data-signal-id"\)/);
   assert.match(source, /const dismissedSignalIdentity = page\.locator\([\s\S]{0,160}data-signal-id=\$\{JSON\.stringify\(dismissedSignalId\)\}/);
-  assert.match(source, /await dismissedSignalIdentity\.getByRole\("button", \{ name: dismissCopy \}\)\.click\(\)/);
+  assert.match(source, /await clickAndAcceptConfirm\([\s\S]{0,120}dismissedSignalIdentity\.getByRole\("button", \{ name: dismissCopy \}\)/);
   assert.match(source, /await expect\(dismissedSignalIdentity\)\.toHaveCount\(0\)/);
   assert.match(source, /await expect\(signalCards\)\.toHaveCount\(signalCountBeforeDismiss - 1\)/);
   assert.doesNotMatch(source, /dismissInspectButton\.locator\("xpath=ancestor::article/);
@@ -121,7 +121,7 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)/);
   assert.match(source, /const firstBounds = element\.getBoundingClientRect\(\)[\s\S]{0,220}const bounds = element\.getBoundingClientRect\(\)[\s\S]{0,500}const boundsAreStable/);
   assert.match(source, /document\.elementFromPoint\(point\.x, point\.y\)/);
-  assert.match(source, /if \(hasTouch\) await link\.tap\(\{ trial, timeout: 10_000 \}\)[\s\S]{0,100}link\.click\(\{ trial, timeout: 10_000 \}\)/);
+  assert.match(source, /if \(!hasTouch\)[\s\S]{0,120}link\.click\(\{ trial, timeout: 10_000 \}\)[\s\S]{0,220}page\.touchscreen\.tap\(clickTarget\.x, clickTarget\.y\)/);
   assert.match(source, /await activate\(true\)[\s\S]{0,1800}page\.on\("request", onRequest\)[\s\S]{0,300}await activate\(false\)/);
   assert.match(source, /REVIEW_ACTIVATION_NO_REQUEST/);
   assert.match(source, /REVIEW_DESTINATION_HTTP_ERROR/);
@@ -129,10 +129,12 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /REVIEW_TARGET_REDIRECT_NO_COMMIT/);
   assert.match(source, /REVIEW_TARGET_SUCCESS_NO_COMMIT/);
   assert.match(source, /await activateExactReviewLink\([\s\S]{0,180}reviewLinks\.first\(\)[\s\S]{0,100}batchId,[\s\S]{0,100}testInfo\.project\.use\.hasTouch === true/);
-  assert.doesNotMatch(source, /page\.touchscreen\.tap|page\.mouse\.click/);
+  assert.doesNotMatch(source, /link\.tap|page\.mouse\.click/);
   assert.doesNotMatch(source, /click\(\{ force: true \}\)/);
   assert.match(source, /async function gotoOwnerKnowledgeData\([\s\S]{0,1200}attempt <= 2[\s\S]{0,500}\/account\/delete#knowledge-data[\s\S]{0,700}OWNER_DATA_CONTROLS_UNAVAILABLE/);
-  assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await batchRow\.getByRole\("button", \{ name: deleteImportCopy \}\)\.click\(\)[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
+  assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,700}waitForEvent\("dialog", \{ timeout: 5_000 \}\)[\s\S]{0,300}dialog\.accept\(\)[\s\S]{0,100}dialog\.dismiss\(\)[\s\S]{0,300}Promise\.allSettled\(\[[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,350}UNEXPECTED_DIALOG_TYPE/);
+  assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await clickAndAcceptConfirm\([\s\S]{0,220}deleteImportCopy[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
+  assert.doesNotMatch(source, /page\.once\("dialog"/);
   const submissionClick = source.indexOf('await page.getByRole("button", { name: /Create 2 review candidates/i }).click()');
   const exactRedirect = source.indexOf('await expect(page).toHaveURL(IMPORT_BATCH_URL_PATTERN', submissionClick);
   const batchCapture = source.indexOf('batchId = decodeURIComponent');

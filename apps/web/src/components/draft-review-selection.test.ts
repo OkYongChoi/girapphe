@@ -72,3 +72,27 @@ test('opens the candidate resolution boundary with a locale-aware document navig
   assert.match(source, /md:sticky md:top-\[7\.5rem\]/);
   assert.doesNotMatch(source, /className="sticky top-\[7\.5rem\]/);
 });
+
+test('confirmation-driven knowledge mutations stay inert until client hydration', async () => {
+  const [confirmButton, reviewPanel, resolutionPanel] = await Promise.all([
+    readFile(new URL('./confirm-delete-button.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./draft-review-panel.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./draft-resolution-panel.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(confirmButton, /useEffect\(\(\) => setHydrated\(true\), \[\]\)/);
+  assert.match(confirmButton, /type="submit"[\s\S]{0,100}disabled=\{!hydrated\}/);
+  assert.match(confirmButton, /window\.confirm\(confirmMessage\)/);
+
+  const approvalButton = reviewPanel.slice(
+    reviewPanel.indexOf('function ConfirmApprovalButton('),
+    reviewPanel.indexOf('function asRecord('),
+  );
+  assert.match(approvalButton, /useEffect\(\(\) => setHydrated\(true\), \[\]\)/);
+  assert.match(approvalButton, /disabled=\{!hydrated \|\| pending \|\| blocked\}/);
+
+  assert.match(resolutionPanel, /function useHydratedConfirmation\(\)[\s\S]{0,220}setHydrated\(true\)/);
+  assert.match(resolutionPanel, /value="merge" disabled=\{!hydrated \|\| pending \|\| blocked\}/);
+  assert.match(resolutionPanel, /value="update" disabled=\{!hydrated \|\| pending \|\| blocked\}/);
+  assert.match(resolutionPanel, /type="submit" disabled=\{!hydrated \|\| pending\}[\s\S]{0,180}resolution\.ignoreConfirm/);
+});
