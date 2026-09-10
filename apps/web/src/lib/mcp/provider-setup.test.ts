@@ -190,4 +190,16 @@ test('Settings renders the provider guide without receiving the raw PAT', () => 
   assert.match(settingsSource, /<DraftReviewMcpConnections tokens=\{tokens\} \/>/u);
   assert.match(connectionsSource, /<McpProviderSetupGuide endpointUrl=\{endpointUrl\} tokenReady=\{Boolean\(rawToken\)\} \/>/u);
   assert.doesNotMatch(connectionsSource, /<McpProviderSetupGuide[^>]+rawToken=/u);
+  assert.match(
+    connectionsSource,
+    /setRawToken\(\{ id: result\.record\.id, value: result\.token, copied: false \}\)/u,
+  );
+  assert.match(
+    connectionsSource,
+    /current\?\.id === target\.tokenId \? \{ \.\.\.current, copied: true \} : current/u,
+  );
+  assert.match(
+    connectionsSource,
+    /try \{\s+await revokeMcpAccessToken\(formData\);\s+setRawToken\(\(current\) => current\?\.id === token\.id \? null : current\);\s+router\.refresh\(\);\s+\} catch \{\s+setError\(t\('mcp\.revokeError'\)\);/u,
+  );
 });

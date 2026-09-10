@@ -56,7 +56,9 @@ Out of scope:
   least 44 CSS pixels and usable mobile/RTL reflow.
 - [x] `AC-07`: The change stores no model credential, conversation text, private
   knowledge, or token secret in browser preferences; MCP tokens remain hashed,
-  owner-scoped, expiring, revocable, and shown in raw form only once.
+  owner-scoped, expiring, revocable, and shown in raw form only once. When that
+  same token is successfully revoked, Settings immediately clears its transient
+  raw-secret state; a failed revoke leaves that transient state unchanged.
 - [x] `AC-08`: Every preference write refreshes the polite save announcement,
   including consecutive successful saves with the same localized message.
 
@@ -69,8 +71,11 @@ contain no authored or private knowledge.
 
 MCP token records keep their current server-owned lifecycle and owner scope.
 The raw secret is returned once, is never placed in local storage, and is not
-recoverable from Settings later. With the corresponding scope, a connected AI
-client can create pending drafts from content the user explicitly submits. A
+recoverable from Settings later. A successful revoke of the just-created token
+also removes that secret from transient component state without deleting the
+server-owned token record. If revocation fails, Settings reports the error and
+keeps that transient state unchanged. With the corresponding scope, a connected
+AI client can create pending drafts from content the user explicitly submits. A
 separately granted context-read scope can retrieve bounded confirmed knowledge
 by explicit item IDs or a recent-topic query. It cannot read conversation
 history or approve, publish, or mutate public knowledge.
@@ -85,12 +90,57 @@ history or approve, publish, or mutate public knowledge.
 | `AC-04` | `apps/web/src/lib/settings-preferences.test.ts` and the authenticated reload assertion in `authenticated-settings.spec.ts`. |
 | `AC-05` | Preference tests, source inspection of both consumers, and the Preview-gated Thinking History assertion in `authenticated-settings.spec.ts`. |
 | `AC-06` | Desktop/mobile English and Arabic assertions in `authenticated-settings.spec.ts`, including the English guide's explicit LTR boundary inside RTL Settings, plus all six localization catalog checks. |
-| `AC-07` | Preference parser tests, MCP token regression tests, and final diff inspection. |
+| `AC-07` | Preference parser and MCP token regressions, the revoke control-flow source regression in `apps/web/src/lib/mcp/provider-setup.test.ts`, the one-run normal Preview PAT check in `authenticated-mcp-provider-setup.spec.ts`, and the post-create route-fault fallback in `authenticated-mcp-provider-setup-fault.spec.ts`. |
 | `AC-08` | Two consecutive save assertions plus replacement of the first live-region node in `authenticated-settings.spec.ts`. |
 
-The authenticated test uses the dedicated synthetic owner and does not create
-or revoke an MCP token. Its success screenshots contain only that fixture's
-account and token metadata, never a raw secret.
+The authenticated Settings preference test uses the dedicated synthetic owner
+and does not create or revoke an MCP token. The separate provider-setup test
+permits PAT mutation only once per PAT test in the desktop project when the
+explicit closeout flag, testing-token Preview Worker hostname, and
+marker-validated synthetic account all match. Setup uses that same gate and
+takes the account-lifecycle then token advisory lock before resetting the
+synthetic owner's prior tokens.
+Each label contains the unique
+`authenticated-overlay-e2e:mcp-pat:<random UUID>` run marker. The normal path
+redacts the one-time secret immediately after capture, clears the clipboard
+with readback, revokes through Settings, and verifies under the account and
+token advisory locks that the exact owner, label, marker, and SHA-256 hash have
+zero active matches. If that normal create attempt commits but the one-time PAT
+cannot be captured, the same locked owner/label/random-marker fallback revokes
+the exact synthetic row and the run still fails without accepted evidence. The
+normal evidence step keeps the original timeout while a separate cleanup
+reserve is added to the enclosing test before Create, ensuring that evidence
+timeout cannot skip `finally` cleanup.
+
+The separate fault path ignores Clerk and other background traffic and
+intercepts only the exact same-origin Settings Server Action POST carrying the
+unique run marker. It lets that create POST commit, extracts the one-time PAT
+only in process memory, replaces it in the fulfilled response, then faults both
+UI cleanup paths. The database fallback runs after the create attempt even when
+clipboard, response-capture, or UI assertions error; the evidence itself still
+requires PAT capture and exactly two UI faults. The same locked exact predicate and hash check
+revokes the row and proves `active=0` before the original sentinel Error object
+is rethrown unchanged. If its create commits but response capture fails, a
+locked owner/label/random-marker fallback still revokes the exact synthetic row,
+then fails the run without producing accepted evidence.
+Both mutation paths resolve and validate the synthetic Clerk owner before the
+Create action. Their post-create hash, marker, and inactive-verification calls
+reuse that cached owner instead of starting an unbounded Clerk request inside
+the reserved cleanup window. Immediately before Create, each path accounts for
+elapsed setup work and adds a bounded evidence budget plus a separate 180-second
+cleanup reserve to the Playwright timeout.
+Each exact marker-bearing Create request is tracked through response fulfillment.
+Cleanup retries the exact owner/full-label/run-marker predicate during settlement
+and requires a new successful attempt after action/request quiescence, using the
+PAT hash as an additional identity whenever capture succeeded. Missing rows and
+failed or unknown transport cannot close the run early; only transient database
+failures retry, with per-operation bounds clamped to the remaining reserve.
+Provider JSON evidence and the generated job summary contain counts and
+booleans only. Automatic screenshots are disabled in PAT-bearing specs and
+automatic authenticated accessibility error snapshots are disabled suite-wide;
+the only PAT-path screenshots are explicit success captures after exact
+revocation. The summarizer accepts the two mutation paths only from distinct,
+exactly named, versioned, kind-tagged artifacts with mutually exclusive fields.
 
 ## Rollout
 

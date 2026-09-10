@@ -4,9 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  assertRequiredMcpPatCloseoutEvidence,
+  buildAuthenticatedMcpProviderSummary,
   buildAuthenticatedMobileApiSummary,
   buildAuthenticatedOverlaySummary,
   buildAuthenticatedThinkingHistorySummary,
+  renderAuthenticatedMcpProviderSummary,
   renderAuthenticatedMobileApiSummary,
   renderAuthenticatedOverlaySummary,
   renderAuthenticatedThinkingHistorySummary,
@@ -23,6 +26,50 @@ const MOBILE_API_EVIDENCE = {
   practiceNewAndReview: true,
   candidateApproveIgnoreAndStale: true,
   cleanup: true,
+};
+
+const successfulMcpNormalMetric = {
+  artifactName: 'authenticated-desktop.json',
+  schemaVersion: 1,
+  evidenceKind: 'normal_ui_revocation',
+  project: 'authenticated-desktop',
+  createdOneTimePat: true,
+  copiedWithoutRawPat: true,
+  revokedBeforeScreenshot: true,
+  clearedOneTimePatImmediatelyOnRevoke: true,
+  remainingActiveAfterUiRevoke: 0,
+  clipboardEmptyAfterTest: true,
+  browserErrorCount: 0,
+  pageOverflow: false,
+};
+
+const successfulMcpRouteFaultMetric = {
+  artifactName: 'authenticated-desktop-route-fault.json',
+  schemaVersion: 1,
+  evidenceKind: 'route_fault_fallback',
+  project: 'authenticated-desktop',
+  postResponseCaptured: true,
+  postResponseRedacted: true,
+  routeFaultedRequestCount: 2,
+  uiCleanupFailureCount: 2,
+  databaseFallbackRan: true,
+  remainingActiveAfterFallback: 0,
+  originalSentinelIdentityPreserved: true,
+  clipboardEmptyAfterTest: true,
+};
+
+const successfulMcpReadOnlyMetric = {
+  artifactName: 'authenticated-desktop-ar.json',
+  schemaVersion: 1,
+  evidenceKind: 'read_only_provider',
+  project: 'authenticated-desktop',
+  rtlLayout: true,
+  ltrCodeBlock: true,
+  keyboardProviderSwitch: true,
+  copiedWithoutRawPat: true,
+  clipboardEmptyAfterTest: true,
+  browserErrorCount: 0,
+  pageOverflow: false,
 };
 
 test('authenticated overlay summary reports median and worst values per device', () => {
@@ -193,6 +240,137 @@ test('authenticated result loader persists mobile-only failure evidence', async 
   assert.equal(await fs.readFile(path.join(root, 'summary.md'), 'utf8'), markdown);
 });
 
+test('authenticated summary reports only safe MCP PAT counts and booleans', () => {
+  const summary = buildAuthenticatedMcpProviderSummary([
+    successfulMcpNormalMetric,
+    successfulMcpRouteFaultMetric,
+    successfulMcpReadOnlyMetric,
+  ]);
+  assert.deepEqual(summary, {
+    patMutationRuns: 2,
+    readOnlyRuns: 1,
+    normalUiRevocationPassed: true,
+    routeFaultFallbackPassed: true,
+    readOnlyProviderChecksPassed: true,
+  });
+  const markdown = renderAuthenticatedMcpProviderSummary(summary);
+  assert.match(markdown, /MCP provider PAT closeout/);
+  assert.match(markdown, /\| 2 \| 1 \| passed \| passed \| passed \|/);
+  assert.match(markdown, /counts and pass\/fail booleans/);
+  assert.doesNotMatch(markdown, /girapphe_mcp_|authenticated-overlay-e2e:mcp-pat/);
+});
+
+test('required Preview MCP PAT closeout rejects missing mutation artifacts', () => {
+  const cases = [
+    ['no provider artifacts', []],
+    ['read-only only', [successfulMcpReadOnlyMetric]],
+    ['normal mutation only', [successfulMcpNormalMetric]],
+    ['route-fault mutation only', [successfulMcpRouteFaultMetric]],
+  ];
+
+  for (const [name, metrics] of cases) {
+    const summary = metrics.length > 0 ? buildAuthenticatedMcpProviderSummary(metrics) : null;
+    assert.throws(
+      () => assertRequiredMcpPatCloseoutEvidence(metrics, summary),
+      /Required Preview MCP PAT closeout evidence is incomplete/,
+      name,
+    );
+  }
+
+  const completeMetrics = [successfulMcpNormalMetric, successfulMcpRouteFaultMetric];
+  assert.doesNotThrow(() => assertRequiredMcpPatCloseoutEvidence(
+    completeMetrics,
+    buildAuthenticatedMcpProviderSummary(completeMetrics),
+  ));
+});
+
+test('required Preview MCP PAT closeout rejects ambiguous or malformed evidence', () => {
+  const corruptedNormalMetrics = [
+    { ...successfulMcpNormalMetric, schemaVersion: 99 },
+    { ...successfulMcpNormalMetric, artifactName: 'unexpected.json' },
+    { ...successfulMcpNormalMetric, evidenceKind: 'route_fault_fallback' },
+    { ...successfulMcpNormalMetric, project: 'authenticated-mobile' },
+    { ...successfulMcpNormalMetric, clearedOneTimePatImmediatelyOnRevoke: false },
+    {
+      ...successfulMcpNormalMetric,
+      databaseFallbackRan: true,
+      remainingActiveAfterFallback: 0,
+    },
+  ];
+
+  for (const corruptedNormal of corruptedNormalMetrics) {
+    const metrics = [corruptedNormal, successfulMcpRouteFaultMetric];
+    assert.throws(
+      () => assertRequiredMcpPatCloseoutEvidence(
+        metrics,
+        buildAuthenticatedMcpProviderSummary(metrics),
+      ),
+      /Required Preview MCP PAT closeout evidence is incomplete/,
+    );
+  }
+
+  const fallbackNotRunMetrics = [
+    successfulMcpNormalMetric,
+    { ...successfulMcpRouteFaultMetric, databaseFallbackRan: false },
+  ];
+  assert.throws(
+    () => assertRequiredMcpPatCloseoutEvidence(
+      fallbackNotRunMetrics,
+      buildAuthenticatedMcpProviderSummary(fallbackNotRunMetrics),
+    ),
+    /Required Preview MCP PAT closeout evidence is incomplete/,
+  );
+
+  const dualShapedArtifact = {
+    ...successfulMcpNormalMetric,
+    ...successfulMcpRouteFaultMetric,
+    artifactName: 'authenticated-desktop.json',
+    evidenceKind: 'normal_ui_revocation',
+  };
+  assert.throws(
+    () => assertRequiredMcpPatCloseoutEvidence(
+      [dualShapedArtifact],
+      buildAuthenticatedMcpProviderSummary([dualShapedArtifact]),
+    ),
+    /Required Preview MCP PAT closeout evidence is incomplete/,
+  );
+});
+
+test('authenticated result loader fails closed when Preview PAT artifacts are absent', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'girapphe-auth-mcp-required-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.mkdir(path.join(root, 'metrics'), { recursive: true });
+  await fs.writeFile(path.join(root, 'metrics', 'desktop-1.json'), JSON.stringify({
+    project: 'authenticated-desktop',
+    clickToCanvasMs: 200,
+    overlayResponseHeadersMs: 100,
+    overlayDecodedBytesAtCanvas: 2_048,
+    overlayTransferredBytesAtCanvas: 1_024,
+    overlayStatus: 200,
+  }));
+
+  await assert.rejects(
+    summarizeAuthenticatedOverlayResults(root, { requireMcpPatCloseout: true }),
+    /Required Preview MCP PAT closeout evidence is incomplete/,
+  );
+
+  const providerDirectory = path.join(root, 'mcp-provider-setup');
+  await fs.mkdir(providerDirectory, { recursive: true });
+  await Promise.all([
+    fs.writeFile(
+      path.join(providerDirectory, 'authenticated-desktop.json'),
+      JSON.stringify(successfulMcpNormalMetric),
+    ),
+    fs.writeFile(
+      path.join(providerDirectory, 'authenticated-desktop-route-fault.json'),
+      JSON.stringify(successfulMcpRouteFaultMetric),
+    ),
+  ]);
+  await assert.doesNotReject(
+    summarizeAuthenticatedOverlayResults(root, { requireMcpPatCloseout: true }),
+  );
+});
+
 test('authenticated result loader merges private-path metrics into persisted summaries', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'girapphe-auth-summary-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -200,6 +378,7 @@ test('authenticated result loader merges private-path metrics into persisted sum
     fs.mkdir(path.join(root, 'metrics'), { recursive: true }),
     fs.mkdir(path.join(root, 'thinking-history'), { recursive: true }),
     fs.mkdir(path.join(root, 'mobile-api'), { recursive: true }),
+    fs.mkdir(path.join(root, 'mcp-provider-setup'), { recursive: true }),
   ]);
   await Promise.all([
     fs.writeFile(path.join(root, 'metrics', 'desktop-1.json'), JSON.stringify({
@@ -244,6 +423,10 @@ test('authenticated result loader merges private-path metrics into persisted sum
       path.join(root, 'mobile-api', 'authenticated-mobile.json'),
       JSON.stringify(MOBILE_API_EVIDENCE),
     ),
+    fs.writeFile(
+      path.join(root, 'mcp-provider-setup', 'authenticated-desktop.json'),
+      JSON.stringify(successfulMcpNormalMetric),
+    ),
   ]);
 
   const { summary, markdown } = await summarizeAuthenticatedOverlayResults(root);
@@ -255,8 +438,11 @@ test('authenticated result loader merges private-path metrics into persisted sum
   assert.match(markdown, /json, markdown, yaml/);
   assert.equal(summary.mobileApi.projects['authenticated-mobile'].closeoutPassed, true);
   assert.match(markdown, /Mobile API deployed path/);
+  assert.equal(summary.mcpProvider.normalUiRevocationPassed, true);
+  assert.match(markdown, /MCP provider PAT closeout/);
   const persisted = JSON.parse(await fs.readFile(path.join(root, 'summary.json'), 'utf8'));
   assert.equal(persisted.thinkingHistory.runs.length, 1);
   assert.equal(persisted.mobileApi.runs.length, 1);
+  assert.equal(persisted.mcpProvider.patMutationRuns, 1);
   assert.equal(await fs.readFile(path.join(root, 'summary.md'), 'utf8'), markdown);
 });

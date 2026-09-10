@@ -112,6 +112,185 @@ export function buildAuthenticatedMobileApiSummary(metrics) {
   return { projects, runs: metrics };
 }
 
+const MCP_PROVIDER_EVIDENCE_SCHEMAS = {
+  normal_ui_revocation: {
+    projectsByArtifact: {
+      'authenticated-desktop.json': 'authenticated-desktop',
+    },
+    fields: [
+      'artifactName',
+      'browserErrorCount',
+      'clearedOneTimePatImmediatelyOnRevoke',
+      'clipboardEmptyAfterTest',
+      'copiedWithoutRawPat',
+      'createdOneTimePat',
+      'evidenceKind',
+      'pageOverflow',
+      'project',
+      'remainingActiveAfterUiRevoke',
+      'revokedBeforeScreenshot',
+      'schemaVersion',
+    ],
+  },
+  route_fault_fallback: {
+    projectsByArtifact: {
+      'authenticated-desktop-route-fault.json': 'authenticated-desktop',
+    },
+    fields: [
+      'artifactName',
+      'clipboardEmptyAfterTest',
+      'databaseFallbackRan',
+      'evidenceKind',
+      'originalSentinelIdentityPreserved',
+      'postResponseCaptured',
+      'postResponseRedacted',
+      'project',
+      'remainingActiveAfterFallback',
+      'routeFaultedRequestCount',
+      'schemaVersion',
+      'uiCleanupFailureCount',
+    ],
+  },
+  read_only_provider: {
+    projectsByArtifact: {
+      'authenticated-desktop-ar.json': 'authenticated-desktop',
+      'authenticated-mobile-ar.json': 'authenticated-mobile',
+    },
+    fields: [
+      'artifactName',
+      'browserErrorCount',
+      'clipboardEmptyAfterTest',
+      'copiedWithoutRawPat',
+      'evidenceKind',
+      'keyboardProviderSwitch',
+      'ltrCodeBlock',
+      'pageOverflow',
+      'project',
+      'rtlLayout',
+      'schemaVersion',
+    ],
+  },
+};
+
+function isExactMcpProviderEvidence(metric, evidenceKind) {
+  if (!metric || typeof metric !== 'object' || Array.isArray(metric)) return false;
+  const schema = MCP_PROVIDER_EVIDENCE_SCHEMAS[evidenceKind];
+  const expectedProject = schema.projectsByArtifact[metric.artifactName];
+  if (
+    metric.schemaVersion !== 1
+    || metric.evidenceKind !== evidenceKind
+    || !expectedProject
+    || metric.project !== expectedProject
+  ) {
+    return false;
+  }
+  const actualFields = Object.keys(metric).sort();
+  const expectedFields = [...schema.fields].sort();
+  return actualFields.length === expectedFields.length
+    && actualFields.every((field, index) => field === expectedFields[index]);
+}
+
+function isMcpPatMutationClaim(metric) {
+  if (!metric || typeof metric !== 'object' || Array.isArray(metric)) return false;
+  return metric.evidenceKind === 'normal_ui_revocation'
+    || metric.evidenceKind === 'route_fault_fallback'
+    || Object.hasOwn(metric, 'createdOneTimePat')
+    || Object.hasOwn(metric, 'databaseFallbackRan');
+}
+
+export function buildAuthenticatedMcpProviderSummary(metrics) {
+  const normal = metrics.filter((metric) => (
+    isExactMcpProviderEvidence(metric, 'normal_ui_revocation')
+  ));
+  const routeFault = metrics.filter((metric) => (
+    isExactMcpProviderEvidence(metric, 'route_fault_fallback')
+  ));
+  const readOnly = metrics.filter((metric) => (
+    isExactMcpProviderEvidence(metric, 'read_only_provider')
+  ));
+  return {
+    patMutationRuns: normal.length + routeFault.length,
+    readOnlyRuns: readOnly.length,
+    normalUiRevocationPassed: normal.length === 1 && normal.every((metric) => (
+      metric.createdOneTimePat === true
+      && metric.copiedWithoutRawPat === true
+      && metric.revokedBeforeScreenshot === true
+      && metric.clearedOneTimePatImmediatelyOnRevoke === true
+      && metric.remainingActiveAfterUiRevoke === 0
+      && metric.clipboardEmptyAfterTest === true
+      && metric.browserErrorCount === 0
+      && metric.pageOverflow === false
+    )),
+    routeFaultFallbackPassed: routeFault.length === 1 && routeFault.every((metric) => (
+      metric.databaseFallbackRan === true
+      && metric.postResponseCaptured === true
+      && metric.postResponseRedacted === true
+      && metric.uiCleanupFailureCount === 2
+      && metric.routeFaultedRequestCount > 0
+      && metric.remainingActiveAfterFallback === 0
+      && metric.originalSentinelIdentityPreserved === true
+      && metric.clipboardEmptyAfterTest === true
+    )),
+    readOnlyProviderChecksPassed: readOnly.length > 0 && readOnly.every((metric) => (
+      metric.rtlLayout === true
+      && metric.ltrCodeBlock === true
+      && metric.keyboardProviderSwitch === true
+      && metric.copiedWithoutRawPat === true
+      && metric.clipboardEmptyAfterTest === true
+      && metric.browserErrorCount === 0
+      && metric.pageOverflow === false
+    )),
+  };
+}
+
+export function assertRequiredMcpPatCloseoutEvidence(metrics, summary) {
+  const normalArtifacts = metrics.filter((metric) => (
+    isExactMcpProviderEvidence(metric, 'normal_ui_revocation')
+  ));
+  const routeFaultArtifacts = metrics.filter((metric) => (
+    isExactMcpProviderEvidence(metric, 'route_fault_fallback')
+  ));
+  const mutationClaims = metrics.filter(isMcpPatMutationClaim);
+  const mutationArtifactNames = new Set([
+    ...normalArtifacts,
+    ...routeFaultArtifacts,
+  ].map((metric) => metric.artifactName));
+  if (
+    normalArtifacts.length !== 1
+    || routeFaultArtifacts.length !== 1
+    || mutationClaims.length !== 2
+    || mutationArtifactNames.size !== 2
+    || summary?.patMutationRuns !== 2
+    || summary.normalUiRevocationPassed !== true
+    || summary.routeFaultFallbackPassed !== true
+  ) {
+    throw new Error(
+      'Required Preview MCP PAT closeout evidence is incomplete: expected one successful UI-revocation artifact and one successful route-fault fallback artifact.',
+    );
+  }
+}
+
+export function renderAuthenticatedMcpProviderSummary(summary) {
+  if (!summary) {
+    return [
+      '## MCP provider PAT closeout',
+      '',
+      'No provider evidence artifacts were produced.',
+      '',
+    ].join('\n');
+  }
+  return [
+    '## MCP provider PAT closeout',
+    '',
+    '| PAT mutation runs | Read-only runs | Normal UI revoke active=0 | Route-fault exact fallback | Read-only provider checks |',
+    '| ---: | ---: | --- | --- | --- |',
+    `| ${summary.patMutationRuns} | ${summary.readOnlyRuns} | ${summary.normalUiRevocationPassed ? 'passed' : 'not run or failed'} | ${summary.routeFaultFallbackPassed ? 'passed' : 'not run or failed'} | ${summary.readOnlyProviderChecksPassed ? 'passed' : 'failed'} |`,
+    '',
+    'Only counts and pass/fail booleans are summarized; raw PATs, labels, run markers, response bodies, and account identity are excluded.',
+    '',
+  ].join('\n');
+}
+
 export function renderAuthenticatedThinkingHistorySummary(summary) {
   if (!summary) {
     return [
@@ -160,7 +339,12 @@ export function renderAuthenticatedMobileApiSummary(summary) {
   ].join('\n');
 }
 
-export function renderAuthenticatedOverlaySummary(summary, thinkingHistory = null, mobileApi = null) {
+export function renderAuthenticatedOverlaySummary(
+  summary,
+  thinkingHistory = null,
+  mobileApi = null,
+  mcpProvider = null,
+) {
   const projectEntries = Object.entries(summary.projects);
   const overlay = projectEntries.length === 0
     ? [
@@ -184,11 +368,14 @@ export function renderAuthenticatedOverlaySummary(summary, thinkingHistory = nul
       'Synthetic Playwright measurements. Overlay timing ends at response headers, and byte counts include data received through canvas display so streaming RSC responses do not block the evidence run. These are not production user telemetry.',
       '',
     ].join('\n');
-  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}\n${renderAuthenticatedMobileApiSummary(mobileApi)}`;
+  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}\n${renderAuthenticatedMobileApiSummary(mobileApi)}\n${renderAuthenticatedMcpProviderSummary(mcpProvider)}`;
 }
 
 export async function summarizeAuthenticatedOverlayResults(
   resultsDirectory = path.resolve('test-results/authenticated-overlay-performance'),
+  {
+    requireMcpPatCloseout = process.env.E2E_REQUIRE_MCP_PAT_CLOSEOUT === 'true',
+  } = {},
 ) {
   const metricsDirectory = path.join(resultsDirectory, 'metrics');
   let names = [];
@@ -231,15 +418,45 @@ export async function summarizeAuthenticatedOverlayResults(
   const mobileApi = mobileApiMetrics.length > 0
     ? buildAuthenticatedMobileApiSummary(mobileApiMetrics)
     : null;
-  if (metrics.length === 0 && thinkingHistoryMetrics.length === 0 && mobileApiMetrics.length === 0) {
+  const mcpProviderDirectory = path.join(resultsDirectory, 'mcp-provider-setup');
+  let mcpProviderNames = [];
+  try {
+    mcpProviderNames = (await fs.readdir(mcpProviderDirectory))
+      .filter((name) => name.endsWith('.json'))
+      .sort();
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  const mcpProviderMetrics = await Promise.all(mcpProviderNames.map(async (name) => ({
+    ...JSON.parse(await fs.readFile(path.join(mcpProviderDirectory, name), 'utf8')),
+    artifactName: name,
+  })));
+  const mcpProvider = mcpProviderMetrics.length > 0
+    ? buildAuthenticatedMcpProviderSummary(mcpProviderMetrics)
+    : null;
+  if (
+    metrics.length === 0
+    && thinkingHistoryMetrics.length === 0
+    && mobileApiMetrics.length === 0
+    && mcpProviderMetrics.length === 0
+  ) {
     throw new Error(`No authenticated evidence metrics found at ${resultsDirectory}.`);
+  }
+  if (requireMcpPatCloseout) {
+    assertRequiredMcpPatCloseoutEvidence(mcpProviderMetrics, mcpProvider);
   }
   const summary = {
     ...buildAuthenticatedOverlaySummary(metrics),
     thinkingHistory,
     mobileApi,
+    mcpProvider,
   };
-  const markdown = renderAuthenticatedOverlaySummary(summary, thinkingHistory, mobileApi);
+  const markdown = renderAuthenticatedOverlaySummary(
+    summary,
+    thinkingHistory,
+    mobileApi,
+    mcpProvider,
+  );
 
   await fs.mkdir(resultsDirectory, { recursive: true });
   await Promise.all([

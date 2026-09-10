@@ -6,8 +6,13 @@ import { expect, test as setup } from '@playwright/test';
 import {
   AUTHENTICATED_OVERLAY_AUTH_MODES,
   createSyntheticSignInTicket,
+  isAuthenticatedOverlayMcpPatMutationPreview,
   resolveAuthenticatedOverlayAuthMode,
 } from '../scripts/authenticated-overlay-auth.mjs';
+import {
+  ensureAuthenticatedOverlayFixture,
+  normalizeSyntheticEmail,
+} from '../scripts/authenticated-overlay-fixture.mjs';
 
 setup.describe.configure({ mode: 'serial' });
 
@@ -17,10 +22,6 @@ let syntheticClerkUserId = '';
 let clerkAuthMode = '';
 
 setup('prepare Clerk testing token and owner-scoped fixture', async () => {
-  const {
-    ensureAuthenticatedOverlayFixture,
-    normalizeSyntheticEmail,
-  } = await import('../scripts/authenticated-overlay-fixture.mjs');
   syntheticEmail = normalizeSyntheticEmail(process.env.E2E_CLERK_USER_EMAIL);
   clerkAuthMode = resolveAuthenticatedOverlayAuthMode();
   if (clerkAuthMode === AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken) {
@@ -28,7 +29,9 @@ setup('prepare Clerk testing token and owner-scoped fixture', async () => {
   }
   const result = await ensureAuthenticatedOverlayFixture({
     emailAddress: syntheticEmail,
-    resetMcpAccessTokens: clerkAuthMode === AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken,
+    resetMcpAccessTokens: isAuthenticatedOverlayMcpPatMutationPreview({
+      emailAddress: syntheticEmail,
+    }),
   });
   syntheticClerkUserId = result.user.id;
   console.log(JSON.stringify({

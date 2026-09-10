@@ -480,6 +480,7 @@ export const EXTRA_ES_MESSAGES = {
   "mcp.revokedAt": "Revocada el {date}",
   "mcp.expiresAt": "Caduca el {date}",
   "mcp.revoke": "Revocar",
+  "mcp.revokeError": "No se pudo revocar la conexión MCP.",
   "mcp.revokeConfirm": "¿Revocar la conexión MCP \"{label}\"? El cliente perderá inmediatamente todas las funciones de conocimiento indicadas.",
   "import.pausedTitle": "La importación de ChatGPT está en pausa",
   "import.pausedBody": "Las nuevas importaciones no están disponibles temporalmente. Los borradores pendientes y los controles de datos existentes siguen disponibles.",

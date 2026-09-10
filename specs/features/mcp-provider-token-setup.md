@@ -30,7 +30,8 @@ Out of scope:
   third-party plan on behalf of the user.
 - Sending an unselected conversation, approving a draft, or publishing private
   knowledge automatically.
-- Changing MCP tools, token scopes, expiry, quotas, or database records.
+- Changing MCP tools, token scopes, expiry, quotas, schema, or production token
+  behavior. Preview evidence may mutate only the dedicated synthetic owner.
 
 ## Acceptance criteria
 
@@ -71,7 +72,7 @@ owner-scope, and explicit-approval boundaries do not change.
 | `AC-02` | `apps/web/src/lib/mcp/provider-setup.test.ts` checks provider/auth boundaries and official-source links. |
 | `AC-03` | `apps/web/src/lib/mcp/provider-setup.test.ts` checks both generated token configurations and unsafe endpoint rejection. |
 | `AC-04` | Authenticated Preview desktop/mobile Playwright evidence plus English and Arabic RTL screenshots from `authenticated-mcp-provider-setup.spec.ts`. |
-| `AC-05` | Existing MCP token/server regression suite and final diff inspection; no action, schema, or migration change. |
+| `AC-05` | Existing MCP token/server regressions plus one marker-validated testing-token Preview run. Setup and both PAT specs share the explicit PR Preview hostname plus `E2E_REQUIRE_MCP_PAT_CLOSEOUT=true` mutation gate, and setup takes account/token locks before resetting only that synthetic owner. Both PAT paths resolve and validate the Clerk synthetic owner before Create, then reuse that cached owner so post-create cleanup cannot wait on Clerk. Immediately before Create, both paths account for elapsed setup work, bound evidence to the original timeout, and preallocate a separate 180-second cleanup reserve. They track the exact marker-bearing Server Action through `route.fetch()` and response fulfillment, retry exact owner/full-label/run-marker cleanup while it settles, and require a new successful exact cleanup after action/request quiescence; captured PATs additionally take the hash path. An absent row or failed/unknown transport is not closeout, transient visibility/lock/connection failures retry with database timeouts clamped to the remaining reserve, and invalid owner/marker input fails immediately. The normal path verifies the exact row has `active=0`; `authenticated-mcp-provider-setup-fault.spec.ts` ignores background traffic, redacts the committed create response, faults both UI cleanup paths, and always reaches locked database fallback. A capture failure still fails the evidence run after safe marker cleanup. Automatic PAT failure screenshots and accessibility error snapshots are disabled. The summarizer validates exact schema, kind, project, filename, truth-valued fallback, and mutually exclusive fields before accepting one normal-revocation artifact plus one distinct route-fault fallback artifact; production does not enable this mutation requirement. |
 | `AC-06` | `apps/web/src/lib/mcp/provider-setup.test.ts` verifies all provider-guide keys, plan/admin/PAT markers, and genuine availability translations across every supported locale; `apps/web/src/i18n/messages.test.ts` verifies catalog and placeholder parity; authenticated Arabic Playwright verifies RTL layout with an LTR configuration block. |
 
 ## Rollout

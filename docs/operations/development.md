@@ -136,15 +136,64 @@ opens the hash-targeted AI-connections disclosure, exercises keyboard toggling,
 restores validated browser-local AI-app and Context Pack choices, verifies the
 Preview Thinking History default when that surface is enabled, checks Arabic
 RTL/mobile containment and 44 px interaction targets, and saves synthetic
-success screenshots. In a testing-token Preview run only, fixture setup first
-deletes `mcp_access_tokens` rows for the validated synthetic owner inside the
-same fixture transaction. The desktop and mobile provider checks then each
-create a real PAT, capture its one-time value and immediately hide that surface,
-prove the copied OpenAI and Claude snippets retain `GIRAPPHE_MCP_TOKEN` while
-omitting the captured value, clear the clipboard, revoke the PAT, and reload
-before any durable success screenshot. This reset is intentionally destructive
+success screenshots. Only when the testing-token auth mode, marker-owned email,
+PR Preview Worker hostname, and `E2E_REQUIRE_MCP_PAT_CLOSEOUT=true` all match,
+fixture setup deletes `mcp_access_tokens` rows for the validated synthetic owner
+inside the same fixture transaction. It acquires the account-lifecycle and MCP
+token advisory locks in application order before that reset. The desktop project
+runs each PAT-mutating provider
+test once; mobile and Arabic provider coverage remain read-only. Each created
+token label embeds
+`authenticated-overlay-e2e:mcp-pat:<random UUID>`. The normal check captures
+the one-time value and immediately hides that surface,
+proves the copied OpenAI and Claude snippets retain `GIRAPPHE_MCP_TOKEN` while
+omitting the captured value, clears the clipboard with readback, revokes the
+PAT in Settings, reloads, and verifies the locked exact database row has zero
+active matches before any durable success screenshot. If the normal create
+attempt commits but the one-time value cannot be captured, the locked exact
+owner/label/random-marker fallback revokes that row and the run still fails
+without accepted evidence. Before Create, the test extends its enclosing
+timeout with a separate cleanup reserve while the evidence step retains the
+original 60-second budget, so exhausting evidence time cannot prevent the
+`finally` cleanup from starting. The PAT specs disable
+Playwright's automatic failure screenshots, and the authenticated runner
+disables automatic screenshots, AI-oriented accessibility page snapshots, and
+Git author metadata. Tests retain only explicit post-revocation success
+screenshots and sanitized JSON. If the suite fails, CI removes Playwright error
+context and any image, trace, or video before uploading a diagnostics-only
+artifact; it does not upload the HTML report for that failed run.
+
+A separate Preview-only fault check ignores Clerk and other background traffic,
+then intercepts only the exact same-origin Settings Server Action POST whose
+form payload contains that run's random marker. It lets that create POST commit,
+captures and redacts the PAT from the fulfilled response, then faults both UI
+cleanup paths.
+The locked database fallback is a mandatory post-capture safety control even if
+clipboard or UI assertions fail: it matches owner, exact label, unique run marker,
+and SHA-256 hash, revokes that row, and verifies `active=0`. If the create commits
+but the one-time response cannot be captured, an emergency fallback uses the
+same locked owner, exact label, and random run marker so the credential is still
+revoked; that run fails and produces no accepted evidence. Evidence is accepted
+only when PAT/hash capture succeeds, both intended UI paths fault, and the
+original sentinel Error object is re-thrown unchanged. Provider evidence JSON uses exact
+versioned kind, project, and filename contracts; the Preview summarizer rejects
+combined, misnamed, unknown-field, or wrong-schema mutation artifacts. Its job
+summary contains counts and booleans only. This reset is intentionally destructive
 only for the marker-validated synthetic account; its exact owner predicate does
 not relax the application's token quotas or permit cleanup of a normal account.
+Both PAT journeys resolve and validate that Clerk synthetic owner before Create;
+post-create cleanup reuses the cached owner and therefore cannot spend its
+reserved cleanup window waiting on an unbounded Clerk response. Immediately
+before Create, each journey accounts for elapsed setup work and adds a bounded
+evidence budget plus a separate 180-second cleanup reserve to the test timeout.
+The exact marker-bearing Create request is proxied through `route.fetch()` and
+tracked through response fulfillment. During the reserve, cleanup retries the
+exact owner/full-label/run-marker predicate, adds hash verification when the PAT
+was captured, and requires another successful exact cleanup after the Create
+action and request are quiescent. An absent row or failed/unknown transport is
+never accepted as closeout; retryable visibility, lock, and sanitized connection
+failures continue to the deadline, while invalid owner or marker input fails
+immediately. Per-operation database timeouts shrink with the remaining reserve.
 
 The Thinking History project begins from a fixture-verified zero import-event
 baseline. Local file parsing, candidate selection, and the consent checkbox must
@@ -193,8 +242,8 @@ With the matching environment supplied securely, run:
 pnpm browser:authenticated-overlay
 ```
 
-The command uses fresh browser contexts and writes per-run JSON, failure
-screenshots, and `summary.md` under
+The command uses fresh browser contexts and writes per-run JSON, explicit
+post-cleanup success screenshots, and `summary.md` under
 `test-results/authenticated-overlay-performance/`. The summary reports median
 and worst Graph-click-to-canvas time, overlay request-to-response-headers time,
 and decoded/transfer bytes received through canvas display. CDP collects those
@@ -242,11 +291,15 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    checks out that SHA, and waits until `/api/health` reports the same deployed
    revision. Desktop and mobile each run three times against that PR's Preview
    Worker, preview Clerk instance, and preview database. The validated Preview
-   synthetic owner's prior MCP token rows are reset before the provider test;
-   each created evidence PAT is revoked before its screenshot. The mobile API
-   mutation journey is testing-token Preview-only and its summary is deployed
-   browser evidence, not physical-device, accessibility, signed-binary, or
-   store-release evidence.
+   synthetic owner's prior MCP token rows are reset under the account-lifecycle
+   and token locks before provider evidence. The same explicit Preview closeout
+   gate is shared by setup and both PAT tests.
+   The desktop PAT tests each run once regardless of the overlay measurement
+   count; normal UI revocation and the deterministic route-fault fallback both
+   finish at zero active exact matches. Mobile and Arabic provider checks do not
+   mutate PATs. The mobile API mutation journey is testing-token Preview-only,
+   and its summary is deployed browser evidence, not physical-device,
+   accessibility, signed-binary, or store-release evidence.
 3. Review the uploaded summary before changing performance code. Separate
    Clerk, Worker-to-Neon, private-graph, and link-target time if the result is
    slow.

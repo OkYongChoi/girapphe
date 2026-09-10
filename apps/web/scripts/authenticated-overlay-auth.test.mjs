@@ -4,9 +4,13 @@ import test from 'node:test';
 import {
   AUTHENTICATED_OVERLAY_AUTH_MODES,
   createSyntheticSignInTicket,
+  isAuthenticatedOverlayMcpPatMutationPreview,
   resolveAuthenticatedOverlayAuthMode,
 } from './authenticated-overlay-auth.mjs';
-import { AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX } from './authenticated-overlay-constants.mjs';
+import {
+  AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
+  AUTHENTICATED_OVERLAY_EMAIL_MARKER,
+} from './authenticated-overlay-constants.mjs';
 
 test('Clerk auth mode keeps testing tokens away from production instances', () => {
   assert.equal(
@@ -23,6 +27,57 @@ test('Clerk auth mode keeps testing tokens away from production instances', () =
       secretKey: 'sk_live_example',
     }),
     /Production Clerk instances cannot use Clerk testing tokens/,
+  );
+});
+
+test('MCP PAT mutation requires an explicit marker-owned testing-token Preview run', () => {
+  const validInput = {
+    baseUrl: 'https://pr-192-girapphe-preview.example.workers.dev',
+    configuredMode: AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken,
+    secretKey: 'sk_test_example',
+    emailAddress: `fixture${AUTHENTICATED_OVERLAY_EMAIL_MARKER}@example.com`,
+    requireCloseout: 'true',
+  };
+  assert.equal(isAuthenticatedOverlayMcpPatMutationPreview(validInput), true);
+  assert.equal(isAuthenticatedOverlayMcpPatMutationPreview({
+    ...validInput,
+    requireCloseout: 'false',
+  }), false);
+  assert.equal(isAuthenticatedOverlayMcpPatMutationPreview({
+    ...validInput,
+    baseUrl: 'https://www.girapphe.com',
+  }), false);
+  assert.equal(isAuthenticatedOverlayMcpPatMutationPreview({
+    ...validInput,
+    emailAddress: 'fixture@example.com',
+  }), false);
+  assert.equal(isAuthenticatedOverlayMcpPatMutationPreview({
+    ...validInput,
+    configuredMode: AUTHENTICATED_OVERLAY_AUTH_MODES.signInToken,
+  }), false);
+});
+
+test('fixture PAT reset uses the same explicit Preview mutation gate', async () => {
+  const setupSource = await fs.readFile(new URL(
+    '../e2e-authenticated/authenticated-overlay.setup.ts',
+    import.meta.url,
+  ), 'utf8');
+
+  assert.match(
+    setupSource,
+    /resetMcpAccessTokens: isAuthenticatedOverlayMcpPatMutationPreview\(\{[\s\S]*emailAddress: syntheticEmail,[\s\S]*\}\)/,
+  );
+  assert.doesNotMatch(
+    setupSource,
+    /resetMcpAccessTokens: clerkAuthMode === AUTHENTICATED_OVERLAY_AUTH_MODES\.testingToken/,
+  );
+  assert.match(
+    setupSource,
+    /import \{[\s\S]*ensureAuthenticatedOverlayFixture,[\s\S]*normalizeSyntheticEmail,[\s\S]*\} from ['"]\.\.\/scripts\/authenticated-overlay-fixture\.mjs['"]/,
+  );
+  assert.doesNotMatch(
+    setupSource,
+    /await import\(['"]\.\.\/scripts\/authenticated-overlay-fixture\.mjs['"]\)/,
   );
 });
 
@@ -54,6 +109,61 @@ test('each authenticated browser context can refresh Clerk testing sessions', as
   }
 });
 
+test('authenticated Playwright workers statically load database fixtures', async () => {
+  const specDirectory = new URL('../e2e-authenticated/', import.meta.url);
+  const workerNames = (await fs.readdir(specDirectory))
+    .filter((name) => name.endsWith('.spec.ts') || name.endsWith('.setup.ts'));
+  const workerSources = await Promise.all(workerNames.map(async (name) => ({
+    name,
+    source: await fs.readFile(new URL(name, specDirectory), 'utf8'),
+  })));
+
+  for (const worker of workerSources) {
+    assert.doesNotMatch(
+      worker.source,
+      /import\s*\(\s*['"][^'"]*authenticated-(?:overlay|mobile-api)-fixture\.mjs['"]\s*\)/,
+      `${worker.name} must not mix a dynamic fixture import with Playwright's CommonJS worker transform`,
+    );
+  }
+
+  const requiredStaticImports = [
+    {
+      name: 'authenticated-thinking-history.spec.ts',
+      moduleName: 'authenticated-overlay-fixture.mjs',
+      symbols: [
+        'deleteExactAuthenticatedOverlayImport',
+        'inspectPendingAuthenticatedOverlayImport',
+        'readAuthenticatedOverlayPublishedState',
+      ],
+    },
+    {
+      name: 'authenticated-mobile-api.spec.ts',
+      moduleName: 'authenticated-mobile-api-fixture.mjs',
+      symbols: [
+        'cleanupAuthenticatedMobileApiFixture',
+        'createAuthenticatedMobileApiFixture',
+      ],
+    },
+  ];
+
+  for (const requirement of requiredStaticImports) {
+    const worker = workerSources.find(({ name }) => name === requirement.name);
+    assert.ok(worker, `${requirement.name} must be part of the authenticated suite`);
+    const escapedModuleName = requirement.moduleName.replaceAll('.', '\\.');
+    const fixtureImport = worker.source.match(new RegExp(
+      `import\\s*\\{([^}]*)\\}\\s*from\\s*['"][^'"]*${escapedModuleName}['"]`,
+    ));
+    assert.ok(fixtureImport, `${requirement.name} must statically import ${requirement.moduleName}`);
+    for (const symbol of requirement.symbols) {
+      assert.match(
+        fixtureImport[1],
+        new RegExp(`(?:^|\\s|,)${symbol}(?:\\s|,|$)`),
+        `${requirement.name} must statically import ${symbol}`,
+      );
+    }
+  }
+});
+
 test('provider PAT evidence gates on the same resolved Clerk auth mode as setup', async () => {
   const testUrl = new URL(
     '../e2e-authenticated/authenticated-mcp-provider-setup.spec.ts',
@@ -61,22 +171,427 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   );
   const source = await fs.readFile(testUrl, 'utf8');
 
-  assert.match(source, /resolveAuthenticatedOverlayAuthMode\(\)/);
+  assert.match(source, /test\.use\(\{ screenshot: ['"]off['"] \}\)/);
+  assert.match(source, /evidenceKind: ['"]normal_ui_revocation['"]/);
+  assert.match(source, /project: testInfo\.project\.name/);
+  assert.match(source, /isAuthenticatedOverlayMcpPatMutationPreview\(\)/);
   assert.match(
     source,
-    /authMode !== AUTHENTICATED_OVERLAY_AUTH_MODES\.testingToken/,
+    /!isPatMutationPreview\(testInfo\)/,
+  );
+  assert.match(source, /testInfo\.project\.name === ['"]authenticated-desktop['"]/);
+  assert.match(
+    source,
+    /AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:\$\{randomUUID\(\)\}/,
   );
   assert.doesNotMatch(
     source,
     /process\.env\.E2E_CLERK_AUTH_MODE !== ['"]testing-token['"]/,
   );
+  assert.ok(source.includes(
+    'const RAW_PAT_SHAPE = /^girapphe_mcp_[A-Za-z0-9_-]{43}$/u;',
+  ));
+  const testStartedAt = source.indexOf('const testStartedAt = Date.now()');
+  const evidenceTimeout = source.indexOf(
+    'const evidenceTimeoutMs = testInfo.timeout',
+    testStartedAt,
+  );
+  const ownerResolution = source.indexOf(
+    'const syntheticUser = await resolveAuthenticatedOverlaySyntheticUser()',
+    evidenceTimeout,
+  );
+  const cleanupReserve = source.indexOf(
+    'const totalTimeoutMs = Math.max(',
+    ownerResolution,
+  );
+  const createClick = source.indexOf(
+    "getByRole('button', { name: 'Create token' }).click({ timeout: evidenceTimeoutMs })",
+    cleanupReserve,
+  );
+  const boundedEvidenceStep = source.indexOf(
+    '}, { timeout: evidenceTimeoutMs });',
+    createClick,
+  );
+  const originalEvidenceCapture = source.indexOf(
+    'originalEvidenceError = error',
+    boundedEvidenceStep,
+  );
+  const cleanupFinally = source.indexOf('} finally {', originalEvidenceCapture);
+  const firstCleanupOperation = source.indexOf(
+    'await hidePatSurface(page, initialRedactionDeadlineMs)',
+    cleanupFinally,
+  );
+  const immediateEvidence = source.indexOf('rawSurfaceAbsentImmediatelyAfterRevoke = true');
+  const firstReloadCleanup = source.indexOf(
+    'await revokeExactConnectionAfterReload(page, connectionLabel)',
+    immediateEvidence,
+  );
+  const databaseCloseout = source.indexOf(
+    'await retryExactMcpPatCleanupAfterCreate({',
+    firstReloadCleanup,
+  );
+  const markerFallback = source.indexOf(
+    'await revokeExactAuthenticatedOverlayMcpTokenByMarker({',
+    databaseCloseout,
+  );
+  const hashCleanup = source.indexOf(
+    'await revokeExactAuthenticatedOverlayMcpToken({',
+    markerFallback,
+  );
+  const captureFailureResurface = source.indexOf(
+    "cleanupEvidenceError ??= new Error('SYNTHETIC_MCP_TOKEN_CAPTURE_FAILED')",
+    markerFallback,
+  );
+  const cleanupFailureResurface = source.indexOf(
+    'if (cleanupError) throw cleanupError',
+    markerFallback,
+  );
+  const originalEvidenceResurface = source.indexOf(
+    'if (originalEvidenceFailed) throw originalEvidenceError',
+    cleanupFailureResurface,
+  );
+  const cleanupEvidenceFailureResurface = source.indexOf(
+    'if (cleanupEvidenceError) throw cleanupEvidenceError',
+    originalEvidenceResurface,
+  );
+  assert.ok(
+    testStartedAt >= 0
+      && testStartedAt < evidenceTimeout
+      && evidenceTimeout < ownerResolution
+      && ownerResolution < cleanupReserve
+      && cleanupReserve < createClick
+      && createClick < boundedEvidenceStep
+      && boundedEvidenceStep < originalEvidenceCapture
+      && originalEvidenceCapture < cleanupFinally
+      && cleanupFinally < firstCleanupOperation
+      && firstCleanupOperation < immediateEvidence
+      && immediateEvidence < firstReloadCleanup
+      && databaseCloseout < markerFallback
+      && markerFallback < hashCleanup
+      && markerFallback < captureFailureResurface
+      && captureFailureResurface < cleanupFailureResurface
+      && databaseCloseout < cleanupFailureResurface
+      && cleanupFailureResurface < originalEvidenceResurface
+      && originalEvidenceResurface < cleanupEvidenceFailureResurface,
+    'the bounded evidence step must reserve cleanup time before PAT creation and precede every cleanup path',
+  );
+  assert.doesNotMatch(
+    source.slice(createClick),
+    /resolveAuthenticatedOverlaySyntheticUser\(/,
+    'the unbounded Clerk owner lookup must finish before PAT creation',
+  );
   assert.match(
-    source,
-    /await page\.reload\(\{ waitUntil: ['"]domcontentloaded['"] \}\);[\s\S]{0,400}await expect\(reloadedTokenRow\.getByText\(['"]Revoked['"], \{ exact: true \}\)\)\.toBeVisible\(\);[\s\S]{0,80}revokedAfterReload = true/,
+    source.slice(testStartedAt, cleanupFinally),
+    /} catch \(error\) \{\s+evidenceStepExpired = true;\s+originalEvidenceFailed = true;\s+originalEvidenceError = error;/,
+  );
+  assert.match(
+    source.slice(evidenceTimeout, createClick),
+    /Date\.now\(\) - testStartedAt[\s\S]*elapsedBeforeCreateMs \+ evidenceTimeoutMs \+ MCP_CLEANUP_RESERVE_MS/,
+  );
+  assert.doesNotMatch(
+    source.slice(cleanupFinally, firstCleanupOperation),
+    /testInfo\.setTimeout/,
+  );
+  const cleanupReserveValue = source.match(
+    /const MCP_CLEANUP_RESERVE_MS = ([\d_]+);/,
+  );
+  const cleanupAttemptValue = source.match(
+    /const MCP_CLEANUP_ATTEMPT_MS = ([\d_]+);/,
+  );
+  assert.ok(cleanupReserveValue && cleanupAttemptValue);
+  assert.ok(
+    Number(cleanupReserveValue[1].replaceAll('_', ''))
+      > Number(cleanupAttemptValue[1].replaceAll('_', '')) * 4,
+    'the cleanup reserve must outlast redaction, both UI cleanup paths, and database verification',
+  );
+  assert.match(
+    source.slice(databaseCloseout, originalEvidenceResurface),
+    /databaseCleanup\.remainingActive !== 0/,
+  );
+  assert.match(
+    source.slice(databaseCloseout, cleanupFailureResurface),
+    /tracker: createQuiescence,[\s\S]*deadlineMs: cleanupDeadlineMs,[\s\S]*revokeExactAuthenticatedOverlayMcpTokenByMarker[\s\S]*revokeExactAuthenticatedOverlayMcpToken[\s\S]*normalUiRemainingActive = databaseCleanup\.remainingActive/,
+  );
+  assert.match(source, /createQuiescence\.trackExactRequest\([\s\S]*route\.fetch\(\)[\s\S]*route\.fulfill/);
+  assert.match(source, /createQuiescence\.trackCreateAction\([\s\S]*Create token/);
+  assert.match(source, /databaseCleanup\.exactRequestsSucceeded !== 1/);
+
+  const hideEvaluation = source.indexOf('const hide = () => page.evaluate');
+  const boundedHide = source.indexOf(
+    "withCleanupOperationTimeout(hide, deadlineMs, 'MCP_CLEANUP_REDACTION_TIMEOUT')",
+    hideEvaluation,
+  );
+  const clearEvaluation = source.indexOf('const clear = async () =>');
+  const boundedClear = source.indexOf(
+    "withCleanupOperationTimeout(clear, deadlineMs, 'MCP_CLEANUP_CLIPBOARD_TIMEOUT')",
+    clearEvaluation,
+  );
+  assert.ok(
+    hideEvaluation >= 0
+      && hideEvaluation < boundedHide
+      && clearEvaluation >= 0
+      && clearEvaluation < boundedClear,
+    'cleanup page evaluations must have short explicit deadlines',
+  );
+
+  const reloadHelper = source.slice(
+    source.indexOf('async function revokeExactConnectionAfterReload'),
+    source.indexOf("test('switches between ChatGPT and Claude setup"),
+  );
+  assert.match(
+    reloadHelper,
+    /page\.reload\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    reloadHelper,
+    /\.waitFor\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    reloadHelper,
+    /\.click\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    reloadHelper,
+    /\.to(?:HaveCount|BeVisible)\([^)]*[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    reloadHelper,
+    /page\.reload\(\{[\s\S]*?tokenRow\.getByText\(['"]Revoked['"], \{ exact: true \}\)[\s\S]*?\.toBeVisible\(/,
   );
   assert.doesNotMatch(
     source,
     /revokedAfterReload = await reloadedTokenRow[\s\S]{0,120}\.isVisible\(\)/,
+  );
+
+  const immediateCleanup = source.slice(
+    source.indexOf('const immediateCleanupDeadlineMs', cleanupFinally),
+    firstReloadCleanup,
+  );
+  assert.match(
+    immediateCleanup,
+    /\.waitFor\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    immediateCleanup,
+    /\.click\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    immediateCleanup,
+    /\.toHaveCount\([^)]*[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    immediateCleanup,
+    /\.toBeVisible\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(source, /navigator\.clipboard\.writeText\(['"]['"]\)[\s\S]*navigator\.clipboard\.readText\(\)/);
+  assert.match(
+    source,
+    /revokeExactAuthenticatedOverlayMcpToken\(\{\s*syntheticUser,\s*rawToken,\s*connectionLabel,\s*runMarker,\s*deadlineMs,\s*\}\)/,
+  );
+  assert.match(
+    source,
+    /revokeExactAuthenticatedOverlayMcpTokenByMarker\(\{\s*syntheticUser,\s*connectionLabel,\s*runMarker,\s*deadlineMs,\s*\}\)/,
+  );
+  assert.doesNotMatch(
+    source,
+    /await import\([\s\S]{0,120}authenticated-overlay-fixture\.mjs/,
+  );
+});
+
+test('provider PAT route fault proves exact fallback and original error identity', async () => {
+  const testUrl = new URL(
+    '../e2e-authenticated/authenticated-mcp-provider-setup-fault.spec.ts',
+    import.meta.url,
+  );
+  const source = await fs.readFile(testUrl, 'utf8');
+
+  assert.match(source, /test\.use\(\{ screenshot: ['"]off['"] \}\)/);
+  assert.match(source, /evidenceKind: ['"]route_fault_fallback['"]/);
+  assert.match(source, /project: testInfo\.project\.name/);
+  assert.match(source, /!isPatMutationPreview\(testInfo\)/);
+  assert.match(source, /testInfo\.project\.name === ['"]authenticated-desktop['"]/);
+  assert.match(source, /isAuthenticatedOverlayMcpPatMutationPreview\(\)/);
+  assert.match(
+    source,
+    /AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:\$\{randomUUID\(\)\}/,
+  );
+  const testStartedAt = source.indexOf('const testStartedAt = Date.now()');
+  const faultEvidenceTimeout = source.indexOf(
+    'const faultEvidenceTimeoutMs = testInfo.timeout',
+    testStartedAt,
+  );
+  const ownerResolution = source.indexOf(
+    'const syntheticUser = await resolveAuthenticatedOverlaySyntheticUser()',
+    faultEvidenceTimeout,
+  );
+  const routeRegistration = source.indexOf("await page.route('**/*'", ownerResolution);
+  const cleanupReserve = source.indexOf(
+    'const totalTimeoutMs = Math.max(',
+    routeRegistration,
+  );
+  const createClick = source.indexOf(
+    "getByRole('button', { name: 'Create token' }).click({",
+    cleanupReserve,
+  );
+  const boundedFaultEvidence = source.indexOf(
+    '}, { timeout: faultEvidenceTimeoutMs });',
+    createClick,
+  );
+  const postFetch = source.indexOf('const response = await route.fetch()');
+  const rawCapture = source.indexOf('rawToken = uniqueMatches[0]!', postFetch);
+  const responseRedaction = source.indexOf('responseBody.replace(', rawCapture);
+  const armFault = source.indexOf('routeFaultArmed = true', responseRedaction);
+  const firstClipboardCleanup = source.indexOf(
+    'if (!await clearClipboardAndReadBack(context, settingsDocumentUrl))',
+    armFault,
+  );
+  const firstClipboardCleanupCatch = source.indexOf(
+    '} catch (error) {',
+    firstClipboardCleanup,
+  );
+  const firstUiPath = source.indexOf("getByRole('button', { name: 'Revoke' })", armFault);
+  const secondUiPath = source.indexOf('await page.reload({', firstUiPath);
+  const fallback = source.indexOf(
+    'const fallback = await retryExactMcpPatCleanupAfterCreate({',
+    secondUiPath,
+  );
+  const markerFallback = source.indexOf(
+    'await revokeExactAuthenticatedOverlayMcpTokenByMarker({',
+    fallback,
+  );
+  const hashCleanup = source.indexOf(
+    'await revokeExactAuthenticatedOverlayMcpToken({',
+    markerFallback,
+  );
+  const originalRethrow = source.indexOf('if (originalError) throw originalError', markerFallback);
+  assert.ok(
+    testStartedAt >= 0
+      && testStartedAt < faultEvidenceTimeout
+      && faultEvidenceTimeout < ownerResolution
+      && ownerResolution < routeRegistration
+      && routeRegistration < postFetch
+      && postFetch < rawCapture
+      && rawCapture < responseRedaction
+      && responseRedaction < armFault
+      && armFault < cleanupReserve
+      && cleanupReserve < createClick
+      && armFault < createClick
+      && createClick < boundedFaultEvidence
+      && boundedFaultEvidence < firstClipboardCleanup
+      && armFault < firstClipboardCleanup
+      && createClick < firstClipboardCleanup
+      && firstClipboardCleanup < firstClipboardCleanupCatch
+      && firstClipboardCleanupCatch < firstUiPath
+      && firstUiPath < secondUiPath
+      && secondUiPath < fallback
+      && fallback < markerFallback
+      && markerFallback < hashCleanup
+      && markerFallback < originalRethrow,
+  );
+  assert.match(
+    source.slice(routeRegistration, createClick),
+    /Date\.now\(\) - testStartedAt[\s\S]*elapsedBeforeCreateMs \+ faultEvidenceTimeoutMs \+ MCP_CLEANUP_RESERVE_MS/,
+  );
+  assert.doesNotMatch(
+    source.slice(createClick, firstClipboardCleanup),
+    /testInfo\.setTimeout/,
+    'the route-fault cleanup reserve must be allocated before PAT creation',
+  );
+  const cleanupReserveValue = source.match(
+    /const MCP_CLEANUP_RESERVE_MS = ([\d_]+);/,
+  );
+  assert.ok(cleanupReserveValue);
+  assert.equal(
+    Number(cleanupReserveValue[1].replaceAll('_', '')),
+    180_000,
+    'the route-fault path must retain the full post-create cleanup reserve',
+  );
+  assert.doesNotMatch(
+    source.slice(createClick),
+    /resolveAuthenticatedOverlaySyntheticUser\(/,
+    'the route-fault cleanup must not contact Clerk after PAT creation',
+  );
+  assert.match(source, /createQuiescence\.trackExactRequest\([\s\S]*route\.fetch\(\)[\s\S]*route\.fulfill/);
+  assert.match(source, /createQuiescence\.trackCreateAction\([\s\S]*Create token/);
+  const clipboardHelper = source.slice(
+    source.indexOf('async function clearClipboardAndReadBack('),
+    source.indexOf("test('falls back to exact database revocation"),
+  );
+  assert.match(clipboardHelper, /context\.newPage\(\)/);
+  assert.match(clipboardHelper, /clipboardPage\.goto\(settingsDocumentUrl/);
+  assert.match(clipboardHelper, /if \(!navigator\.clipboard\) return false/);
+  assert.match(clipboardHelper, /clipboardPage\.close\(\)/);
+  assert.doesNotMatch(clipboardHelper, /\bpage\.evaluate\(/);
+  assert.match(
+    source,
+    /retryExactMcpPatCleanupAfterCreate\(\{[\s\S]*tracker: createQuiescence,[\s\S]*deadlineMs: cleanupDeadlineMs,[\s\S]*revokeExactAuthenticatedOverlayMcpTokenByMarker[\s\S]*revokeExactAuthenticatedOverlayMcpToken/,
+  );
+  assert.match(source, /fallback\.exactRequestsSucceeded !== 1/);
+  assert.match(source, /if \(uiCleanupErrors\.length !== 2\)/);
+  assert.match(
+    source,
+    /async function withCleanupOperationTimeout[\s\S]*Promise\.race\(\[[\s\S]*operation\(\)[\s\S]*setTimeout\(/,
+  );
+  assert.match(
+    source,
+    /revokeExactAuthenticatedOverlayMcpToken\(\{\s*syntheticUser,\s*rawToken,\s*connectionLabel,\s*runMarker,\s*deadlineMs,\s*\}\)/,
+  );
+  assert.match(
+    source,
+    /revokeExactAuthenticatedOverlayMcpTokenByMarker\(\{\s*syntheticUser,\s*connectionLabel,\s*runMarker,\s*deadlineMs,\s*\}\)/,
+  );
+  assert.match(source, /remainingActiveAfterFallback = fallback\.remainingActive/);
+  assert.doesNotMatch(
+    source,
+    /await import\([\s\S]{0,120}authenticated-overlay-fixture\.mjs/,
+  );
+  assert.match(source, /expect\(observedError\)\.toBe\(originalSentinel\)/);
+  assert.match(source, /expect\(routeFaultedRequestCount\)\.toBeGreaterThan\(0\)/);
+  assert.match(
+    source,
+    /clipboardEmptyAfterTest = await clearClipboardAndReadBack\(\s*context,\s*settingsDocumentUrl,\s*\)/,
+  );
+  assert.match(
+    source,
+    /try \{[\s\S]*await withCleanupOperationTimeout\([\s\S]*page\.unroute\(['"]\*\*\/\*['"]\)[\s\S]*MCP_CLEANUP_UNROUTE_TIMEOUT[\s\S]*\} catch \(error\) \{[\s\S]*cleanupError \?\?= error;/,
+  );
+  assert.match(source, /\} finally \{\s*rawToken = ['"]['"];\s*\}/);
+  assert.doesNotMatch(
+    source.slice(source.indexOf('writeFileSync(evidencePath')),
+    /rawToken|connectionLabel|runMarker|MCP_PAT_ROUTE_FAULT_SENTINEL/,
+  );
+});
+
+test('authenticated evidence disables private failure captures and identity metadata', async () => {
+  const [configSource, packageSource, workflowSource] = await Promise.all([
+    fs.readFile(new URL('../../../playwright.authenticated.config.ts', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../../../package.json', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../../../.github/workflows/authenticated-performance.yml', import.meta.url), 'utf8'),
+  ]);
+  const packageJson = JSON.parse(packageSource);
+  const runScript = packageJson.scripts['browser:authenticated-overlay'];
+
+  assert.match(
+    configSource,
+    /process\.env\.PLAYWRIGHT_NO_COPY_PROMPT = ['"]1['"];/,
+  );
+  assert.match(
+    runScript,
+    /^PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test --config=playwright\.authenticated\.config\.ts/,
+  );
+  assert.match(configSource, /captureGitInfo: \{ commit: false, diff: false \}/);
+  assert.match(configSource, /screenshot: ['"]off['"]/);
+  assert.match(
+    workflowSource,
+    /Remove private failure context before diagnostic upload[\s\S]*find test-results\/authenticated-overlay-performance[\s\S]*-name ['"]error-context\.md['"][\s\S]*-name ['"]\*\.png['"][\s\S]*-delete/,
+  );
+  assert.match(
+    workflowSource,
+    /Upload successful authenticated overlay evidence[\s\S]*success\(\)[\s\S]*playwright-report\/authenticated-overlay\//,
+  );
+  assert.match(
+    workflowSource,
+    /Upload sanitized authenticated overlay failure diagnostics[\s\S]*failure\(\)[\s\S]*path: test-results\/authenticated-overlay-performance\//,
   );
 });
 
@@ -233,8 +748,7 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   const finallyBlock = source.indexOf('} finally {', visibilityPoll);
   const recoveryCall = source.indexOf('await waitForSubmittedImportBatchId(page, selectedQuestionA)', finallyBlock);
   const cleanupCall = source.indexOf('await deleteSubmittedImportThroughOwnerUi(', finallyBlock);
-  const fallbackImport = source.indexOf('"../scripts/authenticated-overlay-fixture.mjs"', cleanupCall);
-  const fallbackCall = source.indexOf('await deleteExactAuthenticatedOverlayImport({', fallbackImport);
+  const fallbackCall = source.indexOf('await deleteExactAuthenticatedOverlayImport({', cleanupCall);
   const safeFailure = source.indexOf('THINKING_HISTORY_EVIDENCE_FAILED', fallbackCall);
   assert.ok(evidenceTry >= 0 && evidenceTry < submissionClick, 'submission must start inside the cleanup boundary');
   assert.ok(submissionClick < exactRedirect && exactRedirect < batchCapture, 'the UUID redirect must resolve before batch capture');
@@ -256,7 +770,7 @@ test('Thinking History import-event evidence waits for commit visibility and cle
     'the exact pending batch must leave published state unchanged before review metadata opens',
   );
   assert.ok(finallyBlock > visibilityPoll && recoveryCall > finallyBlock && cleanupCall > recoveryCall, 'finally must recover and delete the exact owner batch');
-  assert.ok(cleanupCall < fallbackImport && fallbackImport < fallbackCall && fallbackCall < safeFailure, 'UI cleanup must precede exact DB fallback and the fallback must not suppress test failure');
+  assert.ok(cleanupCall < fallbackCall && fallbackCall < safeFailure, 'UI cleanup must precede exact DB fallback and the fallback must not suppress test failure');
   assert.match(source, /fallback\.deleted !== true[\s\S]{0,300}fallback\.remainingEvents !== 0[\s\S]{0,300}databaseFallbackStatus = "verified"/);
   assert.match(source, /if \(evidenceError \|\| uiCleanupError\)[\s\S]{0,800}THINKING_HISTORY_EVIDENCE_FAILED/);
   assert.match(source, /preApprovalPublishedStateUnchanged,[\s\S]{0,120}preApprovalActivationRows/);
@@ -339,6 +853,13 @@ test('preview evidence checks out the open same-repository PR head', async () =>
   assert.match(workflow, /ref: \$\{\{ needs\.validate\.outputs\.preview_head_sha \}\}/);
   assert.match(workflow, /VERIFY_EXPECTED_REVISION: \$\{\{ needs\.validate\.outputs\.preview_head_sha \}\}/);
   assert.match(workflow, /node apps\/web\/scripts\/verify-deployment-revision\.mjs/);
+  const previewJob = workflow.slice(
+    workflow.indexOf('  preview:'),
+    workflow.indexOf('  production:'),
+  );
+  assert.match(previewJob, /E2E_REQUIRE_MCP_PAT_CLOSEOUT: 'true'/);
+  const productionJob = workflow.slice(workflow.indexOf('  production:'));
+  assert.doesNotMatch(productionJob, /E2E_REQUIRE_MCP_PAT_CLOSEOUT/);
 });
 
 test('deployment workflow publishes the served Git revision for Preview and production', async () => {

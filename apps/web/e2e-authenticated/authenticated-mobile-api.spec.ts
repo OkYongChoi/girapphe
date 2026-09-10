@@ -13,6 +13,10 @@ import {
   AUTHENTICATED_OVERLAY_AUTH_MODES,
   resolveAuthenticatedOverlayAuthMode,
 } from '../scripts/authenticated-overlay-auth.mjs';
+import {
+  cleanupAuthenticatedMobileApiFixture,
+  createAuthenticatedMobileApiFixture,
+} from '../scripts/authenticated-mobile-api-fixture.mjs';
 
 const CAPABILITIES = 'expression-v1,event-chronology-v1,causal-relations-v1';
 const PRIVATE_CACHE = /(?:^|,)\s*private\b[\s\S]*no-store/i;
@@ -128,10 +132,6 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     throw new Error('MOBILE_API_UNEXPECTED_AUTH_ORIGIN');
   }
   const marker = `E2E_MOBILE_API_${randomBytes(16).toString('hex')}`;
-  const {
-    cleanupAuthenticatedMobileApiFixture,
-    createAuthenticatedMobileApiFixture,
-  } = await import('../scripts/authenticated-mobile-api-fixture.mjs');
   const fixture = await createAuthenticatedMobileApiFixture({ marker });
   let noteId: string | null = null;
   let evidenceError: unknown = null;

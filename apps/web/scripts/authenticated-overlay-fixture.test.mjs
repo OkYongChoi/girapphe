@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
 import test from 'node:test';
 import {
   AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
@@ -11,7 +12,10 @@ import {
   fixtureIdsForUser,
   normalizeSyntheticEmail,
   readAuthenticatedOverlayPublishedStateWithClient,
+  revokeExactAuthenticatedOverlayMcpTokenByMarkerWithClient,
+  revokeExactAuthenticatedOverlayMcpTokenWithClient,
   seedAuthenticatedOverlayFixtureWithClient,
+  verifyExactAuthenticatedOverlayMcpTokenInactiveWithClient,
 } from './authenticated-overlay-fixture.mjs';
 
 const SYNTHETIC_EMAIL = 'qa+clerk_test_girapphe_overlay_e2e@example.com';
@@ -22,6 +26,78 @@ const SYNTHETIC_USER = {
 const SYNTHETIC_BATCH_ID = '123e4567-e89b-42d3-a456-426614174000';
 const SYNTHETIC_IMPORT_SESSION_ID = '223e4567-e89b-42d3-a456-426614174000';
 const SYNTHETIC_IMPORT_MARKER = 'E2E_SELECTED_QUESTION_A_0123456789abcdef0123456789abcdef';
+const SYNTHETIC_RAW_PAT = `girapphe_mcp_${'A'.repeat(43)}`;
+const SYNTHETIC_PAT_HASH = createHash('sha256').update(SYNTHETIC_RAW_PAT).digest('hex');
+const SYNTHETIC_PAT_RUN_MARKER = `${AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:123e4567-e89b-42d3-a456-426614174000`;
+const SYNTHETIC_PAT_LABEL = `PAT ${SYNTHETIC_PAT_RUN_MARKER}`;
+
+test('exact MCP token fallback bounds its database connection, statements, and locks', async () => {
+  const fixtureUrl = new URL('./authenticated-overlay-fixture.mjs', import.meta.url);
+  const source = await fs.readFile(fixtureUrl, 'utf8');
+  const poolHelperStart = source.indexOf('function createMcpCleanupPool(databaseUrl, deadlineMs)');
+  const poolStart = source.indexOf('return new Pool({', poolHelperStart);
+  const poolEnd = source.indexOf('});', poolStart);
+  const poolConfiguration = source.slice(poolStart, poolEnd);
+
+  assert.ok(poolHelperStart >= 0 && poolHelperStart < poolStart && poolStart < poolEnd);
+  assert.match(
+    poolConfiguration,
+    /connectionTimeoutMillis: Math\.min\(MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS, perOperationMs\)/,
+  );
+  assert.match(poolConfiguration, /query_timeout: Math\.min\(MCP_CLEANUP_DB_QUERY_TIMEOUT_MS, perOperationMs\)/);
+  assert.match(poolConfiguration, /statement_timeout: Math\.min\(MCP_CLEANUP_DB_QUERY_TIMEOUT_MS, perOperationMs\)/);
+  assert.match(poolConfiguration, /lock_timeout: Math\.min\(MCP_CLEANUP_DB_LOCK_TIMEOUT_MS, perOperationMs\)/);
+  assert.match(
+    source.slice(poolHelperStart, poolStart),
+    /remainingMs \/ MCP_CLEANUP_DB_DEADLINE_DIVISOR/,
+  );
+});
+
+test('post-create MCP cleanup reuses a prevalidated owner without contacting Clerk', async () => {
+  const fixtureUrl = new URL('./authenticated-overlay-fixture.mjs', import.meta.url);
+  const source = await fs.readFile(fixtureUrl, 'utf8');
+  const cleanupExports = [
+    {
+      name: 'revokeExactAuthenticatedOverlayMcpToken',
+      next: 'revokeExactAuthenticatedOverlayMcpTokenByMarker',
+    },
+    {
+      name: 'revokeExactAuthenticatedOverlayMcpTokenByMarker',
+      next: 'verifyExactAuthenticatedOverlayMcpTokenInactive',
+    },
+    {
+      name: 'verifyExactAuthenticatedOverlayMcpTokenInactive',
+      next: null,
+    },
+  ];
+
+  for (const { name: exportName, next } of cleanupExports) {
+    const start = source.indexOf(`export async function ${exportName}({`);
+    const end = next === null
+      ? source.indexOf('\nasync function withExistingAuthenticatedOverlayDatabase', start)
+      : source.indexOf(`\nexport async function ${next}({`, start);
+    const implementation = source.slice(start, end);
+    assert.ok(start >= 0 && start < end, `${exportName} must remain exported`);
+    assert.match(implementation, /syntheticUser,/);
+    assert.match(implementation, /requireSyntheticFixtureUser\(syntheticUser\)/);
+    assert.match(implementation, /deadlineMs,/);
+    assert.match(implementation, /createMcpCleanupPool\(databaseUrl, deadlineMs\)/);
+    assert.doesNotMatch(
+      implementation,
+      /createClerkClient|findExistingAuthenticatedOverlaySyntheticUser|CLERK_SECRET_KEY|E2E_CLERK_USER_EMAIL/,
+      `${exportName} must not start an unbounded Clerk request after PAT creation`,
+    );
+  }
+
+  const resolverStart = source.indexOf(
+    'export async function resolveAuthenticatedOverlaySyntheticUser({',
+  );
+  const resolverEnd = source.indexOf('\nexport async function ', resolverStart + 1);
+  const resolver = source.slice(resolverStart, resolverEnd);
+  assert.ok(resolverStart >= 0 && resolverStart < resolverEnd);
+  assert.match(resolver, /findExistingAuthenticatedOverlaySyntheticUser\(/);
+  assert.match(resolver, /CLERK_SECRET_KEY/);
+});
 
 function eventSubjectHash(subjectId) {
   return createHash('sha256')
@@ -414,6 +490,305 @@ test('exact import fallback rolls back when exact event cleanup cannot be verifi
   assert.equal(calls.at(-1)?.text, 'ROLLBACK');
 });
 
+test('exact MCP token fallback is hash, owner, and lifecycle-lock scoped', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('SELECT id, user_id, token_hash, label, revoked_at')) {
+        return { rows: [{
+          id: 'token_exact',
+          user_id: SYNTHETIC_USER.id,
+          token_hash: SYNTHETIC_PAT_HASH,
+          label: SYNTHETIC_PAT_LABEL,
+          revoked_at: null,
+        }] };
+      }
+      if (text.trimStart().startsWith('UPDATE mcp_access_tokens')) {
+        return { rows: [{ id: 'token_exact' }] };
+      }
+      if (text.includes('AS remaining_active')) {
+        return { rows: [{ remaining_active: 0 }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  assert.deepEqual(
+    await revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      client,
+      SYNTHETIC_USER,
+      {
+        rawToken: SYNTHETIC_RAW_PAT,
+        connectionLabel: SYNTHETIC_PAT_LABEL,
+        runMarker: SYNTHETIC_PAT_RUN_MARKER,
+      },
+    ),
+    { revoked: true, remainingActive: 0 },
+  );
+
+  const accountLock = calls.findIndex((call) => call.text.includes("'mcp-account-lifecycle:'"));
+  const activeAccountGuard = calls.findIndex((call) => (
+    call.text.startsWith('INSERT INTO mcp_deleted_account_markers')
+  ));
+  const tokenLock = calls.findIndex((call) => (
+    call.values[0] === `mcp-token:${SYNTHETIC_USER.id}`
+  ));
+  const targetLookup = calls.findIndex((call) => call.text.includes('SELECT id, user_id, token_hash, label, revoked_at'));
+  const update = calls.find((call) => call.text.trimStart().startsWith('UPDATE mcp_access_tokens'));
+  assert.ok(accountLock >= 0 && accountLock < activeAccountGuard);
+  assert.ok(activeAccountGuard < tokenLock && tokenLock < targetLookup);
+  assert.deepEqual(calls[targetLookup].values, [
+    SYNTHETIC_PAT_HASH, SYNTHETIC_USER.id, SYNTHETIC_PAT_LABEL, SYNTHETIC_PAT_RUN_MARKER,
+  ]);
+  assert.match(calls[targetLookup].text, /token_hash = \$1[\s\S]*user_id = \$2[\s\S]*label = \$3[\s\S]*STRPOS\(label, \$4\)[\s\S]*FOR UPDATE/);
+  assert.deepEqual(update?.values, [
+    'token_exact', SYNTHETIC_USER.id, SYNTHETIC_PAT_HASH, SYNTHETIC_PAT_LABEL, SYNTHETIC_PAT_RUN_MARKER,
+  ]);
+  assert.match(update?.text ?? '', /id = \$1[\s\S]*user_id = \$2[\s\S]*token_hash = \$3[\s\S]*label = \$4[\s\S]*STRPOS\(label, \$5\)/);
+  assert.equal(calls.some((call) => call.values.includes(SYNTHETIC_RAW_PAT)), false);
+  assert.equal(calls.at(-1)?.text, 'COMMIT');
+});
+
+test('marker fallback revokes only the exact synthetic label when PAT capture fails', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('SELECT id, user_id, label, revoked_at')) {
+        return { rows: [{
+          id: 'token_exact',
+          user_id: SYNTHETIC_USER.id,
+          label: SYNTHETIC_PAT_LABEL,
+          revoked_at: null,
+        }] };
+      }
+      if (text.trimStart().startsWith('UPDATE mcp_access_tokens')) {
+        return { rows: [{ id: 'token_exact' }] };
+      }
+      if (text.includes('AS remaining_active')) {
+        return { rows: [{ remaining_active: 0 }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  assert.deepEqual(
+    await revokeExactAuthenticatedOverlayMcpTokenByMarkerWithClient(
+      client,
+      SYNTHETIC_USER,
+      {
+        connectionLabel: SYNTHETIC_PAT_LABEL,
+        runMarker: SYNTHETIC_PAT_RUN_MARKER,
+      },
+    ),
+    { revoked: true, remainingActive: 0 },
+  );
+
+  const accountLock = calls.findIndex((call) => call.text.includes("'mcp-account-lifecycle:'"));
+  const activeAccountGuard = calls.findIndex((call) => (
+    call.text.startsWith('INSERT INTO mcp_deleted_account_markers')
+  ));
+  const tokenLock = calls.findIndex((call) => (
+    call.values[0] === `mcp-token:${SYNTHETIC_USER.id}`
+  ));
+  const targetLookup = calls.findIndex((call) => (
+    call.text.includes('SELECT id, user_id, label, revoked_at')
+  ));
+  const update = calls.find((call) => call.text.trimStart().startsWith('UPDATE mcp_access_tokens'));
+  assert.ok(accountLock >= 0 && accountLock < activeAccountGuard);
+  assert.ok(activeAccountGuard < tokenLock && tokenLock < targetLookup);
+  assert.deepEqual(calls[targetLookup].values, [
+    SYNTHETIC_USER.id, SYNTHETIC_PAT_LABEL, SYNTHETIC_PAT_RUN_MARKER,
+  ]);
+  assert.match(
+    calls[targetLookup].text,
+    /user_id = \$1[\s\S]*label = \$2[\s\S]*STRPOS\(label, \$3\)[\s\S]*FOR UPDATE/,
+  );
+  assert.deepEqual(update?.values, [
+    'token_exact', SYNTHETIC_USER.id, SYNTHETIC_PAT_LABEL, SYNTHETIC_PAT_RUN_MARKER,
+  ]);
+  assert.doesNotMatch(calls[targetLookup].text, /token_hash/);
+  assert.equal(calls.at(-1)?.text, 'COMMIT');
+});
+
+test('exact MCP token fallback refuses invalid identity, token shape, and owner mismatch', async () => {
+  const invalidCalls = [];
+  const invalidClient = {
+    async query(text, values = []) {
+      invalidCalls.push({ text, values });
+      return { rows: [] };
+    },
+  };
+  await assert.rejects(
+    () => revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      invalidClient,
+      { id: 'user_real', publicMetadata: {} },
+      {
+        rawToken: SYNTHETIC_RAW_PAT,
+        connectionLabel: SYNTHETIC_PAT_LABEL,
+        runMarker: SYNTHETIC_PAT_RUN_MARKER,
+      },
+    ),
+    /dedicated authenticated overlay synthetic user/,
+  );
+  await assert.rejects(
+    () => revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      invalidClient,
+      SYNTHETIC_USER,
+      {
+        rawToken: 'not-a-token',
+        connectionLabel: SYNTHETIC_PAT_LABEL,
+        runMarker: SYNTHETIC_PAT_RUN_MARKER,
+      },
+    ),
+    /SYNTHETIC_MCP_TOKEN_CLEANUP_TOKEN_INVALID/,
+  );
+  await assert.rejects(
+    () => revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      invalidClient,
+      SYNTHETIC_USER,
+      {
+        rawToken: SYNTHETIC_RAW_PAT,
+        connectionLabel: 'ordinary label',
+        runMarker: 'not-a-run-marker',
+      },
+    ),
+    /SYNTHETIC_MCP_TOKEN_CLEANUP_MARKER_INVALID/,
+  );
+  await assert.rejects(
+    () => revokeExactAuthenticatedOverlayMcpTokenByMarkerWithClient(
+      invalidClient,
+      SYNTHETIC_USER,
+      {
+        connectionLabel: 'ordinary label',
+        runMarker: 'not-a-run-marker',
+      },
+    ),
+    /SYNTHETIC_MCP_MARKER_CLEANUP_MARKER_INVALID/,
+  );
+  assert.deepEqual(invalidCalls, []);
+
+  const mismatchCalls = [];
+  const mismatchClient = {
+    async query(text, values = []) {
+      mismatchCalls.push({ text, values });
+      if (text.includes('SELECT id, user_id, token_hash, label, revoked_at')) {
+        return { rows: [{
+          id: 'token_foreign',
+          user_id: 'user_other',
+          token_hash: SYNTHETIC_PAT_HASH,
+          label: SYNTHETIC_PAT_LABEL,
+          revoked_at: null,
+        }] };
+      }
+      return { rows: [] };
+    },
+  };
+  await assert.rejects(
+    () => revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      mismatchClient,
+      SYNTHETIC_USER,
+      {
+        rawToken: SYNTHETIC_RAW_PAT,
+        connectionLabel: SYNTHETIC_PAT_LABEL,
+        runMarker: SYNTHETIC_PAT_RUN_MARKER,
+      },
+    ),
+    /SYNTHETIC_MCP_TOKEN_CLEANUP_TARGET_NOT_OWNED/,
+  );
+  assert.equal(
+    mismatchCalls.some((call) => call.text.trimStart().startsWith('UPDATE mcp_access_tokens')),
+    false,
+  );
+  assert.equal(mismatchCalls.at(-1)?.text, 'ROLLBACK');
+});
+
+test('exact MCP token fallback rolls back if zero-active verification fails', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('SELECT id, user_id, token_hash, label, revoked_at')) {
+        return { rows: [{
+          id: 'token_exact',
+          user_id: SYNTHETIC_USER.id,
+          token_hash: SYNTHETIC_PAT_HASH,
+          label: SYNTHETIC_PAT_LABEL,
+          revoked_at: null,
+        }] };
+      }
+      if (text.trimStart().startsWith('UPDATE mcp_access_tokens')) {
+        return { rows: [{ id: 'token_exact' }] };
+      }
+      if (text.includes('AS remaining_active')) {
+        return { rows: [{ remaining_active: 1 }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  await assert.rejects(
+    () => revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      client,
+      SYNTHETIC_USER,
+      {
+        rawToken: SYNTHETIC_RAW_PAT,
+        connectionLabel: SYNTHETIC_PAT_LABEL,
+        runMarker: SYNTHETIC_PAT_RUN_MARKER,
+      },
+    ),
+    /SYNTHETIC_MCP_TOKEN_CLEANUP_VERIFICATION_FAILED/,
+  );
+  assert.equal(calls.some((call) => call.text === 'COMMIT'), false);
+  assert.equal(calls.at(-1)?.text, 'ROLLBACK');
+});
+
+test('normal UI verification proves the exact owner label marker and hash are inactive', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('CASE WHEN revoked_at IS NULL')) {
+        return { rows: [{
+          id: 'token_exact',
+          user_id: SYNTHETIC_USER.id,
+          token_hash: SYNTHETIC_PAT_HASH,
+          label: SYNTHETIC_PAT_LABEL,
+          active: 0,
+        }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  assert.deepEqual(
+    await verifyExactAuthenticatedOverlayMcpTokenInactiveWithClient(
+      client,
+      SYNTHETIC_USER,
+      {
+        rawToken: SYNTHETIC_RAW_PAT,
+        connectionLabel: SYNTHETIC_PAT_LABEL,
+        runMarker: SYNTHETIC_PAT_RUN_MARKER,
+      },
+    ),
+    { matched: 1, remainingActive: 0 },
+  );
+  const accountLock = calls.findIndex((call) => call.text.includes("'mcp-account-lifecycle:'"));
+  const tokenLock = calls.findIndex((call) => call.values[0] === `mcp-token:${SYNTHETIC_USER.id}`);
+  const verification = calls.findIndex((call) => call.text.includes('CASE WHEN revoked_at IS NULL'));
+  assert.ok(accountLock >= 0 && accountLock < tokenLock && tokenLock < verification);
+  assert.deepEqual(calls[verification].values, [
+    SYNTHETIC_PAT_HASH,
+    SYNTHETIC_USER.id,
+    SYNTHETIC_PAT_LABEL,
+    SYNTHETIC_PAT_RUN_MARKER,
+  ]);
+  assert.match(calls[verification].text, /FOR SHARE/);
+  assert.equal(calls.some((call) => call.values.includes(SYNTHETIC_RAW_PAT)), false);
+  assert.equal(calls.at(-1)?.text, 'COMMIT');
+});
+
 test('database fixture is owner-bound and repeatable', async () => {
   const calls = [];
   const client = {
@@ -480,6 +855,27 @@ test('database fixture is owner-bound and repeatable', async () => {
   assert.ok(tokenResets.every((call) => (
     call.values.length === 1 && call.values[0] === SYNTHETIC_USER.id
   )));
+  const accountLocks = calls
+    .map((call, index) => ({ call, index }))
+    .filter(({ call }) => call.text.includes("'mcp-account-lifecycle:'"));
+  const activeAccountGuards = calls
+    .map((call, index) => ({ call, index }))
+    .filter(({ call }) => call.text.startsWith('INSERT INTO mcp_deleted_account_markers'));
+  const tokenLocks = calls
+    .map((call, index) => ({ call, index }))
+    .filter(({ call }) => call.values[0] === `mcp-token:${SYNTHETIC_USER.id}`);
+  const tokenResetIndexes = calls
+    .map((call, index) => ({ call, index }))
+    .filter(({ call }) => call.text === 'DELETE FROM mcp_access_tokens WHERE user_id = $1')
+    .map(({ index }) => index);
+  assert.equal(accountLocks.length, 2);
+  assert.equal(activeAccountGuards.length, 2);
+  assert.equal(tokenLocks.length, 2);
+  for (const [runIndex, resetIndex] of tokenResetIndexes.entries()) {
+    assert.ok(accountLocks[runIndex].index < activeAccountGuards[runIndex].index);
+    assert.ok(activeAccountGuards[runIndex].index < tokenLocks[runIndex].index);
+    assert.ok(tokenLocks[runIndex].index < resetIndex);
+  }
   for (const tokenReset of tokenResets) {
     const resetIndex = calls.indexOf(tokenReset);
     const precedingBegin = calls.findLastIndex((call, index) => (
@@ -503,7 +899,10 @@ test('database fixture is owner-bound and repeatable', async () => {
     && call.text.includes('knowledge_item_id = ANY($2::text[])')
   )));
 
-  const mutations = calls.filter((call) => call.text.startsWith('INSERT INTO'));
+  const mutations = calls.filter((call) => (
+    call.text.startsWith('INSERT INTO')
+    && !call.text.startsWith('INSERT INTO mcp_deleted_account_markers')
+  ));
   assert.ok(mutations.length >= 8);
   assert.ok(mutations.every((call) => call.text.includes('ON CONFLICT (id) DO UPDATE')));
   assert.ok(mutations.every((call) => !call.text.includes('user_synthetic')));

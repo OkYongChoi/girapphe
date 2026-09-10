@@ -1,11 +1,19 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Playwright's automatic AI-oriented error context can serialize private page
+// text, including a one-time synthetic PAT before cleanup. Authenticated runs
+// retain only their explicitly sanitized JSON and post-cleanup screenshots.
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
+
 const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim();
 if (!baseURL) {
   throw new Error('PLAYWRIGHT_BASE_URL is required for authenticated overlay evidence.');
 }
 
 export default defineConfig({
+  // Git author identities are unrelated to product evidence and must not be
+  // persisted in authenticated CI artifacts.
+  captureGitInfo: { commit: false, diff: false },
   testDir: './apps/web/e2e-authenticated',
   fullyParallel: false,
   forbidOnly: true,
@@ -25,7 +33,9 @@ export default defineConfig({
     // Authenticated traces can retain session headers. Keep the durable
     // evidence to synthetic screenshots and numeric JSON instead.
     trace: 'off',
-    screenshot: 'only-on-failure',
+    // Tests capture only explicit post-success screenshots after any transient
+    // secret has been revoked and cleared.
+    screenshot: 'off',
     video: 'off',
   },
   projects: [
@@ -36,7 +46,7 @@ export default defineConfig({
     {
       name: 'authenticated-desktop',
       testMatch:
-        /authenticated-(?:overlay-performance|settings|thinking-history|mcp-provider-setup|my-notes-tags)\.spec\.ts/,
+        /authenticated-(?:overlay-performance|settings|thinking-history|mcp-provider-setup(?:-fault)?|my-notes-tags)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 900 },

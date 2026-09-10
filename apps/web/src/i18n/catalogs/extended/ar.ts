@@ -480,6 +480,7 @@ export const EXTRA_AR_MESSAGES = {
   "mcp.revokedAt": "تاريخ الإلغاء: {date}",
   "mcp.expiresAt": "تنتهي الصلاحية في {date}",
   "mcp.revoke": "إلغاء",
+  "mcp.revokeError": "تعذّر إلغاء اتصال MCP.",
   "mcp.revokeConfirm": "هل تريد إلغاء اتصال MCP \"{label}\"؟ سيفقد العميل فورًا جميع إمكانات المعرفة المدرجة.",
   "import.pausedTitle": "استيراد ChatGPT متوقف مؤقتًا",
   "import.pausedBody": "عمليات الاستيراد الجديدة غير متاحة مؤقتًا. تظل المسودات المعلقة الحالية وعناصر التحكم في البيانات متاحة.",
