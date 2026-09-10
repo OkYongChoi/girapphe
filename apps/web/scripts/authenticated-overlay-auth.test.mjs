@@ -442,7 +442,7 @@ test('provider PAT route fault proves exact fallback and original error identity
   const responseRedaction = source.indexOf('responseBody.replace(', rawCapture);
   const armFault = source.indexOf('routeFaultArmed = true', responseRedaction);
   const firstClipboardCleanup = source.indexOf(
-    'if (!await clearClipboardAndReadBack(page))',
+    'if (!await clearClipboardAndReadBack(context, settingsDocumentUrl))',
     armFault,
   );
   const firstClipboardCleanupCatch = source.indexOf(
@@ -513,6 +513,15 @@ test('provider PAT route fault proves exact fallback and original error identity
   );
   assert.match(source, /createQuiescence\.trackExactRequest\([\s\S]*route\.fetch\(\)[\s\S]*route\.fulfill/);
   assert.match(source, /createQuiescence\.trackCreateAction\([\s\S]*Create token/);
+  const clipboardHelper = source.slice(
+    source.indexOf('async function clearClipboardAndReadBack('),
+    source.indexOf("test('falls back to exact database revocation"),
+  );
+  assert.match(clipboardHelper, /context\.newPage\(\)/);
+  assert.match(clipboardHelper, /clipboardPage\.goto\(settingsDocumentUrl/);
+  assert.match(clipboardHelper, /if \(!navigator\.clipboard\) return false/);
+  assert.match(clipboardHelper, /clipboardPage\.close\(\)/);
+  assert.doesNotMatch(clipboardHelper, /\bpage\.evaluate\(/);
   assert.match(
     source,
     /retryExactMcpPatCleanupAfterCreate\(\{[\s\S]*tracker: createQuiescence,[\s\S]*deadlineMs: cleanupDeadlineMs,[\s\S]*revokeExactAuthenticatedOverlayMcpTokenByMarker[\s\S]*revokeExactAuthenticatedOverlayMcpToken/,
@@ -538,7 +547,10 @@ test('provider PAT route fault proves exact fallback and original error identity
   );
   assert.match(source, /expect\(observedError\)\.toBe\(originalSentinel\)/);
   assert.match(source, /expect\(routeFaultedRequestCount\)\.toBeGreaterThan\(0\)/);
-  assert.match(source, /clipboardEmptyAfterTest = await clearClipboardAndReadBack\(page\)/);
+  assert.match(
+    source,
+    /clipboardEmptyAfterTest = await clearClipboardAndReadBack\(\s*context,\s*settingsDocumentUrl,\s*\)/,
+  );
   assert.match(
     source,
     /try \{[\s\S]*await withCleanupOperationTimeout\([\s\S]*page\.unroute\(['"]\*\*\/\*['"]\)[\s\S]*MCP_CLEANUP_UNROUTE_TIMEOUT[\s\S]*\} catch \(error\) \{[\s\S]*cleanupError \?\?= error;/,

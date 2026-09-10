@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { expect, test, type Page } from './authenticated-test';
+import { expect, test, type BrowserContext } from './authenticated-test';
 import {
   AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
 } from '../scripts/authenticated-overlay-constants.mjs';
@@ -54,12 +54,31 @@ async function withCleanupOperationTimeout<T>(
   }
 }
 
-async function clearClipboardAndReadBack(page: Page): Promise<boolean> {
+async function clearClipboardAndReadBack(
+  context: BrowserContext,
+  settingsDocumentUrl: string,
+): Promise<boolean> {
   return withCleanupOperationTimeout(
-    () => page.evaluate(async () => {
-      await navigator.clipboard.writeText('');
-      return (await navigator.clipboard.readText()) === '';
-    }),
+    async () => {
+      // The intentionally faulted settings page can become a Chromium error
+      // document, where the secure-context Clipboard API is absent. Use a
+      // fresh same-origin page that is outside this test's page-scoped route
+      // fault; an unavailable Clipboard API still fails closed.
+      const clipboardPage = await context.newPage();
+      try {
+        await clipboardPage.goto(settingsDocumentUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: UI_FAULT_TIMEOUT_MS,
+        });
+        return await clipboardPage.evaluate(async () => {
+          if (!navigator.clipboard) return false;
+          await navigator.clipboard.writeText('');
+          return (await navigator.clipboard.readText()) === '';
+        });
+      } finally {
+        await clipboardPage.close();
+      }
+    },
     'MCP_CLEANUP_CLIPBOARD_TIMEOUT',
   );
 }
@@ -166,7 +185,7 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
     } finally {
       try {
         try {
-          if (!await clearClipboardAndReadBack(page)) {
+          if (!await clearClipboardAndReadBack(context, settingsDocumentUrl)) {
             cleanupError = new Error('MCP_CLEANUP_CLIPBOARD_NOT_EMPTY');
           }
         } catch (error) {
@@ -256,7 +275,10 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
           cleanupError ??= error;
         }
         try {
-          clipboardEmptyAfterTest = await clearClipboardAndReadBack(page);
+          clipboardEmptyAfterTest = await clearClipboardAndReadBack(
+            context,
+            settingsDocumentUrl,
+          );
           if (!clipboardEmptyAfterTest) {
             cleanupError ??= new Error('MCP_CLEANUP_CLIPBOARD_NOT_EMPTY');
           }
