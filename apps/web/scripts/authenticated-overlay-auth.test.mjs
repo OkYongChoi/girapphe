@@ -196,9 +196,13 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     'const evidenceTimeoutMs = testInfo.timeout',
     testStartedAt,
   );
+  const ownerResolution = source.indexOf(
+    'const syntheticUser = await resolveAuthenticatedOverlaySyntheticUser()',
+    evidenceTimeout,
+  );
   const cleanupReserve = source.indexOf(
     'testInfo.setTimeout(Math.max(',
-    evidenceTimeout,
+    ownerResolution,
   );
   const createClick = source.indexOf(
     "getByRole('button', { name: 'Create token' }).click()",
@@ -249,7 +253,8 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   assert.ok(
     testStartedAt >= 0
       && testStartedAt < evidenceTimeout
-      && evidenceTimeout < cleanupReserve
+      && evidenceTimeout < ownerResolution
+      && ownerResolution < cleanupReserve
       && cleanupReserve < createClick
       && createClick < boundedEvidenceStep
       && boundedEvidenceStep < originalEvidenceCapture
@@ -264,6 +269,11 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
       && cleanupFailureResurface < originalEvidenceResurface
       && originalEvidenceResurface < cleanupEvidenceFailureResurface,
     'the bounded evidence step must reserve cleanup time before PAT creation and precede every cleanup path',
+  );
+  assert.doesNotMatch(
+    source.slice(createClick),
+    /resolveAuthenticatedOverlaySyntheticUser\(/,
+    'the unbounded Clerk owner lookup must finish before PAT creation',
   );
   assert.match(
     source.slice(testStartedAt, cleanupFinally),
@@ -374,8 +384,18 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     /\.toBeVisible\(\{[\s\S]*?timeout: cleanupTimeout\(/,
   );
   assert.match(source, /navigator\.clipboard\.writeText\(['"]['"]\)[\s\S]*navigator\.clipboard\.readText\(\)/);
-  assert.match(source, /revokeExactAuthenticatedOverlayMcpToken\(\{[\s\S]*rawToken,[\s\S]*connectionLabel,[\s\S]*runMarker,/);
-  assert.match(source, /verifyExactAuthenticatedOverlayMcpTokenInactive\(\{[\s\S]*remainingActive/);
+  assert.match(
+    source,
+    /revokeExactAuthenticatedOverlayMcpToken\(\{\s*syntheticUser,\s*rawToken,\s*connectionLabel,\s*runMarker,\s*\}\)/,
+  );
+  assert.match(
+    source,
+    /verifyExactAuthenticatedOverlayMcpTokenInactive\(\{\s*syntheticUser,\s*rawToken,\s*connectionLabel,\s*runMarker,\s*\}\)/,
+  );
+  assert.match(
+    source,
+    /revokeExactAuthenticatedOverlayMcpTokenByMarker\(\{\s*syntheticUser,\s*connectionLabel,\s*runMarker,\s*\}\)/,
+  );
   assert.doesNotMatch(
     source,
     /await import\([\s\S]{0,120}authenticated-overlay-fixture\.mjs/,
@@ -398,6 +418,14 @@ test('provider PAT route fault proves exact fallback and original error identity
   assert.match(
     source,
     /AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:\$\{randomUUID\(\)\}/,
+  );
+  const ownerResolution = source.indexOf(
+    'const syntheticUser = await resolveAuthenticatedOverlaySyntheticUser()',
+  );
+  const routeRegistration = source.indexOf("await page.route('**/*'", ownerResolution);
+  const createClick = source.indexOf(
+    "getByRole('button', { name: 'Create token' }).click()",
+    routeRegistration,
   );
   const postFetch = source.indexOf('const response = await route.fetch()');
   const rawCapture = source.indexOf('rawToken = uniqueMatches[0]!', postFetch);
@@ -423,17 +451,26 @@ test('provider PAT route fault proves exact fallback and original error identity
   );
   const originalRethrow = source.indexOf('if (originalError) throw originalError', markerFallback);
   assert.ok(
-    postFetch >= 0
+    ownerResolution >= 0
+      && ownerResolution < routeRegistration
+      && routeRegistration < postFetch
       && postFetch < rawCapture
       && rawCapture < responseRedaction
       && responseRedaction < armFault
+      && armFault < createClick
       && armFault < firstClipboardCleanup
+      && createClick < firstClipboardCleanup
       && firstClipboardCleanup < firstClipboardCleanupCatch
       && firstClipboardCleanupCatch < firstUiPath
       && firstUiPath < secondUiPath
       && secondUiPath < fallback
       && fallback < markerFallback
       && markerFallback < originalRethrow,
+  );
+  assert.doesNotMatch(
+    source.slice(createClick),
+    /resolveAuthenticatedOverlaySyntheticUser\(/,
+    'the route-fault cleanup must not contact Clerk after PAT creation',
   );
   assert.match(
     source,
@@ -444,7 +481,14 @@ test('provider PAT route fault proves exact fallback and original error identity
     source,
     /async function withCleanupOperationTimeout[\s\S]*Promise\.race\(\[[\s\S]*operation\(\)[\s\S]*setTimeout\(/,
   );
-  assert.match(source, /rawToken,[\s\S]*connectionLabel,[\s\S]*runMarker,/);
+  assert.match(
+    source,
+    /revokeExactAuthenticatedOverlayMcpToken\(\{\s*syntheticUser,\s*rawToken,\s*connectionLabel,\s*runMarker,\s*\}\)/,
+  );
+  assert.match(
+    source,
+    /revokeExactAuthenticatedOverlayMcpTokenByMarker\(\{\s*syntheticUser,\s*connectionLabel,\s*runMarker,\s*\}\)/,
+  );
   assert.match(source, /remainingActiveAfterFallback = fallback\.remainingActive/);
   assert.doesNotMatch(
     source,

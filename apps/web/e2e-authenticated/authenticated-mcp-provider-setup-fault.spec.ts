@@ -9,6 +9,7 @@ import {
   isAuthenticatedOverlayMcpPatMutationPreview,
 } from '../scripts/authenticated-overlay-auth.mjs';
 import {
+  resolveAuthenticatedOverlaySyntheticUser,
   revokeExactAuthenticatedOverlayMcpToken,
   revokeExactAuthenticatedOverlayMcpTokenByMarker,
 } from '../scripts/authenticated-overlay-fixture.mjs';
@@ -68,6 +69,9 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
     !isPatMutationPreview(testInfo),
     'PAT route-fault evidence runs once in the marker-validated testing-token Preview desktop project.',
   );
+  // Complete the only unbounded Clerk request before the create Server Action
+  // can commit a PAT. Fault cleanup then uses this already verified owner.
+  const syntheticUser = await resolveAuthenticatedOverlaySyntheticUser();
   testInfo.setTimeout(Math.max(testInfo.timeout, 180_000));
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/en/settings#ai-connections', { waitUntil: 'domcontentloaded' });
@@ -177,11 +181,13 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
         try {
           const fallback = RAW_PAT_SHAPE.test(rawToken)
             ? await revokeExactAuthenticatedOverlayMcpToken({
+              syntheticUser,
               rawToken,
               connectionLabel,
               runMarker,
             })
             : await revokeExactAuthenticatedOverlayMcpTokenByMarker({
+              syntheticUser,
               connectionLabel,
               runMarker,
             });

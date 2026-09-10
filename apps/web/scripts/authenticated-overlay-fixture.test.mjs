@@ -51,6 +51,50 @@ test('exact MCP token fallback bounds its database connection, statements, and l
   assert.match(poolConfiguration, /lock_timeout: MCP_CLEANUP_DB_LOCK_TIMEOUT_MS/);
 });
 
+test('post-create MCP cleanup reuses a prevalidated owner without contacting Clerk', async () => {
+  const fixtureUrl = new URL('./authenticated-overlay-fixture.mjs', import.meta.url);
+  const source = await fs.readFile(fixtureUrl, 'utf8');
+  const cleanupExports = [
+    {
+      name: 'revokeExactAuthenticatedOverlayMcpToken',
+      next: 'revokeExactAuthenticatedOverlayMcpTokenByMarker',
+    },
+    {
+      name: 'revokeExactAuthenticatedOverlayMcpTokenByMarker',
+      next: 'verifyExactAuthenticatedOverlayMcpTokenInactive',
+    },
+    {
+      name: 'verifyExactAuthenticatedOverlayMcpTokenInactive',
+      next: null,
+    },
+  ];
+
+  for (const { name: exportName, next } of cleanupExports) {
+    const start = source.indexOf(`export async function ${exportName}({`);
+    const end = next === null
+      ? source.indexOf('\nasync function withExistingAuthenticatedOverlayDatabase', start)
+      : source.indexOf(`\nexport async function ${next}({`, start);
+    const implementation = source.slice(start, end);
+    assert.ok(start >= 0 && start < end, `${exportName} must remain exported`);
+    assert.match(implementation, /syntheticUser,/);
+    assert.match(implementation, /requireSyntheticFixtureUser\(syntheticUser\)/);
+    assert.doesNotMatch(
+      implementation,
+      /createClerkClient|findExistingAuthenticatedOverlaySyntheticUser|CLERK_SECRET_KEY|E2E_CLERK_USER_EMAIL/,
+      `${exportName} must not start an unbounded Clerk request after PAT creation`,
+    );
+  }
+
+  const resolverStart = source.indexOf(
+    'export async function resolveAuthenticatedOverlaySyntheticUser({',
+  );
+  const resolverEnd = source.indexOf('\nexport async function ', resolverStart + 1);
+  const resolver = source.slice(resolverStart, resolverEnd);
+  assert.ok(resolverStart >= 0 && resolverStart < resolverEnd);
+  assert.match(resolver, /findExistingAuthenticatedOverlaySyntheticUser\(/);
+  assert.match(resolver, /CLERK_SECRET_KEY/);
+});
+
 function eventSubjectHash(subjectId) {
   return createHash('sha256')
     .update(`${SYNTHETIC_USER.id}\0${subjectId}`)

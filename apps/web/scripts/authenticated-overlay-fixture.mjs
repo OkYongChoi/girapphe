@@ -311,6 +311,20 @@ export async function findExistingAuthenticatedOverlaySyntheticUser({
   return users[0];
 }
 
+export async function resolveAuthenticatedOverlaySyntheticUser({
+  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
+  secretKey = process.env.CLERK_SECRET_KEY,
+} = {}) {
+  const email = normalizeSyntheticEmail(emailAddress);
+  const clerkClient = createClerkClient({
+    secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY'),
+  });
+  return findExistingAuthenticatedOverlaySyntheticUser({
+    clerkClient,
+    emailAddress: email,
+  });
+}
+
 export async function deleteExactAuthenticatedOverlayImportWithClient(
   client,
   syntheticUser,
@@ -793,31 +807,22 @@ export async function deleteExactAuthenticatedOverlayImport({
 
 /**
  * @param {{
+ *   syntheticUser: { id?: unknown, publicMetadata?: { girappheSyntheticPurpose?: unknown } },
  *   rawToken: string,
  *   connectionLabel: string,
  *   runMarker: string,
- *   emailAddress?: string,
- *   secretKey?: string,
  *   databaseUrl?: string,
  * }} options
  */
 export async function revokeExactAuthenticatedOverlayMcpToken({
+  syntheticUser,
   rawToken,
   connectionLabel,
   runMarker,
-  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
-  secretKey = process.env.CLERK_SECRET_KEY,
   databaseUrl = process.env.DATABASE_URL,
 }) {
   try {
-    const email = normalizeSyntheticEmail(emailAddress);
-    const clerkClient = createClerkClient({
-      secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY'),
-    });
-    const user = await findExistingAuthenticatedOverlaySyntheticUser({
-      clerkClient,
-      emailAddress: email,
-    });
+    requireSyntheticFixtureUser(syntheticUser);
     const pool = new Pool({
       connectionString: requireValue(databaseUrl, 'DATABASE_URL'),
       max: 1,
@@ -831,7 +836,7 @@ export async function revokeExactAuthenticatedOverlayMcpToken({
       try {
         return await revokeExactAuthenticatedOverlayMcpTokenWithClient(
           client,
-          user,
+          syntheticUser,
           { rawToken, connectionLabel, runMarker },
         );
       } finally {
@@ -850,23 +855,21 @@ export async function revokeExactAuthenticatedOverlayMcpToken({
  * Emergency cleanup for a committed synthetic PAT whose one-time response
  * could not be captured. The random label marker remains an exact revocation
  * identity, while successful closeout evidence still requires the hash path.
+ * @param {{
+ *   syntheticUser: { id?: unknown, publicMetadata?: { girappheSyntheticPurpose?: unknown } },
+ *   connectionLabel: string,
+ *   runMarker: string,
+ *   databaseUrl?: string,
+ * }} options
  */
 export async function revokeExactAuthenticatedOverlayMcpTokenByMarker({
+  syntheticUser,
   connectionLabel,
   runMarker,
-  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
-  secretKey = process.env.CLERK_SECRET_KEY,
   databaseUrl = process.env.DATABASE_URL,
 }) {
   try {
-    const email = normalizeSyntheticEmail(emailAddress);
-    const clerkClient = createClerkClient({
-      secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY'),
-    });
-    const user = await findExistingAuthenticatedOverlaySyntheticUser({
-      clerkClient,
-      emailAddress: email,
-    });
+    requireSyntheticFixtureUser(syntheticUser);
     const pool = new Pool({
       connectionString: requireValue(databaseUrl, 'DATABASE_URL'),
       max: 1,
@@ -880,7 +883,7 @@ export async function revokeExactAuthenticatedOverlayMcpTokenByMarker({
       try {
         return await revokeExactAuthenticatedOverlayMcpTokenByMarkerWithClient(
           client,
-          user,
+          syntheticUser,
           { connectionLabel, runMarker },
         );
       } finally {
@@ -895,23 +898,24 @@ export async function revokeExactAuthenticatedOverlayMcpTokenByMarker({
   }
 }
 
+/**
+ * @param {{
+ *   syntheticUser: { id?: unknown, publicMetadata?: { girappheSyntheticPurpose?: unknown } },
+ *   rawToken: string,
+ *   connectionLabel: string,
+ *   runMarker: string,
+ *   databaseUrl?: string,
+ * }} options
+ */
 export async function verifyExactAuthenticatedOverlayMcpTokenInactive({
+  syntheticUser,
   rawToken,
   connectionLabel,
   runMarker,
-  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
-  secretKey = process.env.CLERK_SECRET_KEY,
   databaseUrl = process.env.DATABASE_URL,
 }) {
   try {
-    const email = normalizeSyntheticEmail(emailAddress);
-    const clerkClient = createClerkClient({
-      secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY'),
-    });
-    const user = await findExistingAuthenticatedOverlaySyntheticUser({
-      clerkClient,
-      emailAddress: email,
-    });
+    requireSyntheticFixtureUser(syntheticUser);
     const pool = new Pool({
       connectionString: requireValue(databaseUrl, 'DATABASE_URL'),
       max: 1,
@@ -925,7 +929,7 @@ export async function verifyExactAuthenticatedOverlayMcpTokenInactive({
       try {
         return await verifyExactAuthenticatedOverlayMcpTokenInactiveWithClient(
           client,
-          user,
+          syntheticUser,
           { rawToken, connectionLabel, runMarker },
         );
       } finally {

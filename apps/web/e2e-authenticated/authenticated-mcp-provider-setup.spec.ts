@@ -9,6 +9,7 @@ import {
   isAuthenticatedOverlayMcpPatMutationPreview,
 } from '../scripts/authenticated-overlay-auth.mjs';
 import {
+  resolveAuthenticatedOverlaySyntheticUser,
   revokeExactAuthenticatedOverlayMcpToken,
   revokeExactAuthenticatedOverlayMcpTokenByMarker,
   verifyExactAuthenticatedOverlayMcpTokenInactive,
@@ -193,6 +194,11 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
     !isPatMutationPreview(testInfo),
     'PAT mutation evidence runs once in the marker-validated testing-token Preview desktop project.',
   );
+
+  // Clerk's backend lookup has no response timeout in the installed SDK.
+  // Resolve and validate the synthetic owner before a PAT can be committed so
+  // every post-create cleanup path depends only on bounded database work.
+  const syntheticUser = await resolveAuthenticatedOverlaySyntheticUser();
 
   const browserErrors: string[] = [];
   page.on('console', (message) => {
@@ -395,6 +401,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
     if (uiCleanupErrors.length === 2 && rawTokenHasExpectedShape) {
       try {
         const databaseCleanup = await revokeExactAuthenticatedOverlayMcpToken({
+          syntheticUser,
           rawToken,
           connectionLabel,
           runMarker,
@@ -408,6 +415,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
     } else if (rawTokenHasExpectedShape) {
       try {
         const verification = await verifyExactAuthenticatedOverlayMcpTokenInactive({
+          syntheticUser,
           rawToken,
           connectionLabel,
           runMarker,
@@ -422,6 +430,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
       // case, so revoke that exact row and still fail this evidence run.
       try {
         const databaseCleanup = await revokeExactAuthenticatedOverlayMcpTokenByMarker({
+          syntheticUser,
           connectionLabel,
           runMarker,
         });

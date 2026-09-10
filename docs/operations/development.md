@@ -181,6 +181,9 @@ combined, misnamed, unknown-field, or wrong-schema mutation artifacts. Its job
 summary contains counts and booleans only. This reset is intentionally destructive
 only for the marker-validated synthetic account; its exact owner predicate does
 not relax the application's token quotas or permit cleanup of a normal account.
+Both PAT journeys resolve and validate that Clerk synthetic owner before Create;
+post-create cleanup reuses the cached owner and therefore cannot spend its
+reserved cleanup window waiting on an unbounded Clerk response.
 
 The Thinking History project begins from a fixture-verified zero import-event
 baseline. Local file parsing, candidate selection, and the consent checkbox must

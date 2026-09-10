@@ -123,6 +123,10 @@ revokes the row and proves `active=0` before the original sentinel Error object
 is rethrown unchanged. If its create commits but response capture fails, a
 locked owner/label/random-marker fallback still revokes the exact synthetic row,
 then fails the run without producing accepted evidence.
+Both mutation paths resolve and validate the synthetic Clerk owner before the
+Create action. Their post-create hash, marker, and inactive-verification calls
+reuse that cached owner instead of starting an unbounded Clerk request inside
+the reserved cleanup window.
 Provider JSON evidence and the generated job summary contain counts and
 booleans only. Automatic screenshots are disabled in PAT-bearing specs and
 automatic authenticated accessibility error snapshots are disabled suite-wide;
