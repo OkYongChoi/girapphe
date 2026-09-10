@@ -9,6 +9,13 @@ import {
   type Request,
   type Response,
 } from './authenticated-test';
+import {
+  AUTHENTICATED_RECALL_FIXTURE,
+  cleanupAuthenticatedRecallFixtureWithClient,
+  fixtureIdsForUser,
+  readAuthenticatedRecallFixtureStateWithClient,
+  resetAuthenticatedRecallFixtureWithClient,
+} from '../scripts/authenticated-overlay-fixture.mjs';
 import pg from 'pg';
 
 const { Pool } = pg;
@@ -151,13 +158,6 @@ test.skip(
 test('keeps approved Recall content private until reveal and persists one completion', async ({
   page,
 }, testInfo) => {
-  const {
-    AUTHENTICATED_RECALL_FIXTURE,
-    cleanupAuthenticatedRecallFixtureWithClient,
-    fixtureIdsForUser,
-    readAuthenticatedRecallFixtureStateWithClient,
-    resetAuthenticatedRecallFixtureWithClient,
-  } = await import('../scripts/authenticated-overlay-fixture.mjs');
   const fixtureMetadata = readFixtureMetadata();
   const expectedIds = fixtureIdsForUser(fixtureMetadata.userId);
   expect(fixtureMetadata.recall?.itemId).toBe(expectedIds.recall.itemId);
