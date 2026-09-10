@@ -79,8 +79,10 @@ Desktop uses the same centering and hit-test precondition, then separately
 performs a trial actionability check and activates the link with focused-keyboard `Enter`;
 coordinate-level page input, forced clicks, and DOM-dispatched clicks are not
 accepted as evidence. Confirm-driven mobile controls use the same stable-center
-and hit-target precondition, register the browser dialog first, and perform one
-unforced `tap({ scroll: "none" })`. The href must be the same-origin, exact batch
+and hit-target precondition, require both the layout and complete target bounds
+to remain inside the visual viewport, then perform a trial actionability check
+before registering the browser dialog and issuing one unforced
+`tap({ scroll: "none" })`. The href must be the same-origin, exact batch
 and draft resolution route. Request observers start only after the
 pre-activation checks so a prefetch cannot masquerade as the real activation. A committed exact URL
 is accepted only when the client router used its cache without a request or the

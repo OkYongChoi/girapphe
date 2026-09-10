@@ -102,3 +102,24 @@ test('confirmation-driven knowledge mutations stay inert until client hydration'
   assert.match(resolutionPanel, /value="update" disabled=\{!hydrated \|\| pending \|\| blocked\}/);
   assert.match(resolutionPanel, /type="submit" disabled=\{!hydrated \|\| pending\}[\s\S]{0,180}resolution\.ignoreConfirm/);
 });
+
+test('candidate resolution keeps long private metadata inside the mobile viewport', async () => {
+  const [page, panel] = await Promise.all([
+    readFile(new URL('../app/knowledge-inbox/[batchId]/[draftId]/resolve/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./draft-resolution-panel.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(page, /mx-auto w-full min-w-0 max-w-6xl/);
+  assert.match(page, /mt-1 break-all font-mono/);
+  assert.match(page, /mt-1 max-w-xs break-all/);
+  assert.match(page, /<div className="mt-6 min-w-0 max-w-full">/);
+  assert.match(panel, /grid w-full min-w-0 grid-cols-\[minmax\(0,1fr\)\] gap-6/);
+  assert.match(panel, /mt-5 grid min-w-0 max-w-full grid-cols-\[minmax\(0,1fr\)\] gap-4/);
+  assert.match(panel, /grid min-w-0 grid-cols-\[minmax\(0,1fr\)\] gap-4 md:grid-cols-2/);
+  assert.equal(
+    panel.match(/<span className="min-w-0 \[overflow-wrap:anywhere\]">/g)?.length,
+    2,
+    'relation and evidence metadata must both wrap opaque identifiers',
+  );
+  assert.match(panel, /min-h-11 rounded-xl border border-red-200/);
+});

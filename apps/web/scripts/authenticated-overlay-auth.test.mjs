@@ -155,13 +155,25 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /page\.waitForResponse\([\s\S]{0,120}contextFormat\(response\) === format,[\s\S]{0,80}\{ timeout: 30_000 \}/);
   assert.match(source, /expect\(copyResponse\.status\(\), `\$\{format\} copy context response`\)\.toBe\(200\)/);
   assert.match(source, /async function gotoOwnerKnowledgeData\([\s\S]{0,1200}attempt <= 2[\s\S]{0,500}\/account\/delete#knowledge-data[\s\S]{0,700}OWNER_DATA_CONTROLS_UNAVAILABLE/);
-  assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,500}html \{ scroll-behavior: auto !important; \}/);
-  assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,1200}scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)[\s\S]{0,1000}document\.elementFromPoint\(point\.x, point\.y\)[\s\S]{0,700}the confirmation control is the stable centered pointer target/);
-  assert.match(source, /const confirmHandled = page\.waitForEvent\("dialog", \{ timeout: 10_000 \}\)[\s\S]{0,300}dialog\.accept\(\)[\s\S]{0,100}dialog\.dismiss\(\)/);
-  assert.match(source, /const activateControl = async \(\) => \{[\s\S]{0,180}if \(!hasTouch\)[\s\S]{0,120}control\.click\(\{ timeout: 10_000 \}\)[\s\S]{0,300}expect\(control\)\.toBeEnabled[\s\S]{0,500}control\.tap\(\{ timeout: 10_000, scroll: "none" \}\)/);
-  assert.doesNotMatch(source, /control\.tap\(\{[^}]*position:/);
+  const confirmationSource = source.slice(
+    source.indexOf('async function clickAndAcceptConfirm('),
+    source.indexOf('async function deleteSubmittedImportThroughOwnerUi('),
+  );
+  assert.match(confirmationSource, /html \{ scroll-behavior: auto !important; \}/);
+  assert.match(confirmationSource, /scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)/);
+  assert.match(confirmationSource, /rootClientWidth = document\.documentElement\.clientWidth/);
+  assert.match(confirmationSource, /hasHorizontalLayoutOverflow\(sample\)/);
+  assert.match(confirmationSource, /CONFIRM_LAYOUT_OVERFLOW/);
+  assert.match(confirmationSource, /CONFIRM_TARGET_OUTSIDE_VISUAL_VIEWPORT/);
+  assert.match(confirmationSource, /document\.elementFromPoint\(point\.x, point\.y\)/);
+  assert.match(confirmationSource, /control\.tap\(\{ trial: true, timeout: 10_000, scroll: "none" \}\)/);
+  assert.match(confirmationSource, /const confirmHandled = page\.waitForEvent\("dialog", \{ timeout: 10_000 \}\)[\s\S]*dialog\.accept\(\)[\s\S]*dialog\.dismiss\(\)/);
+  assert.match(confirmationSource, /const activateControl = async \(\) => \{[\s\S]*control\.click\(\{ timeout: 10_000 \}\)[\s\S]*control\.tap\(\{ timeout: 10_000, scroll: "none" \}\)/);
+  assert.doesNotMatch(confirmationSource, /control\.tap\(\{[^}]*position:/);
+  assert.doesNotMatch(confirmationSource, /force:\s*true|noWaitAfter:/);
+  assert.match(confirmationSource, /finally \{[\s\S]*smoothScrollOverride\.evaluate/);
   assert.match(source, /isSuccessfulReviewNavigation\(\{ committed, \.\.\.observation \}\)/);
-  assert.match(source, /function safeEvidenceErrorSummary\([\s\S]{0,700}\^\(REVIEW_\[A-Z0-9_\]\+\)[\s\S]{0,500}safeErrorSummary\(error\)/);
+  assert.match(source, /function safeEvidenceErrorSummary\([\s\S]{0,700}\(\?:REVIEW\|CONFIRM\)[\s\S]{0,500}safeErrorSummary\(error\)/);
   assert.match(source, /let evidenceStage = "import_submission"[\s\S]{0,7000}evidenceStage = "review_link"[\s\S]{0,7000}\$\{evidenceStage\}:\$\{safeEvidenceErrorSummary\(evidenceError\)\}/);
   assert.match(source, /Promise\.allSettled\(\[[\s\S]{0,120}confirmHandled,[\s\S]{0,80}activateControl\(\)[\s\S]{0,700}UNEXPECTED_DIALOG_TYPE/);
   assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await clickAndAcceptConfirm\([\s\S]{0,220}deleteImportCopy[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);

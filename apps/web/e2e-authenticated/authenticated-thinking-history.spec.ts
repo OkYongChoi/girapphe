@@ -12,7 +12,9 @@ import {
   type TestInfo,
 } from "@playwright/test";
 import {
+  classifyConfirmLocatorActivationFailure,
   classifyReviewLocatorActivationFailure,
+  hasHorizontalLayoutOverflow,
   isSuccessfulReviewNavigation,
 } from "../scripts/authenticated-overlay-network.mjs";
 import { EXTRA_EN_MESSAGES } from "../src/i18n/catalogs/extended/en";
@@ -184,61 +186,133 @@ async function clickAndAcceptConfirm(
   const smoothScrollOverride = await page.addStyleTag({
     content: "html { scroll-behavior: auto !important; }",
   });
-  await expect.poll(async () => control.evaluate(async (element) => {
-    element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
-    await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
-    const firstBounds = element.getBoundingClientRect();
-    await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
-    const bounds = element.getBoundingClientRect();
-    const point = {
-      x: bounds.left + bounds.width / 2,
-      y: bounds.top + bounds.height / 2,
-    };
-    const hitTarget = document.elementFromPoint(point.x, point.y);
-    return Math.abs(firstBounds.left - bounds.left) < 0.5
-      && Math.abs(firstBounds.top - bounds.top) < 0.5
-      && Math.abs(firstBounds.width - bounds.width) < 0.5
-      && Math.abs(firstBounds.height - bounds.height) < 0.5
-      && bounds.width > 0
-      && bounds.height > 0
-      && hitTarget !== null
-      && (hitTarget === element || element.contains(hitTarget));
-  }), {
-    message: "the confirmation control is the stable centered pointer target",
-    timeout: 10_000,
-    intervals: [100, 250, 500],
-  }).toBe(true);
-
-  let dialogType: string | null = null;
-  const confirmHandled = page.waitForEvent("dialog", { timeout: 10_000 })
-    .then(async (dialog) => {
-      dialogType = dialog.type();
-      if (dialogType === "confirm") await dialog.accept();
-      else await dialog.dismiss();
-    });
-  const activateControl = async () => {
-    if (!hasTouch) {
-      await control.click({ timeout: 10_000 });
-      return;
+  try {
+    let readiness: string = "unstable_or_obscured";
+    try {
+      await expect.poll(async () => {
+        const sample = await control.evaluate(async (element) => {
+          element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
+          await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+          const firstBounds = element.getBoundingClientRect();
+          const firstViewport = window.visualViewport
+            ? {
+              left: window.visualViewport.offsetLeft,
+              top: window.visualViewport.offsetTop,
+              width: window.visualViewport.width,
+              height: window.visualViewport.height,
+            }
+            : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+          await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+          const bounds = element.getBoundingClientRect();
+          const viewport = window.visualViewport
+            ? {
+              left: window.visualViewport.offsetLeft,
+              top: window.visualViewport.offsetTop,
+              width: window.visualViewport.width,
+              height: window.visualViewport.height,
+            }
+            : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+          const viewportIsStable = Math.abs(firstViewport.left - viewport.left) < 0.5
+            && Math.abs(firstViewport.top - viewport.top) < 0.5
+            && Math.abs(firstViewport.width - viewport.width) < 0.5
+            && Math.abs(firstViewport.height - viewport.height) < 0.5;
+          const documentWidth = Math.max(
+            document.documentElement.scrollWidth,
+            document.body?.scrollWidth ?? 0,
+          );
+          const rootClientWidth = document.documentElement.clientWidth;
+          const viewportRight = viewport.left + viewport.width;
+          const viewportBottom = viewport.top + viewport.height;
+          if (
+            bounds.left < viewport.left - 1
+            || bounds.right > viewportRight + 1
+            || bounds.top < viewport.top - 1
+            || bounds.bottom > viewportBottom + 1
+          ) {
+            return { documentWidth, rootClientWidth, readiness: "outside_visual_viewport" };
+          }
+          const point = {
+            x: bounds.left + bounds.width / 2,
+            y: bounds.top + bounds.height / 2,
+          };
+          const hitTarget = document.elementFromPoint(point.x, point.y);
+          return {
+            documentWidth,
+            rootClientWidth,
+            readiness: viewportIsStable
+              && Math.abs(firstBounds.left - bounds.left) < 0.5
+              && Math.abs(firstBounds.top - bounds.top) < 0.5
+              && Math.abs(firstBounds.width - bounds.width) < 0.5
+              && Math.abs(firstBounds.height - bounds.height) < 0.5
+              && bounds.width > 0
+              && bounds.height > 0
+              && hitTarget !== null
+              && (hitTarget === element || element.contains(hitTarget))
+              ? "ready"
+              : "unstable_or_obscured",
+          };
+        });
+        readiness = hasHorizontalLayoutOverflow(sample)
+          ? "layout_overflow"
+          : sample.readiness;
+        return readiness;
+      }, {
+        message: "the confirmation control is stable inside the visual viewport and is the pointer target",
+        timeout: 10_000,
+        intervals: [100, 250, 500],
+      }).toBe("ready");
+    } catch (error) {
+      const code = readiness === "layout_overflow"
+        ? "CONFIRM_LAYOUT_OVERFLOW"
+        : readiness === "outside_visual_viewport"
+          ? "CONFIRM_TARGET_OUTSIDE_VISUAL_VIEWPORT"
+          : "CONFIRM_TARGET_NOT_ACTIONABLE";
+      throw new Error(`${code}:${failureFingerprint(error)}`);
     }
-    await expect(control).toBeEnabled({ timeout: 10_000 });
-    // The control is already centered and hit-tested. Keep the real touch
-    // action unforced while preventing a second locator scroll from moving it.
-    await control.tap({ timeout: 10_000, scroll: "none" });
-  };
-  const [dialogResult, activationResult] = await Promise.allSettled([
-    confirmHandled,
-    activateControl(),
-  ]);
-  await smoothScrollOverride.evaluate((element) => {
-    element.parentNode?.removeChild(element);
-  }).catch(() => undefined);
-  if (activationResult.status === "rejected" && dialogResult.status === "rejected") {
-    throw activationResult.reason;
+
+    if (hasTouch) {
+      try {
+        await control.tap({ trial: true, timeout: 10_000, scroll: "none" });
+      } catch (error) {
+        throw new Error(classifyConfirmLocatorActivationFailure(error));
+      }
+    }
+
+    let dialogType: string | null = null;
+    const confirmHandled = page.waitForEvent("dialog", { timeout: 10_000 })
+      .then(async (dialog) => {
+        dialogType = dialog.type();
+        if (dialogType === "confirm") await dialog.accept();
+        else await dialog.dismiss();
+      });
+    const activateControl = async () => {
+      if (!hasTouch) {
+        await control.click({ timeout: 10_000 });
+        return;
+      }
+      // The control is already centered and hit-tested. Keep the real touch
+      // action unforced while preventing a second locator scroll from moving it.
+      await control.tap({ timeout: 10_000, scroll: "none" });
+    };
+    const [dialogResult, activationResult] = await Promise.allSettled([
+      confirmHandled,
+      activateControl(),
+    ]);
+    if (activationResult.status === "rejected" && dialogResult.status === "rejected") {
+      throw new Error(classifyConfirmLocatorActivationFailure(activationResult.reason));
+    }
+    if (dialogResult.status === "rejected") {
+      throw new Error(`CONFIRM_DIALOG_MISSING:${failureFingerprint(dialogResult.reason)}`);
+    }
+    if (dialogType !== "confirm") throw new Error(`UNEXPECTED_DIALOG_TYPE:${dialogType ?? "none"}`);
+    if (activationResult.status === "rejected") {
+      throw new Error(classifyConfirmLocatorActivationFailure(activationResult.reason));
+    }
+  } finally {
+    await smoothScrollOverride.evaluate((element) => {
+      element.parentNode?.removeChild(element);
+    }).catch(() => undefined);
   }
-  if (dialogResult.status === "rejected") throw dialogResult.reason;
-  if (dialogType !== "confirm") throw new Error(`UNEXPECTED_DIALOG_TYPE:${dialogType ?? "none"}`);
-  if (activationResult.status === "rejected") throw activationResult.reason;
 }
 
 async function deleteSubmittedImportThroughOwnerUi(
@@ -294,7 +368,7 @@ function safeErrorSummary(error: unknown): string {
 
 function safeEvidenceErrorSummary(error: unknown): string {
   const errorCode = error instanceof Error
-    ? /^(REVIEW_[A-Z0-9_]+)(?::(?:[0-9]{3}|[0-9a-f]{12}))?$/.exec(error.message)?.[1]
+    ? /^((?:REVIEW|CONFIRM)_[A-Z0-9_]+)(?::(?:[0-9]{3}|[0-9a-f]{12}))?$/.exec(error.message)?.[1]
     : undefined;
   return errorCode
     ? `${errorCode}:${safeErrorSummary(error)}`
