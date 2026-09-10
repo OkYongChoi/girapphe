@@ -307,6 +307,31 @@ export type PrivateKnowledgeGraph = {
   edges: PrivateKnowledgeEdge[];
 };
 
+/**
+ * The graph canvas only needs identity and display fields for private nodes.
+ * Keep rich bundle content on the already-loaded knowledge-item surface rather
+ * than serializing it again in the graph overlay action.
+ */
+export type PrivateKnowledgeOverlayNode = Pick<
+  PrivateKnowledgeNode,
+  'id' | 'graph_node_id' | 'knowledge_item_id' | 'label' | 'topic'
+>;
+
+export type PrivateKnowledgeOverlayEdge = Pick<
+  PrivateKnowledgeEdge,
+  'id' | 'source' | 'target' | 'type' | 'weight'
+>;
+
+export type PrivateKnowledgeGraphOverlay = {
+  nodes: PrivateKnowledgeOverlayNode[];
+  edges: PrivateKnowledgeOverlayEdge[];
+};
+
+export type KnowledgeGraphOverlay = {
+  privateGraph: PrivateKnowledgeGraphOverlay;
+  graphLinkTargets: KnowledgeLinkTarget[];
+};
+
 export type KnowledgeLinkTarget = {
   id: string;
   label: string;
@@ -3316,6 +3341,157 @@ export async function getPrivateKnowledgeGraphForUser(userId: string): Promise<P
     created_at: new Date(String(row.created_at)).toISOString(),
   }));
   return { nodes, edges };
+}
+
+function toPrivateKnowledgeGraphOverlay(graph: PrivateKnowledgeGraph): PrivateKnowledgeGraphOverlay {
+  return {
+    nodes: graph.nodes.map((node) => ({
+      id: node.id,
+      graph_node_id: node.graph_node_id,
+      knowledge_item_id: node.knowledge_item_id,
+      label: node.label,
+      topic: node.topic,
+    })),
+    edges: graph.edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      type: edge.type,
+      weight: edge.weight,
+    })),
+  };
+}
+
+function sortKnowledgeLinkTargets(targets: KnowledgeLinkTarget[]): KnowledgeLinkTarget[] {
+  return targets.sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
+}
+
+/**
+ * Load only the owner-scoped data needed when the graph canvas opens.
+ *
+ * The full private graph remains available to detail and intelligence
+ * surfaces. This variant avoids sending bundle content, evidence metadata,
+ * and the complete public target catalog through the authenticated Server
+ * Action. Public labels are limited to endpoints of the owner's private
+ * edges, which are the only extra cards the graph can render.
+ */
+export async function getKnowledgeGraphOverlayForUser(userId: string): Promise<KnowledgeGraphOverlay> {
+  if (!process.env.DATABASE_URL) {
+    const graph = await getPrivateKnowledgeGraphForUser(userId);
+    const publicTargets = new Map<string, KnowledgeLinkTarget>();
+    for (const edge of graph.edges) {
+      for (const endpoint of [edge.source, edge.target]) {
+        if (!endpoint.startsWith('graph_')) continue;
+        const node = GRAPH_NODES.find((candidate) => `graph_${candidate.id}` === endpoint);
+        if (!node) continue;
+        publicTargets.set(endpoint, {
+          id: endpoint,
+          label: node.label,
+          scope: 'public',
+          topic: node.domain,
+        });
+      }
+    }
+    return {
+      privateGraph: toPrivateKnowledgeGraphOverlay(graph),
+      graphLinkTargets: sortKnowledgeLinkTargets([...publicTargets.values()]),
+    };
+  }
+
+  await ensureKnowledgeIngestionSchema();
+  const [nodeResult, edgeResult] = await Promise.all([
+    pool.query<Record<string, unknown>>(
+      `SELECT n.id AS graph_node_id, n.knowledge_item_id, n.label, n.topic
+       FROM user_graph_nodes n JOIN user_knowledge_items i ON i.id = n.knowledge_item_id AND i.user_id = n.user_id
+       WHERE n.user_id = $1 AND n.deleted_at IS NULL
+         AND i.deleted_at IS NULL AND i.archived_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM knowledge_item_supersessions s
+           WHERE s.user_id = i.user_id AND s.superseded_item_id = i.id
+         )
+       ORDER BY n.created_at DESC`,
+      [userId]
+    ),
+    pool.query<Record<string, unknown>>(
+      `SELECT e.id, e.source_private_node_id, e.source_public_node_id,
+        e.target_private_node_id, e.target_public_node_id,
+        sn.knowledge_item_id AS source_item_id, tn.knowledge_item_id AS target_item_id,
+        e.type, e.weight,
+        source_public.label AS source_public_label, source_public.domain AS source_public_topic,
+        target_public.label AS target_public_label, target_public.domain AS target_public_topic
+       FROM user_graph_edges e
+       LEFT JOIN user_graph_nodes sn ON sn.id = e.source_private_node_id
+         AND sn.user_id = e.user_id AND sn.deleted_at IS NULL
+       LEFT JOIN user_graph_nodes tn ON tn.id = e.target_private_node_id
+         AND tn.user_id = e.user_id AND tn.deleted_at IS NULL
+       LEFT JOIN user_knowledge_items si ON si.id = sn.knowledge_item_id AND si.user_id = sn.user_id
+         AND si.deleted_at IS NULL AND si.archived_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM knowledge_item_supersessions source_supersession
+           WHERE source_supersession.user_id = si.user_id
+             AND source_supersession.superseded_item_id = si.id
+         )
+       LEFT JOIN user_knowledge_items ti ON ti.id = tn.knowledge_item_id AND ti.user_id = tn.user_id
+         AND ti.deleted_at IS NULL AND ti.archived_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM knowledge_item_supersessions target_supersession
+           WHERE target_supersession.user_id = ti.user_id
+             AND target_supersession.superseded_item_id = ti.id
+         )
+       LEFT JOIN graph_nodes source_public ON source_public.id = e.source_public_node_id
+       LEFT JOIN graph_nodes target_public ON target_public.id = e.target_public_node_id
+       WHERE e.user_id = $1 AND e.deleted_at IS NULL
+         AND (e.source_private_node_id IS NULL OR si.id IS NOT NULL)
+         AND (e.target_private_node_id IS NULL OR ti.id IS NOT NULL)
+       ORDER BY e.created_at`,
+      [userId]
+    ),
+  ]);
+
+  const nodes = nodeResult.rows.map<PrivateKnowledgeOverlayNode>((row) => ({
+    id: `personal:${String(row.knowledge_item_id)}`,
+    graph_node_id: String(row.graph_node_id),
+    knowledge_item_id: String(row.knowledge_item_id),
+    label: String(row.label),
+    topic: String(row.topic),
+  }));
+  const publicTargets = new Map<string, KnowledgeLinkTarget>();
+  const edges = edgeResult.rows.map<PrivateKnowledgeOverlayEdge>((row) => {
+    const sourcePublicId = row.source_public_node_id ? String(row.source_public_node_id) : null;
+    const targetPublicId = row.target_public_node_id ? String(row.target_public_node_id) : null;
+    if (sourcePublicId && row.source_public_label) {
+      publicTargets.set(`graph_${sourcePublicId}`, {
+        id: `graph_${sourcePublicId}`,
+        label: String(row.source_public_label),
+        scope: 'public',
+        topic: String(row.source_public_topic ?? 'general'),
+      });
+    }
+    if (targetPublicId && row.target_public_label) {
+      publicTargets.set(`graph_${targetPublicId}`, {
+        id: `graph_${targetPublicId}`,
+        label: String(row.target_public_label),
+        scope: 'public',
+        topic: String(row.target_public_topic ?? 'general'),
+      });
+    }
+    return {
+      id: String(row.id),
+      source: row.source_private_node_id
+        ? `personal:${String(row.source_item_id)}`
+        : `graph_${String(row.source_public_node_id)}`,
+      target: row.target_private_node_id
+        ? `personal:${String(row.target_item_id)}`
+        : `graph_${String(row.target_public_node_id)}`,
+      type: row.type as KnowledgeRelationType,
+      weight: Number(row.weight),
+    };
+  });
+
+  return {
+    privateGraph: { nodes, edges },
+    graphLinkTargets: sortKnowledgeLinkTargets([...publicTargets.values()]),
+  };
 }
 
 export async function getKnowledgeLinkTargetsForUser(userId: string, queryInput = ''): Promise<KnowledgeLinkTarget[]> {
