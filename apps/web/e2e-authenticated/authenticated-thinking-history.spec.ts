@@ -443,11 +443,18 @@ async function captureReviewTapGeometry(page: Page, link: Locator) {
       .map((candidate) => {
         const rect = candidate.getBoundingClientRect();
         const style = getComputedStyle(candidate);
+        const className = candidate.className;
+        let classFingerprint = 2_166_136_261;
+        for (let index = 0; index < Math.min(className.length, 512); index += 1) {
+          classFingerprint ^= className.charCodeAt(index);
+          classFingerprint = Math.imul(classFingerprint, 16_777_619);
+        }
         let depth = 0;
         for (let parent = candidate.parentElement; parent; parent = parent.parentElement) depth += 1;
         return {
           tag: candidate.tagName.toLowerCase(),
-          classes: candidate.className.split(/\s+/u).filter(Boolean).slice(0, 12).join(" "),
+          classFingerprint: classFingerprint >>> 0,
+          classLength: Math.min(className.length, 512),
           depth,
           rect: {
             left: Math.round(rect.left * 100) / 100,
@@ -480,6 +487,8 @@ async function captureReviewTapGeometry(page: Page, link: Locator) {
       ))
       .sort((left, right) => right.depth - left.depth || right.rect.width - left.rect.width)
       .slice(0, 48);
+    const viewportMetaContent = document.querySelector('meta[name="viewport"]')
+      ?.getAttribute("content") ?? "";
     return {
       scrollY: window.scrollY,
       rootScrollTop: document.scrollingElement?.scrollTop ?? null,
@@ -488,7 +497,12 @@ async function captureReviewTapGeometry(page: Page, link: Locator) {
       outerWidth: window.outerWidth,
       devicePixelRatio: window.devicePixelRatio,
       screenWidth: window.screen.width,
-      viewportMeta: document.querySelector('meta[name="viewport"]')?.getAttribute("content") ?? null,
+      viewportMeta: {
+        present: viewportMetaContent.length > 0,
+        deviceWidth: /(?:^|,)\s*width=device-width(?:\s*,|$)/i.test(viewportMetaContent),
+        initialScaleOne: /(?:^|,)\s*initial-scale=1(?:\.0+)?(?:\s*,|$)/i.test(viewportMetaContent),
+        length: Math.min(viewportMetaContent.length, 256),
+      },
       documentClientWidth: document.documentElement.clientWidth,
       documentWidth: document.documentElement.scrollWidth,
       documentHeight: document.documentElement.scrollHeight,
@@ -559,42 +573,40 @@ async function activateExactReviewLink(
     throw new Error("REVIEW_TARGET_INVALID");
   }
 
-  const smoothScrollOverride = hasTouch
-    ? null
-    : await page.addStyleTag({
-      content: "html { scroll-behavior: auto !important; }",
+  const smoothScrollOverride = await page.addStyleTag({
+    content: "html { scroll-behavior: auto !important; }",
+  });
+  await expect.poll(async () => {
+    return link.evaluate(async (element) => {
+      element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
+      await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+      const firstBounds = element.getBoundingClientRect();
+      await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+      const bounds = element.getBoundingClientRect();
+      const boundsAreStable = Math.abs(firstBounds.left - bounds.left) < 0.5
+        && Math.abs(firstBounds.top - bounds.top) < 0.5
+        && Math.abs(firstBounds.width - bounds.width) < 0.5
+        && Math.abs(firstBounds.height - bounds.height) < 0.5;
+      const point = {
+        x: bounds.left + bounds.width / 2,
+        y: bounds.top + bounds.height / 2,
+      };
+      const hitTarget = document.elementFromPoint(point.x, point.y);
+      const ready = boundsAreStable
+        && element instanceof HTMLAnchorElement
+        && bounds.width > 0
+        && bounds.height > 0
+        && hitTarget !== null
+        && (hitTarget === element || element.contains(hitTarget))
+        && element.href.length > 0;
+      return ready;
     });
+  }, {
+    message: "the stable centered review link is the next pointer target",
+    timeout: 10_000,
+    intervals: [100, 250, 500],
+  }).toBe(true);
   if (!hasTouch) {
-    await expect.poll(async () => {
-      return link.evaluate(async (element) => {
-        element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
-        await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
-        const firstBounds = element.getBoundingClientRect();
-        await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
-        const bounds = element.getBoundingClientRect();
-        const boundsAreStable = Math.abs(firstBounds.left - bounds.left) < 0.5
-          && Math.abs(firstBounds.top - bounds.top) < 0.5
-          && Math.abs(firstBounds.width - bounds.width) < 0.5
-          && Math.abs(firstBounds.height - bounds.height) < 0.5;
-        const point = {
-          x: bounds.left + bounds.width / 2,
-          y: bounds.top + bounds.height / 2,
-        };
-        const hitTarget = document.elementFromPoint(point.x, point.y);
-        const ready = boundsAreStable
-          && element instanceof HTMLAnchorElement
-          && bounds.width > 0
-          && bounds.height > 0
-          && hitTarget !== null
-          && (hitTarget === element || element.contains(hitTarget))
-          && element.href.length > 0;
-        return ready;
-      });
-    }, {
-      message: "the stable centered review link is the next pointer target",
-      timeout: 10_000,
-      intervals: [100, 250, 500],
-    }).toBe(true);
     try {
       await link.click({ trial: true, timeout: 10_000 });
     } catch (error) {
@@ -604,10 +616,9 @@ async function activateExactReviewLink(
 
   const activate = async () => {
     if (hasTouch) {
-      // Keep one action in charge of mobile scrolling, stability, hit testing,
-      // and trusted touch dispatch. A separate pre-scroll races Playwright's
-      // own locator transaction and can move the live target between checks.
-      await link.tap({ timeout: 10_000 });
+      // The centered target is already stable. Preserve Playwright's visibility,
+      // stability, hit-target, and trusted-touch checks without a second scroll.
+      await link.tap({ timeout: 10_000, scroll: "none" });
       return;
     }
     await link.focus();

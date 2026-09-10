@@ -203,7 +203,7 @@ function DraftRelationsEditor({
   const [relations, setRelations] = useState(initialRelations);
 
   return (
-    <fieldset className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+    <fieldset className="min-w-0 max-w-full rounded-xl border border-slate-200 bg-slate-50/70 p-3">
       <legend className="px-1 text-xs font-semibold text-slate-700">{t('inbox.relationships')}</legend>
       <p className="mb-3 text-xs leading-relaxed text-slate-500">
         {t('inbox.relationshipsBody')}
@@ -227,7 +227,7 @@ function DraftRelationsEditor({
       ) : (
         <div className="space-y-2">
           {relations.map((relation, index) => (
-            <div key={`${draftId}-${index}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_8rem_7rem_9rem_auto]">
+            <div key={`${draftId}-${index}`} className="grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_10rem_8rem_7rem_9rem_auto]">
               <label className="sr-only" htmlFor={`${draftId}-relation-target-${index}`}>{t('inbox.relationTarget')}</label>
               <input
                 id={`${draftId}-relation-target-${index}`}
@@ -240,7 +240,7 @@ function DraftRelationsEditor({
                     : item));
                 }}
                 placeholder={t('inbox.relationTargetPlaceholder')}
-                className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                className="min-h-10 min-w-0 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               />
               <label className="sr-only" htmlFor={`${draftId}-relation-evidence-${index}`}>{t('inbox.relationEvidence')}</label>
               <input
@@ -253,7 +253,7 @@ function DraftRelationsEditor({
                 }}
                 placeholder={t('inbox.relationEvidencePlaceholder')}
                 title={t('inbox.relationEvidenceHint')}
-                className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                className="min-h-10 min-w-0 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               />
               <label className="sr-only" htmlFor={`${draftId}-relation-type-${index}`}>{t('inbox.relationType')}</label>
               <select
@@ -265,7 +265,7 @@ function DraftRelationsEditor({
                     ? { ...item, type: normalizeRelationType(event.target.value) }
                     : item));
                 }}
-                className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                className="min-h-10 min-w-0 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               >
                 {RELATION_TYPES.map((type) => <option key={type} value={type}>{t(`inbox.relation.${type}` as MessageKey)}</option>)}
               </select>
@@ -280,7 +280,7 @@ function DraftRelationsEditor({
                     ? { ...item, direction: event.target.value === 'incoming' ? 'incoming' : 'outgoing' }
                     : item));
                 }}
-                className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                className="min-h-10 min-w-0 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="outgoing">{relation.type === 'related' || relation.type === 'equivalent_to' ? t('inbox.relationTwoWay') : t('inbox.relationThisToTarget')}</option>
                 <option value="incoming">{t('inbox.relationTargetToThis')}</option>
@@ -302,7 +302,7 @@ function DraftRelationsEditor({
                     : item));
                 }}
                 title={t('inbox.relationWeightHint')}
-                className="min-h-10 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                className="min-h-10 min-w-0 rounded-lg border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               />
               <button
                 type="button"
@@ -375,7 +375,7 @@ function DraftCardEditor({
     : null;
 
   return (
-    <article className={`rounded-2xl border bg-white shadow-sm transition ${selected ? 'border-blue-300 ring-2 ring-blue-100' : 'border-slate-200'}`}>
+    <article className={`min-w-0 rounded-2xl border bg-white shadow-sm transition ${selected ? 'border-blue-300 ring-2 ring-blue-100' : 'border-slate-200'}`}>
       <div className="flex items-start gap-3 border-b border-slate-100 p-4 md:p-5">
         <input
           id={`select-${id}`}
@@ -394,7 +394,7 @@ function DraftCardEditor({
             {[formatObservedAt(observedAt, locale), t('topic.graph.evidence', { count: evidenceCount }), `${relations.length} ${t('bundle.visual.relationship')}`]
               .filter(Boolean).join(' · ')}
           </span>
-          <span className="mt-1 block font-mono text-[10px] text-slate-400">{id}</span>
+          <span className="mt-1 block break-all font-mono text-[10px] text-slate-400">{id}</span>
         </label>
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${selected ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
           {dependencyRequired ? t('inbox.requiredByRelation') : selected ? t('inbox.selectedState') : t('inbox.notSelectedState')}
@@ -416,7 +416,7 @@ function DraftCardEditor({
           {t('inbox.editCandidate')} <span aria-hidden="true" className="ml-1 text-slate-400 group-open:hidden">+</span><span aria-hidden="true" className="ml-1 hidden text-slate-400 group-open:inline">−</span>
         </summary>
         <form
-          className="grid gap-4 border-t border-slate-100 p-4 md:p-5"
+          className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 border-t border-slate-100 p-4 md:p-5"
           onChange={() => onDirtyChange(true)}
           action={async (formData) => {
             try {
@@ -584,7 +584,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
   };
 
   return (
-    <div className="grid gap-6">
+    <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)] gap-6">
       <section className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 md:p-5" aria-label={t('inbox.currentScope')}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -594,9 +594,9 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
               {t('inbox.approvalBoundary')}
             </p>
           </div>
-          <div className="rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-right">
-            <p className="font-mono text-[10px] text-slate-500">{t('inbox.batchId', { id: batchId })}</p>
-            {sourceReference ? <p className="mt-1 max-w-xs truncate text-xs text-slate-600">{t('inbox.sourceId', { reference: sourceReference })}</p> : null}
+          <div className="min-w-0 max-w-full rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-right">
+            <p className="break-all font-mono text-[10px] text-slate-500">{t('inbox.batchId', { id: batchId })}</p>
+            {sourceReference ? <p className="mt-1 max-w-xs break-all text-xs text-slate-600">{t('inbox.sourceId', { reference: sourceReference })}</p> : null}
             {sourceUrl.startsWith('https://') ? <a href={sourceUrl} target="_blank" rel="noreferrer noopener" className="mt-1 block text-xs font-semibold text-blue-700 hover:underline">{t('inbox.openSelectedSource')} ↗</a> : null}
           </div>
         </div>
@@ -706,7 +706,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
           <LocalizedLink href="/knowledge-inbox" className="mt-4 inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">{t('inbox.back')}</LocalizedLink>
         </section>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
           {drafts.map((draft) => {
             const id = readString(asRecord(draft), 'id', 'draft_id');
             return (

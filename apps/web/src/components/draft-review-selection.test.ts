@@ -71,6 +71,12 @@ test('opens the candidate resolution boundary with a locale-aware document navig
   assert.doesNotMatch(reviewLink, /LocalizedLink|router\.(?:push|replace)/);
   assert.match(source, /md:sticky md:top-\[7\.5rem\]/);
   assert.doesNotMatch(source, /className="sticky top-\[7\.5rem\]/);
+  assert.match(source, /<article className=\{`min-w-0 rounded-2xl/);
+  assert.match(source, /block break-all font-mono text-\[10px\]/);
+  assert.match(source, /grid min-w-0 gap-2 lg:grid-cols-\[minmax\(0,1fr\)_10rem_8rem_7rem_9rem_auto\]/);
+  assert.match(source, /<div className="grid w-full min-w-0 grid-cols-\[minmax\(0,1fr\)\] gap-6">/);
+  assert.match(source, /<div className="grid min-w-0 grid-cols-\[minmax\(0,1fr\)\] gap-4">/);
+  assert.doesNotMatch(source, /sm:grid-cols-\[minmax\(0,1fr\)_10rem_8rem_7rem_9rem_auto\]/);
 });
 
 test('confirmation-driven knowledge mutations stay inert until client hydration', async () => {

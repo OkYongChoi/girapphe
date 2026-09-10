@@ -1,11 +1,9 @@
 # Authenticated Thinking History Evidence
 
-Status: The earlier authenticated Preview path passed in run `34038249111`.
-Run `34411158164` then exposed two distinct harness failures: the mobile review
-link did not commit its target URL, and the owner-data cleanup route returned
-`500`, leaving import telemetry that contaminated the following desktop test.
-The isolated recovery and diagnostic changes still require a credentialed
-Preview run on the exact new commit.
+Status: Implemented. Release evidence is accepted only when the manually
+dispatched authenticated workflow verifies the exact open-PR or protected-main
+revision and every enabled desktop/mobile project, cleanup step, and privacy
+summary passes together.
 
 ## Scope
 
@@ -15,7 +13,10 @@ nodes and two independent private relationships so desktop and mobile projects
 can each dismiss one signal without sharing a destructive dependency. It then
 uses a generated ChatGPT-shaped file whose marker text exists only for that
 test. Setup also requires the synthetic owner to begin with zero ChatGPT import
-submission events. No real user content belongs in fixtures or artifacts.
+submission events. Before reseeding, it deletes reuse activity only for that
+synthetic owner and the four deterministic fixture item IDs, keeping repeated
+context-pack runs bounded without touching another owner or item. No real user
+content belongs in fixtures or artifacts.
 
 The test asserts:
 
@@ -65,13 +66,17 @@ redirect itself fails after the server commit, the unique synthetic marker
 recovers the batch ID from the owner export first. One project therefore cannot
 satisfy or contaminate the other's privacy evidence.
 
-On the mobile long-form review page, the resolution link is centered below the
-sticky navigation with smooth scrolling temporarily disabled. Its bounds must
-stay unchanged across two animation frames, and its midpoint must be the
-browser's actual pointer target. Playwright then performs a real unforced
-locator `tap`, including its built-in actionability and final hit-target checks,
-on mobile. Desktop separately performs a trial actionability check and activates
-the same link with focused-keyboard `Enter`;
+On the mobile long-form review page, the site header and batch action bar are
+static. The candidate grid must stay within the visual viewport even when a
+title, source reference, identifier, notation example, or form control has a
+large intrinsic width. With smooth scrolling temporarily disabled, the test
+centers the resolution link and requires unchanged bounds across two animation
+frames plus a midpoint whose browser hit target is the link. Playwright then
+performs one real unforced locator `tap({ scroll: "none" })`: its visibility,
+stability, enabled-state, and final hit-target checks remain active, but it
+cannot perform a second internal scroll after the deterministic centering.
+Desktop uses the same centering and hit-test precondition, then separately
+performs a trial actionability check and activates the link with focused-keyboard `Enter`;
 coordinate-level page input, forced clicks, and DOM-dispatched clicks are not
 accepted as evidence. The href must be the same-origin, exact batch and draft
 resolution route. Request observers start only after the pre-activation checks
@@ -100,8 +105,10 @@ converts the failed UI evidence into a pass.
 Authenticated traces remain disabled because they can retain session headers.
 The structured fallback and browser-error summary records only stable
 route/outcome codes, HTTP status, counts, and short error fingerprints; it does
-not include request or response bodies, headers, or Clerk identity. Browser
-console and page errors are fingerprinted before assertion output. Playwright's
+not include request or response bodies, headers, or Clerk identity. Optional
+layout diagnostics retain bounded numeric geometry, computed layout properties,
+and a numeric class fingerprint instead of raw class names or authored text.
+Browser console and page errors are fingerprinted before assertion output. Playwright's
 failure HTML and synthetic-only screenshots may still show test-authored marker
 strings or opaque route IDs needed to diagnose a failed locator. Those artifacts
 contain no real user content, use only the dedicated synthetic account, and are
@@ -122,13 +129,13 @@ explicitly enabled after the dedicated production synthetic user is included
 in the Thinking History rollout allowlist. A passing Preview run must not be
 reported as production activation.
 
-Live PostgreSQL run `34305134986` passed the prior selected-export concurrency
-and deletion fixture. The current fixture additionally snapshots the synthetic
+The selected-export concurrency and deletion fixture runs against the isolated
+Preview PostgreSQL database before deployment. The authenticated fixture also snapshots the synthetic
 owner's canonical knowledge, private/public graph, mastery, and ranking state
 before submission, then asserts immediately before approval that the snapshot
 is unchanged and that the exact pending batch has zero activation-linked rows.
-That new assertion is source-only until the isolated Preview PostgreSQL workflow
-passes on the exact new commit.
+Passing source or local fallback tests alone is not production or Preview proof;
+the workflow must exercise these boundaries against the revision it reports.
 
 Run the same project locally only with an isolated environment:
 
