@@ -273,6 +273,7 @@ test('knowledge data controls handoff uses localized identity-confirmation copy'
     'account.dataControlsHandoff.continue',
     'account.dataControlsHandoff.switchAccount',
     'account.dataControlsHandoff.switchAccountAria',
+    'account.data.metadataDescription',
   ] as const;
 
   for (const key of keys) {
@@ -287,6 +288,10 @@ test('knowledge data controls handoff uses localized identity-confirmation copy'
   assert.doesNotMatch(pageSource, />Confirm the browser account</u);
   assert.doesNotMatch(pageSource, /label="Use a different account"/u);
   assert.doesNotMatch(pageSource, /ariaLabel="Sign out of this browser/u);
+  assert.match(pageSource, /export async function generateMetadata\(\): Promise<Metadata>/u);
+  assert.match(pageSource, /title: t\('account\.dataControlsHandoff\.title'\)/u);
+  assert.match(pageSource, /description: t\('account\.data\.metadataDescription'\)/u);
+  assert.doesNotMatch(pageSource, /title: 'Knowledge data controls'/u);
 });
 
 test('ChatGPT quick guides separate web OAuth from server-side PAT use', () => {

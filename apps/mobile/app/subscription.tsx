@@ -1,9 +1,24 @@
+import { useEffect, useRef } from 'react';
 import { type Href, useRouter } from 'expo-router';
-import { Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Linking,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
 import { appBaseUrl, useSubscription, type SubscriptionPlan } from '@/subscriptions';
 import { buildMobileAuthContinuationParams } from '@/auth-continuation';
+import {
+  advanceDuplicateSubscriptionAnnouncement,
+  duplicateSubscriptionAnnouncementKey,
+} from '@/subscription-accessibility';
 
 const configuredTermsUrl = process.env.EXPO_PUBLIC_TERMS_URL?.trim();
 const configuredPrivacyUrl = process.env.EXPO_PUBLIC_PRIVACY_URL?.trim();
@@ -22,7 +37,8 @@ export default function SubscriptionScreen() {
   const router = useRouter();
   const auth = useMobileAuth();
   const subscription = useSubscription();
-  const { direction, formatDate, formatNumber, t } = useI18n();
+  const { direction, formatDate, formatNumber, locale, t } = useI18n();
+  const announcedDuplicateKey = useRef<string | null>(null);
   const active = subscription.activeSubscription;
   const legacyWebProvider = active?.provider === 'stripe'
     ? 'Stripe'
@@ -44,6 +60,26 @@ export default function SubscriptionScreen() {
   const accessThrough = accessThroughDate && Number.isFinite(accessThroughDate.getTime())
     ? formatDate(accessThroughDate, { dateStyle: 'medium' })
     : null;
+  const duplicateAnnouncement = [
+    t('subscription.duplicateTitle'),
+    t('subscription.duplicateBody'),
+  ].join('\n');
+  const duplicateAnnouncementKey = duplicateSubscriptionAnnouncementKey(
+    auth.userId,
+    locale,
+    subscription.duplicateDetected,
+  );
+
+  useEffect(() => {
+    const transition = advanceDuplicateSubscriptionAnnouncement(
+      announcedDuplicateKey.current,
+      duplicateAnnouncementKey,
+    );
+    announcedDuplicateKey.current = transition.key;
+    if (transition.shouldAnnounce && Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility(duplicateAnnouncement);
+    }
+  }, [duplicateAnnouncement, duplicateAnnouncementKey]);
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
@@ -58,7 +94,11 @@ export default function SubscriptionScreen() {
         </View>
 
         {subscription.duplicateDetected ? (
-          <View accessibilityRole="alert" style={styles.duplicateCard}>
+          <View
+            accessibilityLiveRegion="assertive"
+            accessibilityRole="alert"
+            style={styles.duplicateCard}
+          >
             <Text style={styles.duplicateTitle}>{t('subscription.duplicateTitle')}</Text>
             <Text style={styles.duplicateText}>{t('subscription.duplicateBody')}</Text>
             {supportUrl ? (

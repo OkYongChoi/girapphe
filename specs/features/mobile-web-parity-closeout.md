@@ -229,7 +229,8 @@ Out of scope:
   show their current identity and require explicit confirmation before
   continuing to the localized knowledge-data anchor, while signed-out browsers
   use the fixed allowlisted `returnTo`. No bearer token appears in a URL, and all
-  new UI copy exists in the six supported mobile locales with accessible states.
+  new UI copy exists in the six supported mobile locales with accessible states;
+  the browser handoff document title and description are localized as well.
 - [x] `AC-17`: Configured mobile sign-in and sign-up offer Clerk Hosted Auth
   alongside email. The Hosted Auth mode follows the visible form mode, returns
   through the configured app-scheme URL built by
@@ -241,8 +242,10 @@ Out of scope:
   `acquisitionBlocked` and `duplicateDetected` booleans. A block never exposes
   purchase plans, uses the pending-confirmation state, and offers a canonical
   refresh; a duplicate is an accessible visible alert with support recovery
-  when a safe support URL is configured. Neither state is inferred from store
-  callbacks or local purchase state.
+  when a safe support URL is configured. Its asynchronous arrival is announced
+  once for the current owner and locale on Android and iOS, and account or
+  locale changes cannot reuse a stale announcement identity. Neither state is
+  inferred from store callbacks or local purchase state.
 - [x] `AC-19`: Candidate batch responses set `requires_detailed_review` and a
   reason of `causal_relations` or `provenance` whenever a pending draft has
   proposed evidence or any relation. Mobile disables quick save-as-new and
@@ -250,10 +253,17 @@ Out of scope:
   first, then rejects causal and provenance quick approval with distinct `409`
   codes before its compatibility path can clear evidence or relationships.
 - [x] `AC-20`: The mobile Topic Hub response uses an explicit projection that
-  includes source evidence selectors and their polarity, quality, origin, and
-  confirmation metadata. Native Topic Hub renders only primitive source-position
-  values. Revision and supersession collections remain web-owned and are absent
-  from the mobile response.
+  includes an owner-scoped source for every retained evidence selector plus its
+  polarity, quality, origin, and confirmation metadata. The response caps items
+  at 200, sources and activity at 500 each, relations at 500, selectors at
+  1,000, and retained selector references per relation at 24. Native Topic Hub
+  renders only fixed, key-specific, bounded source-position values and
+  allowlists those keys again on-device. Malformed legacy selectors and their
+  relation references are omitted. Native localizes selector types, quality
+  values, and position keys in all six locales, and preserves left-to-right
+  technical rows in RTL UI.
+  Revision and supersession collections remain web-owned and are absent from
+  the mobile response.
 - [x] `AC-21`: New My Notes create and update calls use
   `POST /api/mobile?resource=notes`, which accepts only those two actions and is
   capped at 6,291,456 bytes. A maximally populated valid native expression,
@@ -284,9 +294,11 @@ the configured first-party web route, where authentication and owner scoping
 are enforced; they do not fetch an archive or raw conversation text into the
 app. Candidate quick approval is content-only: proposed evidence and every
 relationship fail closed before the compatibility path could submit empty
-evidence or relation arrays. Topic Hub exposes bounded selector positions but
-not raw source text, revision payloads, or supersession payloads. Signed-out
-users retain the existing local public Practice fallback.
+evidence or relation arrays. Topic Hub exposes bounded selector positions only
+when the matching owner-scoped source is also retained, including for
+cross-topic relationship evidence, but not raw source text, revision payloads,
+or supersession payloads. Signed-out users retain the existing local public
+Practice fallback.
 Neither native nor web authentication accepts a free-form post-authentication
 redirect. Native route identifiers map to compiled-in Expo routes; the dynamic
 topic is capped at 120 characters. Web accepts only exact canonical paths and
@@ -323,11 +335,11 @@ mutations.
 | `AC-13` | `apps/mobile/src/mobile-web-parity-regressions.test.ts` covers signed-out continuation, public-node validation, rejection of injected or mismatched route content, trusted current-locale overlays, one-time draft consumption, explicit unsaved copy, and the absence of a direct create-note mutation. |
 | `AC-14` | `packages/shared/src/knowledge-tags.test.mjs`, `apps/mobile/src/mobile-knowledge-tags.test.ts`, and `apps/mobile/src/mobile-notes-api-contract.test.ts` cover shared Unicode normalization, frequency ranking, direct and separator entry, chip removal, a closed and 24-result-bounded suggestion panel, uncommitted-draft submission, 44-point controls, picker reset wiring, and strict server parsing for create and edit. |
 | `AC-15` | `apps/mobile/src/auth-continuation.test.ts` covers every guarded native destination, bounded Topic Hub value, malformed route rejection, public-copy priority, and Clerk-owner keyed remount. `apps/web/src/lib/auth-return-to.test.ts` covers the exact web allowlist, ambiguous value rejection, localization after validation, and Clerk redirect wiring. |
-| `AC-16` | `apps/mobile/src/knowledge-data-controls.test.ts` covers the fixed handoff, unsafe-base rejection, Account route, authenticated native screen, bounded owner projection, status/counts, private response headers, destructive confirmation, deletion-time pagination guard, retry-safe API wiring, approved-knowledge notice, and absence of URL credentials. `apps/web/src/lib/knowledge-ingestion.test.ts` exercises owner isolation, preservation, removal, and idempotent retry in memory. |
+| `AC-16` | `apps/mobile/src/knowledge-data-controls.test.ts` covers the fixed handoff, unsafe-base rejection, Account route, authenticated native screen, bounded owner projection, status/counts, private response headers, destructive confirmation, deletion-time pagination guard, retry-safe API wiring, approved-knowledge notice, and absence of URL credentials. `apps/web/src/lib/knowledge-ingestion.test.ts` exercises owner isolation, preservation, removal, and idempotent retry in memory; `apps/web/src/i18n/messages.test.ts` covers localized handoff content and metadata. |
 | `AC-17` | `apps/mobile/src/mobile-hosted-auth.test.ts` covers the Hosted Auth hook, mode mapping, fixed non-HTTP callback, shared continuation, 52-point control, runtime dependencies, and all six locale keys. Static source and export checks do not substitute for a provider-enabled physical-device callback. |
-| `AC-18` | `apps/mobile/src/subscription-account-switch.test.ts` covers retention of canonical booleans, visible duplicate alert, blocked confirmation state, refresh action, and account-bound billing session behavior. Provider webhook, store recovery, and physical-device purchase evidence remain gates. |
+| `AC-18` | `apps/mobile/src/subscription-account-switch.test.ts` covers retention of canonical booleans, visible duplicate alert, Android live-region wiring, iOS announcement transitions, blocked confirmation state, refresh action, and account-bound billing session behavior. Provider webhook, store recovery, physical-device announcement, and purchase evidence remain gates. |
 | `AC-19` | `apps/web/src/lib/mobile-knowledge-capabilities.test.ts` covers version-first preflight, causal priority, proposed evidence, and noncausal relations. `apps/mobile/src/candidate-inbox.test.ts` covers DTO projection, localized recovery, disabled quick approval, both `409` codes, and guard ordering before empty evidence/relation submission. |
-| `AC-20` | `apps/web/src/lib/mobile-topic-hub.test.ts` proves explicit response keys, selector preservation, and omission of revisions/supersessions. `apps/mobile/src/knowledge-topic.test.ts` covers the DTO and primitive source-position rendering. |
+| `AC-20` | `apps/web/src/lib/topic-knowledge-hub.test.ts` proves owner-scoped cross-topic source retrieval in memory and statically asserts bounded, owner-scoped PostgreSQL query wiring. `apps/web/src/lib/mobile-topic-hub.test.ts` proves explicit response keys, source/selector consistency, response caps, key-specific reference/range normalization, invalid-selector relation pruning, raw-field omission, and omission of revisions/supersessions. `apps/mobile/src/knowledge-topic.test.ts` covers fixed DTOs, defensive source-position validation, six-locale key parity, Japanese/Arabic labels, and RTL technical-row isolation. |
 | `AC-21` | `packages/shared/src/mobile-knowledge.test.mjs` builds a maximally populated JSON-escaped native expression payload and proves it fits below 6 MiB. `apps/mobile/src/mobile-notes-api-contract.test.ts` covers qualified create/update, action restriction, separate caps/codes, and localized oversize recovery. |
 
 ## Rollout

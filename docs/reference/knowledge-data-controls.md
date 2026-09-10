@@ -37,11 +37,12 @@ its hashed provenance.
 
 Complete export uses a fixed first-party browser handoff at
 `/account/data-controls-handoff`. A browser session that is already signed in
-shows its account identity and requires an explicit confirmation before
-continuing to `/account/delete#knowledge-data`; otherwise the handoff uses the
-fixed, allowlisted login `returnTo` for that same confirmation. This prevents a
-silently reused browser session from being mistaken for the account currently
-open in the app. The mobile Clerk bearer token is never put in a URL or sent to
+shows its account identity with localized page metadata and requires an
+explicit confirmation before continuing to `/account/delete#knowledge-data`;
+otherwise the handoff uses the fixed, allowlisted login `returnTo` for that same
+confirmation. This prevents a silently reused browser session from being
+mistaken for the account currently open in the app. The mobile Clerk bearer
+token is never put in a URL or sent to
 the browser.
 
 The full export is not bounded enough for React Native's text-sharing API.

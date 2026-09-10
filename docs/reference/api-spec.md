@@ -197,11 +197,18 @@ opens the existing bounded `resource=topic-hub&topic=...` route for details.
 `GET /api/mobile?resource=topic-hub&topic=...` accepts one trimmed topic of at
 most 120 characters and explicitly projects only `topic`, `generated_at`,
 capability-compatible `items`, `sources`, `activity`, capability-compatible
-`relations`, and `evidence_selectors`. Evidence selectors retain their bounded
-source-position object, polarity, quality, origin, and confirmation metadata;
-the native view renders primitive locator values and never raw transcript text.
-The web-only `revisions` and `supersessions` collections are intentionally
-omitted from this mobile response rather than leaked through an object spread.
+`relations`, and `evidence_selectors`. The projection returns at most 200 items,
+500 sources, 500 activity entries, 500 relations, and 1,000 selectors, with at
+most 24 retained selector references per relation. A retained selector is
+returned only when its owner-scoped matching source is also present, including
+for evidence attached to a relationship from another topic. Evidence selectors
+retain only key-specific, bounded references or numeric ranges plus polarity,
+quality, origin, and confirmation metadata. Malformed legacy selectors are
+omitted and removed from relation evidence references. The native view
+allowlists the same keys again, localizes their semantic labels, keeps technical
+positions left-to-right in RTL UI, and never receives raw transcript text. The
+web-only `revisions` and `supersessions` collections are intentionally omitted
+from this mobile response rather than leaked through an object spread.
 
 `GET /api/mobile?resource=knowledge-data-controls&page=1` returns active and
 completed import jobs for the authenticated owner, newest first. Status is one

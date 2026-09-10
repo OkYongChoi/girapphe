@@ -10,7 +10,12 @@ import { mobileApi, type MobileTopicHub } from '@/api';
 import { useI18n } from '@/i18n';
 import { eventChronologyLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
 import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
-import { eventTimelineSortKey, primitiveProvenanceEntries } from '@/knowledge-topic';
+import {
+  eventTimelineSortKey,
+  primitiveProvenanceEntries,
+  topicEvidenceTokenLabel,
+  topicProvenancePositionLabel,
+} from '@/knowledge-topic';
 
 type TopicCopy = {
   back: string;
@@ -63,7 +68,9 @@ const TOKEN_LABELS: Record<Locale, Record<string, string>> = {
 };
 
 function tokenLabel(locale: Locale, value: string) {
-  return TOKEN_LABELS[locale][value] ?? value.replaceAll('_', ' ');
+  return topicEvidenceTokenLabel(locale, value)
+    ?? TOKEN_LABELS[locale][value]
+    ?? value.replaceAll('_', ' ');
 }
 
 function parameterValue(value: string | string[] | undefined) {
@@ -287,7 +294,9 @@ function TopicScreenContent() {
                 <View style={styles.locatorBox}>
                   <Text style={styles.locatorTitle}>{copy.sourcePosition}</Text>
                   {locatorEntries.map(([key, value]) => (
-                    <Text key={key} selectable style={styles.locatorText}>{key.replaceAll('_', ' ')}: {value}</Text>
+                    <Text key={key} selectable style={[styles.locatorText, styles.technicalText]}>
+                      {topicProvenancePositionLabel(locale, key)}: {value}
+                    </Text>
                   ))}
                 </View>
               ) : null}
@@ -302,8 +311,8 @@ function TopicScreenContent() {
                           {tokenLabel(locale, evidence.polarity)} · {tokenLabel(locale, evidence.selector_type)} · {copy.quality}: {tokenLabel(locale, evidence.quality)}
                         </Text>
                         {selectorEntries.length > 0 ? (
-                          <Text selectable style={styles.locatorText}>
-                            {selectorEntries.map(([key, value]) => `${key}=${value}`).join(' · ')}
+                          <Text selectable style={[styles.locatorText, styles.technicalText]}>
+                            {selectorEntries.map(([key, value]) => `${topicProvenancePositionLabel(locale, key)}=${value}`).join(' · ')}
                           </Text>
                         ) : null}
                         <Text style={styles.meta}>
@@ -377,6 +386,7 @@ const styles = StyleSheet.create({
   locatorBox: { borderRadius: 10, backgroundColor: '#f8fafc', padding: 10, gap: 3 },
   locatorTitle: { color: '#475569', fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   locatorText: { color: '#334155', fontSize: 11, lineHeight: 17, fontFamily: 'monospace' },
+  technicalText: { writingDirection: 'ltr', textAlign: 'left' },
   evidenceBox: { borderColor: '#d1fae5', borderWidth: 1, borderRadius: 10, backgroundColor: '#ecfdf5', padding: 10, gap: 7 },
   evidenceTitle: { color: '#065f46', fontSize: 12, fontWeight: '900' },
   evidenceItem: { borderRadius: 8, backgroundColor: '#fff', padding: 9, gap: 3 },

@@ -97,8 +97,13 @@ Mobile feature code should be organized around user flows, not platform names:
 - Topics: owner-scoped summaries of active private knowledge, open questions,
   decisions, events, sources, recent sample titles, and update time.
 - Topic Hub: compact approved knowledge, open questions, relations, timeline,
-  and source-position views. Its mobile projection explicitly includes source
-  evidence selectors and omits revision and supersession history payloads.
+  and source-position views. Its mobile projection explicitly includes an
+  owner-scoped source for every retained evidence selector, bounds sources and
+  selectors, and omits revision and supersession history payloads. References
+  and numeric ranges are normalized at the response boundary, and malformed
+  legacy selectors are removed. Selector types, quality values, and position
+  keys are localized; technical position rows keep left-to-right ordering
+  inside Arabic UI.
 - Topic detail: explanation plus prerequisite/dependent/related navigation and
   an explicit handoff to review an editable private-copy draft in My Notes.
   Signed-out users resume that handoff after authentication; route-controlled
@@ -113,7 +118,9 @@ Mobile feature code should be organized around user flows, not platform names:
 - Subscription: the server-owned `acquisitionBlocked` state keeps purchase
   plans unavailable while canonical confirmation is unresolved, with an
   explicit status refresh. `duplicateDetected` remains visible as an alert and
-  optional support handoff instead of being discarded by the native adapter.
+  optional support handoff instead of being discarded by the native adapter;
+  asynchronous insertion is announced once per current owner and locale on
+  both Android and iOS.
 - Account / Knowledge Data Controls: an always-visible signed-in entry lists
   active and completed owner-scoped import jobs, their status and counts, and
   bounded previous/next pagination through the authenticated API. A confirmed
@@ -141,8 +148,9 @@ of displaying the previous owner's in-memory result.
 Browser handoffs use a separately allowlisted web `returnTo` value for Practice, Subscription,
 Account deletion, or the data-controls confirmation page; arbitrary, modified, locale-prefixed,
 or duplicated values fall back to Practice. The data-controls confirmation page shows the
-browser's signed-in identity and requires an explicit continue before opening the localized
-`/account/delete#knowledge-data` section:
+browser's signed-in identity, uses localized document metadata, and requires an
+explicit continue before opening the localized `/account/delete#knowledge-data`
+section:
 
 ```text
 @stem-brain/graph-engine
@@ -228,12 +236,17 @@ share-text payload; mobile uses a fixed authenticated handoff rather than
 loading private export JSON into React Native memory. Basic archive, restore,
 and trash organization remains available in mobile My Notes. Mobile Topics and
 Topic Hub views consume the same owner-scoped canonical data. The Topic Hub
-response projects only topic metadata, compatible items, sources, activity,
-compatible relations, and evidence selectors; revision and supersession
-collections remain web-owned. Source-position rendering accepts only primitive
-selector metadata and never raw transcript text. Opening a public-concept copy
-passes only a bounded public-node ID and one-time key; My Notes resolves the
-title and body from trusted public catalog/current-locale content. The draft is
+response projects only topic metadata, at most 200 compatible items, 500
+sources, 500 activity entries, 500 compatible relations, and 1,000 evidence
+selectors, with no more than 24 retained selector references per relation.
+Cross-topic relationship evidence is returned only with its current owner's
+matching source so every retained selector is inspectable. Revision and
+supersession collections remain web-owned. Source-position projection accepts
+only fixed, key-specific, bounded reference and numeric values and never raw
+transcript text. Native rendering allowlists those same keys again. Opening a
+public-concept copy passes only a bounded public-node ID and one-time key;
+My Notes resolves the title and body from trusted public catalog/current-locale
+content. The draft is
 not private knowledge until the user explicitly submits the form. Neither app
 retains raw conversation text: provenance is selector-only.
 

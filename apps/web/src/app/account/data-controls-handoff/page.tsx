@@ -8,11 +8,14 @@ import { getCurrentUserProfile } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: 'Knowledge data controls',
-  description: 'Continue securely to owner-scoped Girapphe knowledge export and import-job controls.',
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getServerI18n();
+  return {
+    title: t('account.dataControlsHandoff.title'),
+    description: t('account.data.metadataDescription'),
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function KnowledgeDataControlsHandoffPage() {
   const [user, { locale, t }] = await Promise.all([
