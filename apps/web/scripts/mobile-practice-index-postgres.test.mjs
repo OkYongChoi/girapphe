@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import path from 'node:path';
 import { Pool } from 'pg';
-import * as privatePracticeCards from '../src/lib/private-practice-cards.ts';
+import * as importedPrivatePracticeCards from '../src/lib/private-practice-cards.ts';
 
+const privatePracticeCards = importedPrivatePracticeCards.default ?? importedPrivatePracticeCards;
 const { buildEligiblePrivatePracticeQuery } = privatePracticeCards;
 
 const OWNER_CURSOR_INDEX = 'idx_user_knowledge_items_user_id_cursor';
@@ -96,6 +97,10 @@ test('plan index collector traverses nested PostgreSQL JSON plans', () => {
     }],
   });
   assert.deepEqual([...names].sort(), [APPROVED_DRAFT_INDEX, OWNER_CURSOR_INDEX].sort());
+});
+
+test('production private Practice query builder loads through ESM and CommonJS interop', () => {
+  assert.equal(typeof buildEligiblePrivatePracticeQuery, 'function');
 });
 
 test('direct Preview guard rejects pooled, foreign, and malformed targets', () => {
