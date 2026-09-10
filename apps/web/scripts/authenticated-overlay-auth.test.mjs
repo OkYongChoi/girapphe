@@ -109,6 +109,61 @@ test('each authenticated browser context can refresh Clerk testing sessions', as
   }
 });
 
+test('authenticated Playwright workers statically load database fixtures', async () => {
+  const specDirectory = new URL('../e2e-authenticated/', import.meta.url);
+  const workerNames = (await fs.readdir(specDirectory))
+    .filter((name) => name.endsWith('.spec.ts') || name.endsWith('.setup.ts'));
+  const workerSources = await Promise.all(workerNames.map(async (name) => ({
+    name,
+    source: await fs.readFile(new URL(name, specDirectory), 'utf8'),
+  })));
+
+  for (const worker of workerSources) {
+    assert.doesNotMatch(
+      worker.source,
+      /import\s*\(\s*['"][^'"]*authenticated-(?:overlay|mobile-api)-fixture\.mjs['"]\s*\)/,
+      `${worker.name} must not mix a dynamic fixture import with Playwright's CommonJS worker transform`,
+    );
+  }
+
+  const requiredStaticImports = [
+    {
+      name: 'authenticated-thinking-history.spec.ts',
+      moduleName: 'authenticated-overlay-fixture.mjs',
+      symbols: [
+        'deleteExactAuthenticatedOverlayImport',
+        'inspectPendingAuthenticatedOverlayImport',
+        'readAuthenticatedOverlayPublishedState',
+      ],
+    },
+    {
+      name: 'authenticated-mobile-api.spec.ts',
+      moduleName: 'authenticated-mobile-api-fixture.mjs',
+      symbols: [
+        'cleanupAuthenticatedMobileApiFixture',
+        'createAuthenticatedMobileApiFixture',
+      ],
+    },
+  ];
+
+  for (const requirement of requiredStaticImports) {
+    const worker = workerSources.find(({ name }) => name === requirement.name);
+    assert.ok(worker, `${requirement.name} must be part of the authenticated suite`);
+    const escapedModuleName = requirement.moduleName.replaceAll('.', '\\.');
+    const fixtureImport = worker.source.match(new RegExp(
+      `import\\s*\\{([^}]*)\\}\\s*from\\s*['"][^'"]*${escapedModuleName}['"]`,
+    ));
+    assert.ok(fixtureImport, `${requirement.name} must statically import ${requirement.moduleName}`);
+    for (const symbol of requirement.symbols) {
+      assert.match(
+        fixtureImport[1],
+        new RegExp(`(?:^|\\s|,)${symbol}(?:\\s|,|$)`),
+        `${requirement.name} must statically import ${symbol}`,
+      );
+    }
+  }
+});
+
 test('provider PAT evidence gates on the same resolved Clerk auth mode as setup', async () => {
   const testUrl = new URL(
     '../e2e-authenticated/authenticated-mcp-provider-setup.spec.ts',
@@ -595,8 +650,7 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   const finallyBlock = source.indexOf('} finally {', visibilityPoll);
   const recoveryCall = source.indexOf('await waitForSubmittedImportBatchId(page, selectedQuestionA)', finallyBlock);
   const cleanupCall = source.indexOf('await deleteSubmittedImportThroughOwnerUi(', finallyBlock);
-  const fallbackImport = source.indexOf('"../scripts/authenticated-overlay-fixture.mjs"', cleanupCall);
-  const fallbackCall = source.indexOf('await deleteExactAuthenticatedOverlayImport({', fallbackImport);
+  const fallbackCall = source.indexOf('await deleteExactAuthenticatedOverlayImport({', cleanupCall);
   const safeFailure = source.indexOf('THINKING_HISTORY_EVIDENCE_FAILED', fallbackCall);
   assert.ok(evidenceTry >= 0 && evidenceTry < submissionClick, 'submission must start inside the cleanup boundary');
   assert.ok(submissionClick < exactRedirect && exactRedirect < batchCapture, 'the UUID redirect must resolve before batch capture');
@@ -618,7 +672,7 @@ test('Thinking History import-event evidence waits for commit visibility and cle
     'the exact pending batch must leave published state unchanged before review metadata opens',
   );
   assert.ok(finallyBlock > visibilityPoll && recoveryCall > finallyBlock && cleanupCall > recoveryCall, 'finally must recover and delete the exact owner batch');
-  assert.ok(cleanupCall < fallbackImport && fallbackImport < fallbackCall && fallbackCall < safeFailure, 'UI cleanup must precede exact DB fallback and the fallback must not suppress test failure');
+  assert.ok(cleanupCall < fallbackCall && fallbackCall < safeFailure, 'UI cleanup must precede exact DB fallback and the fallback must not suppress test failure');
   assert.match(source, /fallback\.deleted !== true[\s\S]{0,300}fallback\.remainingEvents !== 0[\s\S]{0,300}databaseFallbackStatus = "verified"/);
   assert.match(source, /if \(evidenceError \|\| uiCleanupError\)[\s\S]{0,800}THINKING_HISTORY_EVIDENCE_FAILED/);
   assert.match(source, /preApprovalPublishedStateUnchanged,[\s\S]{0,120}preApprovalActivationRows/);

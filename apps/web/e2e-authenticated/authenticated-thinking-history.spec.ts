@@ -17,6 +17,11 @@ import {
   hasHorizontalLayoutOverflow,
   isSuccessfulReviewNavigation,
 } from "../scripts/authenticated-overlay-network.mjs";
+import {
+  deleteExactAuthenticatedOverlayImport,
+  inspectPendingAuthenticatedOverlayImport,
+  readAuthenticatedOverlayPublishedState,
+} from "../scripts/authenticated-overlay-fixture.mjs";
 import { EXTRA_EN_MESSAGES } from "../src/i18n/catalogs/extended/en";
 
 const thinkingHistoryAsset = JSON.parse(
@@ -1075,10 +1080,6 @@ test("proves selected import, private evidence, portable context, dismissal, and
     preSubmitImportEvents.length,
     "selection and consent without submission must not create product-event rows",
   ).toBe(0);
-  const {
-    inspectPendingAuthenticatedOverlayImport,
-    readAuthenticatedOverlayPublishedState,
-  } = await import("../scripts/authenticated-overlay-fixture.mjs");
   const publishedStateBeforeSubmission = await readAuthenticatedOverlayPublishedState();
   const submitRequestStart = postBodies.length;
   const submitOutboundRequestStart = outboundRequestMaterial.length;
@@ -1253,9 +1254,6 @@ test("proves selected import, private evidence, portable context, dismissal, and
       uiCleanupError = cleanupError;
       if (IMPORT_BATCH_ID_PATTERN.test(batchId)) {
         try {
-          const { deleteExactAuthenticatedOverlayImport } = await import(
-            "../scripts/authenticated-overlay-fixture.mjs"
-          );
           const fallback = await deleteExactAuthenticatedOverlayImport({
             batchId,
             marker: selectedQuestionA,
