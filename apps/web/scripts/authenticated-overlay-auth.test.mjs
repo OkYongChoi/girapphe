@@ -117,11 +117,11 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   );
   assert.match(source, /async function waitForSubmittedImportBatchId\([\s\S]{0,1400}submittedImportBatchIdsContainingMarker\([\s\S]{0,700}\.toBe\(1\)/);
   assert.match(source, /async function activateExactReviewLink\([\s\S]{0,180}batchId: string,[\s\S]{0,80}hasTouch: boolean,[\s\S]{0,40}Promise<void>/);
-  assert.match(source, /html \{ scroll-behavior: auto !important; \}/);
-  assert.match(source, /scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)/);
-  assert.match(source, /const firstBounds = element\.getBoundingClientRect\(\)[\s\S]{0,220}const bounds = element\.getBoundingClientRect\(\)[\s\S]{0,500}const boundsAreStable/);
-  assert.match(source, /document\.elementFromPoint\(point\.x, point\.y\)/);
-  assert.match(source, /if \(!hasTouch\)[\s\S]{0,180}link\.click\(\{ trial: true, timeout: 10_000 \}\)[\s\S]{0,180}REVIEW_LOCATOR_NOT_ACTIONABLE/);
+  assert.match(source, /const smoothScrollOverride = hasTouch[\s\S]{0,80}\? null[\s\S]{0,180}html \{ scroll-behavior: auto !important; \}/);
+  assert.match(source, /if \(!hasTouch\) \{[\s\S]{0,700}scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)/);
+  assert.match(source, /if \(!hasTouch\) \{[\s\S]{0,900}const firstBounds = element\.getBoundingClientRect\(\)[\s\S]{0,220}const bounds = element\.getBoundingClientRect\(\)[\s\S]{0,500}const boundsAreStable/);
+  assert.match(source, /if \(!hasTouch\) \{[\s\S]{0,1400}document\.elementFromPoint\(point\.x, point\.y\)/);
+  assert.match(source, /if \(!hasTouch\) \{[\s\S]{0,1900}link\.click\(\{ trial: true, timeout: 10_000 \}\)[\s\S]{0,180}REVIEW_LOCATOR_NOT_ACTIONABLE/);
   assert.match(source, /if \(hasTouch\)[\s\S]{0,500}link\.tap\(\{ timeout: 10_000 \}\)[\s\S]{0,180}link\.focus\(\)[\s\S]{0,120}expect\(link\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
   assert.doesNotMatch(source, /link\.tap\(\{[^}]*trial: true/);
   assert.doesNotMatch(source, /link\.tap\(\{[^}]*position:/);

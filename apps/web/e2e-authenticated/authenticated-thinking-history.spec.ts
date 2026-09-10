@@ -351,41 +351,42 @@ async function activateExactReviewLink(
     throw new Error("REVIEW_TARGET_INVALID");
   }
 
-  const smoothScrollOverride = await page.addStyleTag({
-    content: "html { scroll-behavior: auto !important; }",
-  });
-  await expect.poll(async () => {
-    return link.evaluate(async (element) => {
-      element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
-      await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
-      const firstBounds = element.getBoundingClientRect();
-      await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
-      const bounds = element.getBoundingClientRect();
-      const boundsAreStable = Math.abs(firstBounds.left - bounds.left) < 0.5
-        && Math.abs(firstBounds.top - bounds.top) < 0.5
-        && Math.abs(firstBounds.width - bounds.width) < 0.5
-        && Math.abs(firstBounds.height - bounds.height) < 0.5;
-      const point = {
-        x: bounds.left + bounds.width / 2,
-        y: bounds.top + bounds.height / 2,
-      };
-      const hitTarget = document.elementFromPoint(point.x, point.y);
-      const ready = boundsAreStable
-        && element instanceof HTMLAnchorElement
-        && bounds.width > 0
-        && bounds.height > 0
-        && hitTarget !== null
-        && (hitTarget === element || element.contains(hitTarget))
-        && element.href.length > 0;
-      return ready;
+  const smoothScrollOverride = hasTouch
+    ? null
+    : await page.addStyleTag({
+      content: "html { scroll-behavior: auto !important; }",
     });
-  }, {
-    message: "the stable centered review link is the next pointer target",
-    timeout: 10_000,
-    intervals: [100, 250, 500],
-  }).toBe(true);
-
   if (!hasTouch) {
+    await expect.poll(async () => {
+      return link.evaluate(async (element) => {
+        element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
+        await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+        const firstBounds = element.getBoundingClientRect();
+        await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+        const bounds = element.getBoundingClientRect();
+        const boundsAreStable = Math.abs(firstBounds.left - bounds.left) < 0.5
+          && Math.abs(firstBounds.top - bounds.top) < 0.5
+          && Math.abs(firstBounds.width - bounds.width) < 0.5
+          && Math.abs(firstBounds.height - bounds.height) < 0.5;
+        const point = {
+          x: bounds.left + bounds.width / 2,
+          y: bounds.top + bounds.height / 2,
+        };
+        const hitTarget = document.elementFromPoint(point.x, point.y);
+        const ready = boundsAreStable
+          && element instanceof HTMLAnchorElement
+          && bounds.width > 0
+          && bounds.height > 0
+          && hitTarget !== null
+          && (hitTarget === element || element.contains(hitTarget))
+          && element.href.length > 0;
+        return ready;
+      });
+    }, {
+      message: "the stable centered review link is the next pointer target",
+      timeout: 10_000,
+      intervals: [100, 250, 500],
+    }).toBe(true);
     try {
       await link.click({ trial: true, timeout: 10_000 });
     } catch (error) {
@@ -395,10 +396,9 @@ async function activateExactReviewLink(
 
   const activate = async () => {
     if (hasTouch) {
-      // The rendered-center poll above proves the anchor is exposed before
-      // activation. An unforced locator tap then computes its clickable point
-      // from the post-scroll content quad, avoiding a stale mobile offset while
-      // retaining Playwright's visibility, stability, and hit-target checks.
+      // Keep one action in charge of mobile scrolling, stability, hit testing,
+      // and trusted touch dispatch. A separate pre-scroll races Playwright's
+      // own locator transaction and can move the live target between checks.
       await link.tap({ timeout: 10_000 });
       return;
     }
@@ -455,9 +455,11 @@ async function activateExactReviewLink(
   page.off("request", onRequest);
   page.off("response", onResponse);
   page.off("requestfailed", onRequestFailed);
-  await smoothScrollOverride.evaluate((element) => {
-    element.parentNode?.removeChild(element);
-  }).catch(() => undefined);
+  if (smoothScrollOverride) {
+    await smoothScrollOverride.evaluate((element) => {
+      element.parentNode?.removeChild(element);
+    }).catch(() => undefined);
+  }
 
   const committed = page.url() === targetUrl.href;
   if (isSuccessfulReviewNavigation({ committed, ...observation })) return;
