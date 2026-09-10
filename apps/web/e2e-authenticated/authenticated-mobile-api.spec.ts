@@ -118,7 +118,7 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
   };
 
   try {
-    const createResponse = await postMobile(page, {
+    const createNotePayload = {
       action: 'create-note',
       requestId: marker,
       title: marker,
@@ -137,19 +137,53 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
         misconceptions: [],
       },
       bundle_schema_version: 1,
-    });
-    await privateJson(createResponse, 'create note', 201);
+    };
+    const createdPayload = await privateJson(
+      await postMobile(page, createNotePayload),
+      'create note',
+      201,
+    );
+    expect(createdPayload.outcome).toBe('inserted');
+    const editedRetryPayload = {
+      ...createNotePayload,
+      summary: 'This edit happened before the client learned the first save succeeded.',
+      content: 'A replay must not overwrite the first saved version or create a duplicate.',
+      tags: ['e2e', 'mobile-api', 'edited-retry'],
+      central_question: 'Does an edited retry preserve the first owner-scoped save?',
+      structured_content: {
+        type: 'concept',
+        definition: 'This changed definition must remain unsaved after the replay.',
+        key_points: [],
+        examples: [],
+        non_examples: [],
+        misconceptions: [],
+      },
+    };
+    expect(editedRetryPayload.requestId).toBe(createNotePayload.requestId);
+    const replayedPayload = await privateJson(
+      await postMobile(page, editedRetryPayload),
+      'replay edited create note',
+      200,
+    );
+    expect(replayedPayload.outcome).toBe('replayed');
 
     const activeAfterCreate = await loadNotes(page);
     evidence.privateNoStoreReads += 1;
-    const created = (activeAfterCreate.items as JsonRecord[]).find((item) => item.title === marker);
+    const matchingNotes = (activeAfterCreate.items as JsonRecord[])
+      .filter((item) => item.title === marker);
+    expect(matchingNotes, 'idempotent create leaves exactly one owner note').toHaveLength(1);
+    const created = matchingNotes[0];
     expect(created, 'created note appears only in owner active notes').toBeTruthy();
     noteId = String(created?.id ?? '');
     expect(noteId).not.toBe('');
+    expect(created?.summary).toBe(createNotePayload.summary);
+    expect(created?.content).toBe('Definition\nA temporary synthetic private note.');
     expect(created?.tags).toEqual(['e2e', 'mobile-api']);
     expect(created?.knowledge_type).toBe('concept');
+    expect(created?.central_question).toBe(createNotePayload.central_question);
+    expect(created?.structured_content).toEqual(createNotePayload.structured_content);
     let version = Number(created?.version);
-    expect(Number.isSafeInteger(version) && version > 0).toBe(true);
+    expect(version).toBe(1);
 
     const update = await privateJson(await postMobile(page, {
       action: 'update-note',

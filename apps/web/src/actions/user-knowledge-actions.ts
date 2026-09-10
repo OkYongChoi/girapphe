@@ -30,6 +30,7 @@ import {
   isKnowledgeRelationType,
   normalizeKnowledgeTopic,
   purgeMemoryKnowledgeItemsForUser,
+  recordMemoryCreateRequest,
   resolveKnowledgeDraftForUser,
   restoreMemoryKnowledgeItemForUser,
   restoreArchivedKnowledgeItemForUser,
@@ -50,6 +51,12 @@ import {
   type ReviewedKnowledgePayload,
   MAX_KNOWLEDGE_ITEMS_PER_USER,
 } from '@/lib/knowledge-ingestion';
+import {
+  classifyMemoryKnowledgeItemCreateAdmission,
+  readKnowledgeItemCreateDatabaseResult,
+  type KnowledgeItemCreateDatabaseRow,
+  type KnowledgeItemCreateResult,
+} from '@/lib/knowledge-item-create-result';
 import { parseKnowledgeBundleFields, projectKnowledgeBundle, type KnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
 import { KNOWLEDGE_ITEM_UPDATE_QUERY } from '@/lib/knowledge-item-update-query';
 import { sanitizeKnowledgeTagFormValues } from '@/lib/knowledge-tag-normalization';
@@ -492,7 +499,9 @@ export async function getUserKnowledgeOverview(maxGraphNotes = 48): Promise<User
   };
 }
 
-export async function createKnowledgeItem(formData: FormData): Promise<void> {
+export async function createKnowledgeItemWithOutcome(
+  formData: FormData,
+): Promise<KnowledgeItemCreateResult> {
   const user = await requireCurrentActor();
   const syncGraph = !user.isGuest;
   const title = sanitizeKnowledgeTitle(String(formData.get('title') ?? ''));
@@ -500,7 +509,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   const requestedContent = sanitizeKnowledgeContent(String(formData.get('content') ?? ''));
   const hasBundleInput = Boolean(String(formData.get('knowledge_type') ?? '').trim());
   const bundle = readBundleFormData(formData);
-  if (hasBundleInput && !bundle) return;
+  if (hasBundleInput && !bundle) return { outcome: 'invalid', itemId: null };
   const projection = bundle ? projectKnowledgeBundle(bundle, requestedSummary) : null;
   const summary = sanitizeKnowledgeContent(projection?.summary ?? requestedSummary, 500);
   const content = sanitizeKnowledgeContent(projection?.content ?? requestedContent);
@@ -518,17 +527,30 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   const relationDirection = String(formData.get('relation_direction') ?? formData.get('direction') ?? '') === 'incoming' ? 'incoming' : 'outgoing';
 
   if (!title) {
-    return;
+    return { outcome: 'invalid', itemId: null };
   }
 
   if (!process.env.DATABASE_URL) {
-    if (user.isGuest) {
-      claimMemoryGuestWrite(await getGuestRateScope(user.id));
-      purgeMemoryKnowledgeItemsForUser(user.id);
-      const activeCount = getMemoryKnowledgeItemsForUser(user.id).filter((item) => !item.deleted_at).length;
-      if (activeCount >= GUEST_KNOWLEDGE_ITEM_LIMIT) throw new Error('guest_knowledge_item_limit');
+    purgeMemoryKnowledgeItemsForUser(user.id);
+    const memoryItems = getMemoryKnowledgeItemsForUser(user.id);
+    const admission = classifyMemoryKnowledgeItemCreateAdmission({
+      requestAlreadySeen: Boolean(requestId && hasMemoryCreateRequest(user.id, requestId)),
+      isGuest: user.isGuest,
+      activeCount: memoryItems.filter((item) => !item.deleted_at).length,
+      totalCount: memoryItems.length,
+      guestLimit: GUEST_KNOWLEDGE_ITEM_LIMIT,
+      accountLimit: MAX_KNOWLEDGE_ITEMS_PER_USER,
+    });
+    if (admission === 'replayed') {
+      return { outcome: 'replayed', itemId: null };
     }
-    if (requestId && hasMemoryCreateRequest(user.id, requestId)) return;
+    if (admission === 'guest_quota_exceeded') {
+      return { outcome: 'quota_exceeded', itemId: null, limit: 'guest' };
+    }
+    if (admission === 'account_quota_exceeded') {
+      return { outcome: 'quota_exceeded', itemId: null, limit: 'account' };
+    }
+    if (user.isGuest) claimMemoryGuestWrite(await getGuestRateScope(user.id));
     const item = createMemoryKnowledgeItemForUser(user.id, {
       title, summary, content, topic, tags,
       knowledgeType: bundle?.knowledge_type ?? null,
@@ -539,6 +561,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
     if (user.isGuest) {
       item.purge_at = new Date(Date.now() + GUEST_KNOWLEDGE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     }
+    if (requestId) recordMemoryCreateRequest(user.id, requestId);
     if (syncGraph && relatedNodeId) {
       await createPrivateKnowledgeEdgeForUser(user.id, `personal:${item.id}`, relatedNodeId,
         isKnowledgeRelationType(relationType)
@@ -549,7 +572,7 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
     revalidatePath('/my-notes');
     revalidatePath('/grid');
     revalidatePath('/knowledge');
-    return;
+    return { outcome: 'inserted', itemId: item.id };
   }
 
   await ensureSchema();
@@ -558,68 +581,60 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   const nodeId = randomUUID();
   const revisionId = randomUUID();
   const activityId = randomUUID();
-  const insertQuery = requestId
-    ? `WITH claimed AS (
-           INSERT INTO user_knowledge_create_requests (user_id, request_id) VALUES ($1, $2)
-           ON CONFLICT DO NOTHING RETURNING 1
-         ), inserted_item AS (
-           INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags,
-             knowledge_type, central_question, structured_content, bundle_schema_version, dedupe_key, purge_at)
-           SELECT $3, $1, $4, $9, $5, $6, $8::jsonb, $14, $15, $16::jsonb, $17,
-             $18, CASE WHEN $11::boolean THEN NOW() + ($12::int * INTERVAL '1 day') ELSE NULL END
-           WHERE EXISTS (SELECT 1 FROM claimed)
-             AND (SELECT COUNT(*) FROM user_knowledge_items WHERE user_id = $1) < $21
-             AND (NOT $11::boolean OR (
-               SELECT COUNT(*) FROM user_knowledge_items
-               WHERE user_id = $1 AND deleted_at IS NULL
-                 AND (purge_at IS NULL OR purge_at > NOW())
-             ) < $13)
-           RETURNING *
-         ), inserted_revision AS (
-           INSERT INTO knowledge_item_revisions
-             (id, user_id, knowledge_item_id, version, snapshot, change_reason)
-           SELECT $19, i.user_id, i.id, i.version, to_jsonb(i), 'confirmed'
-           FROM inserted_item i
-           ON CONFLICT (knowledge_item_id, version) DO NOTHING
-         ), inserted_activity AS (
-           INSERT INTO knowledge_item_activity
-             (id, user_id, knowledge_item_id, activity_type, metadata)
-           SELECT $20, i.user_id, i.id, 'confirmed', '{"origin":"manual"}'::jsonb
-           FROM inserted_item i
-         ), inserted_node AS (
-           INSERT INTO user_graph_nodes (id, user_id, knowledge_item_id, label, topic, origin)
-           SELECT $7, user_id, id, title, topic, 'manual' FROM inserted_item WHERE $10::boolean
-           RETURNING knowledge_item_id
-         ) SELECT id FROM inserted_item`
-    : `WITH inserted_item AS (
-           INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags,
-             knowledge_type, central_question, structured_content, bundle_schema_version, dedupe_key, purge_at)
-           SELECT $3, $1, $4, $9, $5, $6, $8::jsonb, $14, $15, $16::jsonb, $17,
-             $18, CASE WHEN $11::boolean THEN NOW() + ($12::int * INTERVAL '1 day') ELSE NULL END
-           WHERE $2::text IS NULL
-             AND (SELECT COUNT(*) FROM user_knowledge_items WHERE user_id = $1) < $21
-             AND (NOT $11::boolean OR (
-               SELECT COUNT(*) FROM user_knowledge_items
-               WHERE user_id = $1 AND deleted_at IS NULL
-                 AND (purge_at IS NULL OR purge_at > NOW())
-             ) < $13)
-           RETURNING *
-         ), inserted_revision AS (
-           INSERT INTO knowledge_item_revisions
-             (id, user_id, knowledge_item_id, version, snapshot, change_reason)
-           SELECT $19, i.user_id, i.id, i.version, to_jsonb(i), 'confirmed'
-           FROM inserted_item i
-           ON CONFLICT (knowledge_item_id, version) DO NOTHING
-         ), inserted_activity AS (
-           INSERT INTO knowledge_item_activity
-             (id, user_id, knowledge_item_id, activity_type, metadata)
-           SELECT $20, i.user_id, i.id, 'confirmed', '{"origin":"manual"}'::jsonb
-           FROM inserted_item i
-         ), inserted_node AS (
-           INSERT INTO user_graph_nodes (id, user_id, knowledge_item_id, label, topic, origin)
-           SELECT $7, user_id, id, title, topic, 'manual' FROM inserted_item WHERE $10::boolean
-           RETURNING knowledge_item_id
-         ) SELECT id FROM inserted_item`;
+  const insertQuery = `WITH admission AS MATERIALIZED (
+         SELECT
+           (SELECT COUNT(*) FROM user_knowledge_items WHERE user_id = $1) < $21
+             AS account_quota_available,
+           (NOT $11::boolean OR (
+             SELECT COUNT(*) FROM user_knowledge_items
+             WHERE user_id = $1 AND deleted_at IS NULL
+               AND (purge_at IS NULL OR purge_at > NOW())
+           ) < $13) AS guest_quota_available
+       ), existing_request AS MATERIALIZED (
+         SELECT 1
+         FROM user_knowledge_create_requests
+         WHERE $2::text IS NOT NULL AND user_id = $1 AND request_id = $2
+       ), claimed AS (
+         INSERT INTO user_knowledge_create_requests (user_id, request_id)
+         SELECT $1, $2
+         WHERE $2::text IS NOT NULL
+           AND (SELECT account_quota_available AND guest_quota_available FROM admission)
+           AND NOT EXISTS (SELECT 1 FROM existing_request)
+         ON CONFLICT DO NOTHING
+         RETURNING 1
+       ), inserted_item AS (
+         INSERT INTO user_knowledge_items (id, user_id, title, summary, content, topic, tags,
+           knowledge_type, central_question, structured_content, bundle_schema_version, dedupe_key, purge_at)
+         SELECT $3, $1, $4, $9, $5, $6, $8::jsonb, $14, $15, $16::jsonb, $17,
+           $18, CASE WHEN $11::boolean THEN NOW() + ($12::int * INTERVAL '1 day') ELSE NULL END
+         WHERE (SELECT account_quota_available AND guest_quota_available FROM admission)
+           AND ($2::text IS NULL OR EXISTS (SELECT 1 FROM claimed))
+         RETURNING *
+       ), inserted_revision AS (
+         INSERT INTO knowledge_item_revisions
+           (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+         SELECT $19, i.user_id, i.id, i.version, to_jsonb(i), 'confirmed'
+         FROM inserted_item i
+         ON CONFLICT (knowledge_item_id, version) DO NOTHING
+       ), inserted_activity AS (
+         INSERT INTO knowledge_item_activity
+           (id, user_id, knowledge_item_id, activity_type, metadata)
+         SELECT $20, i.user_id, i.id, 'confirmed', '{"origin":"manual"}'::jsonb
+         FROM inserted_item i
+       ), inserted_node AS (
+         INSERT INTO user_graph_nodes (id, user_id, knowledge_item_id, label, topic, origin)
+         SELECT $7, user_id, id, title, topic, 'manual' FROM inserted_item WHERE $10::boolean
+         RETURNING knowledge_item_id
+       )
+       SELECT
+         CASE
+           WHEN EXISTS (SELECT 1 FROM inserted_item) THEN 'inserted'
+           WHEN EXISTS (SELECT 1 FROM existing_request) THEN 'replayed'
+           WHEN NOT (SELECT guest_quota_available FROM admission) THEN 'guest_quota_exceeded'
+           WHEN NOT (SELECT account_quota_available FROM admission) THEN 'account_quota_exceeded'
+           ELSE 'replayed'
+         END AS outcome,
+         (SELECT id FROM inserted_item LIMIT 1) AS id`;
   const insertParams = [
     user.id,
     requestId || null,
@@ -654,20 +669,10 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
     }] : []),
     { text: insertQuery, params: insertParams },
   ];
-  const resultSets = await pool.accountTransaction<{ id: string }>(user.id, transactionQueries);
+  const resultSets = await pool.accountTransaction<KnowledgeItemCreateDatabaseRow>(user.id, transactionQueries);
   const result = resultSets[resultSets.length - 1];
-  if (user.isGuest && !result.rows[0]) {
-    const count = await pool.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM user_knowledge_items
-       WHERE user_id = $1 AND deleted_at IS NULL
-         AND (purge_at IS NULL OR purge_at > NOW())`,
-      [user.id],
-    );
-    if (Number.parseInt(count.rows[0]?.count ?? '0', 10) >= GUEST_KNOWLEDGE_ITEM_LIMIT) {
-      throw new Error('guest_knowledge_item_limit');
-    }
-  }
-  if (result.rows[0] && syncGraph && relatedNodeId) {
+  const createResult = readKnowledgeItemCreateDatabaseResult(result.rows[0]);
+  if (createResult.outcome === 'inserted' && syncGraph && relatedNodeId) {
     const validRelation: KnowledgeRelationType = isKnowledgeRelationType(relationType)
       ? relationType
       : 'related';
@@ -677,6 +682,14 @@ export async function createKnowledgeItem(formData: FormData): Promise<void> {
   revalidatePath('/my-notes');
   revalidatePath('/grid');
   revalidatePath('/knowledge');
+  return createResult;
+}
+
+export async function createKnowledgeItem(formData: FormData): Promise<void> {
+  const result = await createKnowledgeItemWithOutcome(formData);
+  if (result.outcome === 'quota_exceeded' && result.limit === 'guest') {
+    throw new Error('guest_knowledge_item_limit');
+  }
 }
 
 export async function updateKnowledgeItem(formData: FormData): Promise<KnowledgeItemUpdateResult> {

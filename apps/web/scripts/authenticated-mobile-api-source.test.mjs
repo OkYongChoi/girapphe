@@ -39,7 +39,16 @@ test('deployed mobile API evidence is isolated, owner-scoped, and cleanup-bound'
 
   assert.equal((route.match(/NextResponse\.json/g) ?? []).length, 1);
   assert.match(route, /function privateJson[\s\S]{0,240}Cache-Control['"], 'private, no-store'/);
-  assert.match(source, /privateJson\(createResponse, 'create note', 201\)/);
+  assert.match(source, /postMobile\(page, createNotePayload\)[\s\S]{0,100}'create note',[\s\S]{0,40}201/);
+  assert.match(source, /const editedRetryPayload = \{[\s\S]{0,800}\.\.\.createNotePayload,[\s\S]{0,800}edited-retry/);
+  assert.match(source, /editedRetryPayload\.requestId\)\.toBe\(createNotePayload\.requestId\)/);
+  assert.match(source, /postMobile\(page, editedRetryPayload\)[\s\S]{0,100}'replay edited create note',[\s\S]{0,40}200/);
+  assert.match(source, /createdPayload\.outcome\)\.toBe\('inserted'\)/);
+  assert.match(source, /replayedPayload\.outcome\)\.toBe\('replayed'\)/);
+  assert.match(source, /matchingNotes[\s\S]{0,160}toHaveLength\(1\)/);
+  assert.match(source, /created\?\.content\)\.toBe\('Definition\\nA temporary synthetic private note\.'\)/);
+  assert.match(source, /created\?\.summary\)\.toBe\(createNotePayload\.summary\)[\s\S]{0,400}created\?\.structured_content\)\.toEqual\(createNotePayload\.structured_content\)/);
+  assert.match(source, /expect\(version\)\.toBe\(1\)/);
   assert.match(source, /const staleApprove = await privateJson\([\s\S]{0,500}\), 'reject stale approved candidate', 409\)/);
 
   const packageJson = JSON.parse(packageSource);

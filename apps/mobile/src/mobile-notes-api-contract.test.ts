@@ -69,6 +69,23 @@ test('native note tags are owner-scoped, controlled, and included on create or u
   assert.ok((mobileNotesSource.match(/setTagEditorKey\(\(current\) => current \+ 1\)/g) ?? []).length >= 3);
 });
 
+test('native create retries keep one editor request and preserve edits after a replayed response', () => {
+  assert.match(mobileNotesSource, /createRequestGuard = useRef\(createMyNotesCreateRequestGuard\(\)\)/);
+  assert.match(
+    mobileNotesSource,
+    /const submittedDraftKey = JSON\.stringify\(createPayload\)[\s\S]*?createRequestGuard\.current\.begin\(submittedDraftKey\)[\s\S]*?requestId: createRequest\.requestId[\s\S]*?result\.outcome[\s\S]*?createRequestGuard\.current\.confirm\(createRequest\)/,
+  );
+  assert.match(
+    mobileNotesSource,
+    /preserveEditedReplay && editorRequestGuard\.current\.isCurrent\(editorRequest\)[\s\S]*?setEditorNotice\(t\('notes\.replayEditedNotice'\)\)[\s\S]*?await load\(sourceView\);[\s\S]*?return;/,
+  );
+  assert.match(
+    mobileNotesSource,
+    /reason\.code === 'KNOWLEDGE_ITEM_QUOTA_EXCEEDED'[\s\S]*?t\('notes\.quotaError'\)[\s\S]*?t\('notes\.quotaRetention'\)/,
+  );
+  assert.ok((mobileNotesSource.match(/createRequestGuard\.current\.reset\(\)/g) ?? []).length >= 5);
+});
+
 test('native tag picker keeps suggestions opt-in, render-bounded, and touch accessible', () => {
   assert.match(mobileTagPickerSource, /useState\(false\)/);
   assert.match(mobileTagPickerSource, /accessibilityState=\{\{ expanded: showSuggestions \}\}/);

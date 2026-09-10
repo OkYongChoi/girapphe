@@ -2595,11 +2595,14 @@ export async function getActiveKnowledgeItemVersionForUser(
 
 export function hasMemoryCreateRequest(userId: string, requestId: string): boolean {
   if (!requestId) return false;
+  return memoryCreateRequests.get(userId)?.has(requestId) ?? false;
+}
+
+export function recordMemoryCreateRequest(userId: string, requestId: string): void {
+  if (!requestId) return;
   const seen = memoryCreateRequests.get(userId) ?? new Set<string>();
-  if (seen.has(requestId)) return true;
   seen.add(requestId);
   memoryCreateRequests.set(userId, seen);
-  return false;
 }
 
 export function createMemoryKnowledgeItemForUser(

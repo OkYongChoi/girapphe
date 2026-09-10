@@ -70,6 +70,27 @@ export type MyNotesEditorRequestGuard = {
   isCurrent: (request: MyNotesEditorRequest) => boolean;
 };
 
+export type MyNotesCreateRequest = Readonly<{
+  submittedDraftKey: string;
+  requestId: string;
+}>;
+
+export type MyNotesCreateRequestGuard = {
+  begin: (submittedDraftKey: string) => MyNotesCreateRequest;
+  confirm: (request: MyNotesCreateRequest) => void;
+  reset: () => void;
+};
+
+export type MyNotesCreateOutcome = 'inserted' | 'replayed' | undefined;
+
+export function shouldPreserveMyNotesDraftAfterCreate(
+  request: MyNotesCreateRequest,
+  submittedDraftKey: string,
+  outcome: MyNotesCreateOutcome,
+): boolean {
+  return outcome === 'replayed' && request.submittedDraftKey !== submittedDraftKey;
+}
+
 export type MyNotesStaleReloadResult<T> =
   | { status: 'reloaded'; winner: T | null }
   | { status: 'superseded'; winner: T | null }
@@ -258,6 +279,32 @@ export function createMyNotesEditorRequestGuard(
     },
     isCurrent(request) {
       return request.revision === revision && request.noteId === noteId;
+    },
+  };
+}
+
+export function createMyNotesCreateRequestGuard(
+  createRequestId: () => string = () => `${Date.now()}-${Math.random()}`,
+): MyNotesCreateRequestGuard {
+  let current: MyNotesCreateRequest | null = null;
+
+  return {
+    begin(submittedDraftKey) {
+      if (!current) {
+        current = { submittedDraftKey, requestId: createRequestId() };
+      }
+      return current;
+    },
+    confirm(request) {
+      if (
+        current?.submittedDraftKey === request.submittedDraftKey
+        && current.requestId === request.requestId
+      ) {
+        current = null;
+      }
+    },
+    reset() {
+      current = null;
     },
   };
 }

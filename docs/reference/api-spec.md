@@ -151,6 +151,18 @@ the entered fields into an unsaved new-note draft rather than clearing them.
 Moving an item to Trash continues to use `delete-note`, and `restore-note`
 restores a trashed item to the lifecycle state it held before deletion.
 
+`create-note` keeps one bounded `requestId` for the lifetime of the current
+unsaved editor draft. A newly inserted note returns `201` with
+`{ success: true, outcome: "inserted" }`; retrying an already committed request
+returns `200` with outcome `replayed`. The native client reuses the request ID
+after an ambiguous failure. If the user edited the draft before a replay is
+confirmed, the previously saved version is reported and the newer fields stay
+in the editor as a new unsaved draft. A quota rejection does not consume the
+request ID and returns `409 KNOWLEDGE_ITEM_QUOTA_EXCEEDED`, so the editor remains
+intact and can show localized recovery guidance. Account-wide quota counts
+trashed rows until their 14-day retention expires, so the client states that
+delay instead of implying that moving a note to Trash frees space immediately.
+
 The mobile My Notes editor accepts ASCII comma, Arabic comma (`،`), and
 fullwidth comma (`，`) separators. Splitting happens in the shared client
 contract, while the API independently normalizes and validates the resulting

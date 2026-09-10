@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { KnowledgeBundleType } from '@stem-brain/shared';
 import {
   buildMyNotesListRows,
+  createMyNotesCreateRequestGuard,
   createMyNotesEditorRequestGuard,
   createMyNotesPendingActionGuard,
   createMyNotesViewRequestGuard,
@@ -10,6 +11,7 @@ import {
   localCalendarPeriod,
   myNotesViewCapabilities,
   reloadMyNoteAfterStale,
+  shouldPreserveMyNotesDraftAfterCreate,
   type MyNotesViewItem,
   type MyNotesViewOptions,
 } from './my-notes-view';
@@ -237,6 +239,58 @@ test('pending action guard rejects rapid duplicate and cross-note mutations', ()
   assert.equal(guard.isPending(), false);
   assert.equal(guard.pendingId(), null);
   assert.equal(guard.begin('note-b'), true);
+});
+
+test('create retries keep one request id across content edits until a response confirms it', () => {
+  let sequence = 0;
+  const guard = createMyNotesCreateRequestGuard(() => `request-${++sequence}`);
+
+  const firstAttempt = guard.begin('{"content":"before"}');
+  const unchangedRetry = guard.begin('{"content":"before"}');
+  const editedRetry = guard.begin('{"content":"after"}');
+
+  assert.equal(firstAttempt.requestId, 'request-1');
+  assert.equal(unchangedRetry.requestId, firstAttempt.requestId);
+  assert.equal(editedRetry.requestId, firstAttempt.requestId);
+  assert.equal(editedRetry.submittedDraftKey, '{"content":"before"}');
+
+  guard.confirm(editedRetry);
+  assert.equal(guard.begin('{"content":"after"}').requestId, 'request-2');
+});
+
+test('create outcomes clear inserted and unchanged replay drafts but preserve an edited replay', () => {
+  const guard = createMyNotesCreateRequestGuard(() => 'request-stable');
+  const request = guard.begin('{"content":"before"}');
+
+  assert.equal(
+    shouldPreserveMyNotesDraftAfterCreate(request, '{"content":"before"}', 'inserted'),
+    false,
+  );
+  assert.equal(
+    shouldPreserveMyNotesDraftAfterCreate(request, '{"content":"before"}', 'replayed'),
+    false,
+  );
+  assert.equal(
+    shouldPreserveMyNotesDraftAfterCreate(request, '{"content":"after"}', 'replayed'),
+    true,
+  );
+  assert.equal(
+    shouldPreserveMyNotesDraftAfterCreate(request, '{"content":"after"}', undefined),
+    false,
+  );
+});
+
+test('intentional editor reset replaces the request id and stale confirmation cannot retire it', () => {
+  let sequence = 0;
+  const guard = createMyNotesCreateRequestGuard(() => `request-${++sequence}`);
+  const abandoned = guard.begin('first editor');
+
+  guard.reset();
+  const current = guard.begin('second editor');
+  guard.confirm(abandoned);
+
+  assert.equal(current.requestId, 'request-2');
+  assert.equal(guard.begin('edited second editor').requestId, current.requestId);
 });
 
 test('stale note reload replaces the editor with the winning version and tags', async () => {

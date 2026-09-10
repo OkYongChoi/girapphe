@@ -210,10 +210,14 @@ canvas edge, and zero console/page errors.
 On testing-token Preview runs, the Pixel 7 project also performs one deployed
 mobile API journey covering private Notes lifecycle, Topics and Topic Hub,
 anonymous Ranking, private new/review Practice, and Candidate approve, ignore,
-and stale-version responses. Every authenticated response must be
+and stale-version responses. The create journey repeats one request ID with an
+edited payload and requires `replayed` plus exactly one note containing only the
+first payload. Every authenticated response must be
 `private, no-store`. The fixture adds only marker-owned rows for the dedicated
 synthetic account, removes the exact batch, items, event hashes, private
-mastery, and ranking row, and writes only counts and booleans to the Mobile API
+mastery, and ranking row. Exact-marker note cleanup is owner-bounded and removes
+all rows so even a duplicate-create regression leaves no synthetic residue. The
+journey writes only counts and booleans to the Mobile API
 summary section. Body failures and cleanup failures are preserved separately;
 the command still attempts to write the sanitized summary and returns the
 original Playwright failure status.

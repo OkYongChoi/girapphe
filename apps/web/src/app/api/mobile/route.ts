@@ -15,7 +15,7 @@ import {
 } from '@/actions/card-actions';
 import {
   archiveKnowledgeItem,
-  createKnowledgeItem,
+  createKnowledgeItemWithOutcome,
   deleteKnowledgeItem,
   getArchivedKnowledgeItems,
   getDeletedKnowledgeItems,
@@ -57,6 +57,7 @@ import {
   getKnowledgeDuplicateSuggestionsForDraftsForUser,
 } from '@/lib/knowledge-ingestion';
 import { resolveMobileNoteUpdateVersion } from '@/lib/mobile-note-update-version';
+import { toMobileNoteCreateHttpResult } from '@/lib/knowledge-item-create-result';
 import {
   classifyMobileCandidateMutationPreflight,
   mobileCandidateRequiresDetailedCausalReview,
@@ -486,10 +487,11 @@ export async function POST(request: NextRequest) {
     if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
     const tags = parseMobileTags(body.tags);
     if (!tags) return invalid('Tags must contain at most 12 valid values of 48 Unicode code points each.', 'INVALID_TAGS');
-    await createKnowledgeItem(toFormData({ title, summary, content, topic, tags: tags.join(','), request_id: requestId,
+    const result = await createKnowledgeItemWithOutcome(toFormData({ title, summary, content, topic, tags: tags.join(','), request_id: requestId,
       knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
       bundle_schema_version: bundle.knowledgeType ? '1' : '' }));
-    return privateJson({ success: true }, { status: 201 });
+    const response = toMobileNoteCreateHttpResult(result);
+    return privateJson(response.body, { status: response.status });
   }
 
   if (!id) return invalid('A note id is required.');

@@ -67,7 +67,9 @@ Out of scope:
   link targets used by a private edge; rich private bundle content and the
   complete target catalog remain out of the overlay response.
 - [x] `AC-07`: The testing-token mobile project creates one marker-owned typed
-  note and one two-draft Candidate batch, proves deployed Notes lifecycle,
+  note, retries that create with the same request ID but edited fields, proves
+  that only the original payload is stored once, and creates one two-draft
+  Candidate batch. It proves deployed Notes lifecycle,
   exact private Topics/Hub visibility, deterministic private new/review
   Practice and ratings, one pseudonymous current-user Ranking row, Candidate
   approve/ignore success plus stale 409 responses, and `private, no-store` on
@@ -91,7 +93,9 @@ one-way hash of the Clerk user ID, and every insert and verification query is
 bound to that owner. The fixtures contain synthetic titles and summaries only.
 Preview-only mobile mutations use a unique `E2E_MOBILE_API_` marker, a dedicated
 owner lock, one existing public card solely for an exactly deleted synthetic
-ranking state, and exact post-cleanup zero-count verification.
+ranking state, and exact post-cleanup zero-count verification. If a regression
+creates more than one exact-marker note, cleanup removes every such row for only
+the validated synthetic owner and still verifies the marker has no residue.
 It never reads, clones, logs, or exports another user's private knowledge or any
 raw conversation. Clerk and database secrets remain runtime inputs and are not
 written to the repository or Playwright artifacts.

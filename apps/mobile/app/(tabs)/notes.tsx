@@ -20,12 +20,14 @@ import {
 import { useSubscription } from '@/subscriptions';
 import {
   buildMyNotesListRows,
+  createMyNotesCreateRequestGuard,
   createMyNotesEditorRequestGuard,
   createMyNotesPendingActionGuard,
   createMyNotesViewRequestGuard,
   filterAndSortMyNotes,
   myNotesViewCapabilities,
   reloadMyNoteAfterStale,
+  shouldPreserveMyNotesDraftAfterCreate,
   type MyNotesDateRange,
   type MyNotesTypeFilter,
   type MyNotesView,
@@ -143,12 +145,14 @@ function NotesContent() {
   const pendingActionGuard = useRef(createMyNotesPendingActionGuard());
   const viewRequestGuard = useRef(createMyNotesViewRequestGuard());
   const editorRequestGuard = useRef(createMyNotesEditorRequestGuard());
+  const createRequestGuard = useRef(createMyNotesCreateRequestGuard());
   const consumedDraftKey = useRef<string | null>(null);
   const pendingDraftKey = useRef<string | null>(null);
   const publicCopyDraftLocalizationGuard = useRef(createPublicConceptDraftLocalizationGuard());
   const mounted = useRef(true);
   const currentLocale = useRef(locale);
   const [error, setError] = useState<string | null>(null);
+  const [editorNotice, setEditorNotice] = useState<string | null>(null);
   const deferredBundleFields = useDeferredValue(bundleFields);
   const deferredCentralQuestion = useDeferredValue(centralQuestion);
   const deferredSummary = useDeferredValue(summary);
@@ -164,6 +168,7 @@ function NotesContent() {
       mounted.current = false;
       publicCopyDraftLocalizationGuard.current.invalidate();
       editorRequestGuard.current.select(null);
+      createRequestGuard.current.reset();
     };
   }, []);
 
@@ -236,6 +241,7 @@ function NotesContent() {
     }
 
     editorRequestGuard.current.select(null);
+    createRequestGuard.current.reset();
     setEditing(null);
     setTitle(publicCopyDraft.title);
     setTopic(publicCopyDraft.topic);
@@ -249,6 +255,7 @@ function NotesContent() {
     setBundleFields(Array(11).fill(''));
     setCopyDraftSourceId(publicCopyDraft.sourceId);
     setError(null);
+    setEditorNotice(null);
     pendingDraftKey.current = null;
 
     if (locale === 'en') return;
@@ -278,18 +285,22 @@ function NotesContent() {
   function resetEditor() {
     publicCopyDraftLocalizationGuard.current.invalidate();
     editorRequestGuard.current.select(null);
+    createRequestGuard.current.reset();
     setTitle(''); setTopic(''); setContent(''); setTags([]); setTagDraft(''); setSummary(''); setKnowledgeType(null);
     setTagEditorKey((current) => current + 1);
     setCentralQuestion(''); setBundleFields(Array(11).fill(''));
     setEditing(null);
     setCopyDraftSourceId(null);
+    setEditorNotice(null);
   }
 
   function preserveEditorAsNewNote() {
     publicCopyDraftLocalizationGuard.current.invalidate();
     editorRequestGuard.current.select(null);
+    createRequestGuard.current.reset();
     setEditing(null);
     setCopyDraftSourceId(null);
+    setEditorNotice(null);
     setTagEditorKey((current) => current + 1);
   }
 
@@ -300,7 +311,7 @@ function NotesContent() {
     const submittedTags = sanitizeKnowledgeTags([...tags, tagDraft]);
     const submittedEditing = editing;
     const editorRequest = editorRequestGuard.current.capture();
-    setSubmitting(true); setError(null);
+    setSubmitting(true); setError(null); setEditorNotice(null);
     try {
       const typedFields = knowledgeType ? {
         summary,
@@ -314,7 +325,24 @@ function NotesContent() {
       if (submittedEditing) {
         await mobileApi.mutate({ action: 'update-note', id: submittedEditing.id, version: submittedEditing.version, title, topic, content, tags: submittedTags, ...typedFields });
       } else {
-        await mobileApi.mutate({ action: 'create-note', title, topic, content, tags: submittedTags, requestId: `${Date.now()}-${Math.random()}`, ...typedFields });
+        const createPayload = { action: 'create-note', title, topic, content, tags: submittedTags, ...typedFields };
+        const submittedDraftKey = JSON.stringify(createPayload);
+        const createRequest = createRequestGuard.current.begin(submittedDraftKey);
+        const result = await mobileApi.mutate<{ success: true; outcome?: 'inserted' | 'replayed' }>({
+          ...createPayload,
+          requestId: createRequest.requestId,
+        });
+        const preserveEditedReplay = shouldPreserveMyNotesDraftAfterCreate(
+          createRequest,
+          submittedDraftKey,
+          result.outcome,
+        );
+        createRequestGuard.current.confirm(createRequest);
+        if (preserveEditedReplay && editorRequestGuard.current.isCurrent(editorRequest)) {
+          setEditorNotice(t('notes.replayEditedNotice'));
+          await load(sourceView);
+          return;
+        }
       }
       if (editorRequestGuard.current.isCurrent(editorRequest)) resetEditor();
       await load(sourceView);
@@ -341,7 +369,13 @@ function NotesContent() {
         viewRequestGuard.current.isSelected(sourceView)
         && editorRequestGuard.current.isCurrent(editorRequest)
       ) {
-        setError(reason instanceof Error ? reason.message : t('notes.saveError'));
+        setError(
+          reason instanceof MobileApiRequestError && reason.code === 'KNOWLEDGE_ITEM_QUOTA_EXCEEDED'
+            ? `${t('notes.quotaError')} ${t('notes.quotaRetention')}`
+            : reason instanceof Error
+              ? reason.message
+              : t('notes.saveError'),
+        );
       }
     }
     finally { setSubmitting(false); }
@@ -407,6 +441,8 @@ function NotesContent() {
   function startEdit(note: PersonalNote) {
     publicCopyDraftLocalizationGuard.current.invalidate();
     editorRequestGuard.current.select(note.id);
+    createRequestGuard.current.reset();
+    setEditorNotice(null);
     setCopyDraftSourceId(null);
     setTagEditorKey((current) => current + 1);
     setEditing(note); setTitle(note.title); setTopic(note.topic); setContent(note.content); setTags(note.tags); setTagDraft(''); setSummary(note.summary);
@@ -609,6 +645,7 @@ function NotesContent() {
             ))}
           </View>
           <View style={styles.filterRow}>{(['created', 'updated', 'title'] as const).map((value) => <Pressable accessibilityRole="button" accessibilityState={{ selected: sortBy === value }} key={value} onPress={() => setSortBy(value)} style={[styles.filter, sortBy === value && styles.activeTab]}><Text>{value === 'created' ? t('notes.recentlyAdded') : value === 'updated' ? t('notes.recentlyUpdated') : t('notes.alphabetical')}</Text></Pressable>)}</View>
+          {editorNotice && <Text accessibilityLiveRegion="polite" style={styles.notice}>{editorNotice}</Text>}
           {error && <Text accessibilityLiveRegion="assertive" accessibilityRole="alert" style={styles.error}>{error}</Text>}
           {loading && <Text style={styles.meta}>{t('common.loading')}</Text>}
         </View>}
@@ -731,4 +768,5 @@ const styles = StyleSheet.create({
   actionButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 2 },
   emptyResults: { gap: 6 },
   error: { color: '#b91c1c', marginBottom: 12 },
+  notice: { color: '#1e3a8a', backgroundColor: '#eff6ff', borderColor: '#bfdbfe', borderWidth: 1, borderRadius: 8, padding: 12, marginBottom: 12 },
 });

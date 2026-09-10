@@ -224,6 +224,10 @@ export async function cleanupAuthenticatedMobileApiFixtureWithClient(
     );
     await client.query(
       'SELECT pg_advisory_xact_lock(hashtext($1))',
+      [`knowledge-items:${userId}`],
+    );
+    await client.query(
+      'SELECT pg_advisory_xact_lock(hashtext($1))',
       [`knowledge-ingestion:${userId}`],
     );
     await client.query(
@@ -267,14 +271,10 @@ export async function cleanupAuthenticatedMobileApiFixtureWithClient(
        FOR UPDATE`,
       [userId, marker],
     );
-    if (
-      noteRows.rows.length > 1
-      || (noteId !== null && noteRows.rows.length === 1 && String(noteRows.rows[0].id) !== noteId)
-      || (noteId !== null && noteRows.rows.length === 0)
-    ) {
+    const cleanupNoteIds = noteRows.rows.map((row) => String(row.id));
+    if (noteId !== null && !cleanupNoteIds.includes(noteId)) {
       throw fixtureError('MOBILE_API_FIXTURE_NOTE_NOT_ELIGIBLE');
     }
-    const cleanupNoteId = noteRows.rows.length === 1 ? String(noteRows.rows[0].id) : null;
 
     const approvedItems = await client.query(
       `SELECT DISTINCT d.knowledge_item_id AS id
@@ -292,14 +292,18 @@ export async function cleanupAuthenticatedMobileApiFixtureWithClient(
         [userId, approvedItemIds],
       );
     }
-    if (cleanupNoteId !== null) {
+    if (cleanupNoteIds.length > 0) {
       const noteDeletion = await client.query(
         `DELETE FROM user_knowledge_items
-         WHERE id = $1 AND user_id = $2 AND title = $3
+         WHERE user_id = $1 AND title = $2 AND id = ANY($3::text[])
          RETURNING id`,
-        [cleanupNoteId, userId, marker],
+        [userId, marker, cleanupNoteIds],
       );
-      if (noteDeletion.rows.length !== 1) {
+      const deletedNoteIds = noteDeletion.rows.map((row) => String(row.id)).sort();
+      if (
+        deletedNoteIds.length !== cleanupNoteIds.length
+        || deletedNoteIds.some((id, index) => id !== [...cleanupNoteIds].sort()[index])
+      ) {
         throw fixtureError('MOBILE_API_FIXTURE_NOTE_DELETE_MISSED');
       }
     }
@@ -344,11 +348,13 @@ export async function cleanupAuthenticatedMobileApiFixtureWithClient(
          (SELECT COUNT(*)::integer FROM knowledge_product_events
           WHERE user_id = $2 AND subject_id = $4) AS events,
          (SELECT COUNT(*)::integer FROM user_knowledge_items
-          WHERE user_id = $2 AND (id = ANY($5::text[]) OR id = $6)) AS items,
+          WHERE user_id = $2
+            AND (id = ANY($5::text[]) OR id = ANY($6::text[]) OR title = $9)) AS items,
          (SELECT COUNT(*)::integer FROM user_card_states
           WHERE user_id = $2 AND card_id = $7) AS ranking_rows,
          (SELECT COUNT(*)::integer FROM user_private_card_states
-          WHERE user_id = $2 AND (knowledge_item_id = ANY($5::text[]) OR knowledge_item_id = $6)) AS private_states,
+          WHERE user_id = $2
+            AND (knowledge_item_id = ANY($5::text[]) OR knowledge_item_id = ANY($6::text[]))) AS private_states,
          (SELECT COUNT(*)::integer FROM user_knowledge_create_requests
           WHERE user_id = $2 AND request_id = $8) AS create_requests`,
       [
@@ -357,8 +363,9 @@ export async function cleanupAuthenticatedMobileApiFixtureWithClient(
         `mobile-api-evidence:${marker}`,
         subjectHash,
         approvedItemIds,
-        cleanupNoteId ?? '',
+        cleanupNoteIds,
         rankingCardId,
+        marker,
         marker,
       ],
     )).rows[0] ?? {};
@@ -370,7 +377,7 @@ export async function cleanupAuthenticatedMobileApiFixtureWithClient(
     return {
       deletedBatch: true,
       deletedApprovedItems: approvedItemIds.length,
-      deletedNote: cleanupNoteId !== null,
+      deletedNote: cleanupNoteIds.length > 0,
       deletedRankingRow: true,
       remainingRows: 0,
     };

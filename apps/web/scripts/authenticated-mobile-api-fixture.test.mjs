@@ -69,7 +69,7 @@ test('cleanup removes only exact owner batch, approved item, note, and hashed ev
     if (/SELECT DISTINCT d\.knowledge_item_id AS id/.test(text)) {
       return { rows: [{ id: approvedItemId }] };
     }
-    if (/DELETE FROM user_knowledge_items[\s\S]*title = \$3/.test(text)) {
+    if (/DELETE FROM user_knowledge_items[\s\S]*title = \$2[\s\S]*ANY\(\$3::text\[\]\)/.test(text)) {
       return { rows: [{ id: NOTE_ID }] };
     }
     if (/DELETE FROM user_card_states/.test(text)) {
@@ -125,6 +125,13 @@ test('cleanup removes only exact owner batch, approved item, note, and hashed ev
   assert.match(client.calls[eventDelete].params[1], /^[0-9a-f]{64}$/);
   assert.doesNotMatch(client.calls[eventDelete].text, /event_name/);
   assert.deepEqual(client.calls[createRequestDelete].params, [SYNTHETIC_USER.id, MARKER]);
+  const knowledgeItemsLock = client.calls.findIndex((call) => (
+    call.params[0] === `knowledge-items:${SYNTHETIC_USER.id}`
+  ));
+  const noteSelection = client.calls.findIndex((call) => (
+    /SELECT id FROM user_knowledge_items/.test(call.text)
+  ));
+  assert.ok(knowledgeItemsLock >= 0 && knowledgeItemsLock < noteSelection);
   assert.equal(client.calls.at(-1).text, 'COMMIT');
 });
 
@@ -154,7 +161,7 @@ test('cleanup can recover an exact marker-owned note before its ID is observed',
     }
     if (/SELECT id FROM user_knowledge_items/.test(text)) return { rows: [{ id: NOTE_ID }] };
     if (/SELECT DISTINCT d\.knowledge_item_id AS id/.test(text)) return { rows: [] };
-    if (/DELETE FROM user_knowledge_items[\s\S]*title = \$3/.test(text)) {
+    if (/DELETE FROM user_knowledge_items[\s\S]*title = \$2[\s\S]*ANY\(\$3::text\[\]\)/.test(text)) {
       return { rows: [{ id: NOTE_ID }] };
     }
     if (/DELETE FROM user_card_states/.test(text)) {
@@ -181,9 +188,58 @@ test('cleanup can recover an exact marker-owned note before its ID is observed',
   );
   assert.equal(result.deletedNote, true);
   const noteDelete = client.calls.find((call) => (
-    /DELETE FROM user_knowledge_items[\s\S]*title = \$3/.test(call.text)
+    /DELETE FROM user_knowledge_items[\s\S]*title = \$2[\s\S]*ANY\(\$3::text\[\]\)/.test(call.text)
   ));
-  assert.deepEqual(noteDelete.params, [NOTE_ID, SYNTHETIC_USER.id, MARKER]);
+  assert.deepEqual(noteDelete.params, [SYNTHETIC_USER.id, MARKER, [NOTE_ID]]);
+});
+
+test('cleanup removes every exact-marker duplicate after an idempotency regression', async () => {
+  const duplicateNoteId = '44444444-4444-4444-8444-444444444444';
+  const client = mockClient((text) => {
+    if (/SELECT b\.id,/.test(text)) {
+      return { rows: [{ id: BATCH_ID, owner_drafts: 2, foreign_drafts: 0, marker_drafts: 2 }] };
+    }
+    if (/SELECT id FROM user_knowledge_items/.test(text)) {
+      return { rows: [{ id: NOTE_ID }, { id: duplicateNoteId }] };
+    }
+    if (/SELECT DISTINCT d\.knowledge_item_id AS id/.test(text)) return { rows: [] };
+    if (/DELETE FROM user_knowledge_items[\s\S]*title = \$2[\s\S]*ANY\(\$3::text\[\]\)/.test(text)) {
+      return { rows: [{ id: duplicateNoteId }, { id: NOTE_ID }] };
+    }
+    if (/DELETE FROM user_card_states/.test(text)) {
+      return { rows: [{ card_id: RANKING_CARD_ID }] };
+    }
+    if (/DELETE FROM knowledge_ingestion_batches/.test(text)) {
+      return { rows: [{ id: BATCH_ID }] };
+    }
+    if (/\(SELECT COUNT\(\*\)::integer FROM knowledge_ingestion_batches/.test(text)) {
+      return { rows: [{
+        batches: 0, drafts: 0, events: 0, items: 0, ranking_rows: 0, private_states: 0,
+        create_requests: 0,
+      }] };
+    }
+    return { rows: [] };
+  });
+
+  const result = await cleanupAuthenticatedMobileApiFixtureWithClient(
+    client,
+    SYNTHETIC_USER,
+    { marker: MARKER, batchId: BATCH_ID, rankingCardId: RANKING_CARD_ID },
+  );
+  assert.equal(result.deletedNote, true);
+  const noteDelete = client.calls.find((call) => (
+    /DELETE FROM user_knowledge_items[\s\S]*title = \$2[\s\S]*ANY\(\$3::text\[\]\)/.test(call.text)
+  ));
+  assert.deepEqual(noteDelete.params, [
+    SYNTHETIC_USER.id,
+    MARKER,
+    [NOTE_ID, duplicateNoteId],
+  ]);
+  const verification = client.calls.find((call) => (
+    /AS create_requests/.test(call.text)
+  ));
+  assert.equal(verification.params[8], MARKER);
+  assert.equal(client.calls.at(-1).text, 'COMMIT');
 });
 
 test('fixture rejects a non-unique marker before starting a transaction', async () => {
