@@ -3,7 +3,10 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { expect, test, type Locator, type Page, type Request, type Response } from "@playwright/test";
-import { isSuccessfulReviewNavigation } from "../scripts/authenticated-overlay-network.mjs";
+import {
+  classifyReviewLocatorActivationFailure,
+  isSuccessfulReviewNavigation,
+} from "../scripts/authenticated-overlay-network.mjs";
 import { EXTRA_EN_MESSAGES } from "../src/i18n/catalogs/extended/en";
 
 const thinkingHistoryAsset = JSON.parse(
@@ -459,7 +462,7 @@ async function activateExactReviewLink(
   const committed = page.url() === targetUrl.href;
   if (isSuccessfulReviewNavigation({ committed, ...observation })) return;
   if (activationError && !observation.requestSeen) {
-    throw new Error(`REVIEW_LOCATOR_ACTIVATION_FAILED:${failureFingerprint(activationError)}`);
+    throw new Error(classifyReviewLocatorActivationFailure(activationError));
   }
   if (observation.requestFailed) throw new Error("REVIEW_TARGET_REQUEST_FAILED");
   if (observation.responseStatus !== null && observation.responseStatus >= 400) {
