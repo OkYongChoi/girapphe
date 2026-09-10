@@ -14,9 +14,11 @@ import {
   recordCompletedPracticeAction,
   recordReviewRoundAdvance,
   recoverPreviousPracticeCard,
-  resolvePreviousPracticeActionAfterAdvance,
+  resolvePendingRatedPracticeAdvance,
+  resolvePracticeHistoryActionAfterSkip,
   resolvePracticeMode,
   resolvePracticeFocusMode,
+  resolvePracticeSkipAdvance,
   reviewQueueCount,
   reviewedPracticeCardCount,
 } from './practice-parity';
@@ -111,6 +113,101 @@ test('counts skips for ad cadence but not as reviewed cards', () => {
   assert.equal(reviewedPracticeCardCount(recoveredRating.state), 0);
 });
 
+test('preserves a recovered rating when skip advances the completed-action cadence', () => {
+  for (const previousAction of ['known', 'saved'] as const) {
+    let state = createPracticeHistoryState<{ id: string }>();
+    for (let index = 0; index < 4; index += 1) {
+      state = recordCompletedPracticeAction(state, { id: `card-${index}` }, previousAction);
+    }
+
+    const recovered = recoverPreviousPracticeCard(state);
+    assert.ok(recovered.entry);
+    assert.equal(recovered.entry.action, previousAction);
+
+    const skipAdvance = resolvePracticeSkipAdvance(null, recovered.entry.action);
+    const advanced = recordCompletedPracticeAction(
+      recovered.state,
+      recovered.entry.card,
+      skipAdvance.action,
+    );
+
+    assert.deepEqual(skipAdvance, { action: previousAction, replacesRatedAction: true });
+    assert.equal(advanced.completedCardActions, 5);
+    assert.equal(advanced.completedCardActions % 5, 0);
+    assert.equal(reviewedPracticeCardCount(advanced), 4);
+    assert.equal(advanced.history.at(-1)?.action, previousAction);
+  }
+
+  assert.equal(resolvePracticeHistoryActionAfterSkip('skip'), 'skip');
+  assert.equal(resolvePracticeHistoryActionAfterSkip(null), 'skip');
+});
+
+test('counts a persisted new rating when its failed read is later advanced by Skip', () => {
+  let history = createPracticeHistoryState<{ id: string }>();
+  for (let index = 0; index < 4; index += 1) {
+    history = recordCompletedPracticeAction(history, { id: `prior-${index}` }, 'known');
+  }
+  let progress = createReviewRoundProgress();
+
+  // The server accepted this first rating, but the next-card read failed.
+  const pending = resolvePendingRatedPracticeAdvance(null, null, 'saved');
+  assert.deepEqual(pending, { action: 'saved', replacesRatedAction: false });
+
+  // A later Skip advances the frontier without losing the persisted rating.
+  const skipAdvance = resolvePracticeSkipAdvance(pending, null);
+  progress = recordReviewRoundAdvance(progress, {
+    pool: 5,
+    ...skipAdvance,
+    cycled: false,
+  });
+  history = recordCompletedPracticeAction(history, { id: 'newly-rated' }, skipAdvance.action);
+
+  assert.deepEqual(skipAdvance, { action: 'saved', replacesRatedAction: false });
+  assert.equal(history.history.at(-1)?.action, 'saved');
+  assert.equal(reviewedPracticeCardCount(history), 5);
+  assert.equal(progress.reviewed, 1);
+  assert.equal(history.completedCardActions, 5);
+  assert.equal(history.completedCardActions % 5, 0);
+});
+
+test('preserves a persisted re-rating when its failed read is later advanced by Skip', () => {
+  let history = createPracticeHistoryState<{ id: string }>();
+  for (let index = 0; index < 4; index += 1) {
+    history = recordCompletedPracticeAction(history, { id: `card-${index}` }, 'known');
+  }
+  const recovered = recoverPreviousPracticeCard(history);
+  assert.ok(recovered.entry);
+  let progress = recordReviewRoundAdvance(createReviewRoundProgress(), {
+    pool: 4,
+    action: 'known',
+    replacesRatedAction: false,
+    cycled: false,
+  });
+
+  // The replacement reached the server, then the next-card read failed.
+  const pending = resolvePendingRatedPracticeAdvance(null, recovered.entry.action, 'saved');
+  assert.deepEqual(pending, { action: 'saved', replacesRatedAction: true });
+
+  const skipAdvance = resolvePracticeSkipAdvance(pending, recovered.entry.action);
+  progress = recordReviewRoundAdvance(progress, {
+    pool: 4,
+    ...skipAdvance,
+    cycled: false,
+  });
+  history = recordCompletedPracticeAction(
+    recovered.state,
+    recovered.entry.card,
+    skipAdvance.action,
+  );
+
+  assert.deepEqual(skipAdvance, { action: 'saved', replacesRatedAction: true });
+  assert.equal(history.history.at(-1)?.action, 'saved');
+  assert.equal(reviewedPracticeCardCount(history), 4);
+  assert.equal(progress.reviewed, 1);
+  assert.equal(history.completedCardActions, 5);
+  assert.equal(history.completedCardActions % 5, 0);
+});
+
 test('tracks mixed review rounds with constant-size counters and separate completion', () => {
   let progress = createReviewRoundProgress();
   progress = recordReviewRoundAdvance(progress, {
@@ -154,32 +251,18 @@ test('tracks mixed review rounds with constant-size counters and separate comple
   assert.deepEqual(progress, { reviewed: 0, completed: false, resetOnNextAdvance: false });
 });
 
-test('preserves replacement identity when a saved rating is followed by failed next-card reads', () => {
-  let progress = recordReviewRoundAdvance(createReviewRoundProgress(), {
-    pool: 3,
-    action: 'known',
-    replacesRatedAction: false,
-    cycled: false,
-  });
-  let previousAction: 'known' | 'saved' | 'skip' | null = 'known';
+test('rerating before an advance preserves whether the first persisted rating was counted', () => {
+  const newRating = resolvePendingRatedPracticeAdvance(null, null, 'saved');
+  assert.deepEqual(
+    resolvePendingRatedPracticeAdvance(newRating, null, 'known'),
+    { action: 'known', replacesRatedAction: false },
+  );
 
-  // The rating mutation succeeded, but both the initial and retry reads failed.
-  previousAction = resolvePreviousPracticeActionAfterAdvance(previousAction, false);
-  assert.equal(previousAction, 'known');
-  assert.equal(progress.reviewed, 1);
-
-  // Retrying the still-visible recovered card must remain a replacement.
-  const replacesRatedAction = previousAction === 'known' || previousAction === 'saved';
-  progress = recordReviewRoundAdvance(progress, {
-    pool: 3,
-    action: 'saved',
-    replacesRatedAction,
-    cycled: false,
-  });
-  previousAction = resolvePreviousPracticeActionAfterAdvance(previousAction, true);
-
-  assert.equal(progress.reviewed, 1);
-  assert.equal(previousAction, null);
+  const replacement = resolvePendingRatedPracticeAdvance(null, 'known', 'saved');
+  assert.deepEqual(
+    resolvePendingRatedPracticeAdvance(replacement, 'known', 'known'),
+    { action: 'known', replacesRatedAction: true },
+  );
 });
 
 test('retries a failed Practice read once without hiding a second failure', async () => {
@@ -299,24 +382,35 @@ test('wires review intent and server learning context into the mobile screens', 
   assert.match(practiceScreen, />\{t\('practice\.previous'\)\}<\/Text>/);
 
   const previousHandler = practiceScreen.match(/function showPrevious\(\) \{([\s\S]*?)\n {2}\}/)?.[1] ?? '';
+  assert.match(previousHandler, /if \(busyRef\.current \|\| pendingRatedAdvance\) return/);
   assert.match(previousHandler, /recoverPreviousPracticeCard\(historyState\)/);
   assert.doesNotMatch(previousHandler, /mobileApi\./);
   assert.doesNotMatch(previousHandler, /cursorRef/);
 
   const rateHandler = practiceScreen.match(/async function rate\([^]*?\) \{([\s\S]*?)\n {2}\}/)?.[1] ?? '';
+  assert.match(rateHandler, /resolvePendingRatedPracticeAdvance\([\s\S]*?pendingRatedAdvance,[\s\S]*?previousAction,[\s\S]*?status/);
   assert.match(rateHandler, /const actionMode = modeRef\.current/);
   assert.match(rateHandler, /const cursor = cursorRef\.current/);
   assert.match(rateHandler, /const advanced = await load\(actionMode, cursor, sessionGeneration, true\)/);
+  assert.ok(rateHandler.indexOf('setPendingRatedAdvance(ratedAdvance)') > rateHandler.indexOf('await mobileApi.mutate'));
+  assert.ok(rateHandler.indexOf('setPendingRatedAdvance(ratedAdvance)') < rateHandler.indexOf('const advanced = await load'));
   assert.match(rateHandler, /setPreviousAction\(\(current\) => resolvePreviousPracticeActionAfterAdvance\(current, advanced\.ok\)\)[\s\S]*?if \(!advanced\.ok\) return/);
-  assert.match(rateHandler, /recordReviewRoundAdvance\(current, \{[\s\S]*?action: status,[\s\S]*?cycled: advanced\.cycled/);
+  assert.ok(rateHandler.indexOf('setPendingRatedAdvance(null)') > rateHandler.indexOf('if (!advanced.ok) return'));
+  assert.match(rateHandler, /recordReviewRoundAdvance\(current, \{[\s\S]*?action: ratedAdvance\.action,[\s\S]*?replacesRatedAction: ratedAdvance\.replacesRatedAction,[\s\S]*?cycled: advanced\.cycled/);
+  assert.match(rateHandler, /recordAdvance\(completedCard, ratedAdvance\.action\)/);
   assert.ok(rateHandler.indexOf('recordAdvance') > rateHandler.indexOf('if (!advanced.ok'));
 
   const skipHandler = practiceScreen.match(/async function skip\(\) \{([\s\S]*?)\n {2}\}/)?.[1] ?? '';
+  assert.match(skipHandler, /const skipAdvance = resolvePracticeSkipAdvance\(pendingRatedAdvance, previousAction\)/);
   assert.match(skipHandler, /const cursor = cursorRef\.current/);
   assert.match(skipHandler, /const advanced = await load\(actionMode, cursor, sessionGeneration, true\)/);
   assert.match(skipHandler, /setPreviousAction\(\(current\) => resolvePreviousPracticeActionAfterAdvance\(current, advanced\.ok\)\)[\s\S]*?if \(!advanced\.ok\) return/);
-  assert.match(skipHandler, /recordReviewRoundAdvance\(current, \{[\s\S]*?action: 'skip',[\s\S]*?cycled: advanced\.cycled/);
+  assert.ok(skipHandler.indexOf('setPendingRatedAdvance(null)') > skipHandler.indexOf('if (!advanced.ok) return'));
+  assert.match(skipHandler, /recordReviewRoundAdvance\(current, \{[\s\S]*?action: skipAdvance\.action,[\s\S]*?replacesRatedAction: skipAdvance\.replacesRatedAction,[\s\S]*?cycled: advanced\.cycled/);
+  assert.match(skipHandler, /recordAdvance\(completedCard, skipAdvance\.action\)/);
   assert.ok(skipHandler.indexOf('recordAdvance') > skipHandler.indexOf('if (!advanced.ok'));
+  assert.match(practiceScreen, /const previousDisabled = historyState\.history\.length === 0 \|\| pendingRatedAdvance !== null/);
+  assert.match(practiceScreen, /accessibilityState=\{\{ disabled: previousDisabled \}\}/);
   assert.match(practiceScreen, /loadPracticeWithRetry\([\s\S]*?isTransientMobileApiError/);
   assert.match(practiceScreen, /reviewedPracticeCardCount\(historyState\)/);
   assert.match(practiceScreen, /accessibilityRole="progressbar"[\s\S]*?practice\.roundComplete/);

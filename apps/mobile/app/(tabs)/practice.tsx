@@ -26,10 +26,13 @@ import {
   recordCompletedPracticeAction,
   recordReviewRoundAdvance,
   recoverPreviousPracticeCard,
+  resolvePendingRatedPracticeAdvance,
   resolvePreviousPracticeActionAfterAdvance,
   resolvePracticeFocusMode,
+  resolvePracticeSkipAdvance,
   reviewQueueCount,
   reviewedPracticeCardCount,
+  type PendingRatedPracticeAdvance,
   type PracticeMode,
 } from '@/practice-parity';
 import { useSubscription } from '@/subscriptions';
@@ -256,6 +259,7 @@ function SyncedPracticeScreen() {
   const [stats, setStats] = useState<MobilePracticeStats>({ explainable: 0, unclear: 0, reviewable: 0 });
   const [historyState, setHistoryState] = useState(() => createPracticeHistoryState<MobileCard>());
   const [previousAction, setPreviousAction] = useState<'known' | 'saved' | 'skip' | null>(null);
+  const [pendingRatedAdvance, setPendingRatedAdvance] = useState<PendingRatedPracticeAdvance | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -326,6 +330,7 @@ function SyncedPracticeScreen() {
     setCard(null);
     setHistoryState((current) => ({ ...current, history: [] }));
     setPreviousAction(null);
+    setPendingRatedAdvance(null);
     setShowSponsoredCard(false);
     setReviewRoundProgress(createReviewRoundProgress());
     if (focusMode.consumeRouteIntent) router.setParams({ mode: undefined });
@@ -357,7 +362,11 @@ function SyncedPracticeScreen() {
     const actionMode = modeRef.current;
     const cursor = cursorRef.current;
     const sessionGeneration = sessionGenerationRef.current;
-    const replacesRatedAction = previousAction === 'known' || previousAction === 'saved';
+    const ratedAdvance = resolvePendingRatedPracticeAdvance(
+      pendingRatedAdvance,
+      previousAction,
+      status,
+    );
     busyRef.current = true;
     setLoading(true);
     setError(null);
@@ -365,19 +374,21 @@ function SyncedPracticeScreen() {
     try {
       await mobileApi.mutate({ action: 'rate-card', cardId: completedCard.id, status });
       if (sessionGeneration !== sessionGenerationRef.current) return;
+      setPendingRatedAdvance(ratedAdvance);
       const advanced = await load(actionMode, cursor, sessionGeneration, true);
       if (sessionGeneration !== sessionGenerationRef.current) return;
       setPreviousAction((current) => resolvePreviousPracticeActionAfterAdvance(current, advanced.ok));
       if (!advanced.ok) return;
+      setPendingRatedAdvance(null);
       if (actionMode === 'review') {
         setReviewRoundProgress((current) => recordReviewRoundAdvance(current, {
           pool: initialReviewPoolRef.current,
-          action: status,
-          replacesRatedAction,
+          action: ratedAdvance.action,
+          replacesRatedAction: ratedAdvance.replacesRatedAction,
           cycled: advanced.cycled,
         }));
       }
-      recordAdvance(completedCard, status);
+      recordAdvance(completedCard, ratedAdvance.action);
     } catch (cause) {
       if (sessionGeneration === sessionGenerationRef.current) {
         setError(cause instanceof Error ? cause.message : t('practice.saveError'));
@@ -393,6 +404,7 @@ function SyncedPracticeScreen() {
   async function skip() {
     if (!card || busyRef.current) return;
     const completedCard = card;
+    const skipAdvance = resolvePracticeSkipAdvance(pendingRatedAdvance, previousAction);
     const actionMode = modeRef.current;
     const cursor = cursorRef.current;
     const sessionGeneration = sessionGenerationRef.current;
@@ -403,15 +415,16 @@ function SyncedPracticeScreen() {
       if (sessionGeneration !== sessionGenerationRef.current) return;
       setPreviousAction((current) => resolvePreviousPracticeActionAfterAdvance(current, advanced.ok));
       if (!advanced.ok) return;
+      setPendingRatedAdvance(null);
       if (actionMode === 'review') {
         setReviewRoundProgress((current) => recordReviewRoundAdvance(current, {
           pool: initialReviewPoolRef.current,
-          action: 'skip',
-          replacesRatedAction: false,
+          action: skipAdvance.action,
+          replacesRatedAction: skipAdvance.replacesRatedAction,
           cycled: advanced.cycled,
         }));
       }
-      recordAdvance(completedCard, 'skip');
+      recordAdvance(completedCard, skipAdvance.action);
     } finally {
       if (sessionGeneration === sessionGenerationRef.current) {
         busyRef.current = false;
@@ -421,7 +434,7 @@ function SyncedPracticeScreen() {
   }
 
   function showPrevious() {
-    if (busyRef.current) return;
+    if (busyRef.current || pendingRatedAdvance) return;
     const recovered = recoverPreviousPracticeCard(historyState);
     if (!recovered.entry) return;
     setHistoryState(recovered.state);
@@ -441,6 +454,7 @@ function SyncedPracticeScreen() {
     setCard(null);
     setHistoryState((current) => ({ ...current, history: [] }));
     setPreviousAction(null);
+    setPendingRatedAdvance(null);
     setShowSponsoredCard(false);
     setReviewRoundProgress(createReviewRoundProgress());
     void load(nextMode, null, sessionGeneration, false, true);
@@ -454,6 +468,8 @@ function SyncedPracticeScreen() {
   const reviewPool = initialReviewPoolRef.current;
   const reviewProgress = Math.min(reviewRoundProgress.reviewed, reviewPool);
   const sponsoredCardVisible = showSponsoredCard && subscriptionReady && !isAdFree;
+  const previousDisabled = historyState.history.length === 0 || pendingRatedAdvance !== null;
+  const selectedAction = pendingRatedAdvance?.action ?? previousAction;
 
   useEffect(() => {
     if (Platform.OS === 'ios' && reviewRoundProgress.completed) {
@@ -532,11 +548,12 @@ function SyncedPracticeScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t('practice.previousAria')}
-              disabled={historyState.history.length === 0}
+              accessibilityState={{ disabled: previousDisabled }}
+              disabled={previousDisabled}
               onPress={showPrevious}
               style={({ pressed }) => [
                 styles.navigationButton,
-                historyState.history.length === 0 && styles.navigationButtonDisabled,
+                previousDisabled && styles.navigationButtonDisabled,
                 pressed && styles.pressed,
               ]}
             >
@@ -615,20 +632,20 @@ function SyncedPracticeScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={t('practice.stillUnclear')}
-                  accessibilityState={{ selected: previousAction === 'saved' }}
+                  accessibilityState={{ selected: selectedAction === 'saved' }}
                   disabled={loading}
                   onPress={() => void rate('saved')}
-                  style={[styles.ratingButton, previousAction === 'saved' && styles.ratingButtonSelected]}
+                  style={[styles.ratingButton, selectedAction === 'saved' && styles.ratingButtonSelected]}
                 >
                   <Text style={styles.ratingText}>{t('practice.stillUnclear')}</Text>
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={t('practice.canExplain')}
-                  accessibilityState={{ selected: previousAction === 'known' }}
+                  accessibilityState={{ selected: selectedAction === 'known' }}
                   disabled={loading}
                   onPress={() => void rate('known')}
-                  style={[styles.ratingButton, styles.ratingButtonPrimary, previousAction === 'known' && styles.ratingButtonPrimarySelected]}
+                  style={[styles.ratingButton, styles.ratingButtonPrimary, selectedAction === 'known' && styles.ratingButtonPrimarySelected]}
                 >
                   <Text style={[styles.ratingText, styles.ratingTextPrimary]}>{t('practice.canExplain')}</Text>
                 </Pressable>

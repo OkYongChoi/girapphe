@@ -2,6 +2,13 @@ export type PracticeMode = 'new' | 'review';
 
 export type SyncedPracticeAction = 'skip' | 'known' | 'saved';
 
+export type RatedPracticeAction = Exclude<SyncedPracticeAction, 'skip'>;
+
+export type PendingRatedPracticeAdvance = {
+  action: RatedPracticeAction;
+  replacesRatedAction: boolean;
+};
+
 export type PracticeHistoryEntry<Card> = {
   card: Card;
   action: SyncedPracticeAction;
@@ -92,6 +99,39 @@ export function resolvePreviousPracticeActionAfterAdvance(
   advanced: boolean,
 ): SyncedPracticeAction | null {
   return advanced ? null : action;
+}
+
+export function resolvePracticeHistoryActionAfterSkip(
+  previousAction: SyncedPracticeAction | null,
+): SyncedPracticeAction {
+  return previousAction === 'known' || previousAction === 'saved'
+    ? previousAction
+    : 'skip';
+}
+
+export function resolvePendingRatedPracticeAdvance(
+  pending: PendingRatedPracticeAdvance | null,
+  previousAction: SyncedPracticeAction | null,
+  action: RatedPracticeAction,
+): PendingRatedPracticeAdvance {
+  return {
+    action,
+    replacesRatedAction: pending
+      ? pending.replacesRatedAction
+      : previousAction === 'known' || previousAction === 'saved',
+  };
+}
+
+export function resolvePracticeSkipAdvance(
+  pending: PendingRatedPracticeAdvance | null,
+  previousAction: SyncedPracticeAction | null,
+): Pick<ReviewRoundAdvance, 'action' | 'replacesRatedAction'> {
+  if (pending) return pending;
+  const action = resolvePracticeHistoryActionAfterSkip(previousAction);
+  return {
+    action,
+    replacesRatedAction: action !== 'skip',
+  };
 }
 
 export function createReviewRoundProgress(): ReviewRoundProgress {
