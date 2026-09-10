@@ -186,6 +186,14 @@ post-create cleanup reuses the cached owner and therefore cannot spend its
 reserved cleanup window waiting on an unbounded Clerk response. Immediately
 before Create, each journey accounts for elapsed setup work and adds a bounded
 evidence budget plus a separate 180-second cleanup reserve to the test timeout.
+The exact marker-bearing Create request is proxied through `route.fetch()` and
+tracked through response fulfillment. During the reserve, cleanup retries the
+exact owner/full-label/run-marker predicate, adds hash verification when the PAT
+was captured, and requires another successful exact cleanup after the Create
+action and request are quiescent. An absent row or failed/unknown transport is
+never accepted as closeout; retryable visibility, lock, and sanitized connection
+failures continue to the deadline, while invalid owner or marker input fails
+immediately. Per-operation database timeouts shrink with the remaining reserve.
 
 The Thinking History project begins from a fixture-verified zero import-event
 baseline. Local file parsing, candidate selection, and the consent checkbox must

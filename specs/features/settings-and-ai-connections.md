@@ -129,6 +129,12 @@ reuse that cached owner instead of starting an unbounded Clerk request inside
 the reserved cleanup window. Immediately before Create, each path accounts for
 elapsed setup work and adds a bounded evidence budget plus a separate 180-second
 cleanup reserve to the Playwright timeout.
+Each exact marker-bearing Create request is tracked through response fulfillment.
+Cleanup retries the exact owner/full-label/run-marker predicate during settlement
+and requires a new successful attempt after action/request quiescence, using the
+PAT hash as an additional identity whenever capture succeeded. Missing rows and
+failed or unknown transport cannot close the run early; only transient database
+failures retry, with per-operation bounds clamped to the remaining reserve.
 Provider JSON evidence and the generated job summary contain counts and
 booleans only. Automatic screenshots are disabled in PAT-bearing specs and
 automatic authenticated accessibility error snapshots are disabled suite-wide;

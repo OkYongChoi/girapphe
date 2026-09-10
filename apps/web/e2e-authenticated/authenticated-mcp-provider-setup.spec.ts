@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { expect, test, type Page } from './authenticated-test';
+import type { Route } from '@playwright/test';
 import {
   AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
 } from '../scripts/authenticated-overlay-constants.mjs';
@@ -12,8 +13,12 @@ import {
   resolveAuthenticatedOverlaySyntheticUser,
   revokeExactAuthenticatedOverlayMcpToken,
   revokeExactAuthenticatedOverlayMcpTokenByMarker,
-  verifyExactAuthenticatedOverlayMcpTokenInactive,
 } from '../scripts/authenticated-overlay-fixture.mjs';
+import {
+  createExactMcpCreateQuiescenceTracker,
+  isExactMcpCreateServerAction,
+  retryExactMcpPatCleanupAfterCreate,
+} from './authenticated-mcp-provider-setup-fault-routing';
 
 const RAW_PAT_PATTERN = /girapphe_mcp_[A-Za-z0-9_-]{20,}/u;
 const RAW_PAT_SHAPE = /^girapphe_mcp_[A-Za-z0-9_-]{43}$/u;
@@ -214,7 +219,22 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
 
   const runMarker = `${AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:${randomUUID()}`;
   const connectionLabel = `PAT ${runMarker}`;
+  const settingsDocumentUrl = page.url();
+  const createQuiescence = createExactMcpCreateQuiescenceTracker();
+  const createRouteHandler = async (route: Route) => {
+    if (!isExactMcpCreateServerAction(route.request(), settingsDocumentUrl, runMarker)) {
+      await route.continue();
+      return;
+    }
+    await createQuiescence.trackExactRequest(async () => {
+      const response = await route.fetch();
+      await route.fulfill({ response });
+    });
+  };
+  await page.route('**/*', createRouteHandler);
   let createAttempted = false;
+  let cleanupDeadlineMs = 0;
+  let evidenceStepExpired = false;
   let rawToken = '';
   let rawTokenHasExpectedShape = false;
   let openAiSnippetChecks = {
@@ -247,15 +267,26 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
     const elapsedBeforeCreateMs = Math.max(0, Date.now() - testStartedAt);
     // Preserve the original evidence budget in a bounded step, while adding a
     // separate reserve to the enclosing test before a PAT can be committed.
-    testInfo.setTimeout(Math.max(
+    const totalTimeoutMs = Math.max(
       testInfo.timeout,
       elapsedBeforeCreateMs + evidenceTimeoutMs + MCP_CLEANUP_RESERVE_MS,
-    ));
+    );
+    testInfo.setTimeout(totalTimeoutMs);
+    cleanupDeadlineMs = testStartedAt + totalTimeoutMs;
 
     await test.step('collect and revoke normal-path PAT evidence', async () => {
       createAttempted = true;
-      await page.getByRole('button', { name: 'Create token' }).click();
-      rawToken = await captureAndHideOneTimePat(page);
+      await createQuiescence.trackCreateAction(() => (
+        page.getByRole('button', { name: 'Create token' }).click({ timeout: evidenceTimeoutMs })
+      ));
+      let capturedRawToken = '';
+      try {
+        capturedRawToken = await captureAndHideOneTimePat(page);
+        if (evidenceStepExpired) throw new Error('MCP_PAT_EVIDENCE_STEP_EXPIRED');
+        rawToken = capturedRawToken;
+      } finally {
+        capturedRawToken = '';
+      }
       rawTokenHasExpectedShape = RAW_PAT_SHAPE.test(rawToken);
       await clearClipboard(page);
 
@@ -311,6 +342,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
       overflowsViewport = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     }, { timeout: evidenceTimeoutMs });
   } catch (error) {
+    evidenceStepExpired = true;
     originalEvidenceFailed = true;
     originalEvidenceError = error;
   } finally {
@@ -398,50 +430,54 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
       cleanupEvidenceError ??= error;
     }
 
-    if (uiCleanupErrors.length === 2 && rawTokenHasExpectedShape) {
+    if (createAttempted) {
       try {
-        const databaseCleanup = await revokeExactAuthenticatedOverlayMcpToken({
-          syntheticUser,
-          rawToken,
-          connectionLabel,
-          runMarker,
+        const databaseCleanup = await retryExactMcpPatCleanupAfterCreate({
+          tracker: createQuiescence,
+          deadlineMs: cleanupDeadlineMs,
+          cleanup: async (deadlineMs) => {
+            const markerCleanup = await revokeExactAuthenticatedOverlayMcpTokenByMarker({
+              syntheticUser,
+              connectionLabel,
+              runMarker,
+              deadlineMs,
+            });
+            if (!RAW_PAT_SHAPE.test(rawToken)) {
+              return { matched: 1, remainingActive: markerCleanup.remainingActive };
+            }
+            const hashCleanup = await revokeExactAuthenticatedOverlayMcpToken({
+              syntheticUser,
+              rawToken,
+              connectionLabel,
+              runMarker,
+              deadlineMs,
+            });
+            return { matched: 1, remainingActive: hashCleanup.remainingActive };
+          },
         });
+        normalUiRemainingActive = databaseCleanup.remainingActive;
+        if (
+          databaseCleanup.exactRequestsStarted !== 1
+          || databaseCleanup.exactRequestsSucceeded !== 1
+          || databaseCleanup.exactRequestsFailed !== 0
+        ) {
+          throw new Error('MCP_PAT_CREATE_TRANSPORT_NOT_EXACTLY_CONFIRMED');
+        }
         if (databaseCleanup.remainingActive !== 0) {
           throw new Error('Synthetic PAT database cleanup left an active credential.');
         }
       } catch (error) {
         cleanupError ??= error;
       }
-    } else if (rawTokenHasExpectedShape) {
-      try {
-        const verification = await verifyExactAuthenticatedOverlayMcpTokenInactive({
-          syntheticUser,
-          rawToken,
-          connectionLabel,
-          runMarker,
-        });
-        normalUiRemainingActive = verification.remainingActive;
-      } catch (error) {
-        cleanupError ??= error;
-      }
-    } else if (createAttempted) {
-      // A create may commit before the one-time PAT reaches the page. The
-      // unique random marker is the only safe emergency identity in that
-      // case, so revoke that exact row and still fail this evidence run.
-      try {
-        const databaseCleanup = await revokeExactAuthenticatedOverlayMcpTokenByMarker({
-          syntheticUser,
-          connectionLabel,
-          runMarker,
-        });
-        normalUiRemainingActive = databaseCleanup.remainingActive;
-        if (databaseCleanup.remainingActive !== 0) {
-          throw new Error('Synthetic PAT marker cleanup left an active credential.');
-        }
-      } catch (error) {
-        cleanupError ??= error;
-      }
+    }
+    if (createAttempted && !rawTokenHasExpectedShape) {
       cleanupEvidenceError ??= new Error('SYNTHETIC_MCP_TOKEN_CAPTURE_FAILED');
+    }
+
+    try {
+      await page.unroute('**/*', createRouteHandler);
+    } catch (error) {
+      cleanupError ??= error;
     }
 
     revokedAfterReload = exactConnectionObserved;

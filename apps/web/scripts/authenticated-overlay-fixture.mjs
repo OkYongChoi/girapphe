@@ -27,6 +27,7 @@ const MCP_PAT_RUN_MARKER_PATTERN = new RegExp(
 const MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS = 5_000;
 const MCP_CLEANUP_DB_QUERY_TIMEOUT_MS = 10_000;
 const MCP_CLEANUP_DB_LOCK_TIMEOUT_MS = 5_000;
+const MCP_CLEANUP_DB_DEADLINE_DIVISOR = 12;
 
 function authenticatedOverlayFixtureError(code, cause) {
   const suffix = cause === undefined
@@ -52,6 +53,30 @@ function requireSyntheticFixtureUser(userInput) {
     throw new Error('Database fixture mutations require the dedicated authenticated overlay synthetic user.');
   }
   return userId;
+}
+
+function createMcpCleanupPool(databaseUrl, deadlineMs) {
+  const connectionString = requireValue(databaseUrl, 'DATABASE_URL');
+  const remainingMs = Number.isFinite(deadlineMs)
+    ? Math.floor(Number(deadlineMs) - Date.now())
+    : Number.POSITIVE_INFINITY;
+  if (remainingMs <= MCP_CLEANUP_DB_DEADLINE_DIVISOR) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_CLEANUP_DEADLINE_EXHAUSTED');
+  }
+  // A cleanup transaction has at most one connect plus nine awaited statements
+  // including rollback. Dividing the remaining reserve leaves headroom for
+  // client/server timeout propagation and pool shutdown.
+  const perOperationMs = Number.isFinite(remainingMs)
+    ? Math.max(1, Math.floor(remainingMs / MCP_CLEANUP_DB_DEADLINE_DIVISOR))
+    : MCP_CLEANUP_DB_QUERY_TIMEOUT_MS;
+  return new Pool({
+    connectionString,
+    max: 1,
+    connectionTimeoutMillis: Math.min(MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS, perOperationMs),
+    query_timeout: Math.min(MCP_CLEANUP_DB_QUERY_TIMEOUT_MS, perOperationMs),
+    statement_timeout: Math.min(MCP_CLEANUP_DB_QUERY_TIMEOUT_MS, perOperationMs),
+    lock_timeout: Math.min(MCP_CLEANUP_DB_LOCK_TIMEOUT_MS, perOperationMs),
+  });
 }
 
 function publishedStateFromRow(row = {}) {
@@ -812,6 +837,7 @@ export async function deleteExactAuthenticatedOverlayImport({
  *   connectionLabel: string,
  *   runMarker: string,
  *   databaseUrl?: string,
+ *   deadlineMs?: number,
  * }} options
  */
 export async function revokeExactAuthenticatedOverlayMcpToken({
@@ -820,17 +846,11 @@ export async function revokeExactAuthenticatedOverlayMcpToken({
   connectionLabel,
   runMarker,
   databaseUrl = process.env.DATABASE_URL,
+  deadlineMs,
 }) {
   try {
     requireSyntheticFixtureUser(syntheticUser);
-    const pool = new Pool({
-      connectionString: requireValue(databaseUrl, 'DATABASE_URL'),
-      max: 1,
-      connectionTimeoutMillis: MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS,
-      query_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS,
-      statement_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS,
-      lock_timeout: MCP_CLEANUP_DB_LOCK_TIMEOUT_MS,
-    });
+    const pool = createMcpCleanupPool(databaseUrl, deadlineMs);
     try {
       const client = await pool.connect();
       try {
@@ -860,6 +880,7 @@ export async function revokeExactAuthenticatedOverlayMcpToken({
  *   connectionLabel: string,
  *   runMarker: string,
  *   databaseUrl?: string,
+ *   deadlineMs?: number,
  * }} options
  */
 export async function revokeExactAuthenticatedOverlayMcpTokenByMarker({
@@ -867,17 +888,11 @@ export async function revokeExactAuthenticatedOverlayMcpTokenByMarker({
   connectionLabel,
   runMarker,
   databaseUrl = process.env.DATABASE_URL,
+  deadlineMs,
 }) {
   try {
     requireSyntheticFixtureUser(syntheticUser);
-    const pool = new Pool({
-      connectionString: requireValue(databaseUrl, 'DATABASE_URL'),
-      max: 1,
-      connectionTimeoutMillis: MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS,
-      query_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS,
-      statement_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS,
-      lock_timeout: MCP_CLEANUP_DB_LOCK_TIMEOUT_MS,
-    });
+    const pool = createMcpCleanupPool(databaseUrl, deadlineMs);
     try {
       const client = await pool.connect();
       try {
@@ -905,6 +920,7 @@ export async function revokeExactAuthenticatedOverlayMcpTokenByMarker({
  *   connectionLabel: string,
  *   runMarker: string,
  *   databaseUrl?: string,
+ *   deadlineMs?: number,
  * }} options
  */
 export async function verifyExactAuthenticatedOverlayMcpTokenInactive({
@@ -913,17 +929,11 @@ export async function verifyExactAuthenticatedOverlayMcpTokenInactive({
   connectionLabel,
   runMarker,
   databaseUrl = process.env.DATABASE_URL,
+  deadlineMs,
 }) {
   try {
     requireSyntheticFixtureUser(syntheticUser);
-    const pool = new Pool({
-      connectionString: requireValue(databaseUrl, 'DATABASE_URL'),
-      max: 1,
-      connectionTimeoutMillis: MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS,
-      query_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS,
-      statement_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS,
-      lock_timeout: MCP_CLEANUP_DB_LOCK_TIMEOUT_MS,
-    });
+    const pool = createMcpCleanupPool(databaseUrl, deadlineMs);
     try {
       const client = await pool.connect();
       try {

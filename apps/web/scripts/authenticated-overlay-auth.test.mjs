@@ -201,11 +201,11 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     evidenceTimeout,
   );
   const cleanupReserve = source.indexOf(
-    'testInfo.setTimeout(Math.max(',
+    'const totalTimeoutMs = Math.max(',
     ownerResolution,
   );
   const createClick = source.indexOf(
-    "getByRole('button', { name: 'Create token' }).click()",
+    "getByRole('button', { name: 'Create token' }).click({ timeout: evidenceTimeoutMs })",
     cleanupReserve,
   );
   const boundedEvidenceStep = source.indexOf(
@@ -226,13 +226,17 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     'await revokeExactConnectionAfterReload(page, connectionLabel)',
     immediateEvidence,
   );
-  const databaseFallback = source.indexOf(
-    'await revokeExactAuthenticatedOverlayMcpToken({',
+  const databaseCloseout = source.indexOf(
+    'await retryExactMcpPatCleanupAfterCreate({',
     firstReloadCleanup,
   );
   const markerFallback = source.indexOf(
     'await revokeExactAuthenticatedOverlayMcpTokenByMarker({',
-    databaseFallback,
+    databaseCloseout,
+  );
+  const hashCleanup = source.indexOf(
+    'await revokeExactAuthenticatedOverlayMcpToken({',
+    markerFallback,
   );
   const captureFailureResurface = source.indexOf(
     "cleanupEvidenceError ??= new Error('SYNTHETIC_MCP_TOKEN_CAPTURE_FAILED')",
@@ -262,10 +266,11 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
       && cleanupFinally < firstCleanupOperation
       && firstCleanupOperation < immediateEvidence
       && immediateEvidence < firstReloadCleanup
-      && databaseFallback < markerFallback
+      && databaseCloseout < markerFallback
+      && markerFallback < hashCleanup
       && markerFallback < captureFailureResurface
       && captureFailureResurface < cleanupFailureResurface
-      && databaseFallback < cleanupFailureResurface
+      && databaseCloseout < cleanupFailureResurface
       && cleanupFailureResurface < originalEvidenceResurface
       && originalEvidenceResurface < cleanupEvidenceFailureResurface,
     'the bounded evidence step must reserve cleanup time before PAT creation and precede every cleanup path',
@@ -277,7 +282,7 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   );
   assert.match(
     source.slice(testStartedAt, cleanupFinally),
-    /} catch \(error\) \{\s+originalEvidenceFailed = true;\s+originalEvidenceError = error;/,
+    /} catch \(error\) \{\s+evidenceStepExpired = true;\s+originalEvidenceFailed = true;\s+originalEvidenceError = error;/,
   );
   assert.match(
     source.slice(evidenceTimeout, createClick),
@@ -300,21 +305,16 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     'the cleanup reserve must outlast redaction, both UI cleanup paths, and database verification',
   );
   assert.match(
-    source.slice(firstReloadCleanup, databaseFallback),
-    /uiCleanupErrors\.length === 2 && rawTokenHasExpectedShape/,
-  );
-  assert.match(
-    source.slice(databaseFallback, markerFallback),
-    /else if \(createAttempted\)/,
-  );
-  assert.match(
-    source.slice(databaseFallback, originalEvidenceResurface),
+    source.slice(databaseCloseout, originalEvidenceResurface),
     /databaseCleanup\.remainingActive !== 0/,
   );
   assert.match(
-    source.slice(markerFallback, cleanupFailureResurface),
-    /connectionLabel,[\s\S]*runMarker,[\s\S]*normalUiRemainingActive = databaseCleanup\.remainingActive/,
+    source.slice(databaseCloseout, cleanupFailureResurface),
+    /tracker: createQuiescence,[\s\S]*deadlineMs: cleanupDeadlineMs,[\s\S]*revokeExactAuthenticatedOverlayMcpTokenByMarker[\s\S]*revokeExactAuthenticatedOverlayMcpToken[\s\S]*normalUiRemainingActive = databaseCleanup\.remainingActive/,
   );
+  assert.match(source, /createQuiescence\.trackExactRequest\([\s\S]*route\.fetch\(\)[\s\S]*route\.fulfill/);
+  assert.match(source, /createQuiescence\.trackCreateAction\([\s\S]*Create token/);
+  assert.match(source, /databaseCleanup\.exactRequestsSucceeded !== 1/);
 
   const hideEvaluation = source.indexOf('const hide = () => page.evaluate');
   const boundedHide = source.indexOf(
@@ -386,15 +386,11 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   assert.match(source, /navigator\.clipboard\.writeText\(['"]['"]\)[\s\S]*navigator\.clipboard\.readText\(\)/);
   assert.match(
     source,
-    /revokeExactAuthenticatedOverlayMcpToken\(\{\s*syntheticUser,\s*rawToken,\s*connectionLabel,\s*runMarker,\s*\}\)/,
+    /revokeExactAuthenticatedOverlayMcpToken\(\{\s*syntheticUser,\s*rawToken,\s*connectionLabel,\s*runMarker,\s*deadlineMs,\s*\}\)/,
   );
   assert.match(
     source,
-    /verifyExactAuthenticatedOverlayMcpTokenInactive\(\{\s*syntheticUser,\s*rawToken,\s*connectionLabel,\s*runMarker,\s*\}\)/,
-  );
-  assert.match(
-    source,
-    /revokeExactAuthenticatedOverlayMcpTokenByMarker\(\{\s*syntheticUser,\s*connectionLabel,\s*runMarker,\s*\}\)/,
+    /revokeExactAuthenticatedOverlayMcpTokenByMarker\(\{\s*syntheticUser,\s*connectionLabel,\s*runMarker,\s*deadlineMs,\s*\}\)/,
   );
   assert.doesNotMatch(
     source,
@@ -430,11 +426,11 @@ test('provider PAT route fault proves exact fallback and original error identity
   );
   const routeRegistration = source.indexOf("await page.route('**/*'", ownerResolution);
   const cleanupReserve = source.indexOf(
-    'testInfo.setTimeout(Math.max(',
+    'const totalTimeoutMs = Math.max(',
     routeRegistration,
   );
   const createClick = source.indexOf(
-    "getByRole('button', { name: 'Create token' }).click()",
+    "getByRole('button', { name: 'Create token' }).click({",
     cleanupReserve,
   );
   const boundedFaultEvidence = source.indexOf(
@@ -456,12 +452,16 @@ test('provider PAT route fault proves exact fallback and original error identity
   const firstUiPath = source.indexOf("getByRole('button', { name: 'Revoke' })", armFault);
   const secondUiPath = source.indexOf('await page.reload({', firstUiPath);
   const fallback = source.indexOf(
-    '? await revokeExactAuthenticatedOverlayMcpToken({',
+    'const fallback = await retryExactMcpPatCleanupAfterCreate({',
     secondUiPath,
   );
   const markerFallback = source.indexOf(
-    ': await revokeExactAuthenticatedOverlayMcpTokenByMarker({',
+    'await revokeExactAuthenticatedOverlayMcpTokenByMarker({',
     fallback,
+  );
+  const hashCleanup = source.indexOf(
+    'await revokeExactAuthenticatedOverlayMcpToken({',
+    markerFallback,
   );
   const originalRethrow = source.indexOf('if (originalError) throw originalError', markerFallback);
   assert.ok(
@@ -485,6 +485,7 @@ test('provider PAT route fault proves exact fallback and original error identity
       && firstUiPath < secondUiPath
       && secondUiPath < fallback
       && fallback < markerFallback
+      && markerFallback < hashCleanup
       && markerFallback < originalRethrow,
   );
   assert.match(
@@ -510,10 +511,13 @@ test('provider PAT route fault proves exact fallback and original error identity
     /resolveAuthenticatedOverlaySyntheticUser\(/,
     'the route-fault cleanup must not contact Clerk after PAT creation',
   );
+  assert.match(source, /createQuiescence\.trackExactRequest\([\s\S]*route\.fetch\(\)[\s\S]*route\.fulfill/);
+  assert.match(source, /createQuiescence\.trackCreateAction\([\s\S]*Create token/);
   assert.match(
     source,
-    /const fallback = RAW_PAT_SHAPE\.test\(rawToken\)[\s\S]*revokeExactAuthenticatedOverlayMcpToken\([\s\S]*revokeExactAuthenticatedOverlayMcpTokenByMarker\(/,
+    /retryExactMcpPatCleanupAfterCreate\(\{[\s\S]*tracker: createQuiescence,[\s\S]*deadlineMs: cleanupDeadlineMs,[\s\S]*revokeExactAuthenticatedOverlayMcpTokenByMarker[\s\S]*revokeExactAuthenticatedOverlayMcpToken/,
   );
+  assert.match(source, /fallback\.exactRequestsSucceeded !== 1/);
   assert.match(source, /if \(uiCleanupErrors\.length !== 2\)/);
   assert.match(
     source,
@@ -521,11 +525,11 @@ test('provider PAT route fault proves exact fallback and original error identity
   );
   assert.match(
     source,
-    /revokeExactAuthenticatedOverlayMcpToken\(\{\s*syntheticUser,\s*rawToken,\s*connectionLabel,\s*runMarker,\s*\}\)/,
+    /revokeExactAuthenticatedOverlayMcpToken\(\{\s*syntheticUser,\s*rawToken,\s*connectionLabel,\s*runMarker,\s*deadlineMs,\s*\}\)/,
   );
   assert.match(
     source,
-    /revokeExactAuthenticatedOverlayMcpTokenByMarker\(\{\s*syntheticUser,\s*connectionLabel,\s*runMarker,\s*\}\)/,
+    /revokeExactAuthenticatedOverlayMcpTokenByMarker\(\{\s*syntheticUser,\s*connectionLabel,\s*runMarker,\s*deadlineMs,\s*\}\)/,
   );
   assert.match(source, /remainingActiveAfterFallback = fallback\.remainingActive/);
   assert.doesNotMatch(

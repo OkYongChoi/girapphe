@@ -14,7 +14,9 @@ import {
   revokeExactAuthenticatedOverlayMcpTokenByMarker,
 } from '../scripts/authenticated-overlay-fixture.mjs';
 import {
+  createExactMcpCreateQuiescenceTracker,
   isExactMcpCreateServerAction,
+  retryExactMcpPatCleanupAfterCreate,
   targetsExactSettingsDocument,
 } from './authenticated-mcp-provider-setup-fault-routing';
 
@@ -81,7 +83,9 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
   const runMarker = `${AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:${randomUUID()}`;
   const connectionLabel = `PAT ${runMarker}`;
   const settingsDocumentUrl = page.url();
+  const createQuiescence = createExactMcpCreateQuiescenceTracker();
   const originalSentinel = new Error('MCP_PAT_ROUTE_FAULT_SENTINEL');
+  let cleanupDeadlineMs = 0;
   let rawToken = '';
   let postResponseCaptured = false;
   let postResponseRedacted = false;
@@ -112,23 +116,25 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
       return;
     }
 
-    const response = await route.fetch();
-    let responseBody = await response.text();
-    const matches = responseBody.match(RAW_PAT_CAPTURE_PATTERN) ?? [];
-    const uniqueMatches = [...new Set(matches)];
-    if (uniqueMatches.length === 1 && RAW_PAT_SHAPE.test(uniqueMatches[0] ?? '')) {
-      rawToken = uniqueMatches[0]!;
-      postResponseCaptured = true;
-    }
-    const redactedBody = responseBody.replace(
-      RAW_PAT_CAPTURE_PATTERN,
-      '[redacted synthetic PAT response]',
-    );
-    responseBody = '';
-    postResponseRedacted = !RAW_PAT_CAPTURE_PATTERN.test(redactedBody);
-    RAW_PAT_CAPTURE_PATTERN.lastIndex = 0;
-    routeFaultArmed = true;
-    await route.fulfill({ response, body: redactedBody });
+    await createQuiescence.trackExactRequest(async () => {
+      const response = await route.fetch();
+      let responseBody = await response.text();
+      const matches = responseBody.match(RAW_PAT_CAPTURE_PATTERN) ?? [];
+      const uniqueMatches = [...new Set(matches)];
+      if (uniqueMatches.length === 1 && RAW_PAT_SHAPE.test(uniqueMatches[0] ?? '')) {
+        rawToken = uniqueMatches[0]!;
+        postResponseCaptured = true;
+      }
+      const redactedBody = responseBody.replace(
+        RAW_PAT_CAPTURE_PATTERN,
+        '[redacted synthetic PAT response]',
+      );
+      responseBody = '';
+      postResponseRedacted = !RAW_PAT_CAPTURE_PATTERN.test(redactedBody);
+      RAW_PAT_CAPTURE_PATTERN.lastIndex = 0;
+      routeFaultArmed = true;
+      await route.fulfill({ response, body: redactedBody });
+    });
   });
 
   try {
@@ -139,12 +145,18 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
       const elapsedBeforeCreateMs = Math.max(0, Date.now() - testStartedAt);
       // Preserve a bounded fault-evidence budget while reserving a separate
       // post-create cleanup window after every pre-create operation completed.
-      testInfo.setTimeout(Math.max(
+      const totalTimeoutMs = Math.max(
         testInfo.timeout,
         elapsedBeforeCreateMs + faultEvidenceTimeoutMs + MCP_CLEANUP_RESERVE_MS,
-      ));
+      );
+      testInfo.setTimeout(totalTimeoutMs);
+      cleanupDeadlineMs = testStartedAt + totalTimeoutMs;
       await test.step('commit and redact route-fault PAT evidence', async () => {
-        await page.getByRole('button', { name: 'Create token' }).click();
+        await createQuiescence.trackCreateAction(() => (
+          page.getByRole('button', { name: 'Create token' }).click({
+            timeout: faultEvidenceTimeoutMs,
+          })
+        ));
         await expect.poll(() => postResponseCaptured, { timeout: 30_000 }).toBe(true);
         if (!postResponseRedacted) throw new Error('MCP_PAT_ROUTE_RESPONSE_NOT_REDACTED');
       }, { timeout: faultEvidenceTimeoutMs });
@@ -190,20 +202,38 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
         // discriminator. Run it after every create attempt, using the hash
         // when captured or the random label marker when capture itself fails.
         try {
-          const fallback = RAW_PAT_SHAPE.test(rawToken)
-            ? await revokeExactAuthenticatedOverlayMcpToken({
-              syntheticUser,
-              rawToken,
-              connectionLabel,
-              runMarker,
-            })
-            : await revokeExactAuthenticatedOverlayMcpTokenByMarker({
-              syntheticUser,
-              connectionLabel,
-              runMarker,
-            });
+          const fallback = await retryExactMcpPatCleanupAfterCreate({
+            tracker: createQuiescence,
+            deadlineMs: cleanupDeadlineMs,
+            cleanup: async (deadlineMs) => {
+              const markerCleanup = await revokeExactAuthenticatedOverlayMcpTokenByMarker({
+                syntheticUser,
+                connectionLabel,
+                runMarker,
+                deadlineMs,
+              });
+              if (!RAW_PAT_SHAPE.test(rawToken)) {
+                return { matched: 1, remainingActive: markerCleanup.remainingActive };
+              }
+              const hashCleanup = await revokeExactAuthenticatedOverlayMcpToken({
+                syntheticUser,
+                rawToken,
+                connectionLabel,
+                runMarker,
+                deadlineMs,
+              });
+              return { matched: 1, remainingActive: hashCleanup.remainingActive };
+            },
+          });
           databaseFallbackRan = true;
           remainingActiveAfterFallback = fallback.remainingActive;
+          if (
+            fallback.exactRequestsStarted !== 1
+            || fallback.exactRequestsSucceeded !== 1
+            || fallback.exactRequestsFailed !== 0
+          ) {
+            throw new Error('MCP_PAT_ROUTE_FAULT_CREATE_TRANSPORT_NOT_EXACTLY_CONFIRMED');
+          }
           if (fallback.remainingActive !== 0) {
             throw new Error('MCP_PAT_ROUTE_FAULT_FALLBACK_ACTIVE');
           }

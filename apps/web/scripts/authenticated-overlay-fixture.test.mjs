@@ -34,21 +34,23 @@ const SYNTHETIC_PAT_LABEL = `PAT ${SYNTHETIC_PAT_RUN_MARKER}`;
 test('exact MCP token fallback bounds its database connection, statements, and locks', async () => {
   const fixtureUrl = new URL('./authenticated-overlay-fixture.mjs', import.meta.url);
   const source = await fs.readFile(fixtureUrl, 'utf8');
-  const fallbackStart = source.indexOf(
-    'export async function revokeExactAuthenticatedOverlayMcpToken({',
-  );
-  const poolStart = source.indexOf('const pool = new Pool({', fallbackStart);
+  const poolHelperStart = source.indexOf('function createMcpCleanupPool(databaseUrl, deadlineMs)');
+  const poolStart = source.indexOf('return new Pool({', poolHelperStart);
   const poolEnd = source.indexOf('});', poolStart);
   const poolConfiguration = source.slice(poolStart, poolEnd);
 
-  assert.ok(fallbackStart >= 0 && fallbackStart < poolStart && poolStart < poolEnd);
+  assert.ok(poolHelperStart >= 0 && poolHelperStart < poolStart && poolStart < poolEnd);
   assert.match(
     poolConfiguration,
-    /connectionTimeoutMillis: MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS/,
+    /connectionTimeoutMillis: Math\.min\(MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS, perOperationMs\)/,
   );
-  assert.match(poolConfiguration, /query_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS/);
-  assert.match(poolConfiguration, /statement_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS/);
-  assert.match(poolConfiguration, /lock_timeout: MCP_CLEANUP_DB_LOCK_TIMEOUT_MS/);
+  assert.match(poolConfiguration, /query_timeout: Math\.min\(MCP_CLEANUP_DB_QUERY_TIMEOUT_MS, perOperationMs\)/);
+  assert.match(poolConfiguration, /statement_timeout: Math\.min\(MCP_CLEANUP_DB_QUERY_TIMEOUT_MS, perOperationMs\)/);
+  assert.match(poolConfiguration, /lock_timeout: Math\.min\(MCP_CLEANUP_DB_LOCK_TIMEOUT_MS, perOperationMs\)/);
+  assert.match(
+    source.slice(poolHelperStart, poolStart),
+    /remainingMs \/ MCP_CLEANUP_DB_DEADLINE_DIVISOR/,
+  );
 });
 
 test('post-create MCP cleanup reuses a prevalidated owner without contacting Clerk', async () => {
@@ -78,6 +80,8 @@ test('post-create MCP cleanup reuses a prevalidated owner without contacting Cle
     assert.ok(start >= 0 && start < end, `${exportName} must remain exported`);
     assert.match(implementation, /syntheticUser,/);
     assert.match(implementation, /requireSyntheticFixtureUser\(syntheticUser\)/);
+    assert.match(implementation, /deadlineMs,/);
+    assert.match(implementation, /createMcpCleanupPool\(databaseUrl, deadlineMs\)/);
     assert.doesNotMatch(
       implementation,
       /createClerkClient|findExistingAuthenticatedOverlaySyntheticUser|CLERK_SECRET_KEY|E2E_CLERK_USER_EMAIL/,
