@@ -248,7 +248,7 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
     const rankingRows = ranking.rows as JsonRecord[];
     expect(Array.isArray(rankingRows)).toBe(true);
     expect(rankingRows.length).toBeGreaterThan(0);
-    for (const [index, row] of rankingRows.entries()) {
+    for (const row of rankingRows) {
       expect(Object.keys(row).sort()).toEqual([
         'avgScore',
         'explainable',
@@ -257,7 +257,7 @@ test('deployed mobile APIs preserve owner-scoped topics, ranking, practice, note
         'participantId',
         'rank',
       ]);
-      expect(row.label).toBe(`Learner ${index + 1}`);
+      expect(row.label).toBe(`Learner ${row.rank}`);
       expect(row.participantId).toMatch(/^[0-9a-f]{12}$/);
       expect(typeof row.isCurrentUser).toBe('boolean');
       expect(JSON.stringify(row)).not.toContain('@');

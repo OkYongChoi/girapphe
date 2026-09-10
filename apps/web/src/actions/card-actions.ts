@@ -45,7 +45,10 @@ import {
   type KnowledgeGraphCard,
 } from '@/lib/knowledge-graph-card';
 import { buildPracticeExcludeIds, runPracticeAdvance } from '@/lib/practice-advance';
-import { toPublicLeaderboardParticipantId } from '@/lib/leaderboard';
+import {
+  buildPublicLeaderboardQuery,
+  toPublicLeaderboardParticipantId,
+} from '@/lib/leaderboard';
 import { loadMobilePracticeCardAfterCursor } from '@/lib/mobile-practice-selector';
 import type { MobilePracticeCursorState } from '@/lib/mobile-practice-cursor';
 
@@ -127,6 +130,7 @@ type LeaderboardRow = {
   user_id: string;
   known_count: string;
   total_count: string;
+  leaderboard_rank: string;
 };
 
 // Bump this whenever CARD_CONTENT changes to force a DB refresh
@@ -2141,6 +2145,7 @@ export async function resetUserCardProgress() {
 }
 
 export type CardLeaderboardEntry = {
+  rank: number;
   participantId: string;
   isCurrentUser: boolean;
   explainable: number;
@@ -2164,26 +2169,15 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
     const [, currentUser] = await Promise.all([ensureCardSchema(), getCurrentUser()]);
 
     // Private conversation cards are intentionally excluded from global ranking.
-    const query = `
-      SELECT
-        user_id,
-        COUNT(*) FILTER (
-          WHERE knowledge_state = 'known'
-            OR (knowledge_state IS NULL AND status = 'known')
-        ) AS known_count,
-        COUNT(*) AS total_count
-      FROM user_card_states
-      WHERE user_id NOT LIKE 'guest\\_%' ESCAPE '\\'
-      GROUP BY user_id
-      ORDER BY known_count DESC, total_count DESC, user_id ASC
-      LIMIT 100;
-    `;
-
-    const res = await pool.query<LeaderboardRow>(query);
+    // Keep the current actor visible even when their deterministic rank is
+    // outside the public top-N window.
+    const query = buildPublicLeaderboardQuery(currentUser?.id ?? null);
+    const res = await pool.query<LeaderboardRow>(query.text, query.params);
     return res.rows.map((row) => {
       const known = parseInt(row.known_count, 10);
       const total = parseInt(row.total_count, 10);
       return {
+        rank: parseInt(row.leaderboard_rank, 10),
         participantId: toPublicLeaderboardParticipantId(row.user_id),
         isCurrentUser: row.user_id === currentUser?.id,
         explainable: known,

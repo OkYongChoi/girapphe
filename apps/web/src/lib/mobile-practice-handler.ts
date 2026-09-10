@@ -23,9 +23,11 @@ export type MobilePracticePostDependencies<Card, CompatibleCard> = {
   mapCard: (card: Card) => CompatibleCard;
 };
 
-function json(body: unknown, status: number, privateResponse = false): Response {
-  const headers = new Headers({ 'Content-Type': 'application/json' });
-  if (privateResponse) headers.set('Cache-Control', 'private, no-store');
+function json(body: unknown, status: number): Response {
+  const headers = new Headers({
+    'Cache-Control': 'private, no-store',
+    'Content-Type': 'application/json',
+  });
   return new Response(JSON.stringify(body), { headers, status });
 }
 
@@ -91,5 +93,5 @@ export async function handleMobilePracticePost<Card, CompatibleCard>(
     stats,
     nextCursor: next.nextCursor ? encodeMobilePracticeCursor(next.nextCursor) : null,
     cycled: next.cycled,
-  }, 200, true);
+  }, 200);
 }

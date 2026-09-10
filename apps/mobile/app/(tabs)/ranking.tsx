@@ -47,7 +47,7 @@ function RankingContent() {
         contentContainerStyle={styles.content}
         ListHeaderComponent={<View><Text style={styles.kicker}>{t('ranking.kicker')}</Text><Text style={styles.title}>{t('ranking.title')}</Text><Text style={styles.sub}>{t('ranking.copy')}</Text>{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}{loading ? <Text style={styles.sub}>{t('common.loading')}</Text> : null}</View>}
         ListEmptyComponent={!loading ? <View style={styles.empty}><Text style={styles.emptyTitle}>{t('ranking.empty')}</Text><Text style={styles.sub}>{t('ranking.emptyCopy')}</Text></View> : null}
-        renderItem={({ item, index }) => {
+        renderItem={({ item }) => {
           const participantLabel = item.isCurrentUser ? t('ranking.you') : t('ranking.user', { id: item.participantId });
           return (
           <View
@@ -60,7 +60,7 @@ function RankingContent() {
             })}
             style={[styles.row, item.isCurrentUser && styles.currentUserRow]}
           >
-            <Text style={styles.rank}>{medals[index] ? `${medals[index]} #${formatNumber(item.rank)}` : `#${formatNumber(item.rank)}`}</Text>
+            <Text style={styles.rank}>{medals[item.rank - 1] ? `${medals[item.rank - 1]} #${formatNumber(item.rank)}` : `#${formatNumber(item.rank)}`}</Text>
             <View style={styles.user}>
               <Text style={styles.userName}>{participantLabel}</Text>
               <Text style={styles.sub}>{t('ranking.average', { score: formatPercent(item.avgScore) })}</Text>

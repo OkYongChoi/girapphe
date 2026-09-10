@@ -75,12 +75,16 @@ test('cleanup removes only exact owner batch, approved item, note, and hashed ev
     if (/DELETE FROM user_card_states/.test(text)) {
       return { rows: [{ card_id: RANKING_CARD_ID }] };
     }
+    if (/DELETE FROM user_knowledge_create_requests/.test(text)) {
+      return { rows: [{ request_id: MARKER }] };
+    }
     if (/DELETE FROM knowledge_ingestion_batches/.test(text)) {
       return { rows: [{ id: BATCH_ID }] };
     }
     if (/\(SELECT COUNT\(\*\)::integer FROM knowledge_ingestion_batches/.test(text)) {
       return { rows: [{
         batches: 0, drafts: 0, events: 0, items: 0, ranking_rows: 0, private_states: 0,
+        create_requests: 0,
       }] };
     }
     return { rows: [] };
@@ -105,13 +109,22 @@ test('cleanup removes only exact owner batch, approved item, note, and hashed ev
   const eventDelete = client.calls.findIndex((call) => (
     /DELETE FROM knowledge_product_events/.test(call.text)
   ));
+  const createRequestDelete = client.calls.findIndex((call) => (
+    /DELETE FROM user_knowledge_create_requests/.test(call.text)
+  ));
   const batchDelete = client.calls.findIndex((call) => (
     /DELETE FROM knowledge_ingestion_batches/.test(call.text)
   ));
-  assert.ok(itemDelete >= 0 && itemDelete < eventDelete && eventDelete < batchDelete);
+  assert.ok(
+    itemDelete >= 0
+      && itemDelete < eventDelete
+      && eventDelete < createRequestDelete
+      && createRequestDelete < batchDelete,
+  );
   assert.deepEqual(client.calls[eventDelete].params[0], SYNTHETIC_USER.id);
   assert.match(client.calls[eventDelete].params[1], /^[0-9a-f]{64}$/);
   assert.doesNotMatch(client.calls[eventDelete].text, /event_name/);
+  assert.deepEqual(client.calls[createRequestDelete].params, [SYNTHETIC_USER.id, MARKER]);
   assert.equal(client.calls.at(-1).text, 'COMMIT');
 });
 
@@ -147,12 +160,16 @@ test('cleanup can recover an exact marker-owned note before its ID is observed',
     if (/DELETE FROM user_card_states/.test(text)) {
       return { rows: [{ card_id: RANKING_CARD_ID }] };
     }
+    if (/DELETE FROM user_knowledge_create_requests/.test(text)) {
+      return { rows: [{ request_id: MARKER }] };
+    }
     if (/DELETE FROM knowledge_ingestion_batches/.test(text)) {
       return { rows: [{ id: BATCH_ID }] };
     }
     if (/\(SELECT COUNT\(\*\)::integer FROM knowledge_ingestion_batches/.test(text)) {
       return { rows: [{
         batches: 0, drafts: 0, events: 0, items: 0, ranking_rows: 0, private_states: 0,
+        create_requests: 0,
       }] };
     }
     return { rows: [] };

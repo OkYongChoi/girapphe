@@ -91,6 +91,20 @@ test('preview jobs serialize shared database and Worker-settings mutations', asy
   );
   assert.equal(mobilePlanStep.env.NODE_OPTIONS, '--conditions=react-server');
 
+  const mobilePlanIndex = previewJob.steps.findIndex((step) => step === mobilePlanStep);
+  const mobilePlanEvidenceIndex = previewJob.steps.findIndex((step) => (
+    step.name === 'Upload mobile Practice index evidence'
+  ));
+  const browserSmokeIndex = previewJob.steps.findIndex((step) => (
+    step.name === 'Browser smoke test preview'
+  ));
+  assert.ok(mobilePlanEvidenceIndex > mobilePlanIndex);
+  assert.ok(mobilePlanEvidenceIndex < browserSmokeIndex);
+  const mobilePlanEvidenceStep = previewJob.steps[mobilePlanEvidenceIndex];
+  assert.equal(mobilePlanEvidenceStep.if, '${{ always() }}');
+  assert.equal(mobilePlanEvidenceStep.uses, 'actions/upload-artifact@v7.0.1');
+  assert.match(mobilePlanEvidenceStep.with.path, /test-results\/mobile-practice-index\//);
+
   const deployMutationStep = stepWithRun(
     previewJob,
     /pnpm exec wrangler deploy --env preview --secrets-file/,

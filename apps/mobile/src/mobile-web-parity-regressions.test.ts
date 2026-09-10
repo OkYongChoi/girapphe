@@ -53,7 +53,7 @@ test('mobile exposes the owner-scoped Topic index and a route from My Notes', ()
 });
 
 test('mobile ranking preserves anonymous participant identity and identifies the current user', () => {
-  assert.match(mobileRouteSource, /label: `Learner \$\{index \+ 1\}`/);
+  assert.match(mobileRouteSource, /rank: row\.rank,[\s\S]*?label: `Learner \$\{row\.rank\}`/);
   assert.match(
     mobileRouteSource,
     /case 'ranking':[\s\S]*?return privateJson\([\s\S]*?participantId: row\.participantId[\s\S]*?isCurrentUser: row\.isCurrentUser/,

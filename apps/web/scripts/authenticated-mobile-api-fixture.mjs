@@ -319,6 +319,11 @@ export async function cleanupAuthenticatedMobileApiFixtureWithClient(
       'DELETE FROM knowledge_product_events WHERE user_id = $1 AND subject_id = $2',
       [userId, subjectHash],
     );
+    await client.query(
+      `DELETE FROM user_knowledge_create_requests
+       WHERE user_id = $1 AND request_id = $2`,
+      [userId, marker],
+    );
     const batchDeletion = await client.query(
       `DELETE FROM knowledge_ingestion_batches
        WHERE id = $1 AND user_id = $2
@@ -343,7 +348,9 @@ export async function cleanupAuthenticatedMobileApiFixtureWithClient(
          (SELECT COUNT(*)::integer FROM user_card_states
           WHERE user_id = $2 AND card_id = $7) AS ranking_rows,
          (SELECT COUNT(*)::integer FROM user_private_card_states
-          WHERE user_id = $2 AND (knowledge_item_id = ANY($5::text[]) OR knowledge_item_id = $6)) AS private_states`,
+          WHERE user_id = $2 AND (knowledge_item_id = ANY($5::text[]) OR knowledge_item_id = $6)) AS private_states,
+         (SELECT COUNT(*)::integer FROM user_knowledge_create_requests
+          WHERE user_id = $2 AND request_id = $8) AS create_requests`,
       [
         batchId,
         userId,
@@ -352,9 +359,10 @@ export async function cleanupAuthenticatedMobileApiFixtureWithClient(
         approvedItemIds,
         cleanupNoteId ?? '',
         rankingCardId,
+        marker,
       ],
     )).rows[0] ?? {};
-    if (['batches', 'drafts', 'events', 'items', 'ranking_rows', 'private_states']
+    if (['batches', 'drafts', 'events', 'items', 'ranking_rows', 'private_states', 'create_requests']
       .some((key) => Number(remaining[key]) !== 0)) {
       throw fixtureError('MOBILE_API_FIXTURE_CLEANUP_VERIFICATION_FAILED');
     }

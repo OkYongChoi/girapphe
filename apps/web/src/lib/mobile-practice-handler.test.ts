@@ -28,6 +28,10 @@ async function errorCode(response: Response): Promise<string | undefined> {
   return body.code;
 }
 
+function assertPrivateNoStore(response: Response): void {
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+}
+
 function unusedDependencies(
   calls: string[],
 ): MobilePracticePostDependencies<Card, CompatibleCard> {
@@ -54,6 +58,7 @@ test('rejects invalid JSON and oversized bodies before invoking dependencies', a
     unusedDependencies(calls),
   );
   assert.equal(invalidResponse.status, 400);
+  assertPrivateNoStore(invalidResponse);
   assert.equal(await errorCode(invalidResponse), 'INVALID_PRACTICE_REQUEST');
   assert.deepEqual(calls, []);
 
@@ -62,6 +67,7 @@ test('rejects invalid JSON and oversized bodies before invoking dependencies', a
     unusedDependencies(calls),
   );
   assert.equal(oversizedResponse.status, 413);
+  assertPrivateNoStore(oversizedResponse);
   assert.equal(await errorCode(oversizedResponse), 'PRACTICE_REQUEST_TOO_LARGE');
   assert.deepEqual(calls, []);
 });
@@ -73,6 +79,7 @@ test('rejects a malformed or mode-mismatched cursor before loading private data'
     unusedDependencies(calls),
   );
   assert.equal(malformed.status, 400);
+  assertPrivateNoStore(malformed);
   assert.equal(await errorCode(malformed), 'INVALID_PRACTICE_CURSOR');
 
   const reviewCursor = encodeMobilePracticeCursor(createMobilePracticeCursorState('review'));
@@ -81,6 +88,7 @@ test('rejects a malformed or mode-mismatched cursor before loading private data'
     unusedDependencies(calls),
   );
   assert.equal(wrongMode.status, 400);
+  assertPrivateNoStore(wrongMode);
   assert.equal(await errorCode(wrongMode), 'INVALID_PRACTICE_CURSOR');
   assert.deepEqual(calls, []);
 });
@@ -123,7 +131,7 @@ test('wraps once and returns mapped private no-store data with the next cursor',
   );
 
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  assertPrivateNoStore(response);
   assert.equal(statsCalls, 1);
   assert.deepEqual(modeCalls, ['review', 'review']);
   assert.deepEqual(cursorCalls, [previousState, null]);

@@ -52,7 +52,8 @@ test('server authenticates before delegating Practice POST to the bounded handle
   assert.match(practiceHandler, /readBoundedJson\(request, MAX_MOBILE_PRACTICE_BODY_BYTES\)/);
   assert.match(practiceHandler, /decodeMobilePracticeCursor\(input\.cursor, input\.mode\)/);
   assert.match(practiceHandler, /nextCursor: next\.nextCursor \? encodeMobilePracticeCursor/);
-  assert.match(practiceHandler, /privateResponse/);
+  assert.match(practiceHandler, /'Cache-Control': 'private, no-store'/);
+  assert.doesNotMatch(practiceHandler, /privateResponse/);
 });
 
 test('web server test script preserves main and mobile-practice test unions', () => {

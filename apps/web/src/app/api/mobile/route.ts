@@ -307,9 +307,9 @@ export async function GET(request: NextRequest) {
     case 'ranking': {
       const rows = await getCardLeaderboard();
       return privateJson({
-        rows: rows.map((row, index) => ({
-          rank: index + 1,
-          label: `Learner ${index + 1}`,
+        rows: rows.map((row) => ({
+          rank: row.rank,
+          label: `Learner ${row.rank}`,
           participantId: row.participantId,
           isCurrentUser: row.isCurrentUser,
           explainable: row.explainable,
