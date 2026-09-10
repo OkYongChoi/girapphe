@@ -901,6 +901,28 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
 
   await client.query('BEGIN');
   try {
+    if (resetMcpAccessTokens) {
+      // Match application token creation/revocation lock order so even an
+      // accidental overlapping synthetic run cannot race the owner reset.
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtext(
+           'mcp-account-lifecycle:' || public.derive_account_lifecycle_scope_key($1)
+         ))`,
+        [userId],
+      );
+      await client.query(
+        `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
+         SELECT scope_key, deleted_at
+         FROM mcp_deleted_account_markers
+         WHERE scope_key = public.derive_account_lifecycle_scope_key($1)`,
+        [userId],
+      );
+      await client.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1))',
+        [`mcp-token:${userId}`],
+      );
+    }
+
     const draftProbeTitles = [
       'Unsaved create draft',
       `${AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX} %`,

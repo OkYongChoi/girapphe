@@ -1,3 +1,5 @@
+import { AUTHENTICATED_OVERLAY_EMAIL_MARKER } from './authenticated-overlay-constants.mjs';
+
 export const AUTHENTICATED_OVERLAY_AUTH_MODES = {
   testingToken: 'testing-token',
   signInToken: 'sign-in-token',
@@ -29,6 +31,30 @@ export function resolveAuthenticatedOverlayAuthMode({
     throw new Error('Production Clerk instances cannot use Clerk testing tokens.');
   }
   return mode;
+}
+
+export function isAuthenticatedOverlayMcpPatMutationPreview({
+  baseUrl = process.env.PLAYWRIGHT_BASE_URL,
+  configuredMode = process.env.E2E_CLERK_AUTH_MODE,
+  secretKey = process.env.CLERK_SECRET_KEY,
+  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
+  requireCloseout = process.env.E2E_REQUIRE_MCP_PAT_CLOSEOUT,
+} = {}) {
+  if (String(requireCloseout ?? '').trim() !== 'true') return false;
+
+  let isPreviewWorker = false;
+  try {
+    isPreviewWorker = /^pr-[0-9]+-girapphe-preview\.[a-z0-9-]+\.workers\.dev$/iu.test(
+      new URL(String(baseUrl ?? '').trim()).hostname,
+    );
+  } catch {
+    isPreviewWorker = false;
+  }
+
+  return isPreviewWorker
+    && resolveAuthenticatedOverlayAuthMode({ configuredMode, secretKey })
+      === AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken
+    && String(emailAddress ?? '').toLowerCase().includes(AUTHENTICATED_OVERLAY_EMAIL_MARKER);
 }
 
 export async function createSyntheticSignInTicket({ clerkClient, userId }) {

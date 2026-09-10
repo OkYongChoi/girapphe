@@ -4,9 +4,13 @@ import test from 'node:test';
 import {
   AUTHENTICATED_OVERLAY_AUTH_MODES,
   createSyntheticSignInTicket,
+  isAuthenticatedOverlayMcpPatMutationPreview,
   resolveAuthenticatedOverlayAuthMode,
 } from './authenticated-overlay-auth.mjs';
-import { AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX } from './authenticated-overlay-constants.mjs';
+import {
+  AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
+  AUTHENTICATED_OVERLAY_EMAIL_MARKER,
+} from './authenticated-overlay-constants.mjs';
 
 test('Clerk auth mode keeps testing tokens away from production instances', () => {
   assert.equal(
@@ -23,6 +27,49 @@ test('Clerk auth mode keeps testing tokens away from production instances', () =
       secretKey: 'sk_live_example',
     }),
     /Production Clerk instances cannot use Clerk testing tokens/,
+  );
+});
+
+test('MCP PAT mutation requires an explicit marker-owned testing-token Preview run', () => {
+  const validInput = {
+    baseUrl: 'https://pr-192-girapphe-preview.example.workers.dev',
+    configuredMode: AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken,
+    secretKey: 'sk_test_example',
+    emailAddress: `fixture${AUTHENTICATED_OVERLAY_EMAIL_MARKER}@example.com`,
+    requireCloseout: 'true',
+  };
+  assert.equal(isAuthenticatedOverlayMcpPatMutationPreview(validInput), true);
+  assert.equal(isAuthenticatedOverlayMcpPatMutationPreview({
+    ...validInput,
+    requireCloseout: 'false',
+  }), false);
+  assert.equal(isAuthenticatedOverlayMcpPatMutationPreview({
+    ...validInput,
+    baseUrl: 'https://www.girapphe.com',
+  }), false);
+  assert.equal(isAuthenticatedOverlayMcpPatMutationPreview({
+    ...validInput,
+    emailAddress: 'fixture@example.com',
+  }), false);
+  assert.equal(isAuthenticatedOverlayMcpPatMutationPreview({
+    ...validInput,
+    configuredMode: AUTHENTICATED_OVERLAY_AUTH_MODES.signInToken,
+  }), false);
+});
+
+test('fixture PAT reset uses the same explicit Preview mutation gate', async () => {
+  const setupSource = await fs.readFile(new URL(
+    '../e2e-authenticated/authenticated-overlay.setup.ts',
+    import.meta.url,
+  ), 'utf8');
+
+  assert.match(
+    setupSource,
+    /resetMcpAccessTokens: isAuthenticatedOverlayMcpPatMutationPreview\(\{[\s\S]*emailAddress: syntheticEmail,[\s\S]*\}\)/,
+  );
+  assert.doesNotMatch(
+    setupSource,
+    /resetMcpAccessTokens: clerkAuthMode === AUTHENTICATED_OVERLAY_AUTH_MODES\.testingToken/,
   );
 });
 
@@ -61,14 +108,15 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   );
   const source = await fs.readFile(testUrl, 'utf8');
 
-  assert.match(source, /resolveAuthenticatedOverlayAuthMode\(\)/);
+  assert.match(source, /test\.use\(\{ screenshot: ['"]off['"] \}\)/);
+  assert.match(source, /evidenceKind: ['"]normal_ui_revocation['"]/);
+  assert.match(source, /project: testInfo\.project\.name/);
+  assert.match(source, /isAuthenticatedOverlayMcpPatMutationPreview\(\)/);
   assert.match(
     source,
     /!isPatMutationPreview\(testInfo\)/,
   );
   assert.match(source, /testInfo\.project\.name === ['"]authenticated-desktop['"]/);
-  assert.ok(source.includes('girapphe-preview\\.[a-z0-9-]+\\.workers\\.dev'));
-  assert.match(source, /AUTHENTICATED_OVERLAY_EMAIL_MARKER/);
   assert.match(
     source,
     /AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:\$\{randomUUID\(\)\}/,
@@ -233,9 +281,12 @@ test('provider PAT route fault proves exact fallback and original error identity
   );
   const source = await fs.readFile(testUrl, 'utf8');
 
+  assert.match(source, /test\.use\(\{ screenshot: ['"]off['"] \}\)/);
+  assert.match(source, /evidenceKind: ['"]route_fault_fallback['"]/);
+  assert.match(source, /project: testInfo\.project\.name/);
   assert.match(source, /!isPatMutationPreview\(testInfo\)/);
   assert.match(source, /testInfo\.project\.name === ['"]authenticated-desktop['"]/);
-  assert.match(source, /AUTHENTICATED_OVERLAY_EMAIL_MARKER/);
+  assert.match(source, /isAuthenticatedOverlayMcpPatMutationPreview\(\)/);
   assert.match(
     source,
     /AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:\$\{randomUUID\(\)\}/,
@@ -244,6 +295,14 @@ test('provider PAT route fault proves exact fallback and original error identity
   const rawCapture = source.indexOf('rawToken = uniqueMatches[0]!', postFetch);
   const responseRedaction = source.indexOf('responseBody.replace(', rawCapture);
   const armFault = source.indexOf('routeFaultArmed = true', responseRedaction);
+  const firstClipboardCleanup = source.indexOf(
+    'if (!await clearClipboardAndReadBack(page))',
+    armFault,
+  );
+  const firstClipboardCleanupCatch = source.indexOf(
+    '} catch (error) {',
+    firstClipboardCleanup,
+  );
   const firstUiPath = source.indexOf("getByRole('button', { name: 'Revoke' })", armFault);
   const secondUiPath = source.indexOf('await page.reload({', firstUiPath);
   const fallback = source.indexOf('await revokeExactAuthenticatedOverlayMcpToken({', secondUiPath);
@@ -253,20 +312,50 @@ test('provider PAT route fault proves exact fallback and original error identity
       && postFetch < rawCapture
       && rawCapture < responseRedaction
       && responseRedaction < armFault
-      && armFault < firstUiPath
+      && armFault < firstClipboardCleanup
+      && firstClipboardCleanup < firstClipboardCleanupCatch
+      && firstClipboardCleanupCatch < firstUiPath
       && firstUiPath < secondUiPath
       && secondUiPath < fallback
       && fallback < originalRethrow,
   );
-  assert.match(source, /uiCleanupErrors\.length === 2 && RAW_PAT_SHAPE\.test\(rawToken\)/);
+  assert.match(source, /if \(RAW_PAT_SHAPE\.test\(rawToken\)\)/);
+  assert.match(source, /if \(uiCleanupErrors\.length !== 2\)/);
+  assert.match(
+    source,
+    /async function withCleanupOperationTimeout[\s\S]*Promise\.race\(\[[\s\S]*operation\(\)[\s\S]*setTimeout\(/,
+  );
   assert.match(source, /rawToken,[\s\S]*connectionLabel,[\s\S]*runMarker,/);
   assert.match(source, /remainingActiveAfterFallback = fallback\.remainingActive/);
   assert.match(source, /expect\(observedError\)\.toBe\(originalSentinel\)/);
   assert.match(source, /expect\(routeFaultedRequestCount\)\.toBeGreaterThan\(0\)/);
   assert.match(source, /clipboardEmptyAfterTest = await clearClipboardAndReadBack\(page\)/);
+  assert.match(
+    source,
+    /try \{[\s\S]*await withCleanupOperationTimeout\([\s\S]*page\.unroute\(['"]\*\*\/\*['"]\)[\s\S]*MCP_CLEANUP_UNROUTE_TIMEOUT[\s\S]*\} catch \(error\) \{[\s\S]*cleanupError \?\?= error;/,
+  );
+  assert.match(source, /\} finally \{\s*rawToken = ['"]['"];\s*\}/);
   assert.doesNotMatch(
     source.slice(source.indexOf('writeFileSync(evidencePath')),
     /rawToken|connectionLabel|runMarker|MCP_PAT_ROUTE_FAULT_SENTINEL/,
+  );
+});
+
+test('authenticated evidence disables automatic private-page failure captures', async () => {
+  const [configSource, packageSource] = await Promise.all([
+    fs.readFile(new URL('../../../playwright.authenticated.config.ts', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../../../package.json', import.meta.url), 'utf8'),
+  ]);
+  const packageJson = JSON.parse(packageSource);
+  const runScript = packageJson.scripts['browser:authenticated-overlay'];
+
+  assert.match(
+    configSource,
+    /process\.env\.PLAYWRIGHT_NO_COPY_PROMPT = ['"]1['"];/,
+  );
+  assert.match(
+    runScript,
+    /^PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test --config=playwright\.authenticated\.config\.ts/,
   );
 });
 

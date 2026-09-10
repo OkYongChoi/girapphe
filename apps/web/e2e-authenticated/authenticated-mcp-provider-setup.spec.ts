@@ -3,12 +3,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { expect, test, type Page } from './authenticated-test';
 import {
-  AUTHENTICATED_OVERLAY_EMAIL_MARKER,
   AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
 } from '../scripts/authenticated-overlay-constants.mjs';
 import {
-  AUTHENTICATED_OVERLAY_AUTH_MODES,
-  resolveAuthenticatedOverlayAuthMode,
+  isAuthenticatedOverlayMcpPatMutationPreview,
 } from '../scripts/authenticated-overlay-auth.mjs';
 
 const RAW_PAT_PATTERN = /girapphe_mcp_[A-Za-z0-9_-]{20,}/u;
@@ -18,22 +16,13 @@ const MCP_CLEANUP_ATTEMPT_MS = 12_000;
 const MCP_CLEANUP_OPERATION_MS = 5_000;
 const MCP_CLEANUP_NAVIGATION_MS = 8_000;
 
+// This file briefly holds a real synthetic PAT in page/process memory. Failure
+// artifacts must never capture the one-time surface before cleanup completes.
+test.use({ screenshot: 'off' });
+
 function isPatMutationPreview(testInfo: { project: { name: string } }): boolean {
-  const baseUrl = process.env.PLAYWRIGHT_BASE_URL?.trim() ?? '';
-  let isPreviewWorker = false;
-  try {
-    isPreviewWorker = /^pr-[0-9]+-girapphe-preview\.[a-z0-9-]+\.workers\.dev$/iu.test(
-      new URL(baseUrl).hostname,
-    );
-  } catch {
-    isPreviewWorker = false;
-  }
   return testInfo.project.name === 'authenticated-desktop'
-    && isPreviewWorker
-    && resolveAuthenticatedOverlayAuthMode()
-      === AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken
-    && (process.env.E2E_CLERK_USER_EMAIL?.toLowerCase() ?? '')
-      .includes(AUTHENTICATED_OVERLAY_EMAIL_MARKER);
+    && isAuthenticatedOverlayMcpPatMutationPreview();
 }
 
 function cleanupTimeout(
@@ -485,6 +474,8 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   mkdirSync(dirname(evidencePath), { recursive: true });
   writeFileSync(evidencePath, `${JSON.stringify({
     schemaVersion: 1,
+    evidenceKind: 'normal_ui_revocation',
+    project: testInfo.project.name,
     createdOneTimePat: true,
     copiedWithoutRawPat: true,
     revokedBeforeScreenshot: revokedAfterReload,
@@ -543,6 +534,8 @@ test('keeps the localized provider guide usable in an Arabic RTL layout', async 
   mkdirSync(dirname(evidencePath), { recursive: true });
   writeFileSync(evidencePath, `${JSON.stringify({
     schemaVersion: 1,
+    evidenceKind: 'read_only_provider',
+    project: testInfo.project.name,
     rtlLayout: true,
     ltrCodeBlock: true,
     keyboardProviderSwitch: true,

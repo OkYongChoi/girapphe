@@ -95,8 +95,11 @@ history or approve, publish, or mutate public knowledge.
 
 The authenticated Settings preference test uses the dedicated synthetic owner
 and does not create or revoke an MCP token. The separate provider-setup test
-permits PAT mutation only once per PAT test in the desktop project for a
-testing-token Preview Worker and the marker-validated synthetic account.
+permits PAT mutation only once per PAT test in the desktop project when the
+explicit closeout flag, testing-token Preview Worker hostname, and
+marker-validated synthetic account all match. Setup uses that same gate and
+takes the account-lifecycle then token advisory lock before resetting the
+synthetic owner's prior tokens.
 Each label contains the unique
 `authenticated-overlay-e2e:mcp-pat:<random UUID>` run marker. The normal path
 redacts the one-time secret immediately after capture, clears the clipboard
@@ -106,11 +109,17 @@ zero active matches.
 
 The separate fault path lets the create POST commit, extracts the one-time PAT
 only in process memory, replaces it in the fulfilled response, then faults both
-UI cleanup paths. Only that two-fault condition enables the database fallback;
-the same locked exact predicate and hash check revokes the row and proves
-`active=0` before the original sentinel Error object is rethrown unchanged.
+UI cleanup paths. The database fallback runs after every successful PAT capture,
+including when clipboard or UI assertions error; the evidence itself still
+requires exactly two UI faults. The same locked exact predicate and hash check
+revokes the row and proves `active=0` before the original sentinel Error object
+is rethrown unchanged.
 Provider JSON evidence and the generated job summary contain counts and
-booleans only. Success screenshots never contain a raw secret.
+booleans only. Automatic screenshots are disabled in PAT-bearing specs and
+automatic authenticated accessibility error snapshots are disabled suite-wide;
+the only PAT-path screenshots are explicit success captures after exact
+revocation. The summarizer accepts the two mutation paths only from distinct,
+exactly named, versioned, kind-tagged artifacts with mutually exclusive fields.
 
 ## Rollout
 

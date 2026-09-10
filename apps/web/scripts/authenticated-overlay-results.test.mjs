@@ -29,15 +29,25 @@ const MOBILE_API_EVIDENCE = {
 };
 
 const successfulMcpNormalMetric = {
+  artifactName: 'authenticated-desktop.json',
   schemaVersion: 1,
+  evidenceKind: 'normal_ui_revocation',
+  project: 'authenticated-desktop',
   createdOneTimePat: true,
+  copiedWithoutRawPat: true,
   revokedBeforeScreenshot: true,
+  clearedOneTimePatImmediatelyOnRevoke: true,
   remainingActiveAfterUiRevoke: 0,
   clipboardEmptyAfterTest: true,
+  browserErrorCount: 0,
+  pageOverflow: false,
 };
 
 const successfulMcpRouteFaultMetric = {
+  artifactName: 'authenticated-desktop-route-fault.json',
   schemaVersion: 1,
+  evidenceKind: 'route_fault_fallback',
+  project: 'authenticated-desktop',
   postResponseCaptured: true,
   postResponseRedacted: true,
   routeFaultedRequestCount: 2,
@@ -49,7 +59,10 @@ const successfulMcpRouteFaultMetric = {
 };
 
 const successfulMcpReadOnlyMetric = {
+  artifactName: 'authenticated-desktop-ar.json',
   schemaVersion: 1,
+  evidenceKind: 'read_only_provider',
+  project: 'authenticated-desktop',
   rtlLayout: true,
   ltrCodeBlock: true,
   keyboardProviderSwitch: true,
@@ -271,6 +284,58 @@ test('required Preview MCP PAT closeout rejects missing mutation artifacts', () 
   ));
 });
 
+test('required Preview MCP PAT closeout rejects ambiguous or malformed evidence', () => {
+  const corruptedNormalMetrics = [
+    { ...successfulMcpNormalMetric, schemaVersion: 99 },
+    { ...successfulMcpNormalMetric, artifactName: 'unexpected.json' },
+    { ...successfulMcpNormalMetric, evidenceKind: 'route_fault_fallback' },
+    { ...successfulMcpNormalMetric, project: 'authenticated-mobile' },
+    { ...successfulMcpNormalMetric, clearedOneTimePatImmediatelyOnRevoke: false },
+    {
+      ...successfulMcpNormalMetric,
+      databaseFallbackRan: true,
+      remainingActiveAfterFallback: 0,
+    },
+  ];
+
+  for (const corruptedNormal of corruptedNormalMetrics) {
+    const metrics = [corruptedNormal, successfulMcpRouteFaultMetric];
+    assert.throws(
+      () => assertRequiredMcpPatCloseoutEvidence(
+        metrics,
+        buildAuthenticatedMcpProviderSummary(metrics),
+      ),
+      /Required Preview MCP PAT closeout evidence is incomplete/,
+    );
+  }
+
+  const fallbackNotRunMetrics = [
+    successfulMcpNormalMetric,
+    { ...successfulMcpRouteFaultMetric, databaseFallbackRan: false },
+  ];
+  assert.throws(
+    () => assertRequiredMcpPatCloseoutEvidence(
+      fallbackNotRunMetrics,
+      buildAuthenticatedMcpProviderSummary(fallbackNotRunMetrics),
+    ),
+    /Required Preview MCP PAT closeout evidence is incomplete/,
+  );
+
+  const dualShapedArtifact = {
+    ...successfulMcpNormalMetric,
+    ...successfulMcpRouteFaultMetric,
+    artifactName: 'authenticated-desktop.json',
+    evidenceKind: 'normal_ui_revocation',
+  };
+  assert.throws(
+    () => assertRequiredMcpPatCloseoutEvidence(
+      [dualShapedArtifact],
+      buildAuthenticatedMcpProviderSummary([dualShapedArtifact]),
+    ),
+    /Required Preview MCP PAT closeout evidence is incomplete/,
+  );
+});
+
 test('authenticated result loader fails closed when Preview PAT artifacts are absent', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'girapphe-auth-mcp-required-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -293,11 +358,11 @@ test('authenticated result loader fails closed when Preview PAT artifacts are ab
   await fs.mkdir(providerDirectory, { recursive: true });
   await Promise.all([
     fs.writeFile(
-      path.join(providerDirectory, 'normal.json'),
+      path.join(providerDirectory, 'authenticated-desktop.json'),
       JSON.stringify(successfulMcpNormalMetric),
     ),
     fs.writeFile(
-      path.join(providerDirectory, 'route-fault.json'),
+      path.join(providerDirectory, 'authenticated-desktop-route-fault.json'),
       JSON.stringify(successfulMcpRouteFaultMetric),
     ),
   ]);
@@ -360,13 +425,7 @@ test('authenticated result loader merges private-path metrics into persisted sum
     ),
     fs.writeFile(
       path.join(root, 'mcp-provider-setup', 'authenticated-desktop.json'),
-      JSON.stringify({
-        schemaVersion: 1,
-        createdOneTimePat: true,
-        revokedBeforeScreenshot: true,
-        remainingActiveAfterUiRevoke: 0,
-        clipboardEmptyAfterTest: true,
-      }),
+      JSON.stringify(successfulMcpNormalMetric),
     ),
   ]);
 

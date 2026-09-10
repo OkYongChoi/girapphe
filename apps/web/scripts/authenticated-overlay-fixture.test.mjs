@@ -733,6 +733,27 @@ test('database fixture is owner-bound and repeatable', async () => {
   assert.ok(tokenResets.every((call) => (
     call.values.length === 1 && call.values[0] === SYNTHETIC_USER.id
   )));
+  const accountLocks = calls
+    .map((call, index) => ({ call, index }))
+    .filter(({ call }) => call.text.includes("'mcp-account-lifecycle:'"));
+  const activeAccountGuards = calls
+    .map((call, index) => ({ call, index }))
+    .filter(({ call }) => call.text.startsWith('INSERT INTO mcp_deleted_account_markers'));
+  const tokenLocks = calls
+    .map((call, index) => ({ call, index }))
+    .filter(({ call }) => call.values[0] === `mcp-token:${SYNTHETIC_USER.id}`);
+  const tokenResetIndexes = calls
+    .map((call, index) => ({ call, index }))
+    .filter(({ call }) => call.text === 'DELETE FROM mcp_access_tokens WHERE user_id = $1')
+    .map(({ index }) => index);
+  assert.equal(accountLocks.length, 2);
+  assert.equal(activeAccountGuards.length, 2);
+  assert.equal(tokenLocks.length, 2);
+  for (const [runIndex, resetIndex] of tokenResetIndexes.entries()) {
+    assert.ok(accountLocks[runIndex].index < activeAccountGuards[runIndex].index);
+    assert.ok(activeAccountGuards[runIndex].index < tokenLocks[runIndex].index);
+    assert.ok(tokenLocks[runIndex].index < resetIndex);
+  }
   for (const tokenReset of tokenResets) {
     const resetIndex = calls.indexOf(tokenReset);
     const precedingBegin = calls.findLastIndex((call, index) => (
@@ -756,7 +777,10 @@ test('database fixture is owner-bound and repeatable', async () => {
     && call.text.includes('knowledge_item_id = ANY($2::text[])')
   )));
 
-  const mutations = calls.filter((call) => call.text.startsWith('INSERT INTO'));
+  const mutations = calls.filter((call) => (
+    call.text.startsWith('INSERT INTO')
+    && !call.text.startsWith('INSERT INTO mcp_deleted_account_markers')
+  ));
   assert.ok(mutations.length >= 8);
   assert.ok(mutations.every((call) => call.text.includes('ON CONFLICT (id) DO UPDATE')));
   assert.ok(mutations.every((call) => !call.text.includes('user_synthetic')));

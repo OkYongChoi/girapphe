@@ -1,5 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Playwright's automatic AI-oriented error context can serialize private page
+// text, including a one-time synthetic PAT before cleanup. Authenticated runs
+// retain only their explicitly sanitized JSON and post-cleanup screenshots.
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
+
 const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim();
 if (!baseURL) {
   throw new Error('PLAYWRIGHT_BASE_URL is required for authenticated overlay evidence.');

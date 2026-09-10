@@ -136,9 +136,12 @@ opens the hash-targeted AI-connections disclosure, exercises keyboard toggling,
 restores validated browser-local AI-app and Context Pack choices, verifies the
 Preview Thinking History default when that surface is enabled, checks Arabic
 RTL/mobile containment and 44 px interaction targets, and saves synthetic
-success screenshots. In a testing-token Preview run only, fixture setup first
-deletes `mcp_access_tokens` rows for the validated synthetic owner inside the
-same fixture transaction. The desktop project runs each PAT-mutating provider
+success screenshots. Only when the testing-token auth mode, marker-owned email,
+PR Preview Worker hostname, and `E2E_REQUIRE_MCP_PAT_CLOSEOUT=true` all match,
+fixture setup deletes `mcp_access_tokens` rows for the validated synthetic owner
+inside the same fixture transaction. It acquires the account-lifecycle and MCP
+token advisory locks in application order before that reset. The desktop project
+runs each PAT-mutating provider
 test once; mobile and Arabic provider coverage remain read-only. Each created
 token label embeds
 `authenticated-overlay-e2e:mcp-pat:<random UUID>`. The normal check captures
@@ -146,14 +149,21 @@ the one-time value and immediately hides that surface,
 proves the copied OpenAI and Claude snippets retain `GIRAPPHE_MCP_TOKEN` while
 omitting the captured value, clears the clipboard with readback, revokes the
 PAT in Settings, reloads, and verifies the locked exact database row has zero
-active matches before any durable success screenshot.
+active matches before any durable success screenshot. The PAT specs disable
+Playwright's automatic failure screenshots, and the authenticated runner
+disables automatic AI-oriented accessibility error snapshots; only explicit
+post-revocation screenshots and sanitized JSON are retained.
 
 A separate Preview-only fault check lets the create POST commit, captures and
 redacts the PAT from the fulfilled response, then faults both UI cleanup paths.
-Only then may the locked database fallback match owner, exact label, unique run
-marker, and SHA-256 hash, revoke that row, verify `active=0`, and rethrow the
-original sentinel Error object unchanged. Provider evidence JSON and its job
-summary contain counts and booleans only. This reset is intentionally destructive
+The locked database fallback is a mandatory post-capture safety control even if
+clipboard or UI assertions fail: it matches owner, exact label, unique run marker,
+and SHA-256 hash, revokes that row, and verifies `active=0`. Evidence is accepted
+only when both intended UI paths fault and the original sentinel Error object is
+re-thrown unchanged. Provider evidence JSON uses exact
+versioned kind, project, and filename contracts; the Preview summarizer rejects
+combined, misnamed, unknown-field, or wrong-schema mutation artifacts. Its job
+summary contains counts and booleans only. This reset is intentionally destructive
 only for the marker-validated synthetic account; its exact owner predicate does
 not relax the application's token quotas or permit cleanup of a normal account.
 
@@ -204,8 +214,8 @@ With the matching environment supplied securely, run:
 pnpm browser:authenticated-overlay
 ```
 
-The command uses fresh browser contexts and writes per-run JSON, failure
-screenshots, and `summary.md` under
+The command uses fresh browser contexts and writes per-run JSON, explicit
+post-cleanup success screenshots, non-PAT failure screenshots, and `summary.md` under
 `test-results/authenticated-overlay-performance/`. The summary reports median
 and worst Graph-click-to-canvas time, overlay request-to-response-headers time,
 and decoded/transfer bytes received through canvas display. CDP collects those
@@ -253,7 +263,9 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    checks out that SHA, and waits until `/api/health` reports the same deployed
    revision. Desktop and mobile each run three times against that PR's Preview
    Worker, preview Clerk instance, and preview database. The validated Preview
-   synthetic owner's prior MCP token rows are reset before provider evidence.
+   synthetic owner's prior MCP token rows are reset under the account-lifecycle
+   and token locks before provider evidence. The same explicit Preview closeout
+   gate is shared by setup and both PAT tests.
    The desktop PAT tests each run once regardless of the overlay measurement
    count; normal UI revocation and the deterministic route-fault fallback both
    finish at zero active exact matches. Mobile and Arabic provider checks do not
