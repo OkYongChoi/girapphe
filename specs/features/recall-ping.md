@@ -256,7 +256,7 @@ Manual R1 evidence:
 | `R1-05` | `recall-action-input.test.ts` rejects recalled text and `recall-runtime.test.ts` proves the unnamed local textarea value is absent from all action invocations. `authenticated-recall.spec.ts` enters a unique browser-local sentence and proves it is absent from the start, confidence, reveal, and completion request bodies. |
 | `R1-06` | `recall-attempts.test.ts` and `recall-runtime.test.ts` cover reveal authorization, stale invalidation, exact current provenance, sanitized URL, and content release only after reveal. |
 | `R1-07` | `recall-attempts.test.ts`, `recall-persistence.test.ts`, and `recall-runtime.test.ts` cover server-owned due computation, forced no-hint completion, generation CAS, and transactional attempt invalidation on cancellation. The authenticated Preview spec re-reads the exact owner/item row and requires one completed, high-confidence, remembered, no-hint attempt whose resulting due instant matches the D+7 schedule. |
-| `R1-08` | `messages.test.ts` checks all six catalogs; `recall-runtime.test.ts` checks logical-direction classes and 44px controls. `authenticated-recall.spec.ts` is the desktop/mobile rendered Preview gate: it reads safe rollout attributes from the deployed route, requires exact single-owner `allowlist` mode with a distinct candidate denied, asserts measured 44px control bounds plus Arabic RTL direction/containment, and records zero browser errors, action timing/size metrics, and three screenshots per device. The versioned result loader accepts exactly one desktop and one mobile artifact with exact top-level and nested fields, and only after deterministic fixture cleanup reports zero remaining rows. |
+| `R1-08` | `messages.test.ts` checks all six catalogs; `recall-runtime.test.ts` checks logical-direction classes and 44px controls. `authenticated-recall.spec.ts` is the desktop/mobile rendered Preview gate: it reads safe rollout attributes from the deployed route, requires exact single-owner `allowlist` mode with a distinct candidate denied, asserts measured 44px control bounds plus Arabic RTL direction/containment, and records zero browser errors, action timing/size metrics, and three screenshots per device. The versioned result loader accepts exactly one desktop and one mobile artifact with exact top-level and nested fields, only after deterministic fixture cleanup reports zero remaining rows, and requires all six declared screenshots to be nonempty regular files with PNG signatures and no extra PNG siblings. |
 
 | Criterion | Evidence |
 | --- | --- |
@@ -366,10 +366,11 @@ and the production authenticated workflow does not enable the Recall spec.
 The Preview workflow sets `E2E_REQUIRE_RECALL_CLOSEOUT=true`; setup, desktop and
 mobile execution, and the summarizer share that fail-closed requirement. A
 successful closeout requires exactly the two project-matched Recall JSON files,
-actual deployed rollout evidence, the four ordered 200 Server Actions, rendered
-privacy/accessibility gates, the D+7 persistence result, and zero owner-and-ID-
-scoped fixture rows after cleanup. Raw allowlists, user IDs, and private content
-are not accepted artifact fields.
+their six exact regular nonempty PNG screenshots with valid signatures and no
+extra PNG siblings, actual deployed rollout evidence, the four ordered 200
+Server Actions, rendered privacy/accessibility gates, the D+7 persistence
+result, and zero owner-and-ID-scoped fixture rows after cleanup. Raw allowlists,
+user IDs, and private content are not accepted artifact fields.
 A later delivery rollback also disables scheduling/delivery, revokes outstanding
 device work, and returns users to the existing Practice entry point without
 deleting knowledge or attempt history. Additive columns/tables remain dormant

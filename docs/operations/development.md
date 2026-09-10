@@ -229,7 +229,9 @@ only the deterministic Recall IDs owned by that synthetic account. The JSON is
 written only after cleanup returns zero for every exact fixture table. The
 fail-closed summarizer accepts exactly the project-matched desktop and mobile
 files and rejects wrong schemas, filenames, routes, projects, missing gates,
-and unknown top-level or nested fields.
+and unknown top-level or nested fields. It also requires the six declared
+screenshot basenames to exist as nonempty regular files with the PNG signature
+and rejects any additional PNG in the Recall evidence directory.
 
 Runtime inputs are injected temporarily; do not copy their values into tracked
 files:

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -303,6 +304,7 @@ const RECALL_PROJECTS_BY_ARTIFACT = {
   'authenticated-desktop.json': 'authenticated-desktop',
   'authenticated-mobile.json': 'authenticated-mobile',
 };
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const RECALL_ROOT_FIELDS = [
   'actionDecodedBytesTotal',
   'actionFlow',
@@ -394,17 +396,66 @@ function isSafeNonNegativeInteger(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
+function recallScreenshotNamesForProject(project) {
+  return [
+    `${project}-pre-reveal.png`,
+    `${project}-post-reveal.png`,
+    `${project}-completed.png`,
+  ];
+}
+
+async function assertExactRecallScreenshotFiles(recallDirectory, metrics) {
+  const expectedNames = metrics
+    .flatMap((metric) => metric.screenshots)
+    .sort();
+  let entries = [];
+  try {
+    entries = await fs.readdir(recallDirectory, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  const pngEntries = entries
+    .filter((entry) => /\.png$/i.test(entry.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const actualNames = pngEntries.map((entry) => entry.name);
+  if (
+    actualNames.length !== expectedNames.length
+    || actualNames.some((name, index) => name !== expectedNames[index])
+  ) {
+    throw new Error(
+      'Authenticated Recall screenshot evidence is incomplete or contains unexpected PNG files.',
+    );
+  }
+
+  for (const entry of pngEntries) {
+    if (!entry.isFile()) {
+      throw new Error('Authenticated Recall screenshots must be regular PNG files.');
+    }
+    const screenshotPath = path.join(recallDirectory, entry.name);
+    const handle = await fs.open(screenshotPath, 'r');
+    try {
+      const stats = await handle.stat();
+      if (!stats.isFile() || stats.size <= PNG_SIGNATURE.length) {
+        throw new Error('Authenticated Recall screenshots must be nonempty regular PNG files.');
+      }
+      const signature = Buffer.alloc(PNG_SIGNATURE.length);
+      const { bytesRead } = await handle.read(signature, 0, signature.length, 0);
+      if (bytesRead !== PNG_SIGNATURE.length || !signature.equals(PNG_SIGNATURE)) {
+        throw new Error('Authenticated Recall screenshot evidence has an invalid PNG signature.');
+      }
+    } finally {
+      await handle.close();
+    }
+  }
+}
+
 function isExactRecallEvidence(metric) {
   if (!hasExactFields(metric, RECALL_ROOT_FIELDS)) return false;
   const expectedProject = Object.hasOwn(RECALL_PROJECTS_BY_ARTIFACT, metric.artifactName)
     ? RECALL_PROJECTS_BY_ARTIFACT[metric.artifactName]
     : null;
   const expectedScreenshots = expectedProject
-    ? [
-        `${expectedProject}-pre-reveal.png`,
-        `${expectedProject}-post-reveal.png`,
-        `${expectedProject}-completed.png`,
-      ]
+    ? recallScreenshotNamesForProject(expectedProject)
     : [];
   return metric.schemaVersion === 1
     && metric.evidenceKind === RECALL_EVIDENCE_KIND
@@ -850,6 +901,9 @@ export async function summarizeAuthenticatedOverlayResults(
   }
   if (requireRecallCloseout) {
     assertRequiredRecallCloseoutEvidence(recallMetrics, recall, recallNames);
+  }
+  if (recallMetrics.length > 0) {
+    await assertExactRecallScreenshotFiles(recallDirectory, recallMetrics);
   }
   if (
     metrics.length === 0

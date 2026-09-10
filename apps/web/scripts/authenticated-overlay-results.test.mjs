@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -78,6 +79,11 @@ const successfulMcpReadOnlyMetric = {
   pageOverflow: false,
 };
 
+const VALID_ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZlGQAAAAASUVORK5CYII=',
+  'base64',
+);
+
 function successfulRecallMetric(project, routeReadyMs = 700) {
   const artifactName = `${project}.json`;
   const actionFlow = ['start', 'confidence', 'reveal', 'complete'].map((stage) => ({
@@ -150,6 +156,12 @@ function successfulRecallMetric(project, routeReadyMs = 700) {
       attempts: 0,
     },
   };
+}
+
+async function writeRecallScreenshotFiles(directory, metrics) {
+  await Promise.all(metrics.flatMap((metric) => metric.screenshots.map((name) => (
+    fs.writeFile(path.join(directory, name), VALID_ONE_PIXEL_PNG)
+  ))));
 }
 
 test('authenticated overlay summary reports median and worst values per device', () => {
@@ -570,9 +582,50 @@ test('authenticated result loader fails closed for required Recall artifacts and
     path.join(recallDirectory, 'authenticated-mobile.json'),
     JSON.stringify(successfulRecallMetric('authenticated-mobile')),
   );
+  await assert.rejects(
+    summarizeAuthenticatedOverlayResults(root, { requireRecallCloseout: true }),
+    /Recall screenshot evidence is incomplete/,
+  );
+
+  const recallMetrics = [
+    successfulRecallMetric('authenticated-desktop'),
+    successfulRecallMetric('authenticated-mobile'),
+  ];
+  await writeRecallScreenshotFiles(recallDirectory, recallMetrics);
   await assert.doesNotReject(
     summarizeAuthenticatedOverlayResults(root, { requireRecallCloseout: true }),
   );
+
+  const extraScreenshot = path.join(recallDirectory, 'unexpected.png');
+  await fs.writeFile(extraScreenshot, VALID_ONE_PIXEL_PNG);
+  await assert.rejects(
+    summarizeAuthenticatedOverlayResults(root, { requireRecallCloseout: true }),
+    /contains unexpected PNG files/,
+  );
+  await fs.rm(extraScreenshot);
+
+  const invalidScreenshot = path.join(
+    recallDirectory,
+    'authenticated-desktop-pre-reveal.png',
+  );
+  await fs.writeFile(invalidScreenshot, Buffer.from('not-a-png'));
+  await assert.rejects(
+    summarizeAuthenticatedOverlayResults(root, { requireRecallCloseout: true }),
+    /invalid PNG signature/,
+  );
+  await fs.writeFile(invalidScreenshot, Buffer.alloc(0));
+  await assert.rejects(
+    summarizeAuthenticatedOverlayResults(root, { requireRecallCloseout: true }),
+    /must be nonempty regular PNG files/,
+  );
+  await fs.rm(invalidScreenshot);
+  await fs.mkdir(invalidScreenshot);
+  await assert.rejects(
+    summarizeAuthenticatedOverlayResults(root, { requireRecallCloseout: true }),
+    /must be regular PNG files/,
+  );
+  await fs.rm(invalidScreenshot, { recursive: true });
+  await fs.writeFile(invalidScreenshot, VALID_ONE_PIXEL_PNG);
 
   await fs.rename(
     path.join(recallDirectory, 'authenticated-mobile.json'),
@@ -646,6 +699,10 @@ test('authenticated result loader merges private-path metrics into persisted sum
       JSON.stringify(successfulRecallMetric('authenticated-desktop')),
     ),
   ]);
+  await writeRecallScreenshotFiles(
+    path.join(root, 'recall'),
+    [successfulRecallMetric('authenticated-desktop')],
+  );
 
   const { summary, markdown } = await summarizeAuthenticatedOverlayResults(root);
   assert.equal(
