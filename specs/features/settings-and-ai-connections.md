@@ -90,23 +90,27 @@ history or approve, publish, or mutate public knowledge.
 | `AC-04` | `apps/web/src/lib/settings-preferences.test.ts` and the authenticated reload assertion in `authenticated-settings.spec.ts`. |
 | `AC-05` | Preference tests, source inspection of both consumers, and the Preview-gated Thinking History assertion in `authenticated-settings.spec.ts`. |
 | `AC-06` | Desktop/mobile English and Arabic assertions in `authenticated-settings.spec.ts`, including the English guide's explicit LTR boundary inside RTL Settings, plus all six localization catalog checks. |
-| `AC-07` | Preference parser and MCP token regressions, the revoke control-flow source regression in `apps/web/src/lib/mcp/provider-setup.test.ts`, and `authenticated-mcp-provider-setup.spec.ts`, which checks an exact no-reload raw-secret transition from one node to zero and preserves the post-reload absence assertion without retaining the raw PAT in evidence. |
+| `AC-07` | Preference parser and MCP token regressions, the revoke control-flow source regression in `apps/web/src/lib/mcp/provider-setup.test.ts`, the one-run normal Preview PAT check in `authenticated-mcp-provider-setup.spec.ts`, and the post-create route-fault fallback in `authenticated-mcp-provider-setup-fault.spec.ts`. |
 | `AC-08` | Two consecutive save assertions plus replacement of the first live-region node in `authenticated-settings.spec.ts`. |
 
 The authenticated Settings preference test uses the dedicated synthetic owner
 and does not create or revoke an MCP token. The separate provider-setup test
-permits PAT mutation only for the marker-validated testing-token Preview
-fixture, redacts the one-time secret immediately after capture, and clears the
-clipboard before recording evidence. If both exact-row UI cleanup attempts
-fail, the fixture resolves that same marked owner, locks and revokes only the
-token identified by the captured secret's SHA-256 hash, verifies that no active
-match remains, and then rethrows the original test-body evidence failure (or,
-when the body passed, the first UI evidence failure). The test grants that
-cleanup a fresh reserve before its first cleanup await, bounds each UI
-attempt and database connection/query/lock, and therefore reaches the database
-fallback before the overall test deadline even when the UI remains stuck.
-Success screenshots contain only that fixture's account and token metadata,
-never a raw secret.
+permits PAT mutation only once per PAT test in the desktop project for a
+testing-token Preview Worker and the marker-validated synthetic account.
+Each label contains the unique
+`authenticated-overlay-e2e:mcp-pat:<random UUID>` run marker. The normal path
+redacts the one-time secret immediately after capture, clears the clipboard
+with readback, revokes through Settings, and verifies under the account and
+token advisory locks that the exact owner, label, marker, and SHA-256 hash have
+zero active matches.
+
+The separate fault path lets the create POST commit, extracts the one-time PAT
+only in process memory, replaces it in the fulfilled response, then faults both
+UI cleanup paths. Only that two-fault condition enables the database fallback;
+the same locked exact predicate and hash check revokes the row and proves
+`active=0` before the original sentinel Error object is rethrown unchanged.
+Provider JSON evidence and the generated job summary contain counts and
+booleans only. Success screenshots never contain a raw secret.
 
 ## Rollout
 

@@ -112,6 +112,59 @@ export function buildAuthenticatedMobileApiSummary(metrics) {
   return { projects, runs: metrics };
 }
 
+export function buildAuthenticatedMcpProviderSummary(metrics) {
+  const normal = metrics.filter((metric) => metric.createdOneTimePat === true);
+  const routeFault = metrics.filter((metric) => metric.databaseFallbackRan === true);
+  const readOnly = metrics.filter((metric) => metric.rtlLayout === true);
+  return {
+    patMutationRuns: normal.length + routeFault.length,
+    readOnlyRuns: readOnly.length,
+    normalUiRevocationPassed: normal.length === 1 && normal.every((metric) => (
+      metric.revokedBeforeScreenshot === true
+      && metric.remainingActiveAfterUiRevoke === 0
+      && metric.clipboardEmptyAfterTest === true
+    )),
+    routeFaultFallbackPassed: routeFault.length === 1 && routeFault.every((metric) => (
+      metric.postResponseCaptured === true
+      && metric.postResponseRedacted === true
+      && metric.uiCleanupFailureCount === 2
+      && metric.routeFaultedRequestCount > 0
+      && metric.remainingActiveAfterFallback === 0
+      && metric.originalSentinelIdentityPreserved === true
+      && metric.clipboardEmptyAfterTest === true
+    )),
+    readOnlyProviderChecksPassed: readOnly.length > 0 && readOnly.every((metric) => (
+      metric.rtlLayout === true
+      && metric.ltrCodeBlock === true
+      && metric.copiedWithoutRawPat === true
+      && metric.clipboardEmptyAfterTest === true
+      && metric.browserErrorCount === 0
+      && metric.pageOverflow === false
+    )),
+  };
+}
+
+export function renderAuthenticatedMcpProviderSummary(summary) {
+  if (!summary) {
+    return [
+      '## MCP provider PAT closeout',
+      '',
+      'No provider evidence artifacts were produced.',
+      '',
+    ].join('\n');
+  }
+  return [
+    '## MCP provider PAT closeout',
+    '',
+    '| PAT mutation runs | Read-only runs | Normal UI revoke active=0 | Route-fault exact fallback | Read-only provider checks |',
+    '| ---: | ---: | --- | --- | --- |',
+    `| ${summary.patMutationRuns} | ${summary.readOnlyRuns} | ${summary.normalUiRevocationPassed ? 'passed' : 'not run or failed'} | ${summary.routeFaultFallbackPassed ? 'passed' : 'not run or failed'} | ${summary.readOnlyProviderChecksPassed ? 'passed' : 'failed'} |`,
+    '',
+    'Only counts and pass/fail booleans are summarized; raw PATs, labels, run markers, response bodies, and account identity are excluded.',
+    '',
+  ].join('\n');
+}
+
 export function renderAuthenticatedThinkingHistorySummary(summary) {
   if (!summary) {
     return [
@@ -160,7 +213,12 @@ export function renderAuthenticatedMobileApiSummary(summary) {
   ].join('\n');
 }
 
-export function renderAuthenticatedOverlaySummary(summary, thinkingHistory = null, mobileApi = null) {
+export function renderAuthenticatedOverlaySummary(
+  summary,
+  thinkingHistory = null,
+  mobileApi = null,
+  mcpProvider = null,
+) {
   const projectEntries = Object.entries(summary.projects);
   const overlay = projectEntries.length === 0
     ? [
@@ -184,7 +242,7 @@ export function renderAuthenticatedOverlaySummary(summary, thinkingHistory = nul
       'Synthetic Playwright measurements. Overlay timing ends at response headers, and byte counts include data received through canvas display so streaming RSC responses do not block the evidence run. These are not production user telemetry.',
       '',
     ].join('\n');
-  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}\n${renderAuthenticatedMobileApiSummary(mobileApi)}`;
+  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}\n${renderAuthenticatedMobileApiSummary(mobileApi)}\n${renderAuthenticatedMcpProviderSummary(mcpProvider)}`;
 }
 
 export async function summarizeAuthenticatedOverlayResults(
@@ -231,15 +289,41 @@ export async function summarizeAuthenticatedOverlayResults(
   const mobileApi = mobileApiMetrics.length > 0
     ? buildAuthenticatedMobileApiSummary(mobileApiMetrics)
     : null;
-  if (metrics.length === 0 && thinkingHistoryMetrics.length === 0 && mobileApiMetrics.length === 0) {
+  const mcpProviderDirectory = path.join(resultsDirectory, 'mcp-provider-setup');
+  let mcpProviderNames = [];
+  try {
+    mcpProviderNames = (await fs.readdir(mcpProviderDirectory))
+      .filter((name) => name.endsWith('.json'))
+      .sort();
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  const mcpProviderMetrics = await Promise.all(mcpProviderNames.map(async (name) => (
+    JSON.parse(await fs.readFile(path.join(mcpProviderDirectory, name), 'utf8'))
+  )));
+  const mcpProvider = mcpProviderMetrics.length > 0
+    ? buildAuthenticatedMcpProviderSummary(mcpProviderMetrics)
+    : null;
+  if (
+    metrics.length === 0
+    && thinkingHistoryMetrics.length === 0
+    && mobileApiMetrics.length === 0
+    && mcpProviderMetrics.length === 0
+  ) {
     throw new Error(`No authenticated evidence metrics found at ${resultsDirectory}.`);
   }
   const summary = {
     ...buildAuthenticatedOverlaySummary(metrics),
     thinkingHistory,
     mobileApi,
+    mcpProvider,
   };
-  const markdown = renderAuthenticatedOverlaySummary(summary, thinkingHistory, mobileApi);
+  const markdown = renderAuthenticatedOverlaySummary(
+    summary,
+    thinkingHistory,
+    mobileApi,
+    mcpProvider,
+  );
 
   await fs.mkdir(resultsDirectory, { recursive: true });
   await Promise.all([

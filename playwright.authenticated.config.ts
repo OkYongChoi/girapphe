@@ -36,7 +36,7 @@ export default defineConfig({
     {
       name: 'authenticated-desktop',
       testMatch:
-        /authenticated-(?:overlay-performance|settings|thinking-history|mcp-provider-setup|my-notes-tags)\.spec\.ts/,
+        /authenticated-(?:overlay-performance|settings|thinking-history|mcp-provider-setup(?:-fault)?|my-notes-tags)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 900 },

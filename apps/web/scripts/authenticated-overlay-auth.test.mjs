@@ -64,7 +64,14 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   assert.match(source, /resolveAuthenticatedOverlayAuthMode\(\)/);
   assert.match(
     source,
-    /authMode !== AUTHENTICATED_OVERLAY_AUTH_MODES\.testingToken/,
+    /!isPatMutationPreview\(testInfo\)/,
+  );
+  assert.match(source, /testInfo\.project\.name === ['"]authenticated-desktop['"]/);
+  assert.ok(source.includes('girapphe-preview\\.[a-z0-9-]+\\.workers\\.dev'));
+  assert.match(source, /AUTHENTICATED_OVERLAY_EMAIL_MARKER/);
+  assert.match(
+    source,
+    /AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:\$\{randomUUID\(\)\}/,
   );
   assert.doesNotMatch(
     source,
@@ -89,13 +96,9 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     'await revokeExactConnectionAfterReload(page, connectionLabel)',
     immediateEvidence,
   );
-  const secondReloadCleanup = source.indexOf(
-    'await revokeExactConnectionAfterReload(page, connectionLabel)',
-    firstReloadCleanup + 1,
-  );
   const databaseFallback = source.indexOf(
-    'await revokeExactAuthenticatedOverlayMcpToken({ rawToken })',
-    secondReloadCleanup,
+    'await revokeExactAuthenticatedOverlayMcpToken({',
+    firstReloadCleanup,
   );
   const cleanupFailureResurface = source.indexOf(
     'if (cleanupError) throw cleanupError',
@@ -117,8 +120,6 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
       && cleanupReserve < firstCleanupOperation
       && firstCleanupOperation < immediateEvidence
       && immediateEvidence < firstReloadCleanup
-      && firstReloadCleanup < secondReloadCleanup
-      && secondReloadCleanup < databaseFallback
       && databaseFallback < cleanupFailureResurface
       && cleanupFailureResurface < originalEvidenceResurface
       && originalEvidenceResurface < cleanupEvidenceFailureResurface,
@@ -142,15 +143,11 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   assert.ok(
     Number(cleanupReserveValue[1].replaceAll('_', ''))
       > Number(cleanupAttemptValue[1].replaceAll('_', '')) * 4,
-    'the cleanup reserve must outlast initial redaction, immediate revoke, and two reload attempts',
-  );
-  assert.doesNotMatch(
-    source.slice(firstReloadCleanup, secondReloadCleanup),
-    /if \(rawToken\.length/,
+    'the cleanup reserve must outlast redaction, both UI cleanup paths, and database verification',
   );
   assert.match(
-    source.slice(secondReloadCleanup, databaseFallback),
-    /reloadCleanupErrors\.length === 2 && rawTokenHasExpectedShape/,
+    source.slice(firstReloadCleanup, databaseFallback),
+    /uiCleanupErrors\.length === 2 && rawTokenHasExpectedShape/,
   );
   assert.match(
     source.slice(databaseFallback, originalEvidenceResurface),
@@ -162,7 +159,7 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     "withCleanupOperationTimeout(hide, deadlineMs, 'MCP_CLEANUP_REDACTION_TIMEOUT')",
     hideEvaluation,
   );
-  const clearEvaluation = source.indexOf('const clear = () => page.evaluate');
+  const clearEvaluation = source.indexOf('const clear = async () =>');
   const boundedClear = source.indexOf(
     "withCleanupOperationTimeout(clear, deadlineMs, 'MCP_CLEANUP_CLIPBOARD_TIMEOUT')",
     clearEvaluation,
@@ -223,6 +220,53 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   assert.match(
     immediateCleanup,
     /\.toBeVisible\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(source, /navigator\.clipboard\.writeText\(['"]['"]\)[\s\S]*navigator\.clipboard\.readText\(\)/);
+  assert.match(source, /revokeExactAuthenticatedOverlayMcpToken\(\{[\s\S]*rawToken,[\s\S]*connectionLabel,[\s\S]*runMarker,/);
+  assert.match(source, /verifyExactAuthenticatedOverlayMcpTokenInactive\(\{[\s\S]*remainingActive/);
+});
+
+test('provider PAT route fault proves exact fallback and original error identity', async () => {
+  const testUrl = new URL(
+    '../e2e-authenticated/authenticated-mcp-provider-setup-fault.spec.ts',
+    import.meta.url,
+  );
+  const source = await fs.readFile(testUrl, 'utf8');
+
+  assert.match(source, /!isPatMutationPreview\(testInfo\)/);
+  assert.match(source, /testInfo\.project\.name === ['"]authenticated-desktop['"]/);
+  assert.match(source, /AUTHENTICATED_OVERLAY_EMAIL_MARKER/);
+  assert.match(
+    source,
+    /AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:\$\{randomUUID\(\)\}/,
+  );
+  const postFetch = source.indexOf('const response = await route.fetch()');
+  const rawCapture = source.indexOf('rawToken = uniqueMatches[0]!', postFetch);
+  const responseRedaction = source.indexOf('responseBody.replace(', rawCapture);
+  const armFault = source.indexOf('routeFaultArmed = true', responseRedaction);
+  const firstUiPath = source.indexOf("getByRole('button', { name: 'Revoke' })", armFault);
+  const secondUiPath = source.indexOf('await page.reload({', firstUiPath);
+  const fallback = source.indexOf('await revokeExactAuthenticatedOverlayMcpToken({', secondUiPath);
+  const originalRethrow = source.indexOf('if (originalError) throw originalError', fallback);
+  assert.ok(
+    postFetch >= 0
+      && postFetch < rawCapture
+      && rawCapture < responseRedaction
+      && responseRedaction < armFault
+      && armFault < firstUiPath
+      && firstUiPath < secondUiPath
+      && secondUiPath < fallback
+      && fallback < originalRethrow,
+  );
+  assert.match(source, /uiCleanupErrors\.length === 2 && RAW_PAT_SHAPE\.test\(rawToken\)/);
+  assert.match(source, /rawToken,[\s\S]*connectionLabel,[\s\S]*runMarker,/);
+  assert.match(source, /remainingActiveAfterFallback = fallback\.remainingActive/);
+  assert.match(source, /expect\(observedError\)\.toBe\(originalSentinel\)/);
+  assert.match(source, /expect\(routeFaultedRequestCount\)\.toBeGreaterThan\(0\)/);
+  assert.match(source, /clipboardEmptyAfterTest = await clearClipboardAndReadBack\(page\)/);
+  assert.doesNotMatch(
+    source.slice(source.indexOf('writeFileSync(evidencePath')),
+    /rawToken|connectionLabel|runMarker|MCP_PAT_ROUTE_FAULT_SENTINEL/,
   );
 });
 

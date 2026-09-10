@@ -138,11 +138,22 @@ Preview Thinking History default when that surface is enabled, checks Arabic
 RTL/mobile containment and 44 px interaction targets, and saves synthetic
 success screenshots. In a testing-token Preview run only, fixture setup first
 deletes `mcp_access_tokens` rows for the validated synthetic owner inside the
-same fixture transaction. The desktop and mobile provider checks then each
-create a real PAT, capture its one-time value and immediately hide that surface,
-prove the copied OpenAI and Claude snippets retain `GIRAPPHE_MCP_TOKEN` while
-omitting the captured value, clear the clipboard, revoke the PAT, and reload
-before any durable success screenshot. This reset is intentionally destructive
+same fixture transaction. The desktop project runs each PAT-mutating provider
+test once; mobile and Arabic provider coverage remain read-only. Each created
+token label embeds
+`authenticated-overlay-e2e:mcp-pat:<random UUID>`. The normal check captures
+the one-time value and immediately hides that surface,
+proves the copied OpenAI and Claude snippets retain `GIRAPPHE_MCP_TOKEN` while
+omitting the captured value, clears the clipboard with readback, revokes the
+PAT in Settings, reloads, and verifies the locked exact database row has zero
+active matches before any durable success screenshot.
+
+A separate Preview-only fault check lets the create POST commit, captures and
+redacts the PAT from the fulfilled response, then faults both UI cleanup paths.
+Only then may the locked database fallback match owner, exact label, unique run
+marker, and SHA-256 hash, revoke that row, verify `active=0`, and rethrow the
+original sentinel Error object unchanged. Provider evidence JSON and its job
+summary contain counts and booleans only. This reset is intentionally destructive
 only for the marker-validated synthetic account; its exact owner predicate does
 not relax the application's token quotas or permit cleanup of a normal account.
 
@@ -242,11 +253,13 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    checks out that SHA, and waits until `/api/health` reports the same deployed
    revision. Desktop and mobile each run three times against that PR's Preview
    Worker, preview Clerk instance, and preview database. The validated Preview
-   synthetic owner's prior MCP token rows are reset before the provider test;
-   each created evidence PAT is revoked before its screenshot. The mobile API
-   mutation journey is testing-token Preview-only and its summary is deployed
-   browser evidence, not physical-device, accessibility, signed-binary, or
-   store-release evidence.
+   synthetic owner's prior MCP token rows are reset before provider evidence.
+   The desktop PAT tests each run once regardless of the overlay measurement
+   count; normal UI revocation and the deterministic route-fault fallback both
+   finish at zero active exact matches. Mobile and Arabic provider checks do not
+   mutate PATs. The mobile API mutation journey is testing-token Preview-only,
+   and its summary is deployed browser evidence, not physical-device,
+   accessibility, signed-binary, or store-release evidence.
 3. Review the uploaded summary before changing performance code. Separate
    Clerk, Worker-to-Neon, private-graph, and link-target time if the result is
    slow.

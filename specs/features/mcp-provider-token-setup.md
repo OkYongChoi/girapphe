@@ -30,7 +30,8 @@ Out of scope:
   third-party plan on behalf of the user.
 - Sending an unselected conversation, approving a draft, or publishing private
   knowledge automatically.
-- Changing MCP tools, token scopes, expiry, quotas, or database records.
+- Changing MCP tools, token scopes, expiry, quotas, schema, or production token
+  behavior. Preview evidence may mutate only the dedicated synthetic owner.
 
 ## Acceptance criteria
 
@@ -71,7 +72,7 @@ owner-scope, and explicit-approval boundaries do not change.
 | `AC-02` | `apps/web/src/lib/mcp/provider-setup.test.ts` checks provider/auth boundaries and official-source links. |
 | `AC-03` | `apps/web/src/lib/mcp/provider-setup.test.ts` checks both generated token configurations and unsafe endpoint rejection. |
 | `AC-04` | Authenticated Preview desktop/mobile Playwright evidence plus English and Arabic RTL screenshots from `authenticated-mcp-provider-setup.spec.ts`. |
-| `AC-05` | Existing MCP token/server regression suite and final diff inspection; no action, schema, or migration change. |
+| `AC-05` | Existing MCP token/server regressions plus one marker-validated testing-token Preview run. The normal path verifies the exact owner/label/run-marker/hash row has `active=0`; `authenticated-mcp-provider-setup-fault.spec.ts` commits a synthetic create POST, redacts its response, faults both UI cleanup paths, and proves exact database fallback without replacing the original sentinel failure. |
 | `AC-06` | `apps/web/src/lib/mcp/provider-setup.test.ts` verifies all provider-guide keys, plan/admin/PAT markers, and genuine availability translations across every supported locale; `apps/web/src/i18n/messages.test.ts` verifies catalog and placeholder parity; authenticated Arabic Playwright verifies RTL layout with an LTR configuration block. |
 
 ## Rollout

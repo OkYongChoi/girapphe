@@ -1,6 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { expect, test, type Page } from './authenticated-test';
+import {
+  AUTHENTICATED_OVERLAY_EMAIL_MARKER,
+  AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
+} from '../scripts/authenticated-overlay-constants.mjs';
 import {
   AUTHENTICATED_OVERLAY_AUTH_MODES,
   resolveAuthenticatedOverlayAuthMode,
@@ -12,6 +17,24 @@ const MCP_CLEANUP_RESERVE_MS = 180_000;
 const MCP_CLEANUP_ATTEMPT_MS = 12_000;
 const MCP_CLEANUP_OPERATION_MS = 5_000;
 const MCP_CLEANUP_NAVIGATION_MS = 8_000;
+
+function isPatMutationPreview(testInfo: { project: { name: string } }): boolean {
+  const baseUrl = process.env.PLAYWRIGHT_BASE_URL?.trim() ?? '';
+  let isPreviewWorker = false;
+  try {
+    isPreviewWorker = /^pr-[0-9]+-girapphe-preview\.[a-z0-9-]+\.workers\.dev$/iu.test(
+      new URL(baseUrl).hostname,
+    );
+  } catch {
+    isPreviewWorker = false;
+  }
+  return testInfo.project.name === 'authenticated-desktop'
+    && isPreviewWorker
+    && resolveAuthenticatedOverlayAuthMode()
+      === AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken
+    && (process.env.E2E_CLERK_USER_EMAIL?.toLowerCase() ?? '')
+      .includes(AUTHENTICATED_OVERLAY_EMAIL_MARKER);
+}
 
 function cleanupTimeout(
   deadlineMs: number,
@@ -86,7 +109,13 @@ async function hidePatSurface(page: Page, deadlineMs?: number): Promise<void> {
 }
 
 async function clearClipboard(page: Page, deadlineMs?: number): Promise<void> {
-  const clear = () => page.evaluate(() => navigator.clipboard.writeText(''));
+  const clear = async () => {
+    const clipboardValue = await page.evaluate(async () => {
+      await navigator.clipboard.writeText('');
+      return navigator.clipboard.readText();
+    });
+    if (clipboardValue !== '') throw new Error('MCP_CLEANUP_CLIPBOARD_NOT_EMPTY');
+  };
   if (deadlineMs === undefined) {
     await clear();
     return;
@@ -165,10 +194,9 @@ async function revokeExactConnectionAfterReload(
 
 test('switches between ChatGPT and Claude setup without exposing a PAT', async ({ context, page }, testInfo) => {
   const testStartedAt = Date.now();
-  const authMode = resolveAuthenticatedOverlayAuthMode();
   test.skip(
-    authMode !== AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken,
-    'PAT mutation evidence is restricted to the dedicated testing-token Preview fixture.',
+    !isPatMutationPreview(testInfo),
+    'PAT mutation evidence runs once in the marker-validated testing-token Preview desktop project.',
   );
 
   const browserErrors: string[] = [];
@@ -183,7 +211,8 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Use Girapphe with ChatGPT or Claude' })).toBeVisible();
 
-  const connectionLabel = `Provider placeholder evidence ${testInfo.project.name}`;
+  const runMarker = `${AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:${randomUUID()}`;
+  const connectionLabel = `PAT ${runMarker}`;
   let rawToken = '';
   let rawTokenHasExpectedShape = false;
   let openAiSnippetChecks = {
@@ -207,6 +236,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   let revokedAfterReload = false;
   let rawSurfaceAbsentImmediatelyAfterRevoke = false;
   let rawSurfaceAbsentAfterReload = false;
+  let normalUiRemainingActive = -1;
   let originalEvidenceFailed = false;
   let originalEvidenceError: unknown = null;
 
@@ -278,6 +308,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
     ));
 
     let cleanupError: unknown = null;
+    const uiCleanupErrors: unknown[] = [];
     let cleanupEvidenceError: unknown = null;
     const initialRedactionDeadlineMs = Date.now() + MCP_CLEANUP_ATTEMPT_MS;
     try {
@@ -342,11 +373,13 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
         rawSurfaceAbsentImmediatelyAfterRevoke = true;
       }
     } catch (error) {
-      if (rawToken.length > 0) cleanupEvidenceError = error;
+      if (rawToken.length > 0) {
+        uiCleanupErrors.push(error);
+        cleanupEvidenceError = error;
+      }
     }
 
     let exactConnectionObserved = false;
-    const reloadCleanupErrors: unknown[] = [];
     try {
       const observed = await revokeExactConnectionAfterReload(page, connectionLabel);
       exactConnectionObserved = observed;
@@ -354,33 +387,42 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
         throw new Error('The captured synthetic PAT row was unavailable for exact cleanup.');
       }
     } catch (error) {
-      reloadCleanupErrors.push(error);
+      uiCleanupErrors.push(error);
       cleanupEvidenceError ??= error;
     }
 
-    try {
-      const observed = await revokeExactConnectionAfterReload(page, connectionLabel);
-      exactConnectionObserved = observed || exactConnectionObserved;
-      if (!observed) {
-        throw new Error('The captured synthetic PAT row was unavailable for exact cleanup.');
-      }
-    } catch (error) {
-      reloadCleanupErrors.push(error);
-      cleanupEvidenceError ??= error;
-    }
-
-    if (reloadCleanupErrors.length === 2 && rawTokenHasExpectedShape) {
+    if (uiCleanupErrors.length === 2 && rawTokenHasExpectedShape) {
       try {
         const { revokeExactAuthenticatedOverlayMcpToken } = await import(
           '../scripts/authenticated-overlay-fixture.mjs'
         );
-        const databaseCleanup = await revokeExactAuthenticatedOverlayMcpToken({ rawToken });
+        const databaseCleanup = await revokeExactAuthenticatedOverlayMcpToken({
+          rawToken,
+          connectionLabel,
+          runMarker,
+        });
         if (databaseCleanup.remainingActive !== 0) {
           throw new Error('Synthetic PAT database cleanup left an active credential.');
         }
       } catch (error) {
         cleanupError ??= error;
       }
+    } else if (rawTokenHasExpectedShape) {
+      try {
+        const { verifyExactAuthenticatedOverlayMcpTokenInactive } = await import(
+          '../scripts/authenticated-overlay-fixture.mjs'
+        );
+        const verification = await verifyExactAuthenticatedOverlayMcpTokenInactive({
+          rawToken,
+          connectionLabel,
+          runMarker,
+        });
+        normalUiRemainingActive = verification.remainingActive;
+      } catch (error) {
+        cleanupError ??= error;
+      }
+    } else if (rawToken.length > 0) {
+      cleanupError ??= new Error('SYNTHETIC_MCP_TOKEN_CLEANUP_TOKEN_INVALID');
     }
 
     revokedAfterReload = exactConnectionObserved;
@@ -429,6 +471,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   expect(renderedGuideOmitsAnyRawPat).toBe(true);
   expect(revokedAfterReload).toBe(true);
   expect(rawSurfaceAbsentImmediatelyAfterRevoke).toBe(true);
+  expect(normalUiRemainingActive).toBe(0);
   expect(rawSurfaceAbsentAfterReload).toBe(true);
   expect(overflowsViewport).toBe(false);
   expect(browserErrors.length === 0).toBe(true);
@@ -442,13 +485,12 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   mkdirSync(dirname(evidencePath), { recursive: true });
   writeFileSync(evidencePath, `${JSON.stringify({
     schemaVersion: 1,
-    route: '/en/settings#ai-connections',
-    project: testInfo.project.name,
-    providers: ['chatgpt', 'claude'],
     createdOneTimePat: true,
     copiedWithoutRawPat: true,
     revokedBeforeScreenshot: revokedAfterReload,
     clearedOneTimePatImmediatelyOnRevoke: rawSurfaceAbsentImmediatelyAfterRevoke,
+    remainingActiveAfterUiRevoke: normalUiRemainingActive,
+    clipboardEmptyAfterTest: true,
     browserErrorCount: browserErrors.length,
     pageOverflow: overflowsViewport,
   }, null, 2)}\n`);
@@ -501,13 +543,11 @@ test('keeps the localized provider guide usable in an Arabic RTL layout', async 
   mkdirSync(dirname(evidencePath), { recursive: true });
   writeFileSync(evidencePath, `${JSON.stringify({
     schemaVersion: 1,
-    route: '/ar/settings#ai-connections',
-    locale: 'ar',
-    direction: 'rtl',
-    codeDirection: 'ltr',
-    project: testInfo.project.name,
+    rtlLayout: true,
+    ltrCodeBlock: true,
     keyboardProviderSwitch: true,
     copiedWithoutRawPat: true,
+    clipboardEmptyAfterTest: true,
     browserErrorCount: browserErrors.length,
     pageOverflow,
   }, null, 2)}\n`);

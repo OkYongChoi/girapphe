@@ -4,9 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  buildAuthenticatedMcpProviderSummary,
   buildAuthenticatedMobileApiSummary,
   buildAuthenticatedOverlaySummary,
   buildAuthenticatedThinkingHistorySummary,
+  renderAuthenticatedMcpProviderSummary,
   renderAuthenticatedMobileApiSummary,
   renderAuthenticatedOverlaySummary,
   renderAuthenticatedThinkingHistorySummary,
@@ -193,6 +195,51 @@ test('authenticated result loader persists mobile-only failure evidence', async 
   assert.equal(await fs.readFile(path.join(root, 'summary.md'), 'utf8'), markdown);
 });
 
+test('authenticated summary reports only safe MCP PAT counts and booleans', () => {
+  const summary = buildAuthenticatedMcpProviderSummary([
+    {
+      schemaVersion: 1,
+      createdOneTimePat: true,
+      revokedBeforeScreenshot: true,
+      remainingActiveAfterUiRevoke: 0,
+      clipboardEmptyAfterTest: true,
+    },
+    {
+      schemaVersion: 1,
+      postResponseCaptured: true,
+      postResponseRedacted: true,
+      routeFaultedRequestCount: 2,
+      uiCleanupFailureCount: 2,
+      databaseFallbackRan: true,
+      remainingActiveAfterFallback: 0,
+      originalSentinelIdentityPreserved: true,
+      clipboardEmptyAfterTest: true,
+    },
+    {
+      schemaVersion: 1,
+      rtlLayout: true,
+      ltrCodeBlock: true,
+      keyboardProviderSwitch: true,
+      copiedWithoutRawPat: true,
+      clipboardEmptyAfterTest: true,
+      browserErrorCount: 0,
+      pageOverflow: false,
+    },
+  ]);
+  assert.deepEqual(summary, {
+    patMutationRuns: 2,
+    readOnlyRuns: 1,
+    normalUiRevocationPassed: true,
+    routeFaultFallbackPassed: true,
+    readOnlyProviderChecksPassed: true,
+  });
+  const markdown = renderAuthenticatedMcpProviderSummary(summary);
+  assert.match(markdown, /MCP provider PAT closeout/);
+  assert.match(markdown, /\| 2 \| 1 \| passed \| passed \| passed \|/);
+  assert.match(markdown, /counts and pass\/fail booleans/);
+  assert.doesNotMatch(markdown, /girapphe_mcp_|authenticated-overlay-e2e:mcp-pat/);
+});
+
 test('authenticated result loader merges private-path metrics into persisted summaries', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'girapphe-auth-summary-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -200,6 +247,7 @@ test('authenticated result loader merges private-path metrics into persisted sum
     fs.mkdir(path.join(root, 'metrics'), { recursive: true }),
     fs.mkdir(path.join(root, 'thinking-history'), { recursive: true }),
     fs.mkdir(path.join(root, 'mobile-api'), { recursive: true }),
+    fs.mkdir(path.join(root, 'mcp-provider-setup'), { recursive: true }),
   ]);
   await Promise.all([
     fs.writeFile(path.join(root, 'metrics', 'desktop-1.json'), JSON.stringify({
@@ -244,6 +292,16 @@ test('authenticated result loader merges private-path metrics into persisted sum
       path.join(root, 'mobile-api', 'authenticated-mobile.json'),
       JSON.stringify(MOBILE_API_EVIDENCE),
     ),
+    fs.writeFile(
+      path.join(root, 'mcp-provider-setup', 'authenticated-desktop.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        createdOneTimePat: true,
+        revokedBeforeScreenshot: true,
+        remainingActiveAfterUiRevoke: 0,
+        clipboardEmptyAfterTest: true,
+      }),
+    ),
   ]);
 
   const { summary, markdown } = await summarizeAuthenticatedOverlayResults(root);
@@ -255,8 +313,11 @@ test('authenticated result loader merges private-path metrics into persisted sum
   assert.match(markdown, /json, markdown, yaml/);
   assert.equal(summary.mobileApi.projects['authenticated-mobile'].closeoutPassed, true);
   assert.match(markdown, /Mobile API deployed path/);
+  assert.equal(summary.mcpProvider.normalUiRevocationPassed, true);
+  assert.match(markdown, /MCP provider PAT closeout/);
   const persisted = JSON.parse(await fs.readFile(path.join(root, 'summary.json'), 'utf8'));
   assert.equal(persisted.thinkingHistory.runs.length, 1);
   assert.equal(persisted.mobileApi.runs.length, 1);
+  assert.equal(persisted.mcpProvider.patMutationRuns, 1);
   assert.equal(await fs.readFile(path.join(root, 'summary.md'), 'utf8'), markdown);
 });
