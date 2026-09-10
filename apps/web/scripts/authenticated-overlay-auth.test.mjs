@@ -125,7 +125,13 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /if \(hasTouch\)[\s\S]{0,500}link\.tap\(\{ timeout: 10_000 \}\)[\s\S]{0,180}link\.focus\(\)[\s\S]{0,120}expect\(link\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
   assert.doesNotMatch(source, /link\.tap\(\{[^}]*trial: true/);
   assert.doesNotMatch(source, /link\.tap\(\{[^}]*position:/);
-  assert.match(source, /page\.on\("request", onRequest\)[\s\S]{0,500}await activate\(\)/);
+  const requestListenerIndex = source.indexOf('page.on("request", onRequest)');
+  const activationIndex = source.indexOf('await activate()', requestListenerIndex);
+  assert.ok(requestListenerIndex >= 0, 'review request observation must be installed');
+  assert.ok(
+    activationIndex > requestListenerIndex,
+    'review request observation must be installed before activation',
+  );
   assert.match(source, /REVIEW_ACTIVATION_NO_REQUEST/);
   assert.match(source, /REVIEW_DESTINATION_HTTP_ERROR/);
   assert.match(source, /REVIEW_TARGET_REQUEST_NO_RESPONSE/);
@@ -135,12 +141,15 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.doesNotMatch(source, /page\.touchscreen\.tap|page\.mouse\.click/);
   assert.doesNotMatch(source, /force:\s*true/);
   assert.match(source, /startReviewTapScrollRecorder\(link\)[\s\S]{0,120}captureReviewTapGeometry\(page, link\)/);
+  assert.match(source, /wideElements: \{ ownOverflow, outsideVisualViewport \}/);
+  assert.match(source, /viewportMeta: document\.querySelector\('meta\[name="viewport"\]'\)\?\.getAttribute\("content"\) \?\? null/);
+  assert.match(source, /geometryBefore\.innerWidth > geometryBefore\.visualViewport\.width \+ 1[\s\S]{0,180}REVIEW_LAYOUT_OVERFLOW/);
   assert.match(source, /testInfo\.attach\("review-tap-geometry"[\s\S]{0,180}JSON\.stringify\(\{ before: geometryBefore, after: geometryAfter, scroll \}/);
   const geometryDiagnosticSource = source.slice(
     source.indexOf('type ReviewTapScrollSample'),
     source.indexOf('async function activateExactReviewLink'),
   );
-  assert.doesNotMatch(geometryDiagnosticSource, /textContent|innerHTML|outerHTML|href/);
+  assert.doesNotMatch(geometryDiagnosticSource, /textContent|innerText|innerHTML|outerHTML|href|\.value|dataset/);
   assert.match(source, /thinking-selected-count"\)\)\.toHaveText\(twoContextItemsSelectedCopy\)/);
   assert.match(source, /page\.waitForResponse\([\s\S]{0,120}contextFormat\(response\) === format,[\s\S]{0,80}\{ timeout: 30_000 \}/);
   assert.match(source, /expect\(copyResponse\.status\(\), `\$\{format\} copy context response`\)\.toBe\(200\)/);

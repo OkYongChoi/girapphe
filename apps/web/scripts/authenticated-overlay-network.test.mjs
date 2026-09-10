@@ -50,6 +50,7 @@ test('review navigation accepts only cached commits or completed successful requ
 
 test('review locator failures retain only a bounded non-sensitive reason code', () => {
   const cases = [
+    ['REVIEW_LAYOUT_OVERFLOW', 'REVIEW_LAYOUT_OVERFLOW'],
     ['<nav aria-label="Site header"> from subtree intercepts pointer events', 'REVIEW_LOCATOR_INTERCEPTED_HEADER'],
     ['<div> from subtree intercepts pointer events private-marker', 'REVIEW_LOCATOR_INTERCEPTED_CONTENT'],
     ['element is not stable', 'REVIEW_LOCATOR_UNSTABLE'],

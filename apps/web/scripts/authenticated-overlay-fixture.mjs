@@ -666,6 +666,17 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
       );
     }
 
+    // Context-pack creation records one reuse activity row per selected item.
+    // Reset only the deterministic fixture items so repeated Preview evidence
+    // cannot grow the next synthetic context pack until it reaches the output
+    // size limit. The dedicated synthetic owner and exact IDs keep real user
+    // activity outside this cleanup boundary.
+    await client.query(
+      `DELETE FROM knowledge_item_activity
+       WHERE user_id = $1 AND knowledge_item_id = ANY($2::text[])`,
+      [userId, ids.itemIds],
+    );
+
     for (const item of items) {
       await client.query(
         `INSERT INTO user_knowledge_items (

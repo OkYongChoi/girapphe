@@ -436,11 +436,60 @@ async function captureReviewTapGeometry(page: Page, link: Locator) {
     const playwrightCenter = box
       ? { x: box.x + box.width / 2, y: box.y + box.height / 2 }
       : null;
+    const visibleLeft = visualViewport?.pageLeft ?? 0;
+    const visibleRight = visibleLeft + (visualViewport?.width ?? window.innerWidth);
+    const elementGeometry = [...document.body.querySelectorAll("*")]
+      .filter((candidate): candidate is HTMLElement => candidate instanceof HTMLElement)
+      .map((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        const style = getComputedStyle(candidate);
+        let depth = 0;
+        for (let parent = candidate.parentElement; parent; parent = parent.parentElement) depth += 1;
+        return {
+          tag: candidate.tagName.toLowerCase(),
+          classes: candidate.className.split(/\s+/u).filter(Boolean).slice(0, 12).join(" "),
+          depth,
+          rect: {
+            left: Math.round(rect.left * 100) / 100,
+            right: Math.round(rect.right * 100) / 100,
+            width: Math.round(rect.width * 100) / 100,
+          },
+          clientWidth: candidate.clientWidth,
+          scrollWidth: candidate.scrollWidth,
+          display: style.display,
+          minWidth: style.minWidth,
+          width: style.width,
+          overflowX: style.overflowX,
+          whiteSpace: style.whiteSpace,
+          gridTemplateColumns: style.gridTemplateColumns,
+          flexWrap: style.flexWrap,
+          flexShrink: style.flexShrink,
+        };
+      });
+    const ownOverflow = elementGeometry
+      .filter((candidate) => candidate.scrollWidth > candidate.clientWidth + 1)
+      .sort((left, right) => (
+        (right.scrollWidth - right.clientWidth) - (left.scrollWidth - left.clientWidth)
+        || right.depth - left.depth
+      ))
+      .slice(0, 24);
+    const outsideVisualViewport = elementGeometry
+      .filter((candidate) => (
+        candidate.rect.width > 0
+        && (candidate.rect.left < visibleLeft - 1 || candidate.rect.right > visibleRight + 1)
+      ))
+      .sort((left, right) => right.depth - left.depth || right.rect.width - left.rect.width)
+      .slice(0, 48);
     return {
       scrollY: window.scrollY,
       rootScrollTop: document.scrollingElement?.scrollTop ?? null,
       innerWidth: window.innerWidth,
       innerHeight: window.innerHeight,
+      outerWidth: window.outerWidth,
+      devicePixelRatio: window.devicePixelRatio,
+      screenWidth: window.screen.width,
+      viewportMeta: document.querySelector('meta[name="viewport"]')?.getAttribute("content") ?? null,
+      documentClientWidth: document.documentElement.clientWidth,
       documentWidth: document.documentElement.scrollWidth,
       documentHeight: document.documentElement.scrollHeight,
       visualViewport: visualViewport ? {
@@ -463,6 +512,7 @@ async function captureReviewTapGeometry(page: Page, link: Locator) {
       playwrightCenterHits: playwrightCenter
         ? describeHits(playwrightCenter.x, playwrightCenter.y)
         : [],
+      wideElements: { ownOverflow, outsideVisualViewport },
     };
   }, playwrightBox);
 }
@@ -598,10 +648,18 @@ async function activateExactReviewLink(
     : null;
 
   let activationError: unknown;
-  try {
-    await activate();
-  } catch (error) {
-    activationError = error;
+  const mobileLayoutOverflow = geometryBefore?.visualViewport
+    ? geometryBefore.innerWidth > geometryBefore.visualViewport.width + 1
+      || geometryBefore.documentWidth > geometryBefore.visualViewport.width + 1
+    : false;
+  if (mobileLayoutOverflow) {
+    activationError = new Error("REVIEW_LAYOUT_OVERFLOW");
+  } else {
+    try {
+      await activate();
+    } catch (error) {
+      activationError = error;
+    }
   }
   if (hasTouch && activationError) {
     const [geometryAfter, scroll] = await Promise.all([

@@ -483,6 +483,18 @@ test('database fixture is owner-bound and repeatable', async () => {
     assert.ok(precedingBegin >= 0 && followingCommit > resetIndex);
   }
 
+  const contextActivityResets = calls.filter((call) => (
+    call.text.trimStart().startsWith('DELETE FROM knowledge_item_activity')
+  ));
+  assert.equal(contextActivityResets.length, 2);
+  assert.ok(contextActivityResets.every((call) => (
+    call.values[0] === SYNTHETIC_USER.id
+    && Array.isArray(call.values[1])
+    && call.values[1].length === 4
+    && call.values[1].every((itemId) => first.itemIds.includes(itemId))
+    && call.text.includes('knowledge_item_id = ANY($2::text[])')
+  )));
+
   const mutations = calls.filter((call) => call.text.startsWith('INSERT INTO'));
   assert.ok(mutations.length >= 8);
   assert.ok(mutations.every((call) => call.text.includes('ON CONFLICT (id) DO UPDATE')));

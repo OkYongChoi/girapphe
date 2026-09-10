@@ -23,6 +23,9 @@ export function isSuccessfulReviewNavigation({
 
 export function classifyReviewLocatorActivationFailure(value) {
   const message = value instanceof Error ? value.message : String(value ?? '');
+  if (/^REVIEW_LAYOUT_OVERFLOW$/i.test(message)) {
+    return 'REVIEW_LAYOUT_OVERFLOW';
+  }
   if (/site header[\s\S]*intercepts pointer events/i.test(message)) {
     return 'REVIEW_LOCATOR_INTERCEPTED_HEADER';
   }

@@ -33,7 +33,7 @@
     "harness:deploy": "pnpm harness:local && pnpm build:cf && pnpm check:worker-size"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.63.0",
     "github-slugger": "^2.0.0",
     "js-yaml": "^4.3.1",
     "parse5": "^8.0.1",
