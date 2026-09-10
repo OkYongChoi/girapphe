@@ -157,6 +157,11 @@ screenshots, and `summary.md` under
 and worst Graph-click-to-canvas time, overlay request-to-response-headers time,
 and decoded/transfer bytes received through canvas display. CDP collects those
 network values without waiting for a streaming production RSC response to close.
+The authenticated graph overlay response is intentionally canvas-shaped: private
+nodes retain only graph identity/display fields, private edges retain only
+rendered edge fields, and link targets contain only public endpoints used by a
+private edge. Rich private bundle content remains on the owner-scoped knowledge
+item surface instead of being serialized a second time for graph activation.
 The suite also requires HTTP 200, exactly one no-argument overlay request, at
 least two final fixture-filtered private canvas nodes, at least one final private
 canvas edge, and zero console/page errors.

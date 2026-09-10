@@ -10,6 +10,7 @@ import {
   createMcpAccessTokenForUser,
   createMemoryKnowledgeItemForUser,
   createPrivateKnowledgeEdgeForUser,
+  getKnowledgeGraphOverlayForUser,
   getKnowledgeDraftBatchForUser,
   getKnowledgeDraftResolutionContextForUser,
   getKnowledgeLinkTargetsForUser,
@@ -56,6 +57,56 @@ import { getTopicKnowledgeHubForUser } from './topic-knowledge-hub';
 test('normalizes Korean topics without collapsing them to general', () => {
   assert.equal(normalizeKnowledgeTopic('  머신 러닝 / 기초  '), '머신-러닝-기초');
   assert.equal(normalizeKnowledgeTopic('확률과_통계!'), '확률과_통계');
+});
+
+test('graph overlay keeps private payloads lightweight and limits public targets to edge endpoints', async () => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+
+  try {
+    const userId = `overlay_payload_${crypto.randomUUID()}`;
+    const linkedItem = createMemoryKnowledgeItemForUser(userId, {
+      title: 'Linked private note',
+      summary: 'A short graph summary.',
+      content: 'Rich private content must stay on the knowledge-item surface.',
+      topic: 'Performance',
+      tags: ['overlay'],
+    });
+    createMemoryKnowledgeItemForUser(userId, {
+      title: 'Unlinked private note',
+      summary: 'Another private summary.',
+      content: 'Another rich private body.',
+      topic: 'Performance',
+    });
+    assert.deepEqual(
+      await createPrivateKnowledgeEdgeForUser(
+        userId,
+        `personal:${linkedItem.id}`,
+        'graph_gradient_descent',
+        'related',
+      ),
+      { created: true },
+    );
+
+    const overlay = await getKnowledgeGraphOverlayForUser(userId);
+    const node = overlay.privateGraph.nodes.find((candidate) => candidate.knowledge_item_id === linkedItem.id);
+    assert.ok(node);
+    assert.deepEqual(Object.keys(node).sort(), [
+      'graph_node_id', 'id', 'knowledge_item_id', 'label', 'topic',
+    ]);
+    assert.equal('content' in node, false);
+    assert.equal('structured_content' in node, false);
+    assert.equal('evidence_span_ids' in node, false);
+
+    assert.deepEqual(
+      overlay.privateGraph.edges.map(({ id, source, target, type, weight }) => ({ id, source, target, type, weight })),
+      overlay.privateGraph.edges,
+    );
+    assert.deepEqual(overlay.graphLinkTargets.map(({ id }) => id), ['graph_gradient_descent']);
+  } finally {
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  }
 });
 
 test('legacy mobile version lookup is owner scoped and retains guarded update semantics', async () => {
@@ -1084,6 +1135,81 @@ test('database graph surfaces and manual endpoints require active owner-scoped k
     userId, 'personal:active-then-archived', 'graph_public-node', 'related',
   ), { created: false, reason: 'cycle_or_duplicate' });
   assert.equal(manualEdgeInsertCount, 1);
+});
+
+test('database graph overlay selects only canvas fields and public edge endpoints', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const userId = 'owner-overlay-query';
+
+  context.after(() => {
+    db.query = originalQuery;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string, params: unknown[] = []) => {
+    if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
+
+    if (text.includes('SELECT n.id AS graph_node_id')) {
+      assert.deepEqual(params, [userId]);
+      assert.doesNotMatch(text, /i\.content|i\.summary|i\.tags|structured_content|knowledge_type/);
+      return {
+        rows: [{
+          graph_node_id: 'private-node-1', knowledge_item_id: 'item-1', label: 'Private node', topic: 'Performance',
+        }],
+      };
+    }
+    if (text.includes('FROM user_graph_edges e') && !text.includes('INSERT INTO user_graph_edges')) {
+      assert.deepEqual(params, [userId]);
+      assert.match(text, /source_public\.label/);
+      assert.match(text, /target_public\.label/);
+      assert.doesNotMatch(text, /relation_origin|evidence_span_id/);
+      return {
+        rows: [{
+          id: 'edge-1',
+          source_private_node_id: 'private-node-1',
+          source_public_node_id: null,
+          target_private_node_id: null,
+          target_public_node_id: 'gradient_descent',
+          source_item_id: 'item-1',
+          target_item_id: null,
+          type: 'related',
+          weight: '0.75',
+          source_public_label: null,
+          source_public_topic: null,
+          target_public_label: 'Gradient Descent',
+          target_public_topic: 'Optimization',
+        }],
+      };
+    }
+    throw new Error(`Unexpected database query in overlay payload regression: ${text}`);
+  }) as typeof db.query;
+
+  const overlay = await getKnowledgeGraphOverlayForUser(userId);
+  assert.deepEqual(overlay.privateGraph, {
+    nodes: [{
+      id: 'personal:item-1',
+      graph_node_id: 'private-node-1',
+      knowledge_item_id: 'item-1',
+      label: 'Private node',
+      topic: 'Performance',
+    }],
+    edges: [{
+      id: 'edge-1',
+      source: 'personal:item-1',
+      target: 'graph_gradient_descent',
+      type: 'related',
+      weight: 0.75,
+    }],
+  });
+  assert.deepEqual(overlay.graphLinkTargets, [{
+    id: 'graph_gradient_descent',
+    label: 'Gradient Descent',
+    scope: 'public',
+    topic: 'Optimization',
+  }]);
 });
 
 test('database draft approval partitions dynamically queued edge and update results', async (context) => {

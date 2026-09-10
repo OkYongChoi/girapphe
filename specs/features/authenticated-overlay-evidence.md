@@ -22,6 +22,9 @@ In scope:
 - Save per-run metrics plus median and worst values for graph display latency,
   overlay request-to-response-headers latency, and decoded/transfer bytes
   received through canvas display without waiting for streaming RSC closure.
+- Keep the authenticated graph payload canvas-shaped: private nodes and edges
+  contain only rendered fields, and public link targets are limited to endpoints
+  used by the owner's private edges.
 
 Out of scope:
 
@@ -53,6 +56,10 @@ Out of scope:
   production requires an additional explicit confirmation, uses a short-lived
   backend sign-in token instead of a development-only testing token, is limited
   to the protected `main` branch, and runs once.
+- [x] `AC-06`: The authenticated graph overlay serializes only the private node
+  identity/display fields and rendered edge fields, and returns only public
+  link targets used by a private edge; rich private bundle content and the
+  complete target catalog remain out of the overlay response.
 
 The deployment workflow attaches the revision to the Worker version upload. It
 does not update the production revision in the earlier bulk-secret step, so a
@@ -77,6 +84,7 @@ written to the repository or Playwright artifacts.
 | `AC-03` | `apps/web/e2e-authenticated/authenticated-overlay-performance.spec.ts` plus `data-visible-private-*` canvas-input counts. |
 | `AC-04` | `pnpm browser:authenticated-overlay` and its `test-results/authenticated-overlay-performance/summary.md` artifact. |
 | `AC-05` | Inspection of `.github/workflows/authenticated-performance.yml`, `.github/workflows/deploy-cloudflare.yml`, `playwright.authenticated.config.ts`, and the normal `playwright.config.ts`; `apps/web/scripts/verify-deployment-revision.test.mjs`. |
+| `AC-06` | `apps/web/src/lib/knowledge-ingestion.test.ts` lightweight-payload regression and `getKnowledgeGraphOverlayForUser()` projection/query. |
 
 Preview workflow run
 [`33466410279`](https://github.com/OkYongChoi/girapphe/actions/runs/33466410279)
