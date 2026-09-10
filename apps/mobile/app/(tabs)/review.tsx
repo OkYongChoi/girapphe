@@ -12,7 +12,7 @@ import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
 import { formatReviewLastSeen, reviewQueueCount } from '@/practice-parity';
 
 export default function ReviewScreen() {
-  return <AuthRequired><ReviewContent /></AuthRequired>;
+  return <AuthRequired continuation={{ destination: 'review' }}><ReviewContent /></AuthRequired>;
 }
 
 function ReviewContent() {

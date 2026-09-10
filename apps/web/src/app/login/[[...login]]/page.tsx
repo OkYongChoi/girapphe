@@ -1,9 +1,15 @@
 import { getClerkConfigProblem } from '@/lib/clerk-env';
 import { AuthEntrypoint } from '@/components/auth-entrypoint';
 import { getServerI18n } from '@/i18n/server';
+import { resolveAuthReturnTo } from '@/lib/auth-return-to';
 
-export default async function LoginPage() {
+type LoginPageProps = {
+  searchParams: Promise<{ returnTo?: string | string[] }>;
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
   const { t } = await getServerI18n();
+  const returnTo = resolveAuthReturnTo((await searchParams).returnTo);
   const clerkConfigProblem = getClerkConfigProblem();
   if (clerkConfigProblem) {
     return (
@@ -15,5 +21,5 @@ export default async function LoginPage() {
     );
   }
 
-  return <AuthEntrypoint mode="sign-in" />;
+  return <AuthEntrypoint mode="sign-in" returnTo={returnTo} />;
 }

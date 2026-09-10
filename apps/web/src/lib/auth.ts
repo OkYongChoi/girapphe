@@ -6,6 +6,7 @@ import { hasValidClerkConfig } from '@/lib/clerk-env';
 import { GUEST_ID_COOKIE, isServerIssuedGuestId } from '@/lib/guest';
 import { getServerLocale } from '@/i18n/locale-server';
 import { localizePathname } from '@stem-brain/shared';
+import type { AuthReturnTo } from '@/lib/auth-return-to';
 
 export type AuthUser = {
   id: string;
@@ -62,15 +63,20 @@ export async function requireCurrentActor(): Promise<CurrentActor> {
   return getCurrentActor();
 }
 
-export async function requireCurrentUser(): Promise<AuthUser> {
+async function redirectToSignIn(returnTo?: AuthReturnTo): Promise<never> {
+  const loginPath = localizePathname('/login', await getServerLocale());
+  redirect(returnTo ? `${loginPath}?returnTo=${encodeURIComponent(returnTo)}` : loginPath);
+}
+
+export async function requireCurrentUser(returnTo?: AuthReturnTo): Promise<AuthUser> {
   const user = await getCurrentUser();
-  if (!user) redirect(localizePathname('/login', await getServerLocale()));
+  if (!user) return redirectToSignIn(returnTo);
   return user;
 }
 
-export async function requireCurrentUserProfile(): Promise<AuthUser> {
+export async function requireCurrentUserProfile(returnTo?: AuthReturnTo): Promise<AuthUser> {
   const user = await getCurrentUserProfile();
-  if (!user) redirect(localizePathname('/login', await getServerLocale()));
+  if (!user) return redirectToSignIn(returnTo);
   return user;
 }
 

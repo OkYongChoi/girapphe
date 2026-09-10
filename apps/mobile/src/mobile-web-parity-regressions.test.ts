@@ -32,7 +32,10 @@ test('mobile exposes the owner-scoped Topic index and a route from My Notes', ()
   assert.match(notesSource, /router\.push\('\/knowledge-topics'\)/);
   assert.equal(existsSync(topicsScreenPath), true);
   const topicsScreenSource = readFileSync(topicsScreenPath, 'utf8');
-  assert.match(topicsScreenSource, /<AuthRequired><TopicsContent \/><\/AuthRequired>/);
+  assert.match(
+    topicsScreenSource,
+    /<AuthRequired continuation=\{\{ destination: 'topics' \}\}><TopicsContent \/><\/AuthRequired>/,
+  );
   assert.match(topicsScreenSource, /<FlatList/);
   assert.match(topicsScreenSource, /accessibilityRole="link"/);
   const topicAccessibilityLabel = topicsScreenSource.match(

@@ -21,7 +21,8 @@ permissions, build, and device capability layers.
   - Progress, Review, and Ranking are hidden tab routes reached from the app's
     signed-in surfaces.
   - Topic detail, the private Topics index and Topic Hub, Candidate Inbox,
-    Sign In, Subscription, and Admin are root-stack routes.
+    Knowledge Data Controls, Sign In, Subscription, and Admin are root-stack
+    routes.
 - iOS and Android are produced from the same source tree:
   - `pnpm --filter @stem-brain/mobile ios`
   - `pnpm --filter @stem-brain/mobile android`
@@ -85,16 +86,19 @@ Mobile feature code should be organized around user flows, not platform names:
 - Candidate Inbox: quick save-as-new or ignore for explicitly submitted
   current-conversation and selected-export candidates, with their source scope
   labeled separately. A possible duplicate links to the exact detailed web
-  review when the configured app base URL is safe. Causal candidates require
-  that detailed review and cannot use mobile quick approval. A stale approve or
-  ignore conflict reloads the latest batch and drafts before another attempt.
-  Version freshness is evaluated before capability and causal gates, so a stale
-  request always reloads before the latest matching causal draft is routed to
-  detailed review.
+  review when the configured app base URL is safe. A candidate with proposed
+  evidence or any relationship suggestion requires that detailed review and
+  cannot use mobile quick approval. Causal relationships retain their more
+  specific causal-review reason; evidence and noncausal relationships use the
+  provenance-review reason. A stale approve or ignore conflict reloads the
+  latest batch and drafts before another attempt. Version freshness is evaluated
+  before capability and detailed-review gates, so a stale request always reloads
+  before the latest matching draft is routed to detailed review.
 - Topics: owner-scoped summaries of active private knowledge, open questions,
   decisions, events, sources, recent sample titles, and update time.
 - Topic Hub: compact approved knowledge, open questions, relations, timeline,
-  and source-position views.
+  and source-position views. Its mobile projection explicitly includes source
+  evidence selectors and omits revision and supersession history payloads.
 - Topic detail: explanation plus prerequisite/dependent/related navigation and
   an explicit handoff to review an editable private-copy draft in My Notes.
   Signed-out users resume that handoff after authentication; route-controlled
@@ -102,6 +106,21 @@ Mobile feature code should be organized around user flows, not platform names:
 - Ranking: anonymous participant IDs with a localized, highlighted current-user
   row; the legacy display label remains in the API only for installed-client
   compatibility and does not expose account identity.
+- Sign In: Clerk Hosted Auth exposes the social and other methods enabled for
+  the Clerk instance alongside the existing email flow. It returns through the
+  configured app scheme using `ExpoLinking.createURL('hosted-auth-callback')`,
+  then consumes the same allowlisted continuation as email sign-in and sign-up.
+- Subscription: the server-owned `acquisitionBlocked` state keeps purchase
+  plans unavailable while canonical confirmation is unresolved, with an
+  explicit status refresh. `duplicateDetected` remains visible as an alert and
+  optional support handoff instead of being discarded by the native adapter.
+- Account / Knowledge Data Controls: an always-visible signed-in entry lists
+  active and completed owner-scoped import jobs, their status and counts, and
+  bounded previous/next pagination through the authenticated API. A confirmed
+  deletion removes that job and its pending candidates while preserving
+  approved knowledge and detached hashed provenance. The complete JSON export
+  remains a web download reached through a fixed first-party authentication
+  handoff; the mobile bearer token is never placed in a URL.
 
 Do not create separate iOS-only or Android-only versions of these flows unless
 the interaction model is genuinely platform-specific.
@@ -109,7 +128,21 @@ the interaction model is genuinely platform-specific.
 ## Data Flow
 
 The app keeps public graph browsing and guest practice available locally, while authenticated
-notes, progress, review, ranking, private graph state, and subscriptions use the deployed API:
+notes, progress, review, ranking, private graph state, and subscriptions use the deployed API.
+When one of these protected native routes requests sign-in, it passes an enumerated destination
+identifier instead of a free-form path and resumes that exact route after authentication. The
+dynamic Topic Hub continuation carries only its bounded topic value. The public-concept copy
+continuation keeps priority because it also carries the provenance-safe draft key and source ID.
+Hosted Auth uses a fixed app-scheme callback, and successful Hosted Auth, email sign-in, and
+email sign-up all use that same continuation resolver. Protected content is keyed by the current
+Clerk user ID so a direct switch between signed-in owners remounts private screen state instead
+of displaying the previous owner's in-memory result.
+
+Browser handoffs use a separately allowlisted web `returnTo` value for Practice, Subscription,
+Account deletion, or the data-controls confirmation page; arbitrary, modified, locale-prefixed,
+or duplicated values fall back to Practice. The data-controls confirmation page shows the
+browser's signed-in identity and requires an explicit continue before opening the localized
+`/account/delete#knowledge-data` section:
 
 ```text
 @stem-brain/graph-engine
@@ -172,19 +205,37 @@ and explicit legacy-note conversion, filters personal graph nodes by type, and
 reuses the existing reveal/rating/review schedule with a type-specific recall
 prompt.
 
+New My Notes create and update requests use
+`POST /api/mobile?resource=notes`. That qualified resource accepts only those
+two actions and has a bounded 6 MiB body limit so a valid, fully populated
+version-one bundle fits. Other mobile mutations, including legacy unqualified
+note writes, retain the general 16 KiB limit. The client gives the 6 MiB `413`
+response its own localized recovery message rather than presenting it as a
+network failure.
+
 Candidate review is intentionally split by interaction depth. Mobile supports
-quick save-as-new and ignore for simple candidates; a possible duplicate or
-causal candidate links to the web review surface, and causal quick approval is
-disabled. Web owns side-by-side comparison, full editing, merge/update, evidence
-selection, advanced canonical lifecycle actions, local graph/history, native
-ChatGPT archive parsing, Thinking History signal generation, and context-pack
-export. Basic archive, restore, and trash organization is available in mobile
-My Notes. Mobile Topics and Topic Hub views consume the same owner-scoped
-canonical data. Opening a public-concept copy passes only a bounded public-node
-ID and one-time key; My Notes resolves the title and body from trusted public
-catalog/current-locale content. The draft is not private knowledge until the
-user explicitly submits the form. Neither app retains raw conversation text:
-provenance is selector-only.
+quick save-as-new and ignore for content-only candidates; a possible duplicate
+links to the web review surface, and evidence-bearing or relationship-bearing
+candidates disable quick approval. After the latest version check, the server
+independently rejects them with `CAUSAL_REVIEW_REQUIRED` or
+`PROVENANCE_REVIEW_REQUIRED` before empty evidence or relationship selections
+could be submitted. Web owns side-by-side comparison, full editing,
+merge/update, evidence selection, advanced canonical lifecycle actions, local
+graph/history, native ChatGPT archive parsing, Thinking History signal
+generation, and context-pack export. The full private-knowledge JSON export is
+also generated by the web endpoint because its size is not bounded for a native
+share-text payload; mobile uses a fixed authenticated handoff rather than
+loading private export JSON into React Native memory. Basic archive, restore,
+and trash organization remains available in mobile My Notes. Mobile Topics and
+Topic Hub views consume the same owner-scoped canonical data. The Topic Hub
+response projects only topic metadata, compatible items, sources, activity,
+compatible relations, and evidence selectors; revision and supersession
+collections remain web-owned. Source-position rendering accepts only primitive
+selector metadata and never raw transcript text. Opening a public-concept copy
+passes only a bounded public-node ID and one-time key; My Notes resolves the
+title and body from trusted public catalog/current-locale content. The draft is
+not private knowledge until the user explicitly submits the form. Neither app
+retains raw conversation text: provenance is selector-only.
 
 My Notes derives frequent-tag suggestions locally from the current owner's
 already-loaded active-note response. The shared normalization utility is used
@@ -193,8 +244,9 @@ tag-suggestion endpoint is part of the mobile contract.
 
 The web Settings connection guide and Context Pack format are browser-local
 presentation preferences, so they do not create a mobile API contract or a new
-mobile navigation destination. Mobile retains its existing Account adapter;
-MCP connection management and those reusable-context defaults remain web-owned.
+mobile navigation destination. Mobile Account exposes native import-job
+controls and the secure complete-export handoff. MCP connection management and
+those reusable-context defaults remain web-owned.
 
 ## Platform Rules
 
@@ -206,6 +258,17 @@ MCP connection management and those reusable-context defaults remain web-owned.
   deep links, secure storage, camera, or haptics.
 - Avoid importing web-only code from `apps/web` into mobile. Shared logic should
   move into `packages/*`.
+
+## Release Evidence Boundary
+
+Focused source-contract tests, mobile checks, and static Expo exports prove that
+the shared code and dependencies are included in both iOS and Android bundles.
+They do not prove that a Clerk social provider is enabled for the production
+instance, that its callback completes on a physical device, that billing or
+store providers are activated, or that a signed EAS binary is linked and
+available in either store. Physical-device Hosted Auth, account switching,
+VoiceOver/TalkBack, billing recovery, signing, and store availability remain
+separate release evidence.
 
 ## Documentation Ownership
 

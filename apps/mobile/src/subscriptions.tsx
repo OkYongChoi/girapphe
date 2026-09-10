@@ -57,6 +57,8 @@ type SubscriptionState = {
   isBusy: boolean;
   isAdFree: boolean;
   isConfirming: boolean;
+  acquisitionBlocked: boolean;
+  duplicateDetected: boolean;
   acquisitionEnabled: boolean;
   managementUrl: string | null;
   activeSubscription: CanonicalSubscription | null;
@@ -75,6 +77,8 @@ const emptyState: SubscriptionState = {
   isBusy: false,
   isAdFree: false,
   isConfirming: false,
+  acquisitionBlocked: false,
+  duplicateDetected: false,
   acquisitionEnabled: false,
   managementUrl: null,
   activeSubscription: null,
@@ -650,6 +654,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     isBusy: sessionIsCurrent ? isBusy : false,
     isAdFree: currentServerState?.isAdFree === true,
     isConfirming: sessionIsCurrent ? isConfirming : false,
+    acquisitionBlocked: currentServerState?.acquisitionBlocked === true,
+    duplicateDetected: currentServerState?.duplicateDetected === true,
     acquisitionEnabled,
     managementUrl: managementUrlOf(activeSubscription),
     activeSubscription,
@@ -666,6 +672,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     acquisitionEnabled,
     activeSubscription,
     auth.isSignedIn,
+    currentServerState?.acquisitionBlocked,
+    currentServerState?.duplicateDetected,
     currentServerState?.isAdFree,
     error,
     isBusy,

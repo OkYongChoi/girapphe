@@ -41,7 +41,7 @@ test('server authenticates before delegating Practice POST to the bounded handle
   assert.notEqual(postStart, -1, 'POST handler must exist');
   const postHandler = mobileRoute.slice(postStart);
   const practiceBranch = mobileRoute.match(
-    /if \(request\.nextUrl\.searchParams\.get\('resource'\) === 'practice'\) \{([\s\S]*?)\n {2}\}\n\n {2}const parsedBody = await readBody/,
+    /if \(request\.nextUrl\.searchParams\.get\('resource'\) === 'practice'\) \{([\s\S]*?)\n {2}\}\n\n {2}const mobileResource =/,
   )?.[1] ?? '';
   const authentication = postHandler.indexOf('requireMobileUser()');
   const practiceDispatch = postHandler.indexOf("resource') === 'practice'");

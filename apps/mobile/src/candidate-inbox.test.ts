@@ -222,7 +222,10 @@ test('candidate inbox guards the list response before automatic batch selection'
     /const mutationSelection = selectionGuard\.capture\(\);[\s\S]*?resolveCandidateQuickAction\(\{[\s\S]*?draftVersion: draft\.version,[\s\S]*?reloadLatest: load,[\s\S]*?\.then\(async \(outcome\) => \{[\s\S]*?const result = outcome\.result;\s*await load\(\);[\s\S]*?mutationSelection\.batchId === draft\.batch_id[\s\S]*?selectionGuard\.isCurrent\(mutationSelection\)[\s\S]*?setNotice/,
   );
   assert.match(candidateInbox, /reason instanceof MobileApiRequestError[\s\S]*?CANDIDATE_DEPENDENCY_PENDING[\s\S]*?copy\.pendingDependency/);
-  assert.match(candidateInbox, /reason\.code === 'CAUSAL_REVIEW_REQUIRED'[\s\S]*?CAUSAL_REVIEW_COPY\[locale\]/);
+  assert.match(
+    candidateInbox,
+    /reason\.code === 'CAUSAL_REVIEW_REQUIRED' \|\| reason\.code === 'PROVENANCE_REVIEW_REQUIRED'[\s\S]*?detailedReviewCopy\(locale, draft\)/,
+  );
   assert.match(candidateInbox, /outcome\.status === 'stale'[\s\S]*?STALE_REVIEW_COPY\[locale\]/);
   assert.match(candidateInbox, /accessibilityLiveRegion="polite"[\s\S]*?styles\.noticeCard/);
   assert.match(candidateInbox, /pendingMutations\.current\.has\(draft\.id\)/);
@@ -245,6 +248,7 @@ test('mobile candidate resolution preserves structured error codes and event lif
   assert.match(mobileApiErrors, /export class MobileApiRequestError extends Error/);
   assert.match(mobileApi, /throw new MobileApiRequestError\([\s\S]*?readApiErrorCode\(payload\)/);
   assert.match(mobileApi, /requires_detailed_review: boolean;/);
+  assert.match(mobileApi, /detailed_review_reason: 'causal_relations' \| 'provenance' \| null;/);
   assert.match(mobileRoute, /lifecycle_patch_semantics[\s\S]*?tri_state_v1/);
   assert.match(
     mobileRoute,
@@ -269,8 +273,16 @@ test('mobile candidate resolution preserves structured error codes and event lif
   );
   assert.match(
     mobileRoute,
-    /requires_detailed_review: mobileCandidateRequiresDetailedCausalReview\(draft\)/,
+    /preflight === 'provenance-review-required'[\s\S]*?PROVENANCE_REVIEW_REQUIRED/,
   );
+  assert.match(
+    mobileRoute,
+    /requires_detailed_review: detailedReviewReason !== null,[\s\S]*?detailed_review_reason: detailedReviewReason/,
+  );
+  const reviewGuardStart = mobileRoute.indexOf("if (preflight === 'knowledge-capability-required')");
+  const evidenceClear = mobileRoute.indexOf("candidateForm.set('evidence_selectors_json', '[]')", reviewGuardStart);
+  assert.ok(reviewGuardStart >= 0 && evidenceClear > reviewGuardStart);
+  assert.match(mobileRoute.slice(reviewGuardStart, evidenceClear), /PROVENANCE_REVIEW_REQUIRED[\s\S]*?status: 409/);
 });
 
 test('finishing one candidate action keeps every other candidate pending', () => {
@@ -314,7 +326,7 @@ test('builds an encoded first-party detailed review handoff and rejects unsafe b
   assert.equal(buildCandidateWebReviewUrl(undefined, 'batch', 'draft'), null);
 });
 
-test('renders an actionable detailed web review link for duplicate and causal candidates', () => {
+test('renders an actionable detailed web review link for duplicate and provenance-sensitive candidates', () => {
   const sourceDir = dirname(fileURLToPath(import.meta.url));
   const candidateInbox = readFileSync(join(sourceDir, '../app/candidate-inbox.tsx'), 'utf8');
   assert.match(candidateInbox, /buildCandidateWebReviewUrl\(appBaseUrl, draft\.batch_id, draft\.id\)/);
@@ -328,11 +340,11 @@ test('renders an actionable detailed web review link for duplicate and causal ca
   );
   assert.match(
     candidateInbox,
-    /candidateQuickActionRequiresDetailedReview\(draft, action\)[\s\S]*?setError\(CAUSAL_REVIEW_COPY\[locale\]\);\s*return;/,
+    /candidateQuickActionRequiresDetailedReview\(draft, action\)[\s\S]*?setError\(detailedReviewCopy\(locale, draft\)\);\s*return;/,
   );
   assert.match(
     candidateInbox,
-    /draft\.requires_detailed_review \? \([\s\S]*?detailedReviewWarning[\s\S]*?CAUSAL_REVIEW_COPY\[locale\]/,
+    /draft\.requires_detailed_review \? \([\s\S]*?detailedReviewWarning[\s\S]*?reviewCopy/,
   );
   assert.match(
     candidateInbox,
@@ -365,11 +377,19 @@ test('renders an actionable detailed web review link for duplicate and causal ca
   assert.equal(reviewTemplates.length, 6);
 
   const causalCopyStart = candidateInbox.indexOf('const CAUSAL_REVIEW_COPY');
-  const causalCopyEnd = candidateInbox.indexOf('const STALE_REVIEW_COPY', causalCopyStart);
+  const causalCopyEnd = candidateInbox.indexOf('const PROVENANCE_REVIEW_COPY', causalCopyStart);
   const causalTemplates = candidateInbox.slice(causalCopyStart, causalCopyEnd).match(
     /(?:en|ja|'zh-CN'|es|ar|hi): '[^']+'/g,
   ) ?? [];
   assert.equal(causalTemplates.length, 6);
+
+  const provenanceCopyStart = candidateInbox.indexOf('const PROVENANCE_REVIEW_COPY');
+  const provenanceCopyEnd = candidateInbox.indexOf('function detailedReviewCopy', provenanceCopyStart);
+  const provenanceTemplates = candidateInbox.slice(provenanceCopyStart, provenanceCopyEnd).match(
+    /(?:en|ja|'zh-CN'|es|ar|hi): '[^']+'/g,
+  ) ?? [];
+  assert.equal(provenanceTemplates.length, 6);
+  assert.match(candidateInbox, /PROVENANCE_REVIEW_REQUIRED/);
 
   const staleCopyStart = candidateInbox.indexOf('const STALE_REVIEW_COPY');
   const staleCopyEnd = candidateInbox.indexOf('type ScopeCopy', staleCopyStart);

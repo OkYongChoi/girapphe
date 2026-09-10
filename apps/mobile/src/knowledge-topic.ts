@@ -4,6 +4,17 @@ import { eventChronologyLabel } from './knowledge-bundle-ui';
 
 type TimelineEventItem = Pick<MobileTopicHubItem, 'created_at' | 'observed_at' | 'structured_content'>;
 
+export function primitiveProvenanceEntries(
+  value: Record<string, unknown> | null,
+): Array<readonly [string, string]> {
+  if (!value) return [];
+  return Object.entries(value).flatMap(([key, entry]) => (
+    typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean'
+      ? [[key, String(entry)] as const]
+      : []
+  ));
+}
+
 export function eventTimelineDate(item: TimelineEventItem) {
   if (item.structured_content?.type === 'event' && item.structured_content.chronology) {
     return eventChronologyLabel(item.structured_content.chronology);

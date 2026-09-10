@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { MobileTopicHubItem } from './api';
-import { eventTimelineDate, eventTimelineSortKey } from './knowledge-topic';
+import { eventTimelineDate, eventTimelineSortKey, primitiveProvenanceEntries } from './knowledge-topic';
 
 function eventItem(occurredAt: string, observedAt: string | null = '2026-08-28T08:00:00.000Z'): Pick<MobileTopicHubItem, 'created_at' | 'observed_at' | 'structured_content'> {
   return {
@@ -46,6 +46,21 @@ test('event timeline sort keys place BCE chronology before CE chronology', () =>
   assert.equal(eventTimelineSortKey(eventItem('sometime later')), null);
 });
 
+test('provenance details render only primitive source positions', () => {
+  assert.deepEqual(primitiveProvenanceEntries({
+    message_ref: 'm-7',
+    line_start: 4,
+    exact: true,
+    nested: { transcript: 'must not render' },
+    absent: null,
+  }), [
+    ['message_ref', 'm-7'],
+    ['line_start', '4'],
+    ['exact', 'true'],
+  ]);
+  assert.deepEqual(primitiveProvenanceEntries(null), []);
+});
+
 test('empty topic routes clear loading and cannot restore a stale private hub', () => {
   const sourceDir = dirname(fileURLToPath(import.meta.url));
   const topicScreen = readFileSync(join(sourceDir, '../app/knowledge-topic/[topic].tsx'), 'utf8');
@@ -60,4 +75,19 @@ test('empty topic routes clear loading and cannot restore a stale private hub', 
     topicScreen,
     /useFocusEffect\(useCallback\(\(\) => \{\s*void load\(\);\s*return \(\) => \{ loadRequest\.current \+= 1; \};\s*\}, \[load\]\)\)/,
   );
+});
+
+test('native Topic Hub renders source locators and evidence selector metadata', () => {
+  const sourceDir = dirname(fileURLToPath(import.meta.url));
+  const topicScreen = readFileSync(join(sourceDir, '../app/knowledge-topic/[topic].tsx'), 'utf8');
+  const mobileApi = readFileSync(join(sourceDir, 'api.ts'), 'utf8');
+  const mobileRoute = readFileSync(join(sourceDir, '../../web/src/app/api/mobile/route.ts'), 'utf8');
+
+  assert.match(mobileApi, /evidence_selectors: Array<\{/);
+  assert.match(topicScreen, /primitiveProvenanceEntries\(source\.source_locator\)/);
+  assert.match(topicScreen, /evidenceBySource\.get\(source\.id\)/);
+  assert.match(topicScreen, /primitiveProvenanceEntries\(evidence\.selector\)/);
+  assert.match(topicScreen, /evidence\.polarity[\s\S]*?evidence\.selector_type[\s\S]*?evidence\.quality/);
+  assert.match(topicScreen, /evidence\.relation_origin[\s\S]*?evidence\.confirmed_at/);
+  assert.match(mobileRoute, /toMobileTopicHub\(hub, capabilities\)/);
 });

@@ -161,6 +161,18 @@ export type MobileTopicHub = {
     confirmed_at: string | null;
     created_at: string;
   }>;
+  evidence_selectors: Array<{
+    id: string;
+    knowledge_item_id: string;
+    source_id: string;
+    selector_type: 'message' | 'text_position' | 'line_range' | 'external_ref';
+    selector: Record<string, unknown>;
+    polarity: 'supports' | 'contradicts';
+    quality: 'unknown' | 'low' | 'medium' | 'high';
+    relation_origin: 'explicit_user' | 'extracted_from_source' | 'model_inferred';
+    confirmed_at: string | null;
+    created_at: string;
+  }>;
   activity: Array<{
     id: string;
     knowledge_item_id: string;
@@ -196,6 +208,18 @@ export type MobileCandidateBatch = {
   committed_at: string | null;
 };
 
+export type MobileKnowledgeImportJob = Pick<
+  MobileCandidateBatch,
+  | 'id'
+  | 'provider'
+  | 'scope'
+  | 'status'
+  | 'draft_count'
+  | 'pending_count'
+  | 'approved_count'
+  | 'created_at'
+>;
+
 export type MobileCandidateDraft = {
   id: string;
   batch_id: string;
@@ -211,6 +235,7 @@ export type MobileCandidateDraft = {
   status: 'pending' | 'approved' | 'rejected';
   version: number;
   requires_detailed_review: boolean;
+  detailed_review_reason: 'causal_relations' | 'provenance' | null;
   duplicate_suggestions: Array<{
     id: string;
     title: string;
@@ -325,6 +350,16 @@ export const mobileApi = {
   },
   notes: (view: 'active' | 'archive' | 'trash' = 'active') => request<{ items: PersonalNote[] }>(withLocale(`/api/mobile?resource=notes&view=${view}`)),
   topics: () => request<{ topics: MobileTopicSummary[] }>(withLocale('/api/mobile?resource=topics')),
+  knowledgeDataControls: (page = 1) => {
+    const boundedPage = Number.isSafeInteger(page) ? Math.max(1, Math.min(400, page)) : 1;
+    return request<{ jobs: MobileKnowledgeImportJob[]; page: number; hasNextPage: boolean }>(
+      withLocale(`/api/mobile?resource=knowledge-data-controls&page=${boundedPage}`),
+    );
+  },
+  deleteKnowledgeImportBatch: (batchId: string) => request<{ deleted: boolean; approvedKnowledgePreserved: number }>('/api/mobile', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'delete-import-batch', batchId }),
+  }),
   topicHub: (topic: string) => request<{ hub: MobileTopicHub }>(withLocale(`/api/mobile?resource=topic-hub&topic=${encodeURIComponent(topic)}`)),
   candidateInbox: () => request<{ batches: MobileCandidateBatch[] }>(withLocale('/api/mobile?resource=candidate-inbox')),
   candidateBatch: (batchId: string) => request<{ batch: MobileCandidateBatch; drafts: MobileCandidateDraft[] }>(withLocale(`/api/mobile?resource=candidate-batch&batchId=${encodeURIComponent(batchId)}`)),
@@ -342,5 +377,6 @@ export const mobileApi = {
   adminNodes: () => request<{ nodes: Array<{ id: string; label: string; domain: string; level: number; difficulty: number; type: string }> }>(withLocale('/api/mobile?resource=admin-nodes')),
   adminEdges: () => request<{ edges: Array<{ id: number; source: string; target: string; type: string; weight: number }>; nodes: Array<{ id: string; label: string }> }>(withLocale('/api/mobile?resource=admin-edges')),
   adminUsers: () => request<{ users: Array<{ user_id: string; mastered: number; reinforcing: number; total: number; last_updated: string | null }> }>(withLocale('/api/mobile?resource=admin-users')),
+  mutateKnowledge: <T>(body: Record<string, unknown>) => request<T>('/api/mobile?resource=notes', { method: 'POST', body: JSON.stringify(body) }),
   mutate: <T>(body: Record<string, unknown>) => request<T>('/api/mobile', { method: 'POST', body: JSON.stringify(body) }),
 };

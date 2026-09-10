@@ -10,7 +10,7 @@ import { mobileApi, type MobileTopicHub } from '@/api';
 import { useI18n } from '@/i18n';
 import { eventChronologyLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel } from '@/knowledge-bundle-ui';
 import { buildKnowledgeNotationGroupBlocks } from '@/knowledge-bundle-notation';
-import { eventTimelineSortKey } from '@/knowledge-topic';
+import { eventTimelineSortKey, primitiveProvenanceEntries } from '@/knowledge-topic';
 
 type TopicCopy = {
   back: string;
@@ -39,15 +39,18 @@ type TopicCopy = {
   observedEvent: string;
   undated: string;
   evidence: string;
+  sourcePosition: string;
+  quality: string;
+  confirmedAt: string;
 };
 
 const COPY: Record<Locale, TopicCopy> = {
-  en: { back: 'Back', workspace: 'Topic workspace', confirmed: 'Confirmed', open: 'Open', decisions: 'Decisions', events: 'Events', openQuestions: 'Open questions', knowledge: 'Confirmed knowledge', relationships: 'Relationships', timeline: 'Timeline', recentActivity: 'Recent activity', sources: 'Source locations', noOpen: 'No unresolved questions.', noRelations: 'No confirmed relationships yet.', noSources: 'No imported source locations.', confirmedByYou: 'Confirmed by you', openSource: 'Open source location', retry: 'Try again', heroBody: 'Approved knowledge, unresolved questions, time, relationships, and provenance in one compact view.', confirmedNotice: 'These items were approved by you. Extracted and model-inferred relationships remain labeled.', next: 'Next', updated: 'Updated', verified: 'Verified', observedEvent: 'Observed event', undated: 'Date unknown', evidence: 'Evidence' },
-  ja: { back: '戻る', workspace: 'トピックワークスペース', confirmed: '確認済み', open: '未解決', decisions: '決定', events: '出来事', openQuestions: '未解決の質問', knowledge: '確認済みナレッジ', relationships: '関係', timeline: 'タイムライン', recentActivity: '最近のアクティビティ', sources: '参照元', noOpen: '未解決の質問はありません。', noRelations: '確認済みの関係はありません。', noSources: 'インポート元はありません。', confirmedByYou: 'あなたが確認', openSource: '参照元を開く', retry: '再試行', heroBody: '承認済みナレッジ、未解決の質問、時系列、関係、出典をコンパクトに確認できます。', confirmedNotice: 'これらはあなたが承認した項目です。出典から抽出・モデル推論された関係にはラベルが表示されます。', next: '次', updated: '更新', verified: '検証', observedEvent: '観測イベント', undated: '年代不明', evidence: '根拠' },
-  'zh-CN': { back: '返回', workspace: '主题工作区', confirmed: '已确认', open: '未解决', decisions: '决策', events: '事件', openQuestions: '待解决问题', knowledge: '已确认知识', relationships: '关系', timeline: '时间线', recentActivity: '近期活动', sources: '来源位置', noOpen: '没有待解决问题。', noRelations: '尚无已确认关系。', noSources: '没有导入来源。', confirmedByYou: '由你确认', openSource: '打开来源', retry: '重试', heroBody: '在一个紧凑视图中查看已批准知识、未解决问题、时间、关系和来源。', confirmedNotice: '这些项目由你批准。来源提取和模型推断的关系会保留清晰标签。', next: '下一步', updated: '更新于', verified: '已核验', observedEvent: '观测事件', undated: '日期未知', evidence: '证据' },
-  es: { back: 'Volver', workspace: 'Espacio del tema', confirmed: 'Confirmado', open: 'Abiertas', decisions: 'Decisiones', events: 'Eventos', openQuestions: 'Preguntas abiertas', knowledge: 'Conocimiento confirmado', relationships: 'Relaciones', timeline: 'Cronología', recentActivity: 'Actividad reciente', sources: 'Ubicaciones de origen', noOpen: 'No hay preguntas sin resolver.', noRelations: 'Aún no hay relaciones confirmadas.', noSources: 'No hay fuentes importadas.', confirmedByYou: 'Confirmado por ti', openSource: 'Abrir fuente', retry: 'Reintentar', heroBody: 'Conocimiento aprobado, preguntas abiertas, tiempo, relaciones y procedencia en una vista compacta.', confirmedNotice: 'Estos elementos fueron aprobados por ti. Las relaciones extraídas o inferidas por el modelo conservan su etiqueta.', next: 'Siguiente', updated: 'Actualizado', verified: 'Verificado', observedEvent: 'Evento observado', undated: 'Fecha desconocida', evidence: 'Evidencia' },
-  ar: { back: 'رجوع', workspace: 'مساحة الموضوع', confirmed: 'مؤكد', open: 'مفتوحة', decisions: 'قرارات', events: 'أحداث', openQuestions: 'أسئلة مفتوحة', knowledge: 'المعرفة المؤكدة', relationships: 'العلاقات', timeline: 'الخط الزمني', recentActivity: 'النشاط الأخير', sources: 'مواقع المصادر', noOpen: 'لا توجد أسئلة معلقة.', noRelations: 'لا توجد علاقات مؤكدة بعد.', noSources: 'لا توجد مصادر مستوردة.', confirmedByYou: 'أكدتها أنت', openSource: 'فتح المصدر', retry: 'إعادة المحاولة', heroBody: 'المعرفة المعتمدة والأسئلة المفتوحة والزمن والعلاقات والمصدر في عرض موجز واحد.', confirmedNotice: 'اعتمدت هذه العناصر بنفسك. وتظل العلاقات المستخرجة أو المستنتجة من النموذج موسومة بوضوح.', next: 'التالي', updated: 'حُدّث', verified: 'تم التحقق', observedEvent: 'حدث مرصود', undated: 'التاريخ غير معروف', evidence: 'الدليل' },
-  hi: { back: 'वापस', workspace: 'विषय कार्यक्षेत्र', confirmed: 'पुष्ट', open: 'खुले', decisions: 'निर्णय', events: 'घटनाएँ', openQuestions: 'खुले प्रश्न', knowledge: 'पुष्ट ज्ञान', relationships: 'संबंध', timeline: 'समयरेखा', recentActivity: 'हाल की गतिविधि', sources: 'स्रोत स्थान', noOpen: 'कोई अनसुलझा प्रश्न नहीं।', noRelations: 'अभी कोई पुष्ट संबंध नहीं।', noSources: 'कोई आयातित स्रोत नहीं।', confirmedByYou: 'आपने पुष्टि की', openSource: 'स्रोत खोलें', retry: 'फिर प्रयास करें', heroBody: 'स्वीकृत ज्ञान, अनसुलझे प्रश्न, समय, संबंध और स्रोत एक संक्षिप्त दृश्य में।', confirmedNotice: 'इन आइटम को आपने स्वीकृत किया है। स्रोत से निकाले और मॉडल द्वारा अनुमानित संबंध स्पष्ट लेबल के साथ रहते हैं।', next: 'अगला', updated: 'अपडेट', verified: 'सत्यापित', observedEvent: 'देखी गई घटना', undated: 'तिथि अज्ञात', evidence: 'प्रमाण' },
+  en: { back: 'Back', workspace: 'Topic workspace', confirmed: 'Confirmed', open: 'Open', decisions: 'Decisions', events: 'Events', openQuestions: 'Open questions', knowledge: 'Confirmed knowledge', relationships: 'Relationships', timeline: 'Timeline', recentActivity: 'Recent activity', sources: 'Source locations', noOpen: 'No unresolved questions.', noRelations: 'No confirmed relationships yet.', noSources: 'No imported source locations.', confirmedByYou: 'Confirmed by you', openSource: 'Open source location', retry: 'Try again', heroBody: 'Approved knowledge, unresolved questions, time, relationships, and provenance in one compact view.', confirmedNotice: 'These items were approved by you. Extracted and model-inferred relationships remain labeled.', next: 'Next', updated: 'Updated', verified: 'Verified', observedEvent: 'Observed event', undated: 'Date unknown', evidence: 'Evidence', sourcePosition: 'Source position', quality: 'Quality', confirmedAt: 'Confirmed' },
+  ja: { back: '戻る', workspace: 'トピックワークスペース', confirmed: '確認済み', open: '未解決', decisions: '決定', events: '出来事', openQuestions: '未解決の質問', knowledge: '確認済みナレッジ', relationships: '関係', timeline: 'タイムライン', recentActivity: '最近のアクティビティ', sources: '参照元', noOpen: '未解決の質問はありません。', noRelations: '確認済みの関係はありません。', noSources: 'インポート元はありません。', confirmedByYou: 'あなたが確認', openSource: '参照元を開く', retry: '再試行', heroBody: '承認済みナレッジ、未解決の質問、時系列、関係、出典をコンパクトに確認できます。', confirmedNotice: 'これらはあなたが承認した項目です。出典から抽出・モデル推論された関係にはラベルが表示されます。', next: '次', updated: '更新', verified: '検証', observedEvent: '観測イベント', undated: '年代不明', evidence: '根拠', sourcePosition: '出典位置', quality: '品質', confirmedAt: '確認日' },
+  'zh-CN': { back: '返回', workspace: '主题工作区', confirmed: '已确认', open: '未解决', decisions: '决策', events: '事件', openQuestions: '待解决问题', knowledge: '已确认知识', relationships: '关系', timeline: '时间线', recentActivity: '近期活动', sources: '来源位置', noOpen: '没有待解决问题。', noRelations: '尚无已确认关系。', noSources: '没有导入来源。', confirmedByYou: '由你确认', openSource: '打开来源', retry: '重试', heroBody: '在一个紧凑视图中查看已批准知识、未解决问题、时间、关系和来源。', confirmedNotice: '这些项目由你批准。来源提取和模型推断的关系会保留清晰标签。', next: '下一步', updated: '更新于', verified: '已核验', observedEvent: '观测事件', undated: '日期未知', evidence: '证据', sourcePosition: '来源位置', quality: '质量', confirmedAt: '确认于' },
+  es: { back: 'Volver', workspace: 'Espacio del tema', confirmed: 'Confirmado', open: 'Abiertas', decisions: 'Decisiones', events: 'Eventos', openQuestions: 'Preguntas abiertas', knowledge: 'Conocimiento confirmado', relationships: 'Relaciones', timeline: 'Cronología', recentActivity: 'Actividad reciente', sources: 'Ubicaciones de origen', noOpen: 'No hay preguntas sin resolver.', noRelations: 'Aún no hay relaciones confirmadas.', noSources: 'No hay fuentes importadas.', confirmedByYou: 'Confirmado por ti', openSource: 'Abrir fuente', retry: 'Reintentar', heroBody: 'Conocimiento aprobado, preguntas abiertas, tiempo, relaciones y procedencia en una vista compacta.', confirmedNotice: 'Estos elementos fueron aprobados por ti. Las relaciones extraídas o inferidas por el modelo conservan su etiqueta.', next: 'Siguiente', updated: 'Actualizado', verified: 'Verificado', observedEvent: 'Evento observado', undated: 'Fecha desconocida', evidence: 'Evidencia', sourcePosition: 'Posición en la fuente', quality: 'Calidad', confirmedAt: 'Confirmado' },
+  ar: { back: 'رجوع', workspace: 'مساحة الموضوع', confirmed: 'مؤكد', open: 'مفتوحة', decisions: 'قرارات', events: 'أحداث', openQuestions: 'أسئلة مفتوحة', knowledge: 'المعرفة المؤكدة', relationships: 'العلاقات', timeline: 'الخط الزمني', recentActivity: 'النشاط الأخير', sources: 'مواقع المصادر', noOpen: 'لا توجد أسئلة معلقة.', noRelations: 'لا توجد علاقات مؤكدة بعد.', noSources: 'لا توجد مصادر مستوردة.', confirmedByYou: 'أكدتها أنت', openSource: 'فتح المصدر', retry: 'إعادة المحاولة', heroBody: 'المعرفة المعتمدة والأسئلة المفتوحة والزمن والعلاقات والمصدر في عرض موجز واحد.', confirmedNotice: 'اعتمدت هذه العناصر بنفسك. وتظل العلاقات المستخرجة أو المستنتجة من النموذج موسومة بوضوح.', next: 'التالي', updated: 'حُدّث', verified: 'تم التحقق', observedEvent: 'حدث مرصود', undated: 'التاريخ غير معروف', evidence: 'الدليل', sourcePosition: 'موضع المصدر', quality: 'الجودة', confirmedAt: 'تاريخ التأكيد' },
+  hi: { back: 'वापस', workspace: 'विषय कार्यक्षेत्र', confirmed: 'पुष्ट', open: 'खुले', decisions: 'निर्णय', events: 'घटनाएँ', openQuestions: 'खुले प्रश्न', knowledge: 'पुष्ट ज्ञान', relationships: 'संबंध', timeline: 'समयरेखा', recentActivity: 'हाल की गतिविधि', sources: 'स्रोत स्थान', noOpen: 'कोई अनसुलझा प्रश्न नहीं।', noRelations: 'अभी कोई पुष्ट संबंध नहीं।', noSources: 'कोई आयातित स्रोत नहीं।', confirmedByYou: 'आपने पुष्टि की', openSource: 'स्रोत खोलें', retry: 'फिर प्रयास करें', heroBody: 'स्वीकृत ज्ञान, अनसुलझे प्रश्न, समय, संबंध और स्रोत एक संक्षिप्त दृश्य में।', confirmedNotice: 'इन आइटम को आपने स्वीकृत किया है। स्रोत से निकाले और मॉडल द्वारा अनुमानित संबंध स्पष्ट लेबल के साथ रहते हैं।', next: 'अगला', updated: 'अपडेट', verified: 'सत्यापित', observedEvent: 'देखी गई घटना', undated: 'तिथि अज्ञात', evidence: 'प्रमाण', sourcePosition: 'स्रोत स्थान', quality: 'गुणवत्ता', confirmedAt: 'पुष्टि' },
 };
 
 const TOKEN_LABELS: Record<Locale, Record<string, string>> = {
@@ -134,6 +137,13 @@ function TopicScreenContent() {
   }, [load]));
 
   const itemLabels = useMemo(() => new Map(hub?.items.map((item) => [item.id, item.title]) ?? []), [hub]);
+  const evidenceBySource = useMemo(() => {
+    const grouped = new Map<string, MobileTopicHub['evidence_selectors']>();
+    for (const evidence of hub?.evidence_selectors ?? []) {
+      grouped.set(evidence.source_id, [...(grouped.get(evidence.source_id) ?? []), evidence]);
+    }
+    return grouped;
+  }, [hub]);
   const openQuestions = hub?.items.filter((item) => item.structured_content?.type === 'question' && item.structured_content.status === 'open') ?? [];
   const decisions = hub?.items.filter((item) => item.structured_content?.type === 'decision') ?? [];
   const events = [...(hub?.items.filter((item) => item.structured_content?.type === 'event') ?? [])].sort((left, right) => {
@@ -266,11 +276,45 @@ function TopicScreenContent() {
           if (row.kind === 'activity') return <View style={styles.timelineItem}><KnowledgeText value={itemLabels.get(row.entry.knowledge_item_id) ?? row.entry.knowledge_item_id} prefix={`${tokenLabel(locale, row.entry.activity_type)} · `} direction={direction} style={styles.body} /><Text style={styles.meta}>{formatDate(row.entry.created_at)}</Text></View>;
 
           const { source } = row;
+          const locatorEntries = primitiveProvenanceEntries(source.source_locator);
+          const evidenceSelectors = evidenceBySource.get(source.id) ?? [];
           return (
             <View style={styles.sourceCard}>
               <Text style={styles.badge}>{source.provider.toUpperCase()} · {tokenLabel(locale, source.relation_origin)}</Text>
               <KnowledgeText value={itemLabels.get(source.knowledge_item_id) ?? source.source_type} direction={direction} style={styles.cardTitle} />
               {isHttpsUrl(source.source_url) ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(source.source_url!)}><Text style={styles.link}>{copy.openSource} ↗</Text></Pressable> : source.conversation_ref ? <Text style={styles.meta}>{source.conversation_ref}</Text> : null}
+              {locatorEntries.length > 0 ? (
+                <View style={styles.locatorBox}>
+                  <Text style={styles.locatorTitle}>{copy.sourcePosition}</Text>
+                  {locatorEntries.map(([key, value]) => (
+                    <Text key={key} selectable style={styles.locatorText}>{key.replaceAll('_', ' ')}: {value}</Text>
+                  ))}
+                </View>
+              ) : null}
+              {evidenceSelectors.length > 0 ? (
+                <View style={styles.evidenceBox}>
+                  <Text style={styles.evidenceTitle}>{copy.evidence}: {evidenceSelectors.length}</Text>
+                  {evidenceSelectors.map((evidence) => {
+                    const selectorEntries = primitiveProvenanceEntries(evidence.selector);
+                    return (
+                      <View key={evidence.id} style={styles.evidenceItem}>
+                        <Text style={styles.evidenceMeta}>
+                          {tokenLabel(locale, evidence.polarity)} · {tokenLabel(locale, evidence.selector_type)} · {copy.quality}: {tokenLabel(locale, evidence.quality)}
+                        </Text>
+                        {selectorEntries.length > 0 ? (
+                          <Text selectable style={styles.locatorText}>
+                            {selectorEntries.map(([key, value]) => `${key}=${value}`).join(' · ')}
+                          </Text>
+                        ) : null}
+                        <Text style={styles.meta}>
+                          {tokenLabel(locale, evidence.relation_origin)}
+                          {evidence.confirmed_at ? ` · ${copy.confirmedAt} ${formatDate(evidence.confirmed_at)}` : ''}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
               <Text style={styles.meta}>{source.discussed_at ? formatDate(source.discussed_at) : formatDate(source.created_at)}</Text>
             </View>
           );
@@ -285,7 +329,12 @@ function SectionTitle({ label }: { label: string }) {
 }
 
 export default function MobileKnowledgeTopicScreen() {
-  return <AuthRequired><TopicScreenContent /></AuthRequired>;
+  const params = useLocalSearchParams<{ topic?: string | string[] }>();
+  return (
+    <AuthRequired continuation={{ destination: 'knowledge-topic', topic: parameterValue(params.topic) }}>
+      <TopicScreenContent />
+    </AuthRequired>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -325,6 +374,13 @@ const styles = StyleSheet.create({
   timelineItem: { borderLeftColor: '#94a3b8', borderLeftWidth: 3, backgroundColor: '#fff', padding: 13, gap: 4 },
   eventItem: { borderLeftColor: '#06b6d4', borderRadius: 8 },
   sourceCard: { borderColor: '#a7f3d0', borderWidth: 1, borderRadius: 14, backgroundColor: '#fff', padding: 14, gap: 7 },
+  locatorBox: { borderRadius: 10, backgroundColor: '#f8fafc', padding: 10, gap: 3 },
+  locatorTitle: { color: '#475569', fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
+  locatorText: { color: '#334155', fontSize: 11, lineHeight: 17, fontFamily: 'monospace' },
+  evidenceBox: { borderColor: '#d1fae5', borderWidth: 1, borderRadius: 10, backgroundColor: '#ecfdf5', padding: 10, gap: 7 },
+  evidenceTitle: { color: '#065f46', fontSize: 12, fontWeight: '900' },
+  evidenceItem: { borderRadius: 8, backgroundColor: '#fff', padding: 9, gap: 3 },
+  evidenceMeta: { color: '#166534', fontSize: 11, lineHeight: 17, fontWeight: '800' },
   link: { color: '#1d4ed8', fontSize: 14, fontWeight: '900' },
   errorCard: { borderColor: '#fecaca', borderWidth: 1, borderRadius: 12, backgroundColor: '#fef2f2', padding: 14, gap: 10 },
   error: { color: '#b91c1c', fontSize: 14 },

@@ -278,6 +278,24 @@ test.describe('browser smoke', () => {
     await assertNoBrowserFailures();
   });
 
+  test('signed-out data controls handoff ignores an external returnTo', async ({ page }) => {
+    const assertNoBrowserFailures = attachBrowserFailureGuards(page);
+
+    await page.goto(
+      '/account/data-controls-handoff?returnTo=https%3A%2F%2Fevil.example%2Fsteal',
+    );
+
+    const finalUrl = new URL(page.url());
+    expect(finalUrl.pathname.endsWith('/login')).toBe(true);
+    expect(finalUrl.searchParams.getAll('returnTo')).toEqual([
+      '/account/data-controls-handoff',
+    ]);
+    await expect(page.locator('main')).toBeVisible();
+    await expect(page.locator('body')).toContainText(authEntrypointOrConfigFallback);
+
+    await assertNoBrowserFailures();
+  });
+
   test('signup page renders an auth entrypoint or local config fallback', async ({ page }) => {
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 

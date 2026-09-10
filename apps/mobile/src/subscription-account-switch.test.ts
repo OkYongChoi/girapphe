@@ -31,6 +31,23 @@ test('retained legacy web subscribers keep visible purchase-source metadata', ()
   assert.match(screen, /activeMeta/);
 });
 
+test('canonical duplicate and acquisition-block states remain visible on mobile', () => {
+  const provider = readFileSync(new URL('./subscriptions.tsx', import.meta.url), 'utf8');
+  const screen = readFileSync(new URL('../app/subscription.tsx', import.meta.url), 'utf8');
+  const catalog = readFileSync(new URL('./i18n/catalogs.ts', import.meta.url), 'utf8');
+
+  assert.match(provider, /acquisitionBlocked: currentServerState\?\.acquisitionBlocked === true/);
+  assert.match(provider, /duplicateDetected: currentServerState\?\.duplicateDetected === true/);
+  assert.match(screen, /subscription\.duplicateDetected[\s\S]*?accessibilityRole="alert"/);
+  assert.match(
+    screen,
+    /subscription\.isConfirming \|\| subscription\.acquisitionBlocked[\s\S]*?subscription\.confirming/,
+  );
+  assert.match(screen, /subscription\.acquisitionBlocked[\s\S]*?subscription\.refresh\(\)/);
+  assert.match(catalog, /Duplicate subscriptions need review/);
+  assert.match(catalog, /blocked so you are not charged again/);
+});
+
 test('unknown local billing state cannot expose plans or cross the final purchase preflight', () => {
   const source = readFileSync(new URL('./subscriptions.tsx', import.meta.url), 'utf8');
   assert.match(source, /let localStatus: SuperwallSubscriptionStatus = \{ status: 'UNKNOWN' \}/);

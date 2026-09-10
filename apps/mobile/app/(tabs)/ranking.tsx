@@ -8,7 +8,7 @@ import { useI18n } from '@/i18n';
 const medals = ['🥇', '🥈', '🥉'];
 
 export default function RankingScreen() {
-  return <AuthRequired><RankingContent /></AuthRequired>;
+  return <AuthRequired continuation={{ destination: 'ranking' }}><RankingContent /></AuthRequired>;
 }
 
 function RankingContent() {

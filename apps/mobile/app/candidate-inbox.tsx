@@ -64,6 +64,21 @@ const CAUSAL_REVIEW_COPY: Record<Locale, string> = {
   hi: 'इस उम्मीदवार में कारणात्मक संबंध हैं। सहेजने से पहले वेब पर हर लक्ष्य, दिशा और सहायक प्रमाण की समीक्षा करें।',
 };
 
+const PROVENANCE_REVIEW_COPY: Record<Locale, string> = {
+  en: 'This candidate includes source evidence or relationship suggestions. Review the exact evidence and relationships on the web before saving.',
+  ja: 'この候補には出典の根拠または関係候補が含まれます。保存前にWebで正確な根拠と関係を確認してください。',
+  'zh-CN': '此候选包含来源证据或关系建议。保存前请在网页版审核确切的证据和关系。',
+  es: 'Este candidato incluye evidencia de origen o relaciones sugeridas. Revisa en la web la evidencia y las relaciones exactas antes de guardarlo.',
+  ar: 'يتضمن هذا المرشح أدلة مصدر أو علاقات مقترحة. راجع الأدلة والعلاقات الدقيقة على الويب قبل الحفظ.',
+  hi: 'इस उम्मीदवार में स्रोत प्रमाण या संबंध सुझाव हैं। सहेजने से पहले वेब पर सटीक प्रमाण और संबंधों की समीक्षा करें।',
+};
+
+function detailedReviewCopy(locale: Locale, draft: MobileCandidateDraft): string {
+  return draft.detailed_review_reason === 'provenance'
+    ? PROVENANCE_REVIEW_COPY[locale]
+    : CAUSAL_REVIEW_COPY[locale];
+}
+
 const STALE_REVIEW_COPY: Record<Locale, string> = {
   en: 'This candidate changed in another session. The latest version is shown; review it before trying again.',
   ja: 'この候補は別のセッションで変更されました。最新の内容を表示しています。確認してからもう一度お試しください。',
@@ -171,7 +186,7 @@ function CandidateInboxContent() {
 
   const resolve = (draft: MobileCandidateDraft, action: 'approve-candidate' | 'ignore-candidate') => {
     if (candidateQuickActionRequiresDetailedReview(draft, action)) {
-      setError(CAUSAL_REVIEW_COPY[locale]);
+      setError(detailedReviewCopy(locale, draft));
       return;
     }
     const destructive = action === 'ignore-candidate';
@@ -203,7 +218,7 @@ function CandidateInboxContent() {
             .then(async (outcome) => {
               if (outcome.status === 'detailed-review-required') {
                 if (selectionGuard.selected() === draft.batch_id) {
-                  setError(CAUSAL_REVIEW_COPY[locale]);
+                  setError(detailedReviewCopy(locale, draft));
                 }
                 return;
               }
@@ -231,8 +246,8 @@ function CandidateInboxContent() {
                 setError(reason instanceof MobileApiRequestError
                   ? reason.code === 'CANDIDATE_DEPENDENCY_PENDING'
                     ? copy.pendingDependency
-                    : reason.code === 'CAUSAL_REVIEW_REQUIRED'
-                      ? CAUSAL_REVIEW_COPY[locale]
+                    : reason.code === 'CAUSAL_REVIEW_REQUIRED' || reason.code === 'PROVENANCE_REVIEW_REQUIRED'
+                      ? detailedReviewCopy(locale, draft)
                       : reason.message
                   : reason instanceof Error ? reason.message : t('api.networkFailed'));
               }
@@ -298,6 +313,7 @@ function CandidateInboxContent() {
             : null;
           const webReviewLabel = interpolate(WEB_REVIEW_COPY[locale], { title: draft.title });
           const approvalDisabled = mutatingIds.has(draft.id) || draft.requires_detailed_review;
+          const reviewCopy = detailedReviewCopy(locale, draft);
 
           const notationBlocks = [
             ...buildKnowledgeNotationGroupBlocks([
@@ -336,7 +352,7 @@ function CandidateInboxContent() {
               </KnowledgeNotationGroup>
               {draft.requires_detailed_review ? (
                 <View style={styles.detailedReviewWarning}>
-                  <Text style={styles.detailedReviewWarningText}>{CAUSAL_REVIEW_COPY[locale]}</Text>
+                  <Text style={styles.detailedReviewWarningText}>{reviewCopy}</Text>
                 </View>
               ) : null}
               {webReviewUrl ? (
@@ -362,7 +378,7 @@ function CandidateInboxContent() {
 }
 
 export default function CandidateInboxScreen() {
-  return <AuthRequired><CandidateInboxContent /></AuthRequired>;
+  return <AuthRequired continuation={{ destination: 'candidate-inbox' }}><CandidateInboxContent /></AuthRequired>;
 }
 
 const styles = StyleSheet.create({

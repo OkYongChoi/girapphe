@@ -12,7 +12,8 @@ export type MobileCandidateMutationPreflight =
   | 'ready'
   | 'stale'
   | 'knowledge-capability-required'
-  | 'causal-review-required';
+  | 'causal-review-required'
+  | 'provenance-review-required';
 
 export function readMobileKnowledgeCapabilities(header: string | null): MobileKnowledgeCapabilities {
   const values = new Set((header ?? '').split(',').map((value) => value.trim()));
@@ -90,6 +91,21 @@ export function mobileCandidateRequiresDetailedCausalReview(
   return Boolean(draft?.relations?.some((relation) => MOBILE_CAUSAL_RELATION_TYPES.has(relation.type)));
 }
 
+export type MobileCandidateDetailedReviewReason = 'causal_relations' | 'provenance';
+
+export function mobileCandidateDetailedReviewReason(
+  draft: {
+    relations?: Array<{ type: string }>;
+    proposed_evidence?: unknown[];
+  } | null | undefined,
+): MobileCandidateDetailedReviewReason | null {
+  if (mobileCandidateRequiresDetailedCausalReview(draft)) return 'causal_relations';
+  if ((draft?.proposed_evidence?.length ?? 0) > 0 || (draft?.relations?.length ?? 0) > 0) {
+    return 'provenance';
+  }
+  return null;
+}
+
 export function classifyMobileCandidateMutationPreflight({
   action,
   draft,
@@ -101,6 +117,7 @@ export function classifyMobileCandidateMutationPreflight({
     version: number;
     structured_content?: KnowledgeBundleContent | null;
     relations?: Array<{ type: string }>;
+    proposed_evidence?: unknown[];
   };
   draftVersion: number;
   capabilities: MobileKnowledgeCapabilities;
@@ -110,8 +127,8 @@ export function classifyMobileCandidateMutationPreflight({
   if (mobileCandidateApprovalRequiresCapability(draft, capabilities)) {
     return 'knowledge-capability-required';
   }
-  if (mobileCandidateRequiresDetailedCausalReview(draft)) {
-    return 'causal-review-required';
-  }
+  const reviewReason = mobileCandidateDetailedReviewReason(draft);
+  if (reviewReason === 'causal_relations') return 'causal-review-required';
+  if (reviewReason === 'provenance') return 'provenance-review-required';
   return 'ready';
 }

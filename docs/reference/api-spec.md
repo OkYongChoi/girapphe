@@ -176,11 +176,54 @@ malformed, invalid, reserved, overlong, or over-limit arrays return `400
 INVALID_TAGS`, with the unique-count limit applied after normalization and
 deduplication.
 
+Current iOS and Android clients send create and update to
+`POST /api/mobile?resource=notes`. The qualified notes mutation resource accepts
+only `create-note` and `update-note` and caps its JSON body at 6,291,456 bytes so
+a valid, maximally populated native version-one bundle, including JSON-escaped
+control code units, fits within a bounded request. An oversized request returns
+`413 MOBILE_KNOWLEDGE_REQUEST_TOO_LARGE`; a different action sent to that
+resource returns `400 INVALID_MOBILE_RESOURCE_ACTION`. Other `/api/mobile`
+mutations, including backward-compatible unqualified note requests from
+installed clients, remain capped at 16,384 bytes and return `413
+MOBILE_REQUEST_TOO_LARGE` when oversized. Invalid JSON returns `400
+INVALID_JSON` in either path.
+
 `GET /api/mobile?resource=topics` returns `{ topics }` under `Cache-Control:
 private, no-store`. Each owner-scoped active-topic summary contains `topic`,
 `item_count`, `open_question_count`, `decision_count`, `event_count`,
 `source_count`, `last_updated_at`, and at most three `sample_titles`. The client
 opens the existing bounded `resource=topic-hub&topic=...` route for details.
+
+`GET /api/mobile?resource=topic-hub&topic=...` accepts one trimmed topic of at
+most 120 characters and explicitly projects only `topic`, `generated_at`,
+capability-compatible `items`, `sources`, `activity`, capability-compatible
+`relations`, and `evidence_selectors`. Evidence selectors retain their bounded
+source-position object, polarity, quality, origin, and confirmation metadata;
+the native view renders primitive locator values and never raw transcript text.
+The web-only `revisions` and `supersessions` collections are intentionally
+omitted from this mobile response rather than leaked through an object spread.
+
+`GET /api/mobile?resource=knowledge-data-controls&page=1` returns active and
+completed import jobs for the authenticated owner, newest first. Status is one
+of `pending`, `partial`, `approved`, or `discarded`. Pages are limited to 50
+jobs, and `page` must be an integer from 1 through 400. Each job projects only
+`id`, `provider`, `scope`, `status`, `draft_count`, `pending_count`,
+`approved_count`, and `created_at`; request IDs, source locators, source URLs,
+and conversation references are not returned. The response includes the
+canonical `page` and `hasNextPage` values.
+
+`POST /api/mobile` action `delete-import-batch` accepts one `batchId` bounded to
+160 characters and applies the existing owner-scoped import deletion
+transaction. It removes the job, its remaining pending candidates, and its
+job-level product events while preserving approved knowledge and detaching its
+sanitized, hashed provenance from the deleted batch. A selected-export request
+is tombstoned so deletion cannot be defeated by replaying the same import.
+Missing, already-deleted, and foreign-owner IDs return the same retry-safe
+`{ deleted: false, approvedKnowledgePreserved: 0 }` shape without disclosing
+existence.
+
+These data-control responses use `Cache-Control: private, no-store`,
+`X-Content-Type-Options: nosniff`, and `Vary: Cookie, Authorization`.
 
 `GET /api/mobile?resource=ranking` returns private no-store anonymous rows with
 `rank`, stable `participantId`, `isCurrentUser`, `explainable`, and `avgScore`.
@@ -188,13 +231,17 @@ The legacy `label` field remains additive for installed-client compatibility;
 neither field exposes account identity.
 
 `GET /api/mobile?resource=candidate-batch&batchId=...` includes
-`requires_detailed_review` on every pending draft. Clients disable quick
-save-as-new when it is true and hand off to the exact owner-scoped web review
-route. For both approve and ignore, the server compares the requested
-`draftVersion` with the latest draft before applying capability or causal
-gates. A mismatch returns `409 CANDIDATE_STALE`, and the native client reloads
-the latest batch and drafts before offering another attempt. Only a matching
-latest causal draft returns `409 CAUSAL_REVIEW_REQUIRED` for quick approval.
+`requires_detailed_review` and `detailed_review_reason` on every pending draft.
+The reason is `causal_relations` when any causal relation is present, otherwise
+`provenance` when proposed evidence or any noncausal relation is present, and
+`null` only for a content-only quick-approval candidate. Clients disable quick
+save-as-new when detailed review is required and hand off to the exact
+owner-scoped web review route. For both approve and ignore, the server compares
+the requested `draftVersion` with the latest draft before applying capability or
+detailed-review gates. A mismatch returns `409 CANDIDATE_STALE`, and the native
+client reloads before another attempt. Only a matching latest approval can
+return `409 CAUSAL_REVIEW_REQUIRED` or `409 PROVENANCE_REVIEW_REQUIRED`, before
+creating a canonical item or clearing evidence selectors or relationships.
 
 `GET /api/mobile?resource=saved` returns owner-scoped `cards` plus authoritative
 `stats` (`explainable`, `unclear`, and `reviewable`). New clients select the
@@ -241,12 +288,38 @@ server-side version-one validation. An older client receives `409`
 `KNOWLEDGE_CAPABILITY_REQUIRED` instead of overwriting an expression or dated
 event whose hidden structured fields it cannot preserve.
 
+## Authentication continuations and browser handoffs
+
+Protected Expo routes send an enumerated destination to the native sign-in
+screen, never a free-form path. The dynamic Topic Hub is the only continuation
+with a value and its topic is capped at 120 characters. Clerk email and Hosted
+Auth completion consume the same resolver; Hosted Auth returns through the
+configured app scheme created by
+`ExpoLinking.createURL('hosted-auth-callback')`. Private protected-route content
+is keyed by the current Clerk user ID so a direct signed-in owner switch
+remounts screen state before another owner response can render.
+
+Web login and signup accept exactly `/practice`, `/subscription`,
+`/account/delete`, or `/account/data-controls-handoff` as `returnTo`. Validation
+happens before locale prefixing. Absolute, protocol-relative, locale-prefixed,
+query- or fragment-modified, whitespace-modified, and duplicated values fall
+back to `/practice`. The fixed data-controls handoff does not accept its own
+destination input: it shows the browser's current account, requires explicit
+confirmation, and only then links to the localized
+`/account/delete#knowledge-data` section. Switching accounts signs out and
+returns through the same fixed handoff. Mobile bearer credentials are never
+placed in these browser URLs.
+
 ## Billing and entitlement endpoints
 
 - `GET /api/billing/entitlement`: authenticated, no-store provider-neutral `ad_free` lookup
   used by web and mobile to honor any valid qualifying provider subscription for the same Clerk
-  user. The response also reports provider/plan/management metadata and the independently
-  configured web/mobile acquisition gates.
+  user. The response also reports provider/plan/management metadata, the independently
+  configured web/mobile acquisition gates, and the canonical booleans
+  `acquisitionBlocked` and `duplicateDetected`. Mobile must suppress new
+  acquisition and offer a canonical refresh while `acquisitionBlocked` is true,
+  and must keep `duplicateDetected` visible for support/recovery instead of
+  discarding it in its view model.
 - `POST /api/billing/checkout`: same-origin, signed-in Creem hosted-checkout creation. The only
   accepted plan is `annual`; the server selects the configured USD 10.00 tax-inclusive product.
   Existing entitlement, an account-deletion marker, an acquisition block, or an unresolved

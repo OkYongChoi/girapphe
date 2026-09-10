@@ -6,7 +6,7 @@ import { mobileApi, type MobileTopicSummary } from '@/api';
 import { useI18n } from '@/i18n';
 
 export default function KnowledgeTopicsScreen() {
-  return <AuthRequired><TopicsContent /></AuthRequired>;
+  return <AuthRequired continuation={{ destination: 'topics' }}><TopicsContent /></AuthRequired>;
 }
 
 function TopicsContent() {

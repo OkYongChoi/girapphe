@@ -125,6 +125,7 @@ export default function AccountScreen() {
 
             <PrimaryButton label={subscription.isAdFree ? t('account.manageSubscription') : t('account.seePlans')} onPress={() => router.push('/subscription')} />
             <SecondaryButton label={t('account.refreshPurchase')} onPress={() => void subscription.refresh()} />
+            <SecondaryButton label={t('account.knowledgeDataControls')} onPress={() => router.push('/knowledge-data-controls')} />
             <SecondaryButton label={isSigningOut ? t('account.signingOut') : t('auth.signOut')} disabled={isSigningOut} onPress={() => void signOut()} />
             <DangerButton
               label={isDeleting ? t('account.deleting') : t('account.deleteAccount')}

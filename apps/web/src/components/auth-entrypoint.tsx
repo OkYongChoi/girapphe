@@ -5,6 +5,7 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { localizePathname } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
 import { useClerkLocalization } from '@/i18n/use-clerk-localization';
+import { DEFAULT_AUTH_RETURN_TO, type AuthReturnTo } from '@/lib/auth-return-to';
 
 const SignIn = dynamic(
   () => import('@clerk/nextjs').then((module) => module.SignIn),
@@ -16,9 +17,15 @@ const SignUp = dynamic(
   { ssr: false },
 );
 
-export function AuthEntrypoint({ mode }: { mode: 'sign-in' | 'sign-up' }) {
+export function AuthEntrypoint({
+  mode,
+  returnTo = DEFAULT_AUTH_RETURN_TO,
+}: {
+  mode: 'sign-in' | 'sign-up';
+  returnTo?: AuthReturnTo;
+}) {
   const { locale, t } = useI18n();
-  const practiceHref = localizePathname('/practice', locale);
+  const redirectHref = localizePathname(returnTo, locale);
   const localizationState = useClerkLocalization(locale);
 
   if (localizationState.status === 'loading') {
@@ -50,9 +57,17 @@ export function AuthEntrypoint({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     <ClerkProvider localization={localizationState.localization}>
       <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-16">
         {mode === 'sign-in' ? (
-          <SignIn forceRedirectUrl={practiceHref} fallbackRedirectUrl={practiceHref} />
+          <SignIn
+            forceRedirectUrl={redirectHref}
+            fallbackRedirectUrl={redirectHref}
+            signUpForceRedirectUrl={redirectHref}
+          />
         ) : (
-          <SignUp forceRedirectUrl={practiceHref} fallbackRedirectUrl={practiceHref} />
+          <SignUp
+            forceRedirectUrl={redirectHref}
+            fallbackRedirectUrl={redirectHref}
+            signInForceRedirectUrl={redirectHref}
+          />
         )}
       </main>
     </ClerkProvider>

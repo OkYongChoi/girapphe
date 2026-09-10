@@ -2,6 +2,9 @@
 
 Status: Implemented
 
+Protected release, provider activation, and physical-device evidence remain
+separate rollout gates.
+
 ## User outcome
 
 A signed-in user gets the same review intent, due-queue meaning, learning
@@ -11,10 +14,14 @@ Review queue must not silently open new-card Practice, and a ChatGPT-export
 batch must not be described as if it came from the current conversation.
 Practice traverses a deterministic, bounded cursor without growing card-ID
 arrays, skips do not inflate the visible Reviewed count, and a possible
-duplicate or causal candidate provides an actionable handoff to detailed web
+duplicate or provenance-sensitive candidate provides an actionable handoff to detailed web
 review. Mobile users can also rediscover all approved private topics, identify
 their own anonymous leaderboard row, reuse their private tags, and start an
 editable private-note draft from a public concept without saving it implicitly.
+Authentication returns to the requested protected journey, including from Clerk
+Hosted Auth; canonical billing conflicts stay visible; source positions are
+reviewable in Topic Hub; and Account exposes owner-scoped import-job controls
+without moving private credentials into browser URLs.
 
 ## Scope
 
@@ -38,8 +45,10 @@ In scope:
   the mobile Candidate Inbox;
 - give a possible duplicate an encoded link to that exact candidate's
   owner-scoped detailed web review;
-- require causal candidates to use that same detailed review handoff instead
-  of offering a mobile quick approval that the server will reject;
+- require every candidate with proposed evidence or a relationship suggestion
+  to use that same detailed review handoff instead of offering a mobile quick
+  approval that could clear provenance; retain a specific causal reason for
+  causal relations;
 - surface the existing active, archived, and trashed personal-knowledge
   lifecycle in My Notes with optimistic-version archive/restore requests;
 - match web organization basics with tag-aware search plus knowledge-type and
@@ -49,10 +58,28 @@ In scope:
   the web form;
 - expose the owner-scoped private Topics index, including its counts, sample
   titles, recency, and exact Topic Hub navigation;
+- render Topic Hub evidence selector positions and metadata while explicitly
+  omitting revision and supersession history from the bounded mobile projection;
 - preserve anonymous leaderboard participant IDs and identify the signed-in
   user's row while retaining the legacy display label for installed clients;
 - prefill, but never automatically persist, a reviewable My Notes draft from a
   public concept;
+- resume every protected native route after authentication through an enumerated
+  destination, and allow first-party mobile browser handoffs to resume web
+  Subscription or knowledge-data controls without accepting an arbitrary URL;
+- remount protected private content when the signed-in Clerk owner changes;
+- expose Clerk Hosted Auth for methods enabled by the provider, use one fixed
+  app-scheme callback, and preserve the native email continuation contract;
+- keep canonical billing `acquisitionBlocked` and `duplicateDetected` state in
+  the mobile view model, suppress acquisition while blocked, and offer refresh
+  and duplicate-recovery guidance;
+- route new note creation and update through a qualified, bounded 6 MiB
+  knowledge-mutation resource while retaining the 16 KiB general mutation cap;
+- add signed-in native knowledge-data controls with bounded import-job
+  pagination and confirmed owner-scoped deletion;
+- preserve approved knowledge and hashed provenance when an import job is
+  deleted, and hand complete JSON export to a fixed first-party web route
+  without putting a mobile bearer token in the URL or export JSON in native memory;
 - keep the current Expo navigation and architecture documentation accurate;
 - add the owner-first private-card cursor index used by the mobile server
   adapter without changing stored user data.
@@ -68,7 +95,7 @@ Out of scope:
 - Recall Ping notification delivery or its reconstruction UI, whose feature
   specification remains Draft; and
 - EAS builds, store submission, provider activation, or physical-device
-  VoiceOver/TalkBack evidence.
+  VoiceOver/TalkBack and Hosted Auth callback evidence.
 
 ## Acceptance criteria
 
@@ -179,6 +206,61 @@ Out of scope:
   the same normalized values, including a valid uncommitted draft. This is a
   committed-text source contract; physical native IME composition evidence is
   tracked separately by the My Notes tag-selection specification.
+- [x] `AC-15`: Every route guarded by the mobile `AuthRequired` boundary sends
+  only an enumerated continuation identifier, with a separately bounded topic
+  for the dynamic Topic Hub, and returns there after sign-in or sign-up. The
+  provenance-sensitive public-concept copy continuation keeps priority.
+  Protected content is keyed by Clerk user ID and remounts on a direct switch
+  between signed-in owners. Web login and signup accept only exact first-party
+  `returnTo` values for Practice, Subscription, Account deletion, and the
+  data-controls confirmation handoff, localize the accepted pathname, and fall
+  back to Practice for arbitrary, ambiguous, or modified values.
+- [x] `AC-16`: Signed-in Account always links to a shared iOS and Android data
+  controls screen. The authenticated mobile adapter returns at most 50 active or
+  completed jobs per page from the current owner's batches, shows each supported
+  status and count, accepts only pages 1 through 400, projects no source locator,
+  request ID, source URL, or conversation reference, and marks responses private
+  and no-store. Deletion requires a destructive confirmation, is owner-scoped
+  and retry-safe, removes pending job state, tombstones selected-export replay,
+  and preserves approved knowledge plus detached sanitized/hash provenance.
+  Pagination and retry controls remain disabled during deletion, and a guarded
+  deletion refresh cannot overwrite a newer explicit page intent. Complete
+  export opens only a validated HTTP(S) first-party handoff; signed-in browsers
+  show their current identity and require explicit confirmation before
+  continuing to the localized knowledge-data anchor, while signed-out browsers
+  use the fixed allowlisted `returnTo`. No bearer token appears in a URL, and all
+  new UI copy exists in the six supported mobile locales with accessible states.
+- [x] `AC-17`: Configured mobile sign-in and sign-up offer Clerk Hosted Auth
+  alongside email. The Hosted Auth mode follows the visible form mode, returns
+  through the configured app-scheme URL built by
+  `ExpoLinking.createURL('hosted-auth-callback')` rather than an HTTP redirect,
+  uses an ephemeral browser session, and invokes the common post-authentication
+  continuation only after Clerk creates a session. The control is at least 44
+  points and its copy exists in all six mobile locales.
+- [x] `AC-18`: Mobile retains the canonical entitlement response's
+  `acquisitionBlocked` and `duplicateDetected` booleans. A block never exposes
+  purchase plans, uses the pending-confirmation state, and offers a canonical
+  refresh; a duplicate is an accessible visible alert with support recovery
+  when a safe support URL is configured. Neither state is inferred from store
+  callbacks or local purchase state.
+- [x] `AC-19`: Candidate batch responses set `requires_detailed_review` and a
+  reason of `causal_relations` or `provenance` whenever a pending draft has
+  proposed evidence or any relation. Mobile disables quick save-as-new and
+  provides localized web-review recovery. The server checks version freshness
+  first, then rejects causal and provenance quick approval with distinct `409`
+  codes before its compatibility path can clear evidence or relationships.
+- [x] `AC-20`: The mobile Topic Hub response uses an explicit projection that
+  includes source evidence selectors and their polarity, quality, origin, and
+  confirmation metadata. Native Topic Hub renders only primitive source-position
+  values. Revision and supersession collections remain web-owned and are absent
+  from the mobile response.
+- [x] `AC-21`: New My Notes create and update calls use
+  `POST /api/mobile?resource=notes`, which accepts only those two actions and is
+  capped at 6,291,456 bytes. A maximally populated valid native expression,
+  including parser-valid text that requires JSON escaping, fits below that cap;
+  oversize returns the dedicated `413 MOBILE_KNOWLEDGE_REQUEST_TOO_LARGE`
+  recovery. Every other mobile mutation, including the backward-compatible
+  unqualified path, remains capped at 16,384 bytes.
 
 ## Privacy and data boundaries
 
@@ -200,7 +282,27 @@ change. No rated/skipped ID array or request-global server cursor state is
 introduced. Candidate scope labels and the detailed-review handoff open only
 the configured first-party web route, where authentication and owner scoping
 are enforced; they do not fetch an archive or raw conversation text into the
-app. Signed-out users retain the existing local public Practice fallback.
+app. Candidate quick approval is content-only: proposed evidence and every
+relationship fail closed before the compatibility path could submit empty
+evidence or relation arrays. Topic Hub exposes bounded selector positions but
+not raw source text, revision payloads, or supersession payloads. Signed-out
+users retain the existing local public Practice fallback.
+Neither native nor web authentication accepts a free-form post-authentication
+redirect. Native route identifiers map to compiled-in Expo routes; the dynamic
+topic is capped at 120 characters. Web accepts only exact canonical paths and
+localizes them after validation, so absolute, protocol-relative, locale-prefixed,
+query-modified, fragment-modified, and duplicate values cannot redirect the user.
+Mobile import-job reads and mutations derive the owner only from the Clerk
+session, not a request-supplied user ID. Responses omit source locators and
+conversation references. The complete export remains the existing browser
+attachment because its size is not bounded for native share text; mobile opens
+only the fixed handoff URL and never puts its bearer credential in that URL.
+The handoff then uses the web session and exact allowlisted data-controls
+destination. Hosted Auth returns through the configured app scheme and carries
+no mobile bearer credential. The larger qualified note body cap remains finite
+and available only to authenticated create/update note actions; it does not
+raise the cap for billing, data controls, candidate resolution, or other mobile
+mutations.
 
 ## Verification
 
@@ -220,17 +322,24 @@ app. Signed-out users retain the existing local public Practice fallback.
 | `AC-12` | `apps/mobile/src/mobile-web-parity-regressions.test.ts` covers participant identity, legacy compatibility, current-user labeling/highlighting, localized rendering, and private response wiring. `authenticated-mobile-api.spec.ts` validates every deployed row's anonymous label, participant ID, current-user boolean, private no-store policy, and absence of email-shaped output. |
 | `AC-13` | `apps/mobile/src/mobile-web-parity-regressions.test.ts` covers signed-out continuation, public-node validation, rejection of injected or mismatched route content, trusted current-locale overlays, one-time draft consumption, explicit unsaved copy, and the absence of a direct create-note mutation. |
 | `AC-14` | `packages/shared/src/knowledge-tags.test.mjs`, `apps/mobile/src/mobile-knowledge-tags.test.ts`, and `apps/mobile/src/mobile-notes-api-contract.test.ts` cover shared Unicode normalization, frequency ranking, direct and separator entry, chip removal, a closed and 24-result-bounded suggestion panel, uncommitted-draft submission, 44-point controls, picker reset wiring, and strict server parsing for create and edit. |
+| `AC-15` | `apps/mobile/src/auth-continuation.test.ts` covers every guarded native destination, bounded Topic Hub value, malformed route rejection, public-copy priority, and Clerk-owner keyed remount. `apps/web/src/lib/auth-return-to.test.ts` covers the exact web allowlist, ambiguous value rejection, localization after validation, and Clerk redirect wiring. |
+| `AC-16` | `apps/mobile/src/knowledge-data-controls.test.ts` covers the fixed handoff, unsafe-base rejection, Account route, authenticated native screen, bounded owner projection, status/counts, private response headers, destructive confirmation, deletion-time pagination guard, retry-safe API wiring, approved-knowledge notice, and absence of URL credentials. `apps/web/src/lib/knowledge-ingestion.test.ts` exercises owner isolation, preservation, removal, and idempotent retry in memory. |
+| `AC-17` | `apps/mobile/src/mobile-hosted-auth.test.ts` covers the Hosted Auth hook, mode mapping, fixed non-HTTP callback, shared continuation, 52-point control, runtime dependencies, and all six locale keys. Static source and export checks do not substitute for a provider-enabled physical-device callback. |
+| `AC-18` | `apps/mobile/src/subscription-account-switch.test.ts` covers retention of canonical booleans, visible duplicate alert, blocked confirmation state, refresh action, and account-bound billing session behavior. Provider webhook, store recovery, and physical-device purchase evidence remain gates. |
+| `AC-19` | `apps/web/src/lib/mobile-knowledge-capabilities.test.ts` covers version-first preflight, causal priority, proposed evidence, and noncausal relations. `apps/mobile/src/candidate-inbox.test.ts` covers DTO projection, localized recovery, disabled quick approval, both `409` codes, and guard ordering before empty evidence/relation submission. |
+| `AC-20` | `apps/web/src/lib/mobile-topic-hub.test.ts` proves explicit response keys, selector preservation, and omission of revisions/supersessions. `apps/mobile/src/knowledge-topic.test.ts` covers the DTO and primitive source-position rendering. |
+| `AC-21` | `packages/shared/src/mobile-knowledge.test.mjs` builds a maximally populated JSON-escaped native expression payload and proves it fits below 6 MiB. `apps/mobile/src/mobile-notes-api-contract.test.ts` covers qualified create/update, action restriction, separate caps/codes, and localized oversize recovery. |
 
 ## Rollout
 
-The response fields, batch scope values, and owner-scoped archive lifecycle
-already exist on the web. The mobile API adds backward-compatible Topics,
-candidate detail, ranking-identity, private-cache, and lifecycle changes plus an
-additive `stats` field on saved-card responses. The legacy ranking `label`
-remains while updated clients use `participantId` and `isCurrentUser`. The
-Practice POST endpoint must deploy before a binary that calls it. Legacy
-Practice GET remains available for older builds and fails explicitly for an
-invalid exclusion ID or when a caller exceeds its historical 100-ID bound.
+The mobile API changes are backward-compatible server adapters. Deploy the
+Practice POST, qualified note mutation, candidate projection and guards,
+explicit Topic Hub projection, and data-controls routes before distributing a
+binary that calls them, and keep them available while any such installed binary
+is in use. Legacy Practice GET and unqualified note mutations remain bounded
+for older builds. The legacy ranking `label` remains while updated clients use
+`participantId` and `isCurrentUser`. The fixed export handoff reuses the web
+export and Clerk session and never carries a native bearer token.
 Migration 0025 adds the private Practice `(user_id, id)` cursor and
 approved-draft lookup indexes and must run through the protected main Drizzle
 step before the production Worker is activated. The protected Preview job
@@ -249,3 +358,9 @@ interaction, accessibility, signing, and store availability still require
 separate physical-device and EAS evidence. Native IME composition behavior is
 also a physical-device gate and is not proven by browser composition tests or
 Expo source/export checks.
+Clerk provider activation and a physical-device Hosted Auth callback remain
+external gates. Surfacing billing conflicts does not activate Superwall, Apple,
+or Google acquisition; keep acquisition disabled until signed webhook,
+payment/recovery, account-switch, and physical-device cross-platform evidence
+is retained. Protected PR, remote CI, exact deployed SHA, and production
+rendered smoke are separate from these local/static checks.
