@@ -188,6 +188,7 @@ async function revokeExactConnectionAfterReload(
 
 test('switches between ChatGPT and Claude setup without exposing a PAT', async ({ context, page }, testInfo) => {
   const testStartedAt = Date.now();
+  const evidenceTimeoutMs = testInfo.timeout;
   test.skip(
     !isPatMutationPreview(testInfo),
     'PAT mutation evidence runs once in the marker-validated testing-token Preview desktop project.',
@@ -237,72 +238,76 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
 
   try {
     await page.getByLabel('Connection label').fill(connectionLabel);
-    createAttempted = true;
-    await page.getByRole('button', { name: 'Create token' }).click();
-    rawToken = await captureAndHideOneTimePat(page);
-    rawTokenHasExpectedShape = RAW_PAT_SHAPE.test(rawToken);
-    await clearClipboard(page);
+    const elapsedBeforeCreateMs = Math.max(0, Date.now() - testStartedAt);
+    // Preserve the original evidence budget in a bounded step, while adding a
+    // separate reserve to the enclosing test before a PAT can be committed.
+    testInfo.setTimeout(Math.max(
+      testInfo.timeout,
+      elapsedBeforeCreateMs + evidenceTimeoutMs + MCP_CLEANUP_RESERVE_MS,
+    ));
 
-    const chatgpt = page.getByRole('radio', { name: 'ChatGPT' });
-    const claude = page.getByRole('radio', { name: 'Claude' });
-    await expect(chatgpt).toBeChecked();
-    await expect(page.getByRole('heading', { name: 'ChatGPT web app' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Use the PAT with OpenAI Responses API' })).toBeVisible();
-    await expect(page.getByText('GIRAPPHE_MCP_TOKEN', { exact: false }).first()).toBeVisible();
-    await expect(page.getByText(/On Business, an admin or owner enables developer mode/)).toBeVisible();
-    await expect(page.getByText(/Enterprise\/Edu requires admin-granted access/)).toBeVisible();
+    await test.step('collect and revoke normal-path PAT evidence', async () => {
+      createAttempted = true;
+      await page.getByRole('button', { name: 'Create token' }).click();
+      rawToken = await captureAndHideOneTimePat(page);
+      rawTokenHasExpectedShape = RAW_PAT_SHAPE.test(rawToken);
+      await clearClipboard(page);
 
-    const openAiTokenArticle = page.locator('article').filter({
-      has: page.getByRole('heading', { name: 'Use the PAT with OpenAI Responses API' }),
-    });
-    const copySetup = openAiTokenArticle.getByRole('button');
-    await copySetup.click();
-    await expect(copySetup).toHaveText('Copied');
-    const openAiSnippet = await page.evaluate(() => navigator.clipboard.readText());
-    await clearClipboard(page);
-    openAiSnippetChecks = {
-      configurationShape: openAiSnippet.includes('type: "mcp"'),
-      endpoint: openAiSnippet.includes(`${new URL(page.url()).origin}/api/mcp`),
-      placeholder: openAiSnippet.includes('authorization: process.env.GIRAPPHE_MCP_TOKEN'),
-      omitsHeaders: !openAiSnippet.includes('headers:'),
-      contextTool: openAiSnippet.includes('get_topic_context'),
-      omitsCapturedPat: rawToken.length > 0 && !openAiSnippet.includes(rawToken),
-      omitsAnyRawPat: !RAW_PAT_PATTERN.test(openAiSnippet),
-    };
+      const chatgpt = page.getByRole('radio', { name: 'ChatGPT' });
+      const claude = page.getByRole('radio', { name: 'Claude' });
+      await expect(chatgpt).toBeChecked();
+      await expect(page.getByRole('heading', { name: 'ChatGPT web app' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Use the PAT with OpenAI Responses API' })).toBeVisible();
+      await expect(page.getByText('GIRAPPHE_MCP_TOKEN', { exact: false }).first()).toBeVisible();
+      await expect(page.getByText(/On Business, an admin or owner enables developer mode/)).toBeVisible();
+      await expect(page.getByText(/Enterprise\/Edu requires admin-granted access/)).toBeVisible();
 
-    await claude.check();
-    await expect(claude).toBeChecked();
-    await expect(page.getByRole('heading', { name: 'Claude web or Desktop' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Use the PAT with Claude Code' })).toBeVisible();
-    await expect(page.getByText(/Free, Pro, or Max, open Customize → Connectors/)).toBeVisible();
-    await expect(page.getByText(/Free \(one custom connector\), Pro, Max, Team, and Enterprise/)).toBeVisible();
-    const claudeTokenArticle = page.locator('article').filter({
-      has: page.getByRole('heading', { name: 'Use the PAT with Claude Code' }),
-    });
-    await claudeTokenArticle.getByRole('button').click();
-    const claudeSnippet = await page.evaluate(() => navigator.clipboard.readText());
-    await clearClipboard(page);
-    claudeSnippetChecks = {
-      command: claudeSnippet.includes('claude mcp add-json girapphe'),
-      placeholder: claudeSnippet.includes('${GIRAPPHE_MCP_TOKEN}'),
-      omitsCapturedPat: rawToken.length > 0 && !claudeSnippet.includes(rawToken),
-      omitsAnyRawPat: !RAW_PAT_PATTERN.test(claudeSnippet),
-    };
+      const openAiTokenArticle = page.locator('article').filter({
+        has: page.getByRole('heading', { name: 'Use the PAT with OpenAI Responses API' }),
+      });
+      const copySetup = openAiTokenArticle.getByRole('button');
+      await copySetup.click();
+      await expect(copySetup).toHaveText('Copied');
+      const openAiSnippet = await page.evaluate(() => navigator.clipboard.readText());
+      await clearClipboard(page);
+      openAiSnippetChecks = {
+        configurationShape: openAiSnippet.includes('type: "mcp"'),
+        endpoint: openAiSnippet.includes(`${new URL(page.url()).origin}/api/mcp`),
+        placeholder: openAiSnippet.includes('authorization: process.env.GIRAPPHE_MCP_TOKEN'),
+        omitsHeaders: !openAiSnippet.includes('headers:'),
+        contextTool: openAiSnippet.includes('get_topic_context'),
+        omitsCapturedPat: rawToken.length > 0 && !openAiSnippet.includes(rawToken),
+        omitsAnyRawPat: !RAW_PAT_PATTERN.test(openAiSnippet),
+      };
 
-    const renderedText = await page.locator('main').innerText();
-    renderedGuideOmitsCapturedPat = rawToken.length > 0 && !renderedText.includes(rawToken);
-    renderedGuideOmitsAnyRawPat = !RAW_PAT_PATTERN.test(renderedText);
-    overflowsViewport = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      await claude.check();
+      await expect(claude).toBeChecked();
+      await expect(page.getByRole('heading', { name: 'Claude web or Desktop' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Use the PAT with Claude Code' })).toBeVisible();
+      await expect(page.getByText(/Free, Pro, or Max, open Customize → Connectors/)).toBeVisible();
+      await expect(page.getByText(/Free \(one custom connector\), Pro, Max, Team, and Enterprise/)).toBeVisible();
+      const claudeTokenArticle = page.locator('article').filter({
+        has: page.getByRole('heading', { name: 'Use the PAT with Claude Code' }),
+      });
+      await claudeTokenArticle.getByRole('button').click();
+      const claudeSnippet = await page.evaluate(() => navigator.clipboard.readText());
+      await clearClipboard(page);
+      claudeSnippetChecks = {
+        command: claudeSnippet.includes('claude mcp add-json girapphe'),
+        placeholder: claudeSnippet.includes('${GIRAPPHE_MCP_TOKEN}'),
+        omitsCapturedPat: rawToken.length > 0 && !claudeSnippet.includes(rawToken),
+        omitsAnyRawPat: !RAW_PAT_PATTERN.test(claudeSnippet),
+      };
+
+      const renderedText = await page.locator('main').innerText();
+      renderedGuideOmitsCapturedPat = rawToken.length > 0 && !renderedText.includes(rawToken);
+      renderedGuideOmitsAnyRawPat = !RAW_PAT_PATTERN.test(renderedText);
+      overflowsViewport = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    }, { timeout: evidenceTimeoutMs });
   } catch (error) {
     originalEvidenceFailed = true;
     originalEvidenceError = error;
   } finally {
-    const elapsedBeforeCleanupMs = Math.max(0, Date.now() - testStartedAt);
-    testInfo.setTimeout(Math.max(
-      testInfo.timeout,
-      elapsedBeforeCleanupMs + MCP_CLEANUP_RESERVE_MS,
-    ));
-
     let cleanupError: unknown = null;
     const uiCleanupErrors: unknown[] = [];
     let cleanupEvidenceError: unknown = null;

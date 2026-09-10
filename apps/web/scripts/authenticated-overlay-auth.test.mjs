@@ -137,15 +137,30 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     'const RAW_PAT_SHAPE = /^girapphe_mcp_[A-Za-z0-9_-]{43}$/u;',
   ));
   const testStartedAt = source.indexOf('const testStartedAt = Date.now()');
-  const originalEvidenceCapture = source.indexOf(
-    'originalEvidenceError = error',
+  const evidenceTimeout = source.indexOf(
+    'const evidenceTimeoutMs = testInfo.timeout',
     testStartedAt,
   );
+  const cleanupReserve = source.indexOf(
+    'testInfo.setTimeout(Math.max(',
+    evidenceTimeout,
+  );
+  const createClick = source.indexOf(
+    "getByRole('button', { name: 'Create token' }).click()",
+    cleanupReserve,
+  );
+  const boundedEvidenceStep = source.indexOf(
+    '}, { timeout: evidenceTimeoutMs });',
+    createClick,
+  );
+  const originalEvidenceCapture = source.indexOf(
+    'originalEvidenceError = error',
+    boundedEvidenceStep,
+  );
   const cleanupFinally = source.indexOf('} finally {', originalEvidenceCapture);
-  const cleanupReserve = source.indexOf('testInfo.setTimeout(Math.max(', cleanupFinally);
   const firstCleanupOperation = source.indexOf(
     'await hidePatSurface(page, initialRedactionDeadlineMs)',
-    cleanupReserve,
+    cleanupFinally,
   );
   const immediateEvidence = source.indexOf('rawSurfaceAbsentImmediatelyAfterRevoke = true');
   const firstReloadCleanup = source.indexOf(
@@ -178,10 +193,13 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   );
   assert.ok(
     testStartedAt >= 0
-      && testStartedAt < originalEvidenceCapture
+      && testStartedAt < evidenceTimeout
+      && evidenceTimeout < cleanupReserve
+      && cleanupReserve < createClick
+      && createClick < boundedEvidenceStep
+      && boundedEvidenceStep < originalEvidenceCapture
       && originalEvidenceCapture < cleanupFinally
-      && cleanupFinally < cleanupReserve
-      && cleanupReserve < firstCleanupOperation
+      && cleanupFinally < firstCleanupOperation
       && firstCleanupOperation < immediateEvidence
       && immediateEvidence < firstReloadCleanup
       && databaseFallback < markerFallback
@@ -190,15 +208,19 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
       && databaseFallback < cleanupFailureResurface
       && cleanupFailureResurface < originalEvidenceResurface
       && originalEvidenceResurface < cleanupEvidenceFailureResurface,
-    'cleanup must reserve time before bounded UI retries, exact-token or marker database fallback, and the original evidence rethrow',
+    'the bounded evidence step must reserve cleanup time before PAT creation and precede every cleanup path',
   );
   assert.match(
     source.slice(testStartedAt, cleanupFinally),
     /} catch \(error\) \{\s+originalEvidenceFailed = true;\s+originalEvidenceError = error;/,
   );
   assert.match(
+    source.slice(evidenceTimeout, createClick),
+    /Date\.now\(\) - testStartedAt[\s\S]*elapsedBeforeCreateMs \+ evidenceTimeoutMs \+ MCP_CLEANUP_RESERVE_MS/,
+  );
+  assert.doesNotMatch(
     source.slice(cleanupFinally, firstCleanupOperation),
-    /Date\.now\(\) - testStartedAt[\s\S]*elapsedBeforeCleanupMs \+ MCP_CLEANUP_RESERVE_MS/,
+    /testInfo\.setTimeout/,
   );
   const cleanupReserveValue = source.match(
     /const MCP_CLEANUP_RESERVE_MS = ([\d_]+);/,

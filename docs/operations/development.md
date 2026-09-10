@@ -152,7 +152,10 @@ PAT in Settings, reloads, and verifies the locked exact database row has zero
 active matches before any durable success screenshot. If the normal create
 attempt commits but the one-time value cannot be captured, the locked exact
 owner/label/random-marker fallback revokes that row and the run still fails
-without accepted evidence. The PAT specs disable
+without accepted evidence. Before Create, the test extends its enclosing
+timeout with a separate cleanup reserve while the evidence step retains the
+original 60-second budget, so exhausting evidence time cannot prevent the
+`finally` cleanup from starting. The PAT specs disable
 Playwright's automatic failure screenshots, and the authenticated runner
 disables automatic screenshots, AI-oriented accessibility page snapshots, and
 Git author metadata. Tests retain only explicit post-revocation success

@@ -107,7 +107,10 @@ with readback, revokes through Settings, and verifies under the account and
 token advisory locks that the exact owner, label, marker, and SHA-256 hash have
 zero active matches. If that normal create attempt commits but the one-time PAT
 cannot be captured, the same locked owner/label/random-marker fallback revokes
-the exact synthetic row and the run still fails without accepted evidence.
+the exact synthetic row and the run still fails without accepted evidence. The
+normal evidence step keeps the original timeout while a separate cleanup
+reserve is added to the enclosing test before Create, ensuring that evidence
+timeout cannot skip `finally` cleanup.
 
 The separate fault path lets the create POST commit, extracts the one-time PAT
 only in process memory, replaces it in the fulfilled response, then faults both
