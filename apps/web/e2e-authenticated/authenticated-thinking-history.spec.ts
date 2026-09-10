@@ -159,7 +159,11 @@ async function waitForImportSubmissionEventCount(
   return observed;
 }
 
-async function clickAndAcceptConfirm(page: Page, control: Locator): Promise<void> {
+async function clickAndAcceptConfirm(
+  page: Page,
+  control: Locator,
+  hasTouch: boolean,
+): Promise<void> {
   const smoothScrollOverride = await page.addStyleTag({
     content: "html { scroll-behavior: auto !important; }",
   });
@@ -195,22 +199,36 @@ async function clickAndAcceptConfirm(page: Page, control: Locator): Promise<void
       if (dialogType === "confirm") await dialog.accept();
       else await dialog.dismiss();
     });
-  const [dialogResult, clickResult] = await Promise.allSettled([
+  const activateControl = async () => {
+    if (!hasTouch) {
+      await control.click({ timeout: 5_000 });
+      return;
+    }
+    await expect(control).toBeEnabled({ timeout: 5_000 });
+    await control.focus();
+    await expect(control).toBeFocused();
+    await page.keyboard.press("Enter");
+  };
+  const [dialogResult, activationResult] = await Promise.allSettled([
     confirmHandled,
-    control.click({ timeout: 5_000 }),
+    activateControl(),
   ]);
   await smoothScrollOverride.evaluate((element) => {
     element.parentNode?.removeChild(element);
   }).catch(() => undefined);
-  if (clickResult.status === "rejected" && dialogResult.status === "rejected") {
-    throw clickResult.reason;
+  if (activationResult.status === "rejected" && dialogResult.status === "rejected") {
+    throw activationResult.reason;
   }
   if (dialogResult.status === "rejected") throw dialogResult.reason;
   if (dialogType !== "confirm") throw new Error(`UNEXPECTED_DIALOG_TYPE:${dialogType ?? "none"}`);
-  if (clickResult.status === "rejected") throw clickResult.reason;
+  if (activationResult.status === "rejected") throw activationResult.reason;
 }
 
-async function deleteSubmittedImportThroughOwnerUi(page: Page, batchId: string): Promise<void> {
+async function deleteSubmittedImportThroughOwnerUi(
+  page: Page,
+  batchId: string,
+  hasTouch: boolean,
+): Promise<void> {
   // A failed confirm-driven assertion can leave a one-shot dialog listener
   // behind. Cleanup owns the next dialog and must not race that stale handler.
   page.removeAllListeners("dialog");
@@ -224,6 +242,7 @@ async function deleteSubmittedImportThroughOwnerUi(page: Page, batchId: string):
   await clickAndAcceptConfirm(
     page,
     batchRow.getByRole("button", { name: deleteImportCopy }),
+    hasTouch,
   );
   await expect(page.getByText(batchId, { exact: true })).toHaveCount(0);
   await waitForImportSubmissionEventCount(page, 0);
@@ -612,6 +631,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
   await clickAndAcceptConfirm(
     page,
     dismissedSignalIdentity.getByRole("button", { name: dismissCopy }),
+    testInfo.project.use.hasTouch === true,
   );
   await dismissResponsePromise;
   await expect(dismissedSignalIdentity).toHaveCount(0);
@@ -847,12 +867,14 @@ test("proves selected import, private evidence, portable context, dismissal, and
     await clickAndAcceptConfirm(
       page,
       page.getByRole("button", { name: "Ignore candidate" }),
+      testInfo.project.use.hasTouch === true,
     );
     await expect(page).toHaveURL(new RegExp(`/knowledge-inbox/${batchId}$`));
     await expect(page.getByRole("link", { name: /Review resolution/i })).toHaveCount(1);
     await clickAndAcceptConfirm(
       page,
       page.getByRole("button", { name: "Ignore whole batch" }),
+      testInfo.project.use.hasTouch === true,
     );
     await expect(page).toHaveURL(/\/knowledge-inbox(?:[/?#]|$)/);
 
@@ -874,7 +896,11 @@ test("proves selected import, private evidence, portable context, dismissal, and
         batchId = IMPORT_BATCH_ID_PATTERN.test(batchId)
           ? batchId
           : await waitForSubmittedImportBatchId(page, selectedQuestionA);
-        await deleteSubmittedImportThroughOwnerUi(page, batchId);
+        await deleteSubmittedImportThroughOwnerUi(
+          page,
+          batchId,
+          testInfo.project.use.hasTouch === true,
+        );
       });
     } catch (cleanupError) {
       uiCleanupError = cleanupError;

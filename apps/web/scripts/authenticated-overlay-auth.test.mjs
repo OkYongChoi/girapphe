@@ -134,7 +134,9 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /async function gotoOwnerKnowledgeData\([\s\S]{0,1200}attempt <= 2[\s\S]{0,500}\/account\/delete#knowledge-data[\s\S]{0,700}OWNER_DATA_CONTROLS_UNAVAILABLE/);
   assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,500}html \{ scroll-behavior: auto !important; \}/);
   assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,1200}scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)[\s\S]{0,1000}document\.elementFromPoint\(point\.x, point\.y\)[\s\S]{0,700}the confirmation control is the stable centered pointer target/);
-  assert.match(source, /const confirmHandled = page\.waitForEvent\("dialog", \{ timeout: 5_000 \}\)[\s\S]{0,300}dialog\.accept\(\)[\s\S]{0,100}dialog\.dismiss\(\)[\s\S]{0,300}Promise\.allSettled\(\[[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,500}UNEXPECTED_DIALOG_TYPE/);
+  assert.match(source, /const confirmHandled = page\.waitForEvent\("dialog", \{ timeout: 5_000 \}\)[\s\S]{0,300}dialog\.accept\(\)[\s\S]{0,100}dialog\.dismiss\(\)/);
+  assert.match(source, /const activateControl = async \(\) => \{[\s\S]{0,180}if \(!hasTouch\)[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,300}expect\(control\)\.toBeEnabled[\s\S]{0,120}control\.focus\(\)[\s\S]{0,120}expect\(control\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
+  assert.match(source, /Promise\.allSettled\(\[[\s\S]{0,120}confirmHandled,[\s\S]{0,80}activateControl\(\)[\s\S]{0,700}UNEXPECTED_DIALOG_TYPE/);
   assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await clickAndAcceptConfirm\([\s\S]{0,220}deleteImportCopy[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
   assert.doesNotMatch(source, /page\.once\("dialog"/);
   const submissionClick = source.indexOf('await page.getByRole("button", { name: /Create 2 review candidates/i }).click()');
@@ -155,7 +157,7 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   const evidenceVisibleAssertion = source.indexOf('expect(evidenceGroup).toBeVisible()', metadataOpenAssertion);
   const finallyBlock = source.indexOf('} finally {', visibilityPoll);
   const recoveryCall = source.indexOf('await waitForSubmittedImportBatchId(page, selectedQuestionA)', finallyBlock);
-  const cleanupCall = source.indexOf('await deleteSubmittedImportThroughOwnerUi(page, batchId)', finallyBlock);
+  const cleanupCall = source.indexOf('await deleteSubmittedImportThroughOwnerUi(', finallyBlock);
   const fallbackImport = source.indexOf('"../scripts/authenticated-overlay-fixture.mjs"', cleanupCall);
   const fallbackCall = source.indexOf('await deleteExactAuthenticatedOverlayImport({', fallbackImport);
   const safeFailure = source.indexOf('THINKING_HISTORY_EVIDENCE_FAILED', fallbackCall);
