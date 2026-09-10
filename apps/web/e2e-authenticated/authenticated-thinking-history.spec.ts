@@ -328,9 +328,10 @@ async function activateExactReviewLink(
       await link.click({ trial, timeout: 10_000 });
       return;
     }
-    if (trial) return;
     if (!clickTarget) throw new Error("REVIEW_TOUCH_TARGET_MISSING");
-    await page.touchscreen.tap(clickTarget.x, clickTarget.y);
+    await link.focus();
+    await expect(link).toBeFocused();
+    if (!trial) await page.keyboard.press("Enter");
   };
   try {
     await activate(true);
@@ -498,6 +499,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
   await expect(page.getByRole("heading", { name: headingCopy })).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => messageResponses.length).toBe(1);
   expect(messageResponses[0]?.status()).toBe(200);
+  const messageBytes = Buffer.byteLength(await messageResponses[0]!.body());
   expect(contextResponses).toHaveLength(0);
 
   const signalRoot = page.locator(".thinking-card").first();
@@ -911,7 +913,6 @@ test("proves selected import, private evidence, portable context, dismissal, and
     throw new Error(`BROWSER_ERROR_DIGESTS:${digests}`);
   }
 
-  const messageBytes = Buffer.byteLength(await messageResponses[0]!.body());
   const metrics = {
     schemaVersion: 2,
     route: "/my-notes?view=insights -> /knowledge-inbox/import -> /account/delete",

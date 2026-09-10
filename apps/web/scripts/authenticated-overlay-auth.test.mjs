@@ -121,7 +121,7 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)/);
   assert.match(source, /const firstBounds = element\.getBoundingClientRect\(\)[\s\S]{0,220}const bounds = element\.getBoundingClientRect\(\)[\s\S]{0,500}const boundsAreStable/);
   assert.match(source, /document\.elementFromPoint\(point\.x, point\.y\)/);
-  assert.match(source, /if \(!hasTouch\)[\s\S]{0,120}link\.click\(\{ trial, timeout: 10_000 \}\)[\s\S]{0,220}page\.touchscreen\.tap\(clickTarget\.x, clickTarget\.y\)/);
+  assert.match(source, /if \(!hasTouch\)[\s\S]{0,120}link\.click\(\{ trial, timeout: 10_000 \}\)[\s\S]{0,240}link\.focus\(\)[\s\S]{0,120}expect\(link\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
   assert.match(source, /await activate\(true\)[\s\S]{0,1800}page\.on\("request", onRequest\)[\s\S]{0,300}await activate\(false\)/);
   assert.match(source, /REVIEW_ACTIVATION_NO_REQUEST/);
   assert.match(source, /REVIEW_DESTINATION_HTTP_ERROR/);
@@ -129,7 +129,7 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /REVIEW_TARGET_REDIRECT_NO_COMMIT/);
   assert.match(source, /REVIEW_TARGET_SUCCESS_NO_COMMIT/);
   assert.match(source, /await activateExactReviewLink\([\s\S]{0,180}reviewLinks\.first\(\)[\s\S]{0,100}batchId,[\s\S]{0,100}testInfo\.project\.use\.hasTouch === true/);
-  assert.doesNotMatch(source, /link\.tap|page\.mouse\.click/);
+  assert.doesNotMatch(source, /link\.tap|page\.touchscreen\.tap|page\.mouse\.click/);
   assert.doesNotMatch(source, /click\(\{ force: true \}\)/);
   assert.match(source, /async function gotoOwnerKnowledgeData\([\s\S]{0,1200}attempt <= 2[\s\S]{0,500}\/account\/delete#knowledge-data[\s\S]{0,700}OWNER_DATA_CONTROLS_UNAVAILABLE/);
   assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,700}waitForEvent\("dialog", \{ timeout: 5_000 \}\)[\s\S]{0,300}dialog\.accept\(\)[\s\S]{0,100}dialog\.dismiss\(\)[\s\S]{0,300}Promise\.allSettled\(\[[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,350}UNEXPECTED_DIALOG_TYPE/);
@@ -142,6 +142,9 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   const batchAssertion = source.indexOf('expect(batchId).toMatch', batchCapture);
   const visibilityPoll = source.indexOf('postConsentImportEvents = await waitForImportSubmissionEventCount');
   const preSubmitEvents = source.indexOf('const preSubmitImportEvents = await importSubmissionEvents');
+  const messageResponseReady = source.indexOf('await expect.poll(() => messageResponses.length).toBe(1)');
+  const messageBodyCapture = source.indexOf('const messageBytes = Buffer.byteLength(await messageResponses[0]!.body())');
+  const firstThinkingCard = source.indexOf('const signalRoot = page.locator(".thinking-card").first()');
   const preSubmitState = source.indexOf('publishedStateBeforeSubmission = await readAuthenticatedOverlayPublishedState');
   const pendingState = source.indexOf('await inspectPendingAuthenticatedOverlayImport({', visibilityPoll);
   const pendingStateComparison = source.indexOf(').toEqual(publishedStateBeforeSubmission)', pendingState);
@@ -157,6 +160,12 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.ok(evidenceTry >= 0 && evidenceTry < submissionClick, 'submission must start inside the cleanup boundary');
   assert.ok(submissionClick < exactRedirect && exactRedirect < batchCapture, 'the UUID redirect must resolve before batch capture');
   assert.ok(batchCapture < batchAssertion && batchAssertion < visibilityPoll, 'batch validation must precede telemetry polling');
+  assert.ok(
+    messageResponseReady >= 0
+      && messageResponseReady < messageBodyCapture
+      && messageBodyCapture < firstThinkingCard,
+    'the message asset body must be captured before later navigations can evict it from Chromium',
+  );
   assert.ok(
     preSubmitState > preSubmitEvents
       && preSubmitState < submissionClick
