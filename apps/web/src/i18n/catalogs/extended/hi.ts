@@ -601,6 +601,7 @@ export const EXTRA_HI_MESSAGES = {
   "recall.enrolling": "शुरू हो रहा है…",
   "recall.enrolled": "इस आइटम का स्मरण निर्धारित किया गया।",
   "recall.alreadyEnrolled": "इस आइटम की स्मरण समय-सारणी पहले से है।",
+  "recall.capacityReached": "Recall में अधिकतम 100 सक्रिय आइटम रखे जा सकते हैं। कोई नया आइटम जोड़ने से पहले मौजूदा Recall शेड्यूल रोकें।",
   "recall.ready": "अभी तैयार",
   "recall.notDue": "अभी तैयार नहीं",
   "recall.start": "स्मरण शुरू करें",

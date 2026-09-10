@@ -601,6 +601,7 @@ export const EXTRA_ZH_CN_MESSAGES = {
   "recall.enrolling": "正在开始…",
   "recall.enrolled": "已为此项目安排回忆。",
   "recall.alreadyEnrolled": "此项目已有回忆计划。",
+  "recall.capacityReached": "Recall 最多可保留 100 个活跃项目。请先停止一个现有的 Recall 计划，再添加新项目。",
   "recall.ready": "现在可开始",
   "recall.notDue": "尚未就绪",
   "recall.start": "开始回忆",

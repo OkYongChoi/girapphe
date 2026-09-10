@@ -672,6 +672,271 @@ test('Recall repository serializes enrollment and rejects stale or foreign-owner
   }
 });
 
+test('Recall enrollment serializes the owner capacity boundary across distinct items', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const importedRecall = await import('../src/lib/recall-persistence.ts');
+  const recall = importedRecall.default ?? importedRecall;
+  const importedEligibility = await import('../src/lib/recall-eligibility-sql.ts');
+  const eligibility = importedEligibility.default ?? importedEligibility;
+  const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
+  const fixturePrefix = `live-recall-capacity-${crypto.randomUUID()}`;
+  const userId = `${fixturePrefix}-owner`;
+  const foreignUserId = `${fixturePrefix}-foreign-owner`;
+  const activeItemIds = Array.from(
+    { length: 99 },
+    (_, index) => `${fixturePrefix}-active-${index + 1}`,
+  );
+  const candidateItemIds = [
+    `${fixturePrefix}-candidate-1`,
+    `${fixturePrefix}-candidate-2`,
+  ];
+  const foreignItemId = `${fixturePrefix}-foreign-item`;
+  const enrolledAt = '2026-09-03T00:00:00.000Z';
+  const firstDueAt = '2026-09-04T00:00:00.000Z';
+
+  function buildEligibleFixture(fixtureOwnerId, fixtureItemIds, suffix) {
+    return {
+      ownerId: fixtureOwnerId,
+      itemIds: fixtureItemIds,
+      batchId: `${fixturePrefix}-${suffix}-batch`,
+      requestId: `${fixturePrefix}-${suffix}-request`,
+      revisionIds: fixtureItemIds.map((_, index) => `${fixturePrefix}-${suffix}-revision-${index + 1}`),
+      draftIds: fixtureItemIds.map((_, index) => `${fixturePrefix}-${suffix}-draft-${index + 1}`),
+      clientCardIds: fixtureItemIds.map((_, index) => `${fixturePrefix}-${suffix}-card-${index + 1}`),
+      sourceIds: fixtureItemIds.map((_, index) => `${fixturePrefix}-${suffix}-source-${index + 1}`),
+      conversationRefs: fixtureItemIds.map(
+        (_, index) => `${fixturePrefix}-${suffix}-conversation-${index + 1}`,
+      ),
+    };
+  }
+
+  const ownerFixture = buildEligibleFixture(
+    userId,
+    [...activeItemIds, ...candidateItemIds],
+    'owner',
+  );
+  const foreignFixture = buildEligibleFixture(foreignUserId, [foreignItemId], 'foreign');
+  const fixtures = [ownerFixture, foreignFixture];
+  const allItemIds = fixtures.flatMap((fixture) => fixture.itemIds);
+  const allBatchIds = fixtures.map((fixture) => fixture.batchId);
+  const allRevisionIds = fixtures.flatMap((fixture) => fixture.revisionIds);
+  const allDraftIds = fixtures.flatMap((fixture) => fixture.draftIds);
+  const allSourceIds = fixtures.flatMap((fixture) => fixture.sourceIds);
+  const activeEligibility = eligibility.strictRecallEligibilityPredicate(
+    'active_schedule.recall_item_version',
+  );
+  const countActiveEligibleSchedules = async (ownerId) => Number((await pool.query(
+    `SELECT COUNT(*)::integer AS count
+     FROM user_private_card_states active_schedule
+     JOIN user_knowledge_items i
+       ON i.id = active_schedule.knowledge_item_id
+      AND i.user_id = active_schedule.user_id
+     WHERE active_schedule.user_id = $1
+       AND active_schedule.recall_enrolled_at IS NOT NULL
+       AND active_schedule.recall_item_version IS NOT NULL
+       AND active_schedule.recall_schedule_version IS NOT NULL
+       AND active_schedule.recall_schedule_state IN ('d1_pending', 'd1_retry', 'd7_pending')
+       AND active_schedule.recall_item_version = i.version
+       AND ${activeEligibility}`,
+    [ownerId],
+  )).rows[0]?.count ?? 0);
+  let bodyCompleted = false;
+
+  async function seedEligibleItems(fixture) {
+    await pool.query(
+      `INSERT INTO user_knowledge_items (
+         id, user_id, title, summary, content, topic, tags, knowledge_type,
+         central_question, structured_content, bundle_schema_version, version
+       )
+       SELECT
+         item_id, $2, $3 || ' ' || ordinality, '', '', 'recall-live', '[]'::jsonb,
+         'concept', 'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1, 1
+       FROM unnest($1::text[]) WITH ORDINALITY AS fixture_items(item_id, ordinality)`,
+      [fixture.itemIds, fixture.ownerId, 'Recall capacity fixture'],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_item_revisions
+         (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+       SELECT revision_id, $3, item_id, 1, '{}'::jsonb, 'confirmed'
+       FROM unnest($1::text[], $2::text[]) AS fixture_revisions(revision_id, item_id)`,
+      [fixture.revisionIds, fixture.itemIds, fixture.ownerId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_ingestion_batches (
+         id, user_id, source_type, provider, scope, request_id, status, committed_at
+       ) VALUES ($1, $2, 'conversation', 'chatgpt', 'current_conversation', $3, 'approved', NOW())`,
+      [fixture.batchId, fixture.ownerId, fixture.requestId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_card_drafts (
+         id, batch_id, user_id, client_card_id, title, knowledge_type,
+         central_question, structured_content, bundle_schema_version,
+         status, knowledge_item_id, approved_at
+       )
+       SELECT
+         draft_id, $4, $5, client_card_id, 'Recall capacity fixture', 'concept',
+         'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1,
+         'approved', item_id, NOW()
+       FROM unnest($1::text[], $2::text[], $3::text[])
+         AS fixture_drafts(draft_id, client_card_id, item_id)`,
+      [
+        fixture.draftIds,
+        fixture.clientCardIds,
+        fixture.itemIds,
+        fixture.batchId,
+        fixture.ownerId,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_card_sources (
+         id, user_id, knowledge_item_id, batch_id, draft_id, source_type,
+         provider, conversation_ref, supported_item_version, confirmed_at
+       )
+       SELECT
+         source_id, $6, item_id, $5, draft_id, 'conversation',
+         'chatgpt', conversation_ref, 1, NOW()
+       FROM unnest($1::text[], $2::text[], $3::text[], $4::text[])
+         AS fixture_sources(source_id, item_id, draft_id, conversation_ref)`,
+      [
+        fixture.sourceIds,
+        fixture.itemIds,
+        fixture.draftIds,
+        fixture.conversationRefs,
+        fixture.batchId,
+        fixture.ownerId,
+      ],
+    );
+  }
+
+  try {
+    for (const fixture of fixtures) await seedEligibleItems(fixture);
+    await pool.query(
+      `INSERT INTO user_private_card_states (
+         user_id, knowledge_item_id, status, knowledge_state, progress_state,
+         due_at, last_seen, recall_enrolled_at, recall_item_version,
+         recall_schedule_state, recall_d1_finalized_incomplete,
+         recall_d7_outcome, recall_schedule_version
+       )
+       SELECT
+         $2, item_id, NULL, NULL, NULL, $4::timestamptz, NULL,
+         $3::timestamptz, 1, 'd1_pending', FALSE, NULL, 1
+       FROM unnest($1::text[]) AS fixture_states(item_id)`,
+      [activeItemIds, userId, enrolledAt, firstDueAt],
+    );
+    await pool.query(
+      `INSERT INTO user_private_card_states (
+         user_id, knowledge_item_id, status, knowledge_state, progress_state,
+         due_at, last_seen, recall_enrolled_at, recall_item_version,
+         recall_schedule_state, recall_d1_finalized_incomplete,
+         recall_d7_outcome, recall_schedule_version
+       ) VALUES (
+         $1, $2, NULL, NULL, NULL, $4::timestamptz, NULL,
+         $3::timestamptz, 1, 'd1_pending', FALSE, NULL, 1
+       )`,
+      [foreignUserId, foreignItemId, enrolledAt, firstDueAt],
+    );
+
+    assert.equal(await countActiveEligibleSchedules(userId), 99);
+    assert.equal(await countActiveEligibleSchedules(foreignUserId), 1);
+    const foreignStateBefore = (await pool.query(
+      `SELECT to_jsonb(s) AS snapshot
+       FROM user_private_card_states s
+       WHERE s.user_id = $1 AND s.knowledge_item_id = $2`,
+      [foreignUserId, foreignItemId],
+    )).rows[0]?.snapshot;
+    assert.ok(foreignStateBefore);
+
+    const settledEnrollments = await Promise.allSettled(candidateItemIds.map((itemId) => (
+      recall.enrollApprovedRecallScheduleForUser(
+        userId,
+        itemId,
+        1,
+        enrolledAt,
+        firstDueAt,
+      )
+    )));
+    const enrollmentFailures = settledEnrollments
+      .filter((result) => result.status === 'rejected')
+      .map((result) => result.reason);
+    if (enrollmentFailures.length > 0) {
+      throw new AggregateError(enrollmentFailures, 'Concurrent Recall enrollment failed.');
+    }
+    const enrollmentResults = settledEnrollments.map((result) => result.value);
+    assert.deepEqual(
+      enrollmentResults.map((result) => result.kind).sort(),
+      ['capacity_reached', 'enrolled'],
+    );
+    const enrolledIndex = enrollmentResults.findIndex((result) => result.kind === 'enrolled');
+    assert.notEqual(enrolledIndex, -1);
+    assert.equal(await countActiveEligibleSchedules(userId), 100);
+    assert.deepEqual((await pool.query(
+      `SELECT knowledge_item_id
+       FROM user_private_card_states
+       WHERE user_id = $1 AND knowledge_item_id = ANY($2::text[])
+       ORDER BY knowledge_item_id`,
+      [userId, candidateItemIds],
+    )).rows, [{ knowledge_item_id: candidateItemIds[enrolledIndex] }]);
+
+    const foreignStateAfter = (await pool.query(
+      `SELECT to_jsonb(s) AS snapshot
+       FROM user_private_card_states s
+       WHERE s.user_id = $1 AND s.knowledge_item_id = $2`,
+      [foreignUserId, foreignItemId],
+    )).rows[0]?.snapshot;
+    assert.deepEqual(foreignStateAfter, foreignStateBefore);
+    assert.equal(await countActiveEligibleSchedules(foreignUserId), 1);
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    repositoryAdapter.restore();
+    await collectCleanupFailure(cleanupFailures, 'delete capacity ingestion batches', () => (
+      pool.query(
+        `DELETE FROM knowledge_ingestion_batches
+         WHERE id = ANY($1::text[]) AND user_id IN ($2, $3)`,
+        [allBatchIds, userId, foreignUserId],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete capacity knowledge items', () => (
+      pool.query(
+        `DELETE FROM user_knowledge_items
+         WHERE id = ANY($1::text[]) AND user_id IN ($2, $3)`,
+        [allItemIds, userId, foreignUserId],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify capacity fixture removal', async () => {
+      const remaining = (await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::integer FROM user_knowledge_items
+            WHERE id = ANY($1::text[])) AS items,
+           (SELECT COUNT(*)::integer FROM user_private_card_states
+            WHERE knowledge_item_id = ANY($1::text[])) AS states,
+           (SELECT COUNT(*)::integer FROM knowledge_item_revisions
+            WHERE id = ANY($2::text[])) AS revisions,
+           (SELECT COUNT(*)::integer FROM knowledge_card_sources
+            WHERE id = ANY($3::text[])) AS sources,
+           (SELECT COUNT(*)::integer FROM knowledge_card_drafts
+            WHERE id = ANY($4::text[])) AS drafts,
+           (SELECT COUNT(*)::integer FROM knowledge_ingestion_batches
+            WHERE id = ANY($5::text[])) AS batches`,
+        [allItemIds, allRevisionIds, allSourceIds, allDraftIds, allBatchIds],
+      )).rows[0];
+      assert.deepEqual(remaining, {
+        items: 0,
+        states: 0,
+        revisions: 0,
+        sources: 0,
+        drafts: 0,
+        batches: 0,
+      });
+    });
+    await collectCleanupFailure(cleanupFailures, 'close capacity database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});
+
 test('Recall reconciliation acquires its full ordered item-lock batch before updating', {
   skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
 }, async () => {

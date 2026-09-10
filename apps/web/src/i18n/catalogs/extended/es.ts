@@ -601,6 +601,7 @@ export const EXTRA_ES_MESSAGES = {
   "recall.enrolling": "Iniciando…",
   "recall.enrolled": "Se programó el recuerdo para este elemento.",
   "recall.alreadyEnrolled": "Este elemento ya tiene un horario de recuerdo.",
+  "recall.capacityReached": "Recall puede mantener hasta 100 elementos activos. Detén un horario de Recall existente antes de añadir otro.",
   "recall.ready": "Listo ahora",
   "recall.notDue": "Aún no está listo",
   "recall.start": "Empezar recuerdo",

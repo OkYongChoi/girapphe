@@ -601,6 +601,7 @@ export const EXTRA_AR_MESSAGES = {
   "recall.enrolling": "جارٍ البدء…",
   "recall.enrolled": "تمت جدولة الاستدعاء لهذا العنصر.",
   "recall.alreadyEnrolled": "لهذا العنصر جدول استدعاء بالفعل.",
+  "recall.capacityReached": "يمكن لـ Recall الاحتفاظ بما يصل إلى 100 عنصر نشط. أوقف جدول Recall حاليًا قبل إضافة عنصر آخر.",
   "recall.ready": "جاهز الآن",
   "recall.notDue": "غير جاهز بعد",
   "recall.start": "بدء الاستدعاء",

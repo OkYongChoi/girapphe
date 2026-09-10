@@ -15,7 +15,10 @@ import { normalizeKnowledgeSourceUrl } from '@/lib/knowledge-source-url';
 import { parseKnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
 import { strictRecallEligibilityPredicate } from '@/lib/recall-eligibility-sql';
 import type { PersistedRecallSchedule } from '@/lib/recall-persistence';
-import { RECALL_SCHEDULE_LOCK_PREFIX } from '@/lib/recall-schedule-lock';
+import {
+  MAX_ACTIVE_RECALL_SCHEDULES,
+  RECALL_SCHEDULE_LOCK_PREFIX,
+} from '@/lib/recall-schedule-lock';
 import type {
   PersistedRecallAttempt,
   RecallAttemptConfidence,
@@ -25,7 +28,6 @@ import type {
 } from '@/lib/recall-attempts';
 
 const MAX_RECALL_CANDIDATES = 24;
-const MAX_ACTIVE_RECALL_SCHEDULES = 100;
 
 export type RecallSourceSummary = {
   provider: 'chatgpt' | 'claude' | 'gemini' | 'other';

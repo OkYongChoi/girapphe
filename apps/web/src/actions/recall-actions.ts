@@ -34,7 +34,13 @@ import {
 import { isRecallRuntimeEnrollmentEnabledForUser } from '@/lib/recall-runtime-rollout';
 
 export type RecallEnrollmentActionResult = {
-  kind: 'enrolled' | 'unchanged' | 'disabled' | 'ineligible' | 'not_available';
+  kind:
+    | 'enrolled'
+    | 'unchanged'
+    | 'capacity_reached'
+    | 'disabled'
+    | 'ineligible'
+    | 'not_available';
 };
 
 export type RecallStartActionResult = {

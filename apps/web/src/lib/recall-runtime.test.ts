@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test, { type TestContext } from 'node:test';
 import db from '@/lib/db';
 import type { PersistedRecallSchedule } from '@/lib/recall-persistence';
+import { withoutOptimisticRecallItem } from '@/lib/recall-review-optimistic-state';
 import {
   getManualRecallPreRevealSessionForUser,
   getManualRecallRevealedSessionForUser,
@@ -296,7 +297,39 @@ test('client adapter keeps recall text out of actions and uses logical, 44px con
     .map((fragment) => fragment.slice(0, fragment.indexOf('</button>')));
   assert.ok(buttons.length > 0);
   assert.ok(buttons.every((button) => /min-h-11/u.test(button)), 'every button has a 44px minimum height');
+  assert.match(
+    component,
+    /result\.kind === 'capacity_reached'[\s\S]*'recall\.capacityReached'/u,
+    'the active-schedule cap has its own stable user-visible recovery state',
+  );
+  const enrollmentFlow = component.slice(
+    component.indexOf('function enroll('),
+    component.indexOf('function start('),
+  );
+  assert.match(
+    enrollmentFlow,
+    /setCancelledScheduleIds\(\(current\) => \([\s\S]*withoutOptimisticRecallItem\(current, candidate\.knowledgeItemId\)/u,
+    'successful re-enrollment must reveal the newly active schedule in the current client session',
+  );
+  const cancellationFlow = component.slice(
+    component.indexOf('function cancel('),
+    component.indexOf('function closeSession('),
+  );
+  assert.match(
+    cancellationFlow,
+    /setHiddenCandidateIds\(\(current\) => \([\s\S]*withoutOptimisticRecallItem\(current, schedule\.knowledgeItemId\)/u,
+    'successful cancellation must reveal the newly eligible candidate in the current client session',
+  );
   assert.doesNotMatch(component, /(?:^|["'\s])(?:ml|mr|pl|pr|text-left|text-right)-/mu);
+});
+
+test('opposite Recall optimistic state is cleared without mutating the prior render snapshot', () => {
+  const current = new Set(['recall-a', 'recall-b']);
+  const next = withoutOptimisticRecallItem(current, 'recall-a');
+
+  assert.deepEqual([...current], ['recall-a', 'recall-b']);
+  assert.deepEqual([...next], ['recall-b']);
+  assert.notEqual(next, current);
 });
 
 test('runtime actions gate only new enrollment and force hint use off', () => {

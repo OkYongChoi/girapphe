@@ -601,6 +601,7 @@ export const EXTRA_EN_MESSAGES = {
   "recall.enrolling": "Starting…",
   "recall.enrolled": "Recall was scheduled for this item.",
   "recall.alreadyEnrolled": "This item already has a Recall schedule.",
+  "recall.capacityReached": "Recall can keep up to 100 active items. Stop an existing Recall schedule before adding another.",
   "recall.ready": "Ready now",
   "recall.notDue": "Not ready yet",
   "recall.start": "Start recall",

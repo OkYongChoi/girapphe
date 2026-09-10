@@ -97,8 +97,10 @@ test('enrolls only an active, current, approved typed conversation item and retu
     queries = inputQueries;
     return [
       { rows: [] },
+      { rows: [] },
       { rows: [scheduleRow()] },
       { rows: [] },
+      { rows: [{ is_eligible: true, at_capacity: false }] },
     ] as never;
   }) as typeof db.accountTransaction;
 
@@ -120,11 +122,13 @@ test('enrolls only an active, current, approved typed conversation item and retu
     'snapshot',
   ]);
   assert.equal(transactionUserId, USER_ID);
-  assert.equal(queries.length, 3);
+  assert.equal(queries.length, 5);
   assert.match(queries[0]!.text, /pg_advisory_xact_lock/);
-  assert.deepEqual(queries[0]!.params, [`recall-schedule:${USER_ID}:${ITEM_ID}`]);
+  assert.deepEqual(queries[0]!.params, [`recall-enrollment-capacity:${USER_ID}`]);
+  assert.match(queries[1]!.text, /pg_advisory_xact_lock/);
+  assert.deepEqual(queries[1]!.params, [`recall-schedule:${USER_ID}:${ITEM_ID}`]);
 
-  const enrollmentSql = queries[1]!.text;
+  const enrollmentSql = queries[2]!.text;
   assert.match(enrollmentSql, /INSERT INTO user_private_card_states AS s/);
   assert.match(enrollmentSql, /i\.user_id = \$1/);
   assert.match(enrollmentSql, /i\.id = \$2/);
@@ -141,7 +145,27 @@ test('enrolls only an active, current, approved typed conversation item and retu
   assert.match(enrollmentSql, /i\.purge_at IS NULL/);
   assert.match(enrollmentSql, /knowledge_item_supersessions/);
   assert.match(enrollmentSql, /NULL,\s*NULL,\s*NULL,\s*\$5::timestamptz,\s*NULL,/);
+  assert.match(enrollmentSql, /active_schedule\.user_id = \$1/);
+  assert.match(enrollmentSql, /active_schedule\.recall_schedule_state IN \('d1_pending', 'd1_retry', 'd7_pending'\)/);
+  assert.match(enrollmentSql, /active_schedule\.recall_item_version = i\.version/);
+  assert.match(enrollmentSql, /i\.version = active_schedule\.recall_item_version/);
+  assert.match(enrollmentSql, /src\.supported_item_version = i\.version/);
+  assert.match(enrollmentSql, /COUNT\(\*\)[\s\S]*< \$6::integer/);
+  assert.deepEqual(queries[2]!.params, [
+    USER_ID,
+    ITEM_ID,
+    1,
+    ENROLLED_AT,
+    D1_DUE_AT,
+    100,
+  ]);
   assert.doesNotMatch(enrollmentSql, /i\.title|i\.content|source_url|source_locator/);
+
+  const capacityProbe = queries[4]!;
+  assert.match(capacityProbe.text, /AS is_eligible/);
+  assert.match(capacityProbe.text, /COUNT\(\*\)[\s\S]*>= \$4::integer AS at_capacity/);
+  assert.deepEqual(capacityProbe.params, [USER_ID, ITEM_ID, 1, 100]);
+  assert.doesNotMatch(capacityProbe.text, /i\.title|i\.content|source_url|source_locator/);
 });
 
 test('enrollment preserves an existing assessed Practice projection and duplicate enrollment is unchanged', async (context) => {
@@ -161,7 +185,9 @@ test('enrollment preserves an existing assessed Practice projection and duplicat
     return [
       { rows: [] },
       { rows: [] },
+      { rows: [] },
       { rows: [scheduleRow(assessed)] },
+      { rows: [{ is_eligible: true, at_capacity: true }] },
     ] as never;
   }) as typeof db.accountTransaction;
 
@@ -174,12 +200,45 @@ test('enrollment preserves an existing assessed Practice projection and duplicat
   );
 
   assert.deepEqual(result, { kind: 'unchanged', schedule: assessed });
-  const conflictClause = queries[1]!.text.slice(queries[1]!.text.indexOf('ON CONFLICT'));
+  const conflictClause = queries[2]!.text.slice(queries[2]!.text.indexOf('ON CONFLICT'));
   assert.match(conflictClause, /WHERE s\.recall_enrolled_at IS NULL/);
   assert.doesNotMatch(conflictClause, /status\s*=/);
   assert.doesNotMatch(conflictClause, /knowledge_state\s*=/);
   assert.doesNotMatch(conflictClause, /progress_state\s*=/);
   assert.doesNotMatch(conflictClause, /last_seen\s*=/);
+});
+
+test('eligible enrollment at the owner active-schedule cap returns a stable content-free result', async (context) => {
+  const original = db.accountTransaction;
+  let probe = { is_eligible: true, at_capacity: true };
+  context.after(() => { db.accountTransaction = original; });
+  db.accountTransaction = (async () => [
+    { rows: [] },
+    { rows: [] },
+    { rows: [] },
+    { rows: [] },
+    { rows: [probe] },
+  ] as never) as typeof db.accountTransaction;
+
+  const result = await enrollApprovedRecallScheduleForUser(
+    USER_ID,
+    ITEM_ID,
+    1,
+    ENROLLED_AT,
+    D1_DUE_AT,
+  );
+
+  assert.deepEqual(result, { kind: 'capacity_reached', schedule: null });
+  assert.doesNotMatch(JSON.stringify(result), /title|content|source|conversation/);
+
+  probe = { is_eligible: false, at_capacity: true };
+  assert.deepEqual(await enrollApprovedRecallScheduleForUser(
+    USER_ID,
+    ITEM_ID,
+    1,
+    ENROLLED_AT,
+    D1_DUE_AT,
+  ), { kind: 'ineligible', schedule: null });
 });
 
 test('owner-scoped reads require the current approved source version and expose only schedule metadata', async (context) => {

@@ -601,6 +601,7 @@ export const EXTRA_JA_MESSAGES = {
   "recall.enrolling": "開始中…",
   "recall.enrolled": "この項目の想起を予定しました。",
   "recall.alreadyEnrolled": "この項目にはすでに想起スケジュールがあります。",
+  "recall.capacityReached": "Recall で有効にできる項目は最大100件です。別の項目を追加する前に、既存の Recall スケジュールを停止してください。",
   "recall.ready": "今すぐ開始可能",
   "recall.notDue": "まだ開始できません",
   "recall.start": "想起を開始",

@@ -21,6 +21,7 @@ import type {
   ManualRecallSession,
   RecallSourceSummary,
 } from '@/lib/recall-runtime';
+import { withoutOptimisticRecallItem } from '@/lib/recall-review-optimistic-state';
 
 type RecallReviewSessionProps = {
   initialOverview: ManualRecallOverview;
@@ -80,12 +81,19 @@ export default function RecallReviewSession({
           itemVersion: candidate.itemVersion,
         });
         if (result.kind === 'enrolled' || result.kind === 'unchanged') {
+          setCancelledScheduleIds((current) => (
+            withoutOptimisticRecallItem(current, candidate.knowledgeItemId)
+          ));
           setHiddenCandidateIds((current) => new Set(current).add(candidate.knowledgeItemId));
           setStatus(t(result.kind === 'enrolled' ? 'recall.enrolled' : 'recall.alreadyEnrolled'));
           router.refresh();
           return;
         }
-        setStatus(t(result.kind === 'disabled' ? 'recall.rolloutPausedBody' : 'recall.unavailable'));
+        setStatus(t(result.kind === 'disabled'
+          ? 'recall.rolloutPausedBody'
+          : result.kind === 'capacity_reached'
+            ? 'recall.capacityReached'
+            : 'recall.unavailable'));
       } catch {
         showGenericFailure();
       }
@@ -197,6 +205,9 @@ export default function RecallReviewSession({
           enrolledAt: schedule.enrolledAt,
         });
         if (result.kind === 'cancelled' || result.kind === 'unchanged') {
+          setHiddenCandidateIds((current) => (
+            withoutOptimisticRecallItem(current, schedule.knowledgeItemId)
+          ));
           setCancelledScheduleIds((current) => new Set(current).add(schedule.knowledgeItemId));
           if (session?.knowledgeItemId === schedule.knowledgeItemId) setSession(null);
           setRecallText('');
