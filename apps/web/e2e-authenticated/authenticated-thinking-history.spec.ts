@@ -193,13 +193,6 @@ async function clickAndAcceptConfirm(
     intervals: [100, 250, 500],
   }).toBe(true);
 
-  const mobileTapPosition = hasTouch
-    ? await control.evaluate((element) => ({
-      x: element.clientWidth / 2,
-      y: element.clientHeight / 2,
-    }))
-    : undefined;
-
   let dialogType: string | null = null;
   const confirmHandled = page.waitForEvent("dialog", { timeout: 5_000 })
     .then(async (dialog) => {
@@ -208,12 +201,15 @@ async function clickAndAcceptConfirm(
       else await dialog.dismiss();
     });
   const activateControl = async () => {
-    if (!mobileTapPosition) {
+    if (!hasTouch) {
       await control.click({ timeout: 5_000 });
       return;
     }
     await expect(control).toBeEnabled({ timeout: 5_000 });
-    await control.tap({ position: mobileTapPosition, timeout: 5_000 });
+    // Keep this as a real, unforced touch activation. Let Playwright derive a
+    // fresh clickable point after its own actionability scroll instead of
+    // pinning an offset whose mobile viewport mapping can become stale.
+    await control.tap({ timeout: 5_000 });
   };
   const [dialogResult, activationResult] = await Promise.allSettled([
     confirmHandled,
@@ -386,14 +382,7 @@ async function activateExactReviewLink(
     intervals: [100, 250, 500],
   }).toBe(true);
 
-  const mobileTapPosition = hasTouch
-    ? await link.evaluate((element) => ({
-      x: element.clientWidth / 2,
-      y: element.clientHeight / 2,
-    }))
-    : undefined;
-
-  if (!mobileTapPosition) {
+  if (!hasTouch) {
     try {
       await link.click({ trial: true, timeout: 10_000 });
     } catch (error) {
@@ -402,11 +391,12 @@ async function activateExactReviewLink(
   }
 
   const activate = async () => {
-    if (mobileTapPosition) {
-      await link.tap({
-        position: mobileTapPosition,
-        timeout: 10_000,
-      });
+    if (hasTouch) {
+      // The rendered-center poll above proves the anchor is exposed before
+      // activation. An unforced locator tap then computes its clickable point
+      // from the post-scroll content quad, avoiding a stale mobile offset while
+      // retaining Playwright's visibility, stability, and hit-target checks.
+      await link.tap({ timeout: 10_000 });
       return;
     }
     await link.focus();
