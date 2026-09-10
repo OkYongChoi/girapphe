@@ -163,8 +163,11 @@ screenshots and sanitized JSON. If the suite fails, CI removes Playwright error
 context and any image, trace, or video before uploading a diagnostics-only
 artifact; it does not upload the HTML report for that failed run.
 
-A separate Preview-only fault check lets the create POST commit, captures and
-redacts the PAT from the fulfilled response, then faults both UI cleanup paths.
+A separate Preview-only fault check ignores Clerk and other background traffic,
+then intercepts only the exact same-origin Settings Server Action POST whose
+form payload contains that run's random marker. It lets that create POST commit,
+captures and redacts the PAT from the fulfilled response, then faults both UI
+cleanup paths.
 The locked database fallback is a mandatory post-capture safety control even if
 clipboard or UI assertions fail: it matches owner, exact label, unique run marker,
 and SHA-256 hash, revokes that row, and verifies `active=0`. If the create commits

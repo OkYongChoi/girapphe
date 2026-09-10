@@ -112,7 +112,9 @@ normal evidence step keeps the original timeout while a separate cleanup
 reserve is added to the enclosing test before Create, ensuring that evidence
 timeout cannot skip `finally` cleanup.
 
-The separate fault path lets the create POST commit, extracts the one-time PAT
+The separate fault path ignores Clerk and other background traffic and
+intercepts only the exact same-origin Settings Server Action POST carrying the
+unique run marker. It lets that create POST commit, extracts the one-time PAT
 only in process memory, replaces it in the fulfilled response, then faults both
 UI cleanup paths. The database fallback runs after the create attempt even when
 clipboard, response-capture, or UI assertions error; the evidence itself still

@@ -12,6 +12,10 @@ import {
   revokeExactAuthenticatedOverlayMcpToken,
   revokeExactAuthenticatedOverlayMcpTokenByMarker,
 } from '../scripts/authenticated-overlay-fixture.mjs';
+import {
+  isExactMcpCreateServerAction,
+  targetsExactSettingsDocument,
+} from './authenticated-mcp-provider-setup-fault-routing';
 
 const RAW_PAT_CAPTURE_PATTERN = /girapphe_mcp_[A-Za-z0-9_-]{43}/gu;
 const RAW_PAT_SHAPE = /^girapphe_mcp_[A-Za-z0-9_-]{43}$/u;
@@ -70,6 +74,7 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
 
   const runMarker = `${AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:${randomUUID()}`;
   const connectionLabel = `PAT ${runMarker}`;
+  const settingsDocumentUrl = page.url();
   const originalSentinel = new Error('MCP_PAT_ROUTE_FAULT_SENTINEL');
   let rawToken = '';
   let postResponseCaptured = false;
@@ -83,12 +88,20 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
   let observedError: unknown = null;
 
   await page.route('**/*', async (route) => {
-    if (routeFaultArmed) {
+    const request = route.request();
+    const targetsSettings = targetsExactSettingsDocument(
+      request.url(),
+      settingsDocumentUrl,
+    );
+    if (routeFaultArmed && targetsSettings) {
       routeFaultedRequestCount += 1;
       await route.abort('failed');
       return;
     }
-    if (route.request().method() !== 'POST') {
+    if (
+      routeFaultArmed
+      || !isExactMcpCreateServerAction(request, settingsDocumentUrl, runMarker)
+    ) {
       await route.continue();
       return;
     }
