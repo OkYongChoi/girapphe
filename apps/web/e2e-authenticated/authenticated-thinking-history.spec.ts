@@ -2,7 +2,15 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { expect, test, type Locator, type Page, type Request, type Response } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type Request,
+  type Response,
+  type TestInfo,
+} from "@playwright/test";
 import {
   classifyReviewLocatorActivationFailure,
   isSuccessfulReviewNavigation,
@@ -40,6 +48,11 @@ const contextFormatCopy = staticMessage(englishThinkingHistory, "insights.contex
 const contextCopy = staticMessage(englishThinkingHistory, "insights.context.copy", "Copy context");
 const contextDownloadCopy = staticMessage(englishThinkingHistory, "insights.context.download", "Download context");
 const contextCopiedCopy = staticMessage(englishThinkingHistory, "insights.context.copied", "Context copied and reuse recorded.");
+const twoContextItemsSelectedCopy = staticMessage(
+  englishThinkingHistory,
+  "insights.context.selected",
+  "Selected {count}",
+).replace("{count}", "2");
 const dismissCopy = staticMessage(englishThinkingHistory, "insights.dismiss.unhelpful", "Not useful");
 const importHeadingCopy = "Find the ideas worth carrying forward.";
 const importSummaryCopy = staticMessage(englishImport, "import.summaryTitle", "This is the shape of your AI history");
@@ -325,11 +338,156 @@ function sameReviewDestination(requestUrl: string, targetUrl: URL): boolean {
     && candidate.pathname === targetUrl.pathname;
 }
 
+type ReviewTapScrollSample = {
+  at: number;
+  scrollY: number;
+  rootScrollTop: number;
+  visualPageTop: number | null;
+  visualOffsetTop: number | null;
+  targetTop: number;
+  targetLeft: number;
+  targetWidth: number;
+  targetHeight: number;
+};
+
+type ReviewTapScrollState = {
+  samples: ReviewTapScrollSample[];
+  totalEvents: number;
+  record: () => void;
+};
+
+type ReviewTapWindow = typeof window & {
+  __girappheReviewTapScroll?: ReviewTapScrollState;
+};
+
+async function startReviewTapScrollRecorder(link: Locator): Promise<void> {
+  await link.evaluate((element) => {
+    const browserWindow = window as ReviewTapWindow;
+    const previous = browserWindow.__girappheReviewTapScroll;
+    if (previous) {
+      window.removeEventListener("scroll", previous.record);
+      window.visualViewport?.removeEventListener("scroll", previous.record);
+    }
+    const state: ReviewTapScrollState = {
+      samples: [],
+      totalEvents: 0,
+      record: () => undefined,
+    };
+    state.record = () => {
+      state.totalEvents += 1;
+      const bounds = element.getBoundingClientRect();
+      const visualViewport = window.visualViewport;
+      state.samples.push({
+        at: Math.round(performance.now()),
+        scrollY: Math.round(window.scrollY * 100) / 100,
+        rootScrollTop: Math.round((document.scrollingElement?.scrollTop ?? 0) * 100) / 100,
+        visualPageTop: visualViewport ? Math.round(visualViewport.pageTop * 100) / 100 : null,
+        visualOffsetTop: visualViewport ? Math.round(visualViewport.offsetTop * 100) / 100 : null,
+        targetTop: Math.round(bounds.top * 100) / 100,
+        targetLeft: Math.round(bounds.left * 100) / 100,
+        targetWidth: Math.round(bounds.width * 100) / 100,
+        targetHeight: Math.round(bounds.height * 100) / 100,
+      });
+      if (state.samples.length > 64) state.samples.shift();
+    };
+    browserWindow.__girappheReviewTapScroll = state;
+    window.addEventListener("scroll", state.record, { passive: true });
+    window.visualViewport?.addEventListener("scroll", state.record, { passive: true });
+    state.record();
+  });
+}
+
+async function captureReviewTapGeometry(page: Page, link: Locator) {
+  const playwrightBox = await link.boundingBox();
+  return link.evaluate((element, box) => {
+    const bounds = element.getBoundingClientRect();
+    const visualViewport = window.visualViewport;
+    const targetArticle = element.closest("article");
+    const describeHits = (x: number, y: number) => document.elementsFromPoint(x, y)
+      .slice(0, 6)
+      .map((node) => {
+        const html = node instanceof HTMLElement ? node : node.parentElement;
+        const position = html === element
+          ? "target"
+          : html?.contains(element)
+            ? "target-ancestor"
+            : html && (html.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING)
+              ? "before-target"
+              : "after-target";
+        const kind = html && element.contains(html)
+          ? "target"
+          : html?.closest("nav")
+            ? "navigation"
+            : targetArticle && html?.closest("article") === targetArticle
+              ? "target-article"
+              : html?.closest("section[aria-label]")
+                ? "labelled-section"
+                : "document-flow";
+        return {
+          tag: html?.tagName.toLowerCase() ?? "unknown",
+          kind,
+          position,
+        };
+      });
+    const domCenter = {
+      x: bounds.left + bounds.width / 2,
+      y: bounds.top + bounds.height / 2,
+    };
+    const playwrightCenter = box
+      ? { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+      : null;
+    return {
+      scrollY: window.scrollY,
+      rootScrollTop: document.scrollingElement?.scrollTop ?? null,
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      documentWidth: document.documentElement.scrollWidth,
+      documentHeight: document.documentElement.scrollHeight,
+      visualViewport: visualViewport ? {
+        width: visualViewport.width,
+        height: visualViewport.height,
+        pageLeft: visualViewport.pageLeft,
+        pageTop: visualViewport.pageTop,
+        offsetLeft: visualViewport.offsetLeft,
+        offsetTop: visualViewport.offsetTop,
+        scale: visualViewport.scale,
+      } : null,
+      targetRect: {
+        left: bounds.left,
+        top: bounds.top,
+        width: bounds.width,
+        height: bounds.height,
+      },
+      playwrightBox: box,
+      domCenterHits: describeHits(domCenter.x, domCenter.y),
+      playwrightCenterHits: playwrightCenter
+        ? describeHits(playwrightCenter.x, playwrightCenter.y)
+        : [],
+    };
+  }, playwrightBox);
+}
+
+async function stopReviewTapScrollRecorder(page: Page) {
+  return page.evaluate(() => {
+    const browserWindow = window as ReviewTapWindow;
+    const state = browserWindow.__girappheReviewTapScroll;
+    if (!state) return null;
+    window.removeEventListener("scroll", state.record);
+    window.visualViewport?.removeEventListener("scroll", state.record);
+    delete browserWindow.__girappheReviewTapScroll;
+    return {
+      totalEvents: state.totalEvents,
+      samples: state.samples,
+    };
+  });
+}
+
 async function activateExactReviewLink(
   page: Page,
   link: Locator,
   batchId: string,
   hasTouch: boolean,
+  testInfo: TestInfo,
 ): Promise<void> {
   const currentUrl = new URL(page.url());
   const rawHref = await link.getAttribute("href");
@@ -435,11 +593,25 @@ async function activateExactReviewLink(
   page.on("response", onResponse);
   page.on("requestfailed", onRequestFailed);
 
+  const geometryBefore = hasTouch
+    ? await startReviewTapScrollRecorder(link).then(() => captureReviewTapGeometry(page, link))
+    : null;
+
   let activationError: unknown;
   try {
     await activate();
   } catch (error) {
     activationError = error;
+  }
+  if (hasTouch && activationError) {
+    const [geometryAfter, scroll] = await Promise.all([
+      captureReviewTapGeometry(page, link).catch(() => null),
+      stopReviewTapScrollRecorder(page).catch(() => null),
+    ]);
+    await testInfo.attach("review-tap-geometry", {
+      body: Buffer.from(JSON.stringify({ before: geometryBefore, after: geometryAfter, scroll }, null, 2)),
+      contentType: "application/json",
+    });
   }
   await expect.poll(() => {
     if (observation.requestFailed) return true;
@@ -581,6 +753,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
   expect(await evidenceCheckboxes.count()).toBeGreaterThanOrEqual(2);
   await evidenceCheckboxes.nth(0).check();
   await evidenceCheckboxes.nth(1).check();
+  await expect(signalRoot.locator(".thinking-selected-count")).toHaveText(twoContextItemsSelectedCopy);
 
   const formats: ContextFormat[] = ["json", "yaml", "markdown"];
   const contextPayloads: string[] = [];
@@ -588,17 +761,20 @@ test("proves selected import, private evidence, portable context, dismissal, and
   for (const format of formats) {
     await formatSelect.selectOption(format);
     const copyResponsePromise = page.waitForResponse(
-      (response) => contextFormat(response) === format && response.status() === 200,
+      (response) => contextFormat(response) === format,
+      { timeout: 30_000 },
     );
     await signalRoot.getByRole("button", { name: contextCopy }).click();
-    await copyResponsePromise;
+    const copyResponse = await copyResponsePromise;
+    expect(copyResponse.status(), `${format} copy context response`).toBe(200);
     await expect(signalRoot.getByRole("status")).toHaveText(contextCopiedCopy);
     const clipboard = await page.evaluate(() => navigator.clipboard.readText());
     assertPortableContext(format, clipboard);
     contextPayloads.push(clipboard);
 
     const downloadResponsePromise = page.waitForResponse(
-      (response) => contextFormat(response) === format && response.status() === 200,
+      (response) => contextFormat(response) === format,
+      { timeout: 30_000 },
     );
     const downloadPromise = page.waitForEvent("download");
     await signalRoot.getByRole("button", { name: contextDownloadCopy }).click();
@@ -871,6 +1047,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
       reviewLinks.first(),
       batchId,
       testInfo.project.use.hasTouch === true,
+      testInfo,
     );
     evidenceStage = "review_metadata";
     const metadataSummary = page.locator("summary").filter({

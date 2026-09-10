@@ -116,7 +116,7 @@ test('Thinking History import-event evidence waits for commit visibility and cle
     'the import route itself must not satisfy the submitted-batch redirect',
   );
   assert.match(source, /async function waitForSubmittedImportBatchId\([\s\S]{0,1400}submittedImportBatchIdsContainingMarker\([\s\S]{0,700}\.toBe\(1\)/);
-  assert.match(source, /async function activateExactReviewLink\([\s\S]{0,180}batchId: string,[\s\S]{0,80}hasTouch: boolean,[\s\S]{0,40}Promise<void>/);
+  assert.match(source, /async function activateExactReviewLink\([\s\S]{0,180}batchId: string,[\s\S]{0,80}hasTouch: boolean,[\s\S]{0,80}testInfo: TestInfo,[\s\S]{0,40}Promise<void>/);
   assert.match(source, /const smoothScrollOverride = hasTouch[\s\S]{0,80}\? null[\s\S]{0,180}html \{ scroll-behavior: auto !important; \}/);
   assert.match(source, /if \(!hasTouch\) \{[\s\S]{0,700}scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)/);
   assert.match(source, /if \(!hasTouch\) \{[\s\S]{0,900}const firstBounds = element\.getBoundingClientRect\(\)[\s\S]{0,220}const bounds = element\.getBoundingClientRect\(\)[\s\S]{0,500}const boundsAreStable/);
@@ -134,6 +134,16 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /await activateExactReviewLink\([\s\S]{0,180}reviewLinks\.first\(\)[\s\S]{0,100}batchId,[\s\S]{0,100}testInfo\.project\.use\.hasTouch === true/);
   assert.doesNotMatch(source, /page\.touchscreen\.tap|page\.mouse\.click/);
   assert.doesNotMatch(source, /force:\s*true/);
+  assert.match(source, /startReviewTapScrollRecorder\(link\)[\s\S]{0,120}captureReviewTapGeometry\(page, link\)/);
+  assert.match(source, /testInfo\.attach\("review-tap-geometry"[\s\S]{0,180}JSON\.stringify\(\{ before: geometryBefore, after: geometryAfter, scroll \}/);
+  const geometryDiagnosticSource = source.slice(
+    source.indexOf('type ReviewTapScrollSample'),
+    source.indexOf('async function activateExactReviewLink'),
+  );
+  assert.doesNotMatch(geometryDiagnosticSource, /textContent|innerHTML|outerHTML|href/);
+  assert.match(source, /thinking-selected-count"\)\)\.toHaveText\(twoContextItemsSelectedCopy\)/);
+  assert.match(source, /page\.waitForResponse\([\s\S]{0,120}contextFormat\(response\) === format,[\s\S]{0,80}\{ timeout: 30_000 \}/);
+  assert.match(source, /expect\(copyResponse\.status\(\), `\$\{format\} copy context response`\)\.toBe\(200\)/);
   assert.match(source, /async function gotoOwnerKnowledgeData\([\s\S]{0,1200}attempt <= 2[\s\S]{0,500}\/account\/delete#knowledge-data[\s\S]{0,700}OWNER_DATA_CONTROLS_UNAVAILABLE/);
   assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,500}html \{ scroll-behavior: auto !important; \}/);
   assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,1200}scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)[\s\S]{0,1000}document\.elementFromPoint\(point\.x, point\.y\)[\s\S]{0,700}the confirmation control is the stable centered pointer target/);
