@@ -23,6 +23,7 @@ const args = [
   'exec',
   'expo',
   'export',
+  '--clear',
   '--platform',
   platform,
   '--output-dir',
