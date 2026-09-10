@@ -62,6 +62,23 @@ test('mobile ranking preserves anonymous participant identity and identifies the
   assert.match(rankingSource, /item\.isCurrentUser \? t\('ranking\.you'\) : t\('ranking\.user'/);
   assert.match(rankingSource, /styles\.currentUserRow/);
   assert.match(rankingSource, /<View\s+accessible\s+accessibilityLabel=\{t\('ranking\.rowA11y'/);
+  assert.match(rankingSource, /const loadRequest = useRef\(0\)/);
+  assert.match(
+    rankingSource,
+    /const request = \+\+loadRequest\.current;[\s\S]*?const nextRows = \(await mobileApi\.ranking\(\)\)\.rows;[\s\S]*?if \(request === loadRequest\.current\) setRows\(nextRows\)/,
+  );
+  assert.match(
+    rankingSource,
+    /catch \(reason\) \{[\s\S]*?if \(request === loadRequest\.current\)[\s\S]*?setError\(/,
+  );
+  assert.match(
+    rankingSource,
+    /finally \{[\s\S]*?if \(request === loadRequest\.current\) setLoading\(false\)/,
+  );
+  assert.match(
+    rankingSource,
+    /useFocusEffect\(useCallback\(\(\) => \{[\s\S]*?void load\(\);[\s\S]*?return \(\) => \{[\s\S]*?loadRequest\.current \+= 1;[\s\S]*?\};[\s\S]*?\}, \[load, locale\]\)\)/,
+  );
 });
 
 test('a public concept can be reviewed as a prefilled private-copy draft on mobile', () => {

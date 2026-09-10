@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { FlatList, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { AuthRequired } from '@/components/auth-required';
@@ -16,15 +16,29 @@ function RankingContent() {
   const [rows, setRows] = useState<MobileRankingRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadRequest = useRef(0);
   const load = useCallback(async () => {
+    const request = ++loadRequest.current;
     setLoading(true);
     setError(null);
-    try { setRows((await mobileApi.ranking()).rows); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : t('ranking.loadError')); }
-    finally { setLoading(false); }
+    try {
+      const nextRows = (await mobileApi.ranking()).rows;
+      if (request === loadRequest.current) setRows(nextRows);
+    } catch (reason) {
+      if (request === loadRequest.current) {
+        setError(reason instanceof Error ? reason.message : t('ranking.loadError'));
+      }
+    } finally {
+      if (request === loadRequest.current) setLoading(false);
+    }
   }, [t]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load, locale]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    return () => {
+      loadRequest.current += 1;
+    };
+  }, [load, locale]));
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
       <FlatList
