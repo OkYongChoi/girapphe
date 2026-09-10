@@ -11,6 +11,7 @@ import {
   approveKnowledgeDraftsForUser,
   createMcpAccessTokenForUser,
   createPrivateKnowledgeEdgeForUser,
+  deleteRevokedMcpAccessTokenForUser,
   deletePrivateKnowledgeEdgeForUser,
   deleteKnowledgeImportBatchForUser,
   discardKnowledgeDraftBatchForUser,
@@ -240,6 +241,15 @@ export async function revokeMcpAccessToken(formData: FormData): Promise<void> {
   const tokenId = String(formData.get('token_id') ?? '').trim();
   if (!tokenId) return;
   await revokeMcpAccessTokenForUser(user.id, tokenId);
+  revalidatePath('/knowledge-inbox');
+  revalidatePath('/settings');
+}
+
+export async function deleteRevokedMcpAccessToken(formData: FormData): Promise<void> {
+  const user = await requireCurrentUser();
+  const tokenId = String(formData.get('token_id') ?? '').trim();
+  if (!tokenId) return;
+  await deleteRevokedMcpAccessTokenForUser(user.id, tokenId);
   revalidatePath('/knowledge-inbox');
   revalidatePath('/settings');
 }

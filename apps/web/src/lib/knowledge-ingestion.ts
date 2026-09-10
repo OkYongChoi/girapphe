@@ -2554,6 +2554,29 @@ export async function revokeMcpAccessTokenForUser(userId: string, tokenId: strin
   await pool.query('UPDATE mcp_access_tokens SET revoked_at = NOW() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL', [tokenId, userId]);
 }
 
+export async function deleteRevokedMcpAccessTokenForUser(userId: string, tokenId: string): Promise<void> {
+  if (!process.env.DATABASE_URL) {
+    const token = memoryTokens.get(tokenId);
+    if (token?.user_id === userId && token.revoked_at) {
+      memoryTokens.delete(tokenId);
+      memoryMcpRequestRates.delete(`token:${tokenId}`);
+    }
+    return;
+  }
+  await ensureKnowledgeIngestionSchema();
+  await pool.query(
+    `WITH deleted_token AS (
+       DELETE FROM mcp_access_tokens
+       WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL
+       RETURNING id
+     )
+     DELETE FROM mcp_request_rate_limits rate
+     USING deleted_token
+     WHERE rate.scope_key = 'token:' || deleted_token.id`,
+    [tokenId, userId],
+  );
+}
+
 export function getMemoryKnowledgeItemsForUser(userId: string): MemoryKnowledgeItem[] {
   return memoryKnowledgeItems.get(userId) ?? [];
 }

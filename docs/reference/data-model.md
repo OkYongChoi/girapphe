@@ -171,10 +171,13 @@ existing personal rows are never automatically converted.
 explicit `knowledge:drafts:create` and/or `knowledge:context:read` scopes,
 expiry, last-use time, and revocation time. Draft creation is the default;
 existing tokens are not upgraded when context read becomes available. Raw
-tokens are returned once at creation. Ingestion batches retain the
-originating `mcp_token_id` so atomic per-token and per-user write quotas can be
-enforced without storing bearer secrets. `mcp_request_rate_limits` keeps one
-bounded rolling-window counter per token and user; it never stores raw tokens.
+tokens are returned once at creation. A revoked token record may be permanently
+deleted by its owner; deletion also removes its token-specific rate-limit row,
+while historical ingestion batches retain the opaque originating
+`mcp_token_id`. Ingestion batches retain the originating `mcp_token_id` so
+atomic per-token and per-user write quotas can be enforced without storing
+bearer secrets. `mcp_request_rate_limits` keeps one bounded rolling-window
+counter per token and user; it never stores raw tokens.
 `mcp_deleted_account_markers` permanently stores only a domain-separated
 SHA-256 fingerprint, never a raw Clerk user ID, and blocks stale account-owned
 knowledge, practice, PAT, OAuth, MCP, and new billing-initiation writes after account deletion.

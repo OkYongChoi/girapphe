@@ -11,10 +11,12 @@ import {
   createMemoryKnowledgeItemForUser,
   createPrivateKnowledgeEdgeForUser,
   deleteKnowledgeImportBatchForUser,
+  deleteRevokedMcpAccessTokenForUser,
   getKnowledgeGraphOverlayForUser,
   getKnowledgeDraftBatchForUser,
   getKnowledgeDraftBatchesForUser,
   getKnowledgeDraftResolutionContextForUser,
+  getMcpAccessTokensForUser,
   getKnowledgeLinkTargetsForUser,
   getActiveKnowledgeItemVersionForUser,
   getMemoryMcpCredentialRateLimitRecordCountForTesting,
@@ -42,6 +44,7 @@ import {
   resolveKnowledgeDraftForUser,
   restoreMemoryKnowledgeItemForUser,
   restoreArchivedKnowledgeItemForUser,
+  revokeMcpAccessTokenForUser,
   sanitizeKnowledgeEvidenceSelectors,
   setKnowledgeTransactionSqlForTesting,
   softDeleteMemoryKnowledgeItemForUser,
@@ -1742,6 +1745,23 @@ test('issues only explicitly requested MCP knowledge scopes', async () => {
     createMcpAccessTokenForUser(`user_unknown_scope_${crypto.randomUUID()}`, 'Unknown access', ['knowledge:everything']),
     /supported MCP scope/i,
   );
+});
+
+test('permanently deletes only revoked MCP tokens and their memory rate state', async () => {
+  const userId = `user_token_delete_${crypto.randomUUID()}`;
+  const { token, record } = await createMcpAccessTokenForUser(userId, 'Delete me');
+
+  await deleteRevokedMcpAccessTokenForUser(userId, record.id);
+  assert.equal((await getMcpAccessTokensForUser(userId)).length, 1);
+  assert.ok(await authenticateMcpAccessToken(`Bearer ${token}`));
+
+  await revokeMcpAccessTokenForUser(userId, record.id);
+  assert.equal((await getMcpAccessTokensForUser(userId))[0]?.revoked_at !== null, true);
+  assert.equal(await authenticateMcpAccessToken(`Bearer ${token}`), null);
+
+  await deleteRevokedMcpAccessTokenForUser(userId, record.id);
+  assert.deepEqual(await getMcpAccessTokensForUser(userId), []);
+  assert.equal(await authenticateMcpAccessToken(`Bearer ${token}`), null);
 });
 
 test('limits active MCP tokens and hourly drafts without breaking idempotent retries', async () => {

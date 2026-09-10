@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   createMcpAccessToken,
+  deleteRevokedMcpAccessToken,
   revokeMcpAccessToken,
   type McpAccessToken,
 } from '@/actions/knowledge-ingestion-actions';
@@ -36,6 +37,7 @@ export default function DraftReviewMcpConnections({
   const [error, setError] = useState<string | null>(null);
   const [endpointUrl, setEndpointUrl] = useState('/api/mcp');
   const [currentTime, setCurrentTime] = useState(0);
+  const [showRevoked, setShowRevoked] = useState(false);
 
   useEffect(() => {
     setEndpointUrl(`${window.location.origin}/api/mcp`);
@@ -47,6 +49,8 @@ export default function DraftReviewMcpConnections({
     !token.revoked_at
     && (!token.expires_at || currentTime === 0 || new Date(token.expires_at).getTime() > currentTime)
   )).length;
+  const hasRevoked = tokens.some((token) => Boolean(token.revoked_at));
+  const visibleTokens = showRevoked ? tokens : tokens.filter((token) => !token.revoked_at);
 
   async function copyValue(value: string, target: CopyTarget) {
     setError(null);
@@ -177,15 +181,29 @@ export default function DraftReviewMcpConnections({
           <McpProviderSetupGuide endpointUrl={endpointUrl} tokenReady={Boolean(rawToken)} />
 
           <div className="mt-6">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-sm font-bold text-slate-900">{t('mcp.existingConnections')}</h3>
-              <span className="text-xs text-slate-500">{t('mcp.activeCount', { count: activeCount })}</span>
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                <span className="text-xs text-slate-500">{t('mcp.activeCount', { count: activeCount })}</span>
+                {hasRevoked ? (
+                  <button
+                    type="button"
+                    aria-pressed={showRevoked}
+                    onClick={() => setShowRevoked((visible) => !visible)}
+                    className="min-h-11 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  >
+                    {showRevoked ? t('mcp.hideRevoked') : t('mcp.showRevoked')}
+                  </button>
+                ) : null}
+              </div>
             </div>
             {tokens.length === 0 ? (
               <p className="mt-3 rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm text-slate-500">{t('mcp.noConnections')}</p>
+            ) : visibleTokens.length === 0 ? (
+              <p className="mt-3 rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm text-slate-500">{t('mcp.revokedHiddenEmpty')}</p>
             ) : (
               <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200">
-                {tokens.map((token) => {
+                {visibleTokens.map((token) => {
                   const revoked = Boolean(token.revoked_at);
                   const expired = !revoked
                     && Boolean(token.expires_at)
@@ -233,7 +251,26 @@ export default function DraftReviewMcpConnections({
                             className="min-h-11 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500"
                           />
                         </form>
-                      ) : null}
+                      ) : (
+                        <form
+                          action={async (formData) => {
+                            setError(null);
+                            try {
+                              await deleteRevokedMcpAccessToken(formData);
+                              router.refresh();
+                            } catch {
+                              setError(t('mcp.deleteError'));
+                            }
+                          }}
+                        >
+                          <input type="hidden" name="token_id" value={token.id} />
+                          <ConfirmDeleteButton
+                            label={t('mcp.deletePermanently')}
+                            confirmMessage={t('mcp.deletePermanentlyConfirm', { label: token.label })}
+                            className="min-h-11 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500"
+                          />
+                        </form>
+                      )}
                     </li>
                   );
                 })}
