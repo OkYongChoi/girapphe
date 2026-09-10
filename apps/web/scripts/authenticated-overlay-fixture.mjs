@@ -47,6 +47,186 @@ function requireSyntheticFixtureUser(userInput) {
   return userId;
 }
 
+function publishedStateFromRow(row = {}) {
+  const count = (key) => {
+    const value = Number(row[key]);
+    if (!Number.isInteger(value) || value < 0) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_PUBLISHED_STATE_INVALID');
+    }
+    return value;
+  };
+  const digest = String(row.published_digest ?? '');
+  if (!/^[0-9a-f]{32}$/.test(digest)) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_PUBLISHED_STATE_INVALID');
+  }
+  return {
+    canonicalKnowledge: count('canonical_knowledge'),
+    privateGraphNodes: count('private_graph_nodes'),
+    privateGraphEdges: count('private_graph_edges'),
+    publicGraphNodes: count('public_graph_nodes'),
+    publicGraphEdges: count('public_graph_edges'),
+    privateMasteryRows: count('private_mastery_rows'),
+    publicMasteryRows: count('public_mastery_rows'),
+    rankingRows: count('ranking_rows'),
+    digest,
+  };
+}
+
+export async function readAuthenticatedOverlayPublishedStateWithClient(client, syntheticUser) {
+  const userId = requireSyntheticFixtureUser(syntheticUser);
+  const result = await client.query(
+    `SELECT
+       (SELECT COUNT(*)::integer FROM user_knowledge_items WHERE user_id = $1) AS canonical_knowledge,
+       (SELECT COUNT(*)::integer FROM user_graph_nodes WHERE user_id = $1) AS private_graph_nodes,
+       (SELECT COUNT(*)::integer FROM user_graph_edges WHERE user_id = $1) AS private_graph_edges,
+       (SELECT COUNT(*)::integer FROM graph_nodes) AS public_graph_nodes,
+       (SELECT COUNT(*)::integer FROM graph_edges) AS public_graph_edges,
+       (SELECT COUNT(*)::integer FROM user_private_card_states WHERE user_id = $1) AS private_mastery_rows,
+       (SELECT COUNT(*)::integer FROM user_knowledge_states WHERE user_id = $1) AS public_mastery_rows,
+       (SELECT COUNT(*)::integer FROM user_card_states WHERE user_id = $1) AS ranking_rows,
+       md5(concat_ws(E'\\n',
+         'knowledge:' || COALESCE((
+           SELECT string_agg(to_jsonb(i)::text, E'\\n' ORDER BY i.id)
+           FROM user_knowledge_items i WHERE i.user_id = $1
+         ), ''),
+         'private-nodes:' || COALESCE((
+           SELECT string_agg(to_jsonb(n)::text, E'\\n' ORDER BY n.id)
+           FROM user_graph_nodes n WHERE n.user_id = $1
+         ), ''),
+         'private-edges:' || COALESCE((
+           SELECT string_agg(to_jsonb(e)::text, E'\\n' ORDER BY e.id)
+           FROM user_graph_edges e WHERE e.user_id = $1
+         ), ''),
+         'public-nodes:' || COALESCE((
+           SELECT string_agg(to_jsonb(n)::text, E'\\n' ORDER BY n.id)
+           FROM graph_nodes n
+         ), ''),
+         'public-edges:' || COALESCE((
+           SELECT string_agg(to_jsonb(e)::text, E'\\n' ORDER BY e.id)
+           FROM graph_edges e
+         ), ''),
+         'private-mastery:' || COALESCE((
+           SELECT string_agg(to_jsonb(s)::text, E'\\n' ORDER BY s.knowledge_item_id)
+           FROM user_private_card_states s WHERE s.user_id = $1
+         ), ''),
+         'public-mastery:' || COALESCE((
+           SELECT string_agg(to_jsonb(s)::text, E'\\n' ORDER BY s.node_id)
+           FROM user_knowledge_states s WHERE s.user_id = $1
+         ), ''),
+         'ranking:' || COALESCE((
+           SELECT string_agg(to_jsonb(s)::text, E'\\n' ORDER BY s.card_id)
+           FROM user_card_states s WHERE s.user_id = $1
+         ), '')
+       )) AS published_digest`,
+    [userId],
+  );
+  return publishedStateFromRow(result.rows[0]);
+}
+
+export async function assertPendingAuthenticatedOverlayImportIsInertWithClient(
+  client,
+  syntheticUser,
+  { batchId: batchIdInput, marker: markerInput, expectedDraftCount = 2 },
+) {
+  const userId = requireSyntheticFixtureUser(syntheticUser);
+  const batchId = String(batchIdInput ?? '').trim();
+  const marker = String(markerInput ?? '').trim();
+  if (!IMPORT_BATCH_ID_PATTERN.test(batchId)) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_PENDING_BATCH_INVALID');
+  }
+  if (!THINKING_HISTORY_IMPORT_MARKER_PATTERN.test(marker)) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_PENDING_MARKER_INVALID');
+  }
+  if (!Number.isInteger(expectedDraftCount) || expectedDraftCount < 1 || expectedDraftCount > 100) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_PENDING_COUNT_INVALID');
+  }
+
+  const result = await client.query(
+    `WITH target_batch AS MATERIALIZED (
+       SELECT b.id, b.user_id
+       FROM knowledge_ingestion_batches b
+       WHERE b.id = $1 AND b.user_id = $2
+         AND b.provider = 'chatgpt' AND b.scope = 'selected_export'
+         AND b.status = 'pending'
+     ), target_drafts AS MATERIALIZED (
+       SELECT d.* FROM knowledge_card_drafts d
+       JOIN target_batch b ON b.id = d.batch_id AND b.user_id = d.user_id
+     ), candidate_nodes AS MATERIALIZED (
+       SELECT n.id, n.knowledge_item_id
+       FROM user_graph_nodes n
+       WHERE n.user_id = $2 AND (
+         n.source_batch_id = $1 OR n.knowledge_item_id IN (
+           SELECT d.knowledge_item_id FROM target_drafts d WHERE d.knowledge_item_id IS NOT NULL
+         )
+       )
+     ) SELECT
+       (SELECT COUNT(*)::integer FROM target_batch) AS target_batch_count,
+       (SELECT COUNT(*)::integer FROM target_drafts) AS draft_count,
+       (SELECT COUNT(*)::integer FROM target_drafts WHERE status = 'pending') AS pending_drafts,
+       (SELECT COUNT(*)::integer FROM target_drafts WHERE central_question = $3) AS marker_matches,
+       (SELECT COUNT(*)::integer FROM knowledge_card_drafts d
+        WHERE d.batch_id = $1 AND d.user_id <> $2) AS foreign_drafts,
+       (SELECT COUNT(*)::integer FROM target_drafts WHERE knowledge_item_id IS NOT NULL) AS canonical_links,
+       (SELECT COUNT(*)::integer FROM knowledge_card_sources s
+        WHERE s.batch_id = $1 OR s.draft_id IN (SELECT id FROM target_drafts)) AS source_rows,
+       (SELECT COUNT(*)::integer FROM candidate_nodes) AS private_graph_nodes,
+       (SELECT COUNT(*)::integer FROM user_graph_edges e
+        WHERE e.user_id = $2 AND (
+          e.source_batch_id = $1
+          OR e.source_private_node_id IN (SELECT id FROM candidate_nodes)
+          OR e.target_private_node_id IN (SELECT id FROM candidate_nodes)
+        )) AS private_graph_edges,
+       (SELECT COUNT(*)::integer FROM user_private_card_states s
+        WHERE s.user_id = $2 AND s.knowledge_item_id IN (
+          SELECT d.knowledge_item_id FROM target_drafts d WHERE d.knowledge_item_id IS NOT NULL
+        )) AS private_mastery_rows,
+       (SELECT COUNT(*)::integer FROM knowledge_item_revisions r
+        WHERE r.user_id = $2 AND r.knowledge_item_id IN (
+          SELECT d.knowledge_item_id FROM target_drafts d WHERE d.knowledge_item_id IS NOT NULL
+        )) AS revision_rows,
+       (SELECT COUNT(*)::integer FROM knowledge_item_activity a
+        WHERE a.user_id = $2 AND a.knowledge_item_id IN (
+          SELECT d.knowledge_item_id FROM target_drafts d WHERE d.knowledge_item_id IS NOT NULL
+        )) AS activity_rows`,
+    [batchId, userId, marker],
+  );
+  const row = result.rows[0] ?? {};
+  const counts = Object.fromEntries(Object.entries({
+    targetBatch: row.target_batch_count,
+    drafts: row.draft_count,
+    pendingDrafts: row.pending_drafts,
+    markerMatches: row.marker_matches,
+    foreignDrafts: row.foreign_drafts,
+    canonicalLinks: row.canonical_links,
+    sourceRows: row.source_rows,
+    privateGraphNodes: row.private_graph_nodes,
+    privateGraphEdges: row.private_graph_edges,
+    privateMasteryRows: row.private_mastery_rows,
+    revisionRows: row.revision_rows,
+    activityRows: row.activity_rows,
+  }).map(([key, value]) => [key, Number(value)]));
+  const activationCounts = [
+    counts.foreignDrafts,
+    counts.canonicalLinks,
+    counts.sourceRows,
+    counts.privateGraphNodes,
+    counts.privateGraphEdges,
+    counts.privateMasteryRows,
+    counts.revisionRows,
+    counts.activityRows,
+  ];
+  if (
+    counts.targetBatch !== 1
+    || counts.drafts !== expectedDraftCount
+    || counts.pendingDrafts !== expectedDraftCount
+    || counts.markerMatches !== 1
+    || activationCounts.some((value) => value !== 0)
+  ) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_PENDING_IMPORT_NOT_INERT');
+  }
+  return counts;
+}
+
 export function normalizeSyntheticEmail(value) {
   const email = requireValue(value, 'E2E_CLERK_USER_EMAIL').toLowerCase();
   const [localPart, domain, ...extra] = email.split('@');
@@ -327,6 +507,66 @@ export async function deleteExactAuthenticatedOverlayImport({
     if (error instanceof Error && error.name === 'AuthenticatedOverlayFixtureError') throw error;
     throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_FAILED', error);
   }
+}
+
+async function withExistingAuthenticatedOverlayDatabase(
+  { emailAddress, secretKey, databaseUrl },
+  operation,
+) {
+  const email = normalizeSyntheticEmail(emailAddress);
+  const clerkClient = createClerkClient({
+    secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY'),
+  });
+  const user = await findExistingAuthenticatedOverlaySyntheticUser({
+    clerkClient,
+    emailAddress: email,
+  });
+  const pool = new Pool({
+    connectionString: requireValue(databaseUrl, 'DATABASE_URL'),
+    max: 1,
+  });
+  try {
+    const client = await pool.connect();
+    try {
+      return await operation(client, user);
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function readAuthenticatedOverlayPublishedState({
+  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
+  secretKey = process.env.CLERK_SECRET_KEY,
+  databaseUrl = process.env.DATABASE_URL,
+} = {}) {
+  return withExistingAuthenticatedOverlayDatabase(
+    { emailAddress, secretKey, databaseUrl },
+    (client, user) => readAuthenticatedOverlayPublishedStateWithClient(client, user),
+  );
+}
+
+export async function inspectPendingAuthenticatedOverlayImport({
+  batchId,
+  marker,
+  expectedDraftCount = 2,
+  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
+  secretKey = process.env.CLERK_SECRET_KEY,
+  databaseUrl = process.env.DATABASE_URL,
+}) {
+  return withExistingAuthenticatedOverlayDatabase(
+    { emailAddress, secretKey, databaseUrl },
+    async (client, user) => ({
+      activation: await assertPendingAuthenticatedOverlayImportIsInertWithClient(
+        client,
+        user,
+        { batchId, marker, expectedDraftCount },
+      ),
+      publishedState: await readAuthenticatedOverlayPublishedStateWithClient(client, user),
+    }),
+  );
 }
 
 export async function seedAuthenticatedOverlayFixtureWithClient(

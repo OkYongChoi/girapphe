@@ -11,7 +11,11 @@ import {
 import { recordKnowledgeProductEvents } from '@/actions/knowledge-product-event-actions';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import SubmitButton from '@/components/submit-button';
-import { draftDependencies, includeDraftDependencies } from '@/components/draft-review-selection';
+import {
+  draftDependencies,
+  includeDraftDependencies,
+  parseEvidenceSelectorIndexes,
+} from '@/components/draft-review-selection';
 import KnowledgeBundleEditor from '@/components/knowledge-bundle-editor';
 import { isKnowledgeBundleType, type KnowledgeBundleContent, type KnowledgeBundleType } from '@stem-brain/shared';
 import { useI18n } from '@/i18n/client';
@@ -242,11 +246,7 @@ function DraftRelationsEditor({
                 value={relation.evidenceSelectorIndexes.join(', ')}
                 onChange={(event) => {
                   onDirty();
-                  const indexes = [...new Set(event.target.value.split(',')
-                    .map((value) => value.trim())
-                    .filter(Boolean)
-                    .map(Number)
-                    .filter((value) => Number.isInteger(value) && value >= 0))];
+                  const indexes = parseEvidenceSelectorIndexes(event.target.value);
                   setRelations((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, evidenceSelectorIndexes: indexes } : item));
                 }}
                 placeholder={t('inbox.relationEvidencePlaceholder')}
@@ -630,7 +630,7 @@ export default function DraftReviewPanel({ batch, drafts, linkTargets = [] }: Dr
         ))}
       </datalist>
 
-      <div className="sticky top-[7.5rem] z-30 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur md:p-4">
+      <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur md:sticky md:top-[7.5rem] md:z-30 md:p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">{t('inbox.selectionCount', { selected: effectiveSelectedIds.size, total: drafts.length })}</p>

@@ -7,6 +7,14 @@ export type DraftDependencyInput = {
   }>;
 };
 
+export function parseEvidenceSelectorIndexes(value: string): number[] {
+  return [...new Set(value.split(/[,،，]/u)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map(Number)
+    .filter((index) => Number.isInteger(index) && index >= 0))];
+}
+
 export function draftDependencies(drafts: readonly DraftDependencyInput[]) {
   const draftIdByReference = new Map<string, string>();
   for (const draft of drafts) {

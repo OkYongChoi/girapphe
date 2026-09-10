@@ -3,11 +3,13 @@ import test from 'node:test';
 import {
   AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
   AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
+  assertPendingAuthenticatedOverlayImportIsInertWithClient,
   deleteExactAuthenticatedOverlayImportWithClient,
   ensureSyntheticClerkUser,
   findExistingAuthenticatedOverlaySyntheticUser,
   fixtureIdsForUser,
   normalizeSyntheticEmail,
+  readAuthenticatedOverlayPublishedStateWithClient,
   seedAuthenticatedOverlayFixtureWithClient,
 } from './authenticated-overlay-fixture.mjs';
 
@@ -97,6 +99,120 @@ test('cleanup resolves one existing marked synthetic Clerk user without creating
       emailAddress: SYNTHETIC_EMAIL,
     }),
     /SYNTHETIC_CLEANUP_OWNER_NOT_UNIQUE/,
+  );
+});
+
+test('pending selected import leaves published, graph, mastery, and ranking state inert', async () => {
+  const calls = [];
+  const publishedRow = {
+    canonical_knowledge: 4,
+    private_graph_nodes: 4,
+    private_graph_edges: 3,
+    public_graph_nodes: 600,
+    public_graph_edges: 900,
+    private_mastery_rows: 0,
+    public_mastery_rows: 2,
+    ranking_rows: 1,
+    published_digest: 'a'.repeat(32),
+  };
+  const inertRow = {
+    target_batch_count: 1,
+    draft_count: 2,
+    pending_drafts: 2,
+    marker_matches: 1,
+    foreign_drafts: 0,
+    canonical_links: 0,
+    source_rows: 0,
+    private_graph_nodes: 0,
+    private_graph_edges: 0,
+    private_mastery_rows: 0,
+    revision_rows: 0,
+    activity_rows: 0,
+  };
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('AS published_digest')) return { rows: [publishedRow] };
+      if (text.includes('AS target_batch_count')) return { rows: [inertRow] };
+      return { rows: [] };
+    },
+  };
+
+  assert.deepEqual(
+    await readAuthenticatedOverlayPublishedStateWithClient(client, SYNTHETIC_USER),
+    {
+      canonicalKnowledge: 4,
+      privateGraphNodes: 4,
+      privateGraphEdges: 3,
+      publicGraphNodes: 600,
+      publicGraphEdges: 900,
+      privateMasteryRows: 0,
+      publicMasteryRows: 2,
+      rankingRows: 1,
+      digest: 'a'.repeat(32),
+    },
+  );
+  assert.deepEqual(
+    await assertPendingAuthenticatedOverlayImportIsInertWithClient(
+      client,
+      SYNTHETIC_USER,
+      {
+        batchId: SYNTHETIC_BATCH_ID,
+        marker: SYNTHETIC_IMPORT_MARKER,
+        expectedDraftCount: 2,
+      },
+    ),
+    {
+      targetBatch: 1,
+      drafts: 2,
+      pendingDrafts: 2,
+      markerMatches: 1,
+      foreignDrafts: 0,
+      canonicalLinks: 0,
+      sourceRows: 0,
+      privateGraphNodes: 0,
+      privateGraphEdges: 0,
+      privateMasteryRows: 0,
+      revisionRows: 0,
+      activityRows: 0,
+    },
+  );
+
+  const publishedQuery = calls.find((call) => call.text.includes('AS published_digest'));
+  assert.deepEqual(publishedQuery?.values, [SYNTHETIC_USER.id]);
+  assert.match(publishedQuery?.text ?? '', /FROM user_knowledge_items WHERE user_id = \$1/);
+  assert.match(publishedQuery?.text ?? '', /FROM user_knowledge_states WHERE user_id = \$1/);
+  assert.match(publishedQuery?.text ?? '', /FROM user_card_states WHERE user_id = \$1/);
+  assert.match(publishedQuery?.text ?? '', /string_agg\(to_jsonb\(i\)::text/);
+  assert.match(publishedQuery?.text ?? '', /string_agg\(to_jsonb\(n\)::text/);
+  assert.doesNotMatch(
+    publishedQuery?.text ?? '',
+    /-\s*'(?:title|summary|content|topic|tags|central_question|structured_content|label)'/,
+    'published-state digest must include canonical content and graph labels',
+  );
+  const pendingQuery = calls.find((call) => call.text.includes('AS target_batch_count'));
+  assert.deepEqual(pendingQuery?.values, [
+    SYNTHETIC_BATCH_ID,
+    SYNTHETIC_USER.id,
+    SYNTHETIC_IMPORT_MARKER,
+  ]);
+  assert.match(pendingQuery?.text ?? '', /b\.provider = 'chatgpt'/);
+  assert.match(pendingQuery?.text ?? '', /b\.scope = 'selected_export'/);
+  assert.match(pendingQuery?.text ?? '', /knowledge_card_sources/);
+  assert.match(pendingQuery?.text ?? '', /user_private_card_states/);
+
+  const contaminatedClient = {
+    async query() {
+      return { rows: [{ ...inertRow, canonical_links: 1 }] };
+    },
+  };
+  await assert.rejects(
+    () => assertPendingAuthenticatedOverlayImportIsInertWithClient(
+      contaminatedClient,
+      SYNTHETIC_USER,
+      { batchId: SYNTHETIC_BATCH_ID, marker: SYNTHETIC_IMPORT_MARKER },
+    ),
+    /SYNTHETIC_PENDING_IMPORT_NOT_INERT/,
   );
 });
 

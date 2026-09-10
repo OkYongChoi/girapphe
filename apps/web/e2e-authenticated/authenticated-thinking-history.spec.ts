@@ -41,6 +41,7 @@ const importHeadingCopy = "Find the ideas worth carrying forward.";
 const importSummaryCopy = staticMessage(englishImport, "import.summaryTitle", "This is the shape of your AI history");
 const importConsentCopy = staticMessage(englishImport, "import.consent", "I selected these exchanges intentionally.");
 const transformationSummaryCopy = EXTRA_EN_MESSAGES["inbox.transformationSummary"];
+const resolutionMetadataCopy = EXTRA_EN_MESSAGES["resolution.metadata"];
 const accountDataTitleCopy = EXTRA_EN_MESSAGES["account.data.title"];
 const downloadExportCopy = EXTRA_EN_MESSAGES["account.data.downloadExport"];
 const deleteImportCopy = EXTRA_EN_MESSAGES["account.data.deleteImport"];
@@ -653,6 +654,11 @@ test("proves selected import, private evidence, portable context, dismissal, and
     preSubmitImportEvents.length,
     "selection and consent without submission must not create product-event rows",
   ).toBe(0);
+  const {
+    inspectPendingAuthenticatedOverlayImport,
+    readAuthenticatedOverlayPublishedState,
+  } = await import("../scripts/authenticated-overlay-fixture.mjs");
+  const publishedStateBeforeSubmission = await readAuthenticatedOverlayPublishedState();
   const submitRequestStart = postBodies.length;
   const submitOutboundRequestStart = outboundRequestMaterial.length;
   let batchId = "";
@@ -661,6 +667,8 @@ test("proves selected import, private evidence, portable context, dismissal, and
   let uiCleanupError: unknown;
   let databaseFallbackStatus = "not-needed";
   let databaseFallbackError: unknown;
+  let preApprovalPublishedStateUnchanged = false;
+  let preApprovalActivationRows = -1;
   try {
     await page.getByRole("button", { name: /Create 2 review candidates/i }).click();
     await expect(page).toHaveURL(IMPORT_BATCH_URL_PATTERN, { timeout: 30_000 });
@@ -718,6 +726,28 @@ test("proves selected import, private evidence, portable context, dismissal, and
         ?.selection_count,
     ).toBe(2);
 
+    const preApprovalInspection = await inspectPendingAuthenticatedOverlayImport({
+      batchId,
+      marker: selectedQuestionA,
+      expectedDraftCount: 2,
+    });
+    expect(
+      preApprovalInspection.publishedState,
+      "selected import cannot alter canonical knowledge, graph, mastery, or ranking before approval",
+    ).toEqual(publishedStateBeforeSubmission);
+    preApprovalPublishedStateUnchanged = true;
+    preApprovalActivationRows = [
+      preApprovalInspection.activation.foreignDrafts,
+      preApprovalInspection.activation.canonicalLinks,
+      preApprovalInspection.activation.sourceRows,
+      preApprovalInspection.activation.privateGraphNodes,
+      preApprovalInspection.activation.privateGraphEdges,
+      preApprovalInspection.activation.privateMasteryRows,
+      preApprovalInspection.activation.revisionRows,
+      preApprovalInspection.activation.activityRows,
+    ].reduce((total, value) => total + value, 0);
+    expect(preApprovalActivationRows).toBe(0);
+
     const transformationSummary = page.getByRole("region", {
       name: transformationSummaryCopy,
     });
@@ -736,7 +766,17 @@ test("proves selected import, private evidence, portable context, dismissal, and
       batchId,
       testInfo.project.use.hasTouch === true,
     );
+    const metadataSummary = page.locator("summary").filter({
+      hasText: resolutionMetadataCopy,
+    });
+    await expect(metadataSummary).toHaveCount(1);
+    const metadataDetails = metadataSummary.locator("xpath=ancestor::details[1]");
+    if ((await metadataDetails.getAttribute("open")) === null) {
+      await metadataSummary.click();
+    }
+    await expect(metadataDetails).toHaveAttribute("open", "");
     const evidenceGroup = page.getByRole("group", { name: "Evidence selectors to retain" });
+    await expect(evidenceGroup).toBeVisible();
     await expect(evidenceGroup).toContainText(/chatgpt-message:[0-9a-f]{48}/);
     await expect(evidenceGroup).not.toContainText(conversationId);
     await expect(evidenceGroup).not.toContainText(`answer-a-${marker}`);
@@ -865,6 +905,8 @@ test("proves selected import, private evidence, portable context, dismissal, and
       unselectedContentSent: false,
       archiveFilenameSent: false,
       pendingCandidatesBeforeReview: 2,
+      preApprovalPublishedStateUnchanged,
+      preApprovalActivationRows,
       batchDeleted: true,
     },
     browserErrorCount: browserErrors.length,

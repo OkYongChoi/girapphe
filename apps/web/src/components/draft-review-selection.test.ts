@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { draftDependencies, includeDraftDependencies } from './draft-review-selection';
+import {
+  draftDependencies,
+  includeDraftDependencies,
+  parseEvidenceSelectorIndexes,
+} from './draft-review-selection';
+
+test('parses evidence indexes from every localized comma without duplicates', () => {
+  assert.deepEqual(parseEvidenceSelectorIndexes('0, 2، 2， 4'), [0, 2, 4]);
+  assert.deepEqual(parseEvidenceSelectorIndexes('-1، nope， 3.5'), []);
+});
 
 test('selects draft relation targets by database ID or MCP client card ID', () => {
   const dependencies = draftDependencies([
@@ -60,4 +69,6 @@ test('opens the candidate resolution boundary with a locale-aware document navig
   assert.match(reviewLink, /encodeURIComponent\(id\)/);
   assert.match(reviewLink, /localizeHref\([\s\S]*, locale\)/);
   assert.doesNotMatch(reviewLink, /LocalizedLink|router\.(?:push|replace)/);
+  assert.match(source, /md:sticky md:top-\[7\.5rem\]/);
+  assert.doesNotMatch(source, /className="sticky top-\[7\.5rem\]/);
 });

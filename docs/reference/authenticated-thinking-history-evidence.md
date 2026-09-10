@@ -119,10 +119,12 @@ in the Thinking History rollout allowlist. A passing Preview run must not be
 reported as production activation.
 
 Live PostgreSQL run `34305134986` passed the prior selected-export concurrency
-and deletion fixture. The current fixture additionally asserts immediately
-before approval that canonical knowledge, private/public graph state, mastery,
-and ranking rows are all zero. That new assertion is source-only until the
-isolated Preview PostgreSQL workflow passes on the exact new commit.
+and deletion fixture. The current fixture additionally snapshots the synthetic
+owner's canonical knowledge, private/public graph, mastery, and ranking state
+before submission, then asserts immediately before approval that the snapshot
+is unchanged and that the exact pending batch has zero activation-linked rows.
+That new assertion is source-only until the isolated Preview PostgreSQL workflow
+passes on the exact new commit.
 
 Run the same project locally only with an isolated environment:
 

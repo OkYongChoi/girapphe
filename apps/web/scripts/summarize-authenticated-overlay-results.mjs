@@ -69,6 +69,8 @@ export function buildAuthenticatedThinkingHistorySummary(metrics) {
         && row.importEvidence?.unselectedContentSent === false
         && row.importEvidence?.archiveFilenameSent === false
         && row.importEvidence?.pendingCandidatesBeforeReview === 2
+        && row.importEvidence?.preApprovalPublishedStateUnchanged === true
+        && row.importEvidence?.preApprovalActivationRows === 0
         && row.importEvidence?.batchDeleted === true
       )),
       contextBytes: summarize(rows.map((row) => row.contextBytes)),

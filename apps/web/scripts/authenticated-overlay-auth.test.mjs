@@ -139,6 +139,13 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   const evidenceTry = source.lastIndexOf('  try {', submissionClick);
   const batchAssertion = source.indexOf('expect(batchId).toMatch', batchCapture);
   const visibilityPoll = source.indexOf('postConsentImportEvents = await waitForImportSubmissionEventCount');
+  const preSubmitEvents = source.indexOf('const preSubmitImportEvents = await importSubmissionEvents');
+  const preSubmitState = source.indexOf('publishedStateBeforeSubmission = await readAuthenticatedOverlayPublishedState');
+  const pendingState = source.indexOf('await inspectPendingAuthenticatedOverlayImport({', visibilityPoll);
+  const pendingStateComparison = source.indexOf(').toEqual(publishedStateBeforeSubmission)', pendingState);
+  const metadataExpansion = source.indexOf('await metadataSummary.click()', pendingStateComparison);
+  const metadataOpenAssertion = source.indexOf('toHaveAttribute("open", "")', metadataExpansion);
+  const evidenceVisibleAssertion = source.indexOf('expect(evidenceGroup).toBeVisible()', metadataOpenAssertion);
   const finallyBlock = source.indexOf('} finally {', visibilityPoll);
   const recoveryCall = source.indexOf('await waitForSubmittedImportBatchId(page, selectedQuestionA)', finallyBlock);
   const cleanupCall = source.indexOf('await deleteSubmittedImportThroughOwnerUi(page, batchId)', finallyBlock);
@@ -148,10 +155,21 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.ok(evidenceTry >= 0 && evidenceTry < submissionClick, 'submission must start inside the cleanup boundary');
   assert.ok(submissionClick < exactRedirect && exactRedirect < batchCapture, 'the UUID redirect must resolve before batch capture');
   assert.ok(batchCapture < batchAssertion && batchAssertion < visibilityPoll, 'batch validation must precede telemetry polling');
+  assert.ok(
+    preSubmitState > preSubmitEvents
+      && preSubmitState < submissionClick
+      && pendingState > visibilityPoll
+      && pendingStateComparison > pendingState
+      && metadataExpansion > pendingStateComparison
+      && metadataOpenAssertion > metadataExpansion
+      && evidenceVisibleAssertion > metadataOpenAssertion,
+    'the exact pending batch must leave published state unchanged before review metadata opens',
+  );
   assert.ok(finallyBlock > visibilityPoll && recoveryCall > finallyBlock && cleanupCall > recoveryCall, 'finally must recover and delete the exact owner batch');
   assert.ok(cleanupCall < fallbackImport && fallbackImport < fallbackCall && fallbackCall < safeFailure, 'UI cleanup must precede exact DB fallback and the fallback must not suppress test failure');
   assert.match(source, /fallback\.deleted !== true[\s\S]{0,300}fallback\.remainingEvents !== 0[\s\S]{0,300}databaseFallbackStatus = "verified"/);
   assert.match(source, /if \(evidenceError \|\| uiCleanupError\)[\s\S]{0,800}THINKING_HISTORY_EVIDENCE_FAILED/);
+  assert.match(source, /preApprovalPublishedStateUnchanged,[\s\S]{0,120}preApprovalActivationRows/);
   assert.match(source, /failureFingerprint\(message\.text\(\)\)/);
   assert.doesNotMatch(source, /console: \$\{message\.text\(\)\}|page: \$\{error\.message\}|heading \$\{JSON\.stringify/);
   assert.doesNotMatch(source, /const postConsentImportEvents = await importSubmissionEvents\(page\)/);
