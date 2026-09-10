@@ -155,27 +155,29 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
         uiCleanupFailureCount = uiCleanupErrors.length;
 
         // The exact database fallback is the final safety control, not a test
-        // discriminator. Run it whenever a PAT was captured even if a UI path
-        // unexpectedly succeeds or an earlier cleanup assertion fails.
-        if (RAW_PAT_SHAPE.test(rawToken)) {
-          try {
-            const { revokeExactAuthenticatedOverlayMcpToken } = await import(
-              '../scripts/authenticated-overlay-fixture.mjs'
-            );
-            const fallback = await revokeExactAuthenticatedOverlayMcpToken({
+        // discriminator. Run it after every create attempt, using the hash
+        // when captured or the random label marker when capture itself fails.
+        try {
+          const fixture = await import('../scripts/authenticated-overlay-fixture.mjs');
+          const fallback = RAW_PAT_SHAPE.test(rawToken)
+            ? await fixture.revokeExactAuthenticatedOverlayMcpToken({
               rawToken,
               connectionLabel,
               runMarker,
+            })
+            : await fixture.revokeExactAuthenticatedOverlayMcpTokenByMarker({
+              connectionLabel,
+              runMarker,
             });
-            databaseFallbackRan = true;
-            remainingActiveAfterFallback = fallback.remainingActive;
-            if (fallback.remainingActive !== 0) {
-              throw new Error('MCP_PAT_ROUTE_FAULT_FALLBACK_ACTIVE');
-            }
-          } catch (error) {
-            cleanupError ??= error;
+          databaseFallbackRan = true;
+          remainingActiveAfterFallback = fallback.remainingActive;
+          if (fallback.remainingActive !== 0) {
+            throw new Error('MCP_PAT_ROUTE_FAULT_FALLBACK_ACTIVE');
           }
-        } else {
+        } catch (error) {
+          cleanupError ??= error;
+        }
+        if (!RAW_PAT_SHAPE.test(rawToken)) {
           cleanupError ??= new Error('MCP_PAT_ROUTE_FAULT_TOKEN_NOT_CAPTURED');
         }
         if (uiCleanupErrors.length !== 2) {

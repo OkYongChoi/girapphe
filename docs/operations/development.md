@@ -158,9 +158,12 @@ A separate Preview-only fault check lets the create POST commit, captures and
 redacts the PAT from the fulfilled response, then faults both UI cleanup paths.
 The locked database fallback is a mandatory post-capture safety control even if
 clipboard or UI assertions fail: it matches owner, exact label, unique run marker,
-and SHA-256 hash, revokes that row, and verifies `active=0`. Evidence is accepted
-only when both intended UI paths fault and the original sentinel Error object is
-re-thrown unchanged. Provider evidence JSON uses exact
+and SHA-256 hash, revokes that row, and verifies `active=0`. If the create commits
+but the one-time response cannot be captured, an emergency fallback uses the
+same locked owner, exact label, and random run marker so the credential is still
+revoked; that run fails and produces no accepted evidence. Evidence is accepted
+only when PAT/hash capture succeeds, both intended UI paths fault, and the
+original sentinel Error object is re-thrown unchanged. Provider evidence JSON uses exact
 versioned kind, project, and filename contracts; the Preview summarizer rejects
 combined, misnamed, unknown-field, or wrong-schema mutation artifacts. Its job
 summary contains counts and booleans only. This reset is intentionally destructive

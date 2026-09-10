@@ -573,6 +573,100 @@ export async function revokeExactAuthenticatedOverlayMcpTokenWithClient(
   }
 }
 
+export async function revokeExactAuthenticatedOverlayMcpTokenByMarkerWithClient(
+  client,
+  syntheticUser,
+  { connectionLabel: connectionLabelInput, runMarker: runMarkerInput },
+) {
+  const userId = requireSyntheticFixtureUser(syntheticUser);
+  const connectionLabel = requireValue(connectionLabelInput, 'synthetic MCP connection label');
+  const runMarker = String(runMarkerInput ?? '').trim();
+  if (!MCP_PAT_RUN_MARKER_PATTERN.test(runMarker) || !connectionLabel.includes(runMarker)) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_MARKER_CLEANUP_MARKER_INVALID');
+  }
+
+  let transactionStarted = false;
+  try {
+    await client.query('BEGIN');
+    transactionStarted = true;
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext(
+         'mcp-account-lifecycle:' || public.derive_account_lifecycle_scope_key($1)
+       ))`,
+      [userId],
+    );
+    await client.query(
+      `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
+       SELECT scope_key, deleted_at
+       FROM mcp_deleted_account_markers
+       WHERE scope_key = public.derive_account_lifecycle_scope_key($1)`,
+      [userId],
+    );
+    await client.query(
+      'SELECT pg_advisory_xact_lock(hashtext($1))',
+      [`mcp-token:${userId}`],
+    );
+
+    const exactToken = await client.query(
+      `SELECT id, user_id, label, revoked_at
+       FROM mcp_access_tokens
+       WHERE user_id = $1
+         AND label = $2
+         AND STRPOS(label, $3) > 0
+       FOR UPDATE`,
+      [userId, connectionLabel, runMarker],
+    );
+    const target = exactToken.rows[0];
+    if (
+      exactToken.rows.length !== 1
+      || String(target?.user_id ?? '') !== userId
+      || String(target?.label ?? '') !== connectionLabel
+      || !String(target?.label ?? '').includes(runMarker)
+    ) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_MARKER_CLEANUP_TARGET_NOT_OWNED');
+    }
+
+    const revocation = await client.query(
+      `UPDATE mcp_access_tokens
+       SET revoked_at = COALESCE(revoked_at, NOW())
+       WHERE id = $1
+         AND user_id = $2
+         AND label = $3
+         AND STRPOS(label, $4) > 0
+       RETURNING id`,
+      [String(target.id), userId, connectionLabel, runMarker],
+    );
+    if (revocation.rows.length !== 1) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_MARKER_CLEANUP_UPDATE_MISSED');
+    }
+
+    const verification = await client.query(
+      `SELECT COUNT(*)::integer AS remaining_active
+       FROM mcp_access_tokens
+       WHERE user_id = $1
+         AND label = $2
+         AND STRPOS(label, $3) > 0
+         AND revoked_at IS NULL
+         AND expires_at > NOW()`,
+      [userId, connectionLabel, runMarker],
+    );
+    const remainingActive = Number(verification.rows[0]?.remaining_active);
+    if (remainingActive !== 0) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_MARKER_CLEANUP_VERIFICATION_FAILED');
+    }
+
+    await client.query('COMMIT');
+    return {
+      revoked: target.revoked_at == null,
+      remainingActive,
+    };
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK').catch(() => undefined);
+    if (error instanceof Error && error.name === 'AuthenticatedOverlayFixtureError') throw error;
+    throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_MARKER_CLEANUP_DATABASE_FAILED', error);
+  }
+}
+
 export async function verifyExactAuthenticatedOverlayMcpTokenInactiveWithClient(
   client,
   syntheticUser,
@@ -750,6 +844,55 @@ export async function revokeExactAuthenticatedOverlayMcpToken({
   } catch (error) {
     if (error instanceof Error && error.name === 'AuthenticatedOverlayFixtureError') throw error;
     throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_TOKEN_CLEANUP_FAILED', error);
+  }
+}
+
+/**
+ * Emergency cleanup for a committed synthetic PAT whose one-time response
+ * could not be captured. The random label marker remains an exact revocation
+ * identity, while successful closeout evidence still requires the hash path.
+ */
+export async function revokeExactAuthenticatedOverlayMcpTokenByMarker({
+  connectionLabel,
+  runMarker,
+  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
+  secretKey = process.env.CLERK_SECRET_KEY,
+  databaseUrl = process.env.DATABASE_URL,
+}) {
+  try {
+    const email = normalizeSyntheticEmail(emailAddress);
+    const clerkClient = createClerkClient({
+      secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY'),
+    });
+    const user = await findExistingAuthenticatedOverlaySyntheticUser({
+      clerkClient,
+      emailAddress: email,
+    });
+    const pool = new Pool({
+      connectionString: requireValue(databaseUrl, 'DATABASE_URL'),
+      max: 1,
+      connectionTimeoutMillis: MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS,
+      query_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS,
+      statement_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS,
+      lock_timeout: MCP_CLEANUP_DB_LOCK_TIMEOUT_MS,
+    });
+    try {
+      const client = await pool.connect();
+      try {
+        return await revokeExactAuthenticatedOverlayMcpTokenByMarkerWithClient(
+          client,
+          user,
+          { connectionLabel, runMarker },
+        );
+      } finally {
+        client.release();
+      }
+    } finally {
+      await pool.end();
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AuthenticatedOverlayFixtureError') throw error;
+    throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_MARKER_CLEANUP_FAILED', error);
   }
 }
 

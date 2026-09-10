@@ -109,11 +109,13 @@ zero active matches.
 
 The separate fault path lets the create POST commit, extracts the one-time PAT
 only in process memory, replaces it in the fulfilled response, then faults both
-UI cleanup paths. The database fallback runs after every successful PAT capture,
-including when clipboard or UI assertions error; the evidence itself still
-requires exactly two UI faults. The same locked exact predicate and hash check
+UI cleanup paths. The database fallback runs after the create attempt even when
+clipboard, response-capture, or UI assertions error; the evidence itself still
+requires PAT capture and exactly two UI faults. The same locked exact predicate and hash check
 revokes the row and proves `active=0` before the original sentinel Error object
-is rethrown unchanged.
+is rethrown unchanged. If the create commits but response capture fails, a
+locked owner/label/random-marker fallback still revokes the exact synthetic row,
+then fails the run without producing accepted evidence.
 Provider JSON evidence and the generated job summary contain counts and
 booleans only. Automatic screenshots are disabled in PAT-bearing specs and
 automatic authenticated accessibility error snapshots are disabled suite-wide;

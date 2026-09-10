@@ -305,8 +305,15 @@ test('provider PAT route fault proves exact fallback and original error identity
   );
   const firstUiPath = source.indexOf("getByRole('button', { name: 'Revoke' })", armFault);
   const secondUiPath = source.indexOf('await page.reload({', firstUiPath);
-  const fallback = source.indexOf('await revokeExactAuthenticatedOverlayMcpToken({', secondUiPath);
-  const originalRethrow = source.indexOf('if (originalError) throw originalError', fallback);
+  const fallback = source.indexOf(
+    '? await fixture.revokeExactAuthenticatedOverlayMcpToken({',
+    secondUiPath,
+  );
+  const markerFallback = source.indexOf(
+    ': await fixture.revokeExactAuthenticatedOverlayMcpTokenByMarker({',
+    fallback,
+  );
+  const originalRethrow = source.indexOf('if (originalError) throw originalError', markerFallback);
   assert.ok(
     postFetch >= 0
       && postFetch < rawCapture
@@ -317,9 +324,13 @@ test('provider PAT route fault proves exact fallback and original error identity
       && firstClipboardCleanupCatch < firstUiPath
       && firstUiPath < secondUiPath
       && secondUiPath < fallback
-      && fallback < originalRethrow,
+      && fallback < markerFallback
+      && markerFallback < originalRethrow,
   );
-  assert.match(source, /if \(RAW_PAT_SHAPE\.test\(rawToken\)\)/);
+  assert.match(
+    source,
+    /const fallback = RAW_PAT_SHAPE\.test\(rawToken\)[\s\S]*revokeExactAuthenticatedOverlayMcpToken\([\s\S]*revokeExactAuthenticatedOverlayMcpTokenByMarker\(/,
+  );
   assert.match(source, /if \(uiCleanupErrors\.length !== 2\)/);
   assert.match(
     source,
