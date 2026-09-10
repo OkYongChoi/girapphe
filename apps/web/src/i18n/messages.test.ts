@@ -122,18 +122,32 @@ test('Clerk localization loading times out hanging requests and response bodies'
   assert.equal(timeoutAttempts, 2);
 
   let bodyAttempts = 0;
+  const bodySignals: AbortSignal[] = [];
   await assert.rejects(
     loadClerkLocalization('en', {
-      fetcher: async () => {
+      fetcher: async (_input, init) => {
         bodyAttempts += 1;
+        bodySignals.push(init.signal as AbortSignal);
         return new Response(new ReadableStream({ start: () => undefined }), { status: 200 });
       },
       retryDelayMs: 0,
       timeoutMs: 5,
     }),
-    /Unable to load Clerk localization after two attempts/u,
+    (error: unknown) => {
+      assert.match(
+        error instanceof Error ? error.message : '',
+        /Unable to load Clerk localization after two attempts/u,
+      );
+      assert.match(
+        error instanceof Error && error.cause instanceof Error ? error.cause.message : '',
+        /Localization request timed out/u,
+      );
+      return true;
+    },
   );
   assert.equal(bodyAttempts, 2);
+  assert.equal(bodySignals.length, 2);
+  assert.ok(bodySignals.every((signal) => signal.aborted));
 });
 
 test('Clerk localization loading preserves unmount cancellation without retrying', async () => {

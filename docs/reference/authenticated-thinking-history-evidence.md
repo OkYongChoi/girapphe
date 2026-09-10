@@ -68,17 +68,19 @@ satisfy or contaminate the other's privacy evidence.
 On the mobile long-form review page, the resolution link is centered below the
 sticky navigation with smooth scrolling temporarily disabled. Its bounds must
 stay unchanged across two animation frames, and its midpoint must be the
-browser's actual pointer target. Playwright then performs a trial actionability
-check followed by a real locator `tap` on mobile, while desktop separately
-activates the same link with focused-keyboard `Enter`;
+browser's actual pointer target. Playwright then performs a real unforced
+locator `tap`, including its built-in actionability and final hit-target checks,
+on mobile. Desktop separately performs a trial actionability check and activates
+the same link with focused-keyboard `Enter`;
 coordinate-level page input, forced clicks, and DOM-dispatched clicks are not
 accepted as evidence. The href must be the same-origin, exact batch and draft
-resolution route. Request observers start only after the trial check so a
-prefetch cannot masquerade as the real activation. A committed exact URL is a
-success even when the client router already cached the route; otherwise the
-harness separately reports no request, a request without a response, failed
-request, destination HTTP error, redirect without a commit, or a successful
-target response that never committed navigation. The hit-test and navigation
+resolution route. Request observers start only after the pre-activation checks
+so a prefetch cannot masquerade as the real activation. A committed exact URL
+is accepted only when the client router used its cache without a request or the
+observed request completed with a successful response. Otherwise the harness
+separately reports no request, a request without a response, failed request,
+destination HTTP error, redirect without a commit, or a successful target
+response that never committed navigation. The hit-test and navigation
 observation are bounded, so an actionability regression cannot consume the
 whole test budget and prevent cleanup from running.
 
@@ -89,10 +91,11 @@ existing Clerk fixture account's synthetic-purpose marker. The transaction is
 restricted to the exact owner, UUID batch, ChatGPT selected-export scope, and
 unique generated central-question marker. It refuses approved drafts, foreign
 draft ownership, or linked knowledge sources, follows the account-lifecycle and
-ingestion lock order, and verifies that the exact batch, drafts, and both the
-session and batch event hashes are gone. A verified fallback prevents the next
-serial browser project from inheriting residue, but never converts the failed
-UI evidence into a pass.
+ingestion lock order, removes every event (including candidate-resolution
+events) under only the exact session and batch subject hashes, and verifies that
+the exact batch, drafts, and both event subjects are gone. A verified fallback
+prevents the next serial browser project from inheriting residue, but never
+converts the failed UI evidence into a pass.
 
 Authenticated traces remain disabled because they can retain session headers.
 The structured fallback and browser-error summary records only stable

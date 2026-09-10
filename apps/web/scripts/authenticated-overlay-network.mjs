@@ -7,3 +7,16 @@ export function isNoArgumentServerActionBody(body) {
     return false;
   }
 }
+
+export function isSuccessfulReviewNavigation({
+  committed,
+  requestSeen,
+  responseStatus,
+  requestFailed,
+}) {
+  if (!committed || requestFailed) return false;
+  if (!requestSeen) return responseStatus === null;
+  return Number.isInteger(responseStatus)
+    && responseStatus >= 200
+    && responseStatus < 300;
+}

@@ -400,14 +400,13 @@ export async function deleteExactAuthenticatedOverlayImportWithClient(
     const sessionSubjectHash = createHash('sha256')
       .update(`${userId}\0${importSessionId}`)
       .digest('hex');
+    // Match production batch deletion and also remove any pre-reassignment
+    // session events left by a failed finalization. Both subjects are exact,
+    // owner-derived hashes; event type must not narrow the cleanup.
     await client.query(
       `DELETE FROM knowledge_product_events
        WHERE user_id = $1
-         AND subject_id = ANY($2::text[])
-         AND event_name IN (
-           'conversation_import_started', 'conversation_import_parsed',
-           'conversation_import_confirmed', 'conversation_import_candidates_ready'
-         )`,
+         AND subject_id = ANY($2::text[])`,
       [userId, [batchSubjectHash, sessionSubjectHash]],
     );
 

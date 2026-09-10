@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import {
   AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
@@ -19,7 +20,14 @@ const SYNTHETIC_USER = {
   publicMetadata: { girappheSyntheticPurpose: AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE },
 };
 const SYNTHETIC_BATCH_ID = '123e4567-e89b-42d3-a456-426614174000';
+const SYNTHETIC_IMPORT_SESSION_ID = '223e4567-e89b-42d3-a456-426614174000';
 const SYNTHETIC_IMPORT_MARKER = 'E2E_SELECTED_QUESTION_A_0123456789abcdef0123456789abcdef';
+
+function eventSubjectHash(subjectId) {
+  return createHash('sha256')
+    .update(`${SYNTHETIC_USER.id}\0${subjectId}`)
+    .digest('hex');
+}
 
 test('synthetic email validation rejects an unmarked account', () => {
   assert.equal(normalizeSyntheticEmail(SYNTHETIC_EMAIL.toUpperCase()), SYNTHETIC_EMAIL);
@@ -216,7 +224,7 @@ test('pending selected import leaves published, graph, mastery, and ranking stat
   );
 });
 
-test('exact import fallback is owner, batch, marker, lifecycle, and pending-state scoped', async () => {
+test('exact import fallback deletes every event for only the owner batch and session subjects', async () => {
   const calls = [];
   const client = {
     async query(text, values = []) {
@@ -224,7 +232,7 @@ test('exact import fallback is owner, batch, marker, lifecycle, and pending-stat
       if (text.includes('AS marker_matches')) {
         return { rows: [{
           id: SYNTHETIC_BATCH_ID,
-          request_id: `chatgpt-export:test:session:${SYNTHETIC_BATCH_ID}`,
+          request_id: `chatgpt-export:test:session:${SYNTHETIC_IMPORT_SESSION_ID}`,
           marker_matches: 1,
           protected_drafts: 0,
           foreign_drafts: 0,
@@ -288,10 +296,13 @@ test('exact import fallback is owner, batch, marker, lifecycle, and pending-stat
   assert.deepEqual(deletion.values, [SYNTHETIC_BATCH_ID, SYNTHETIC_USER.id]);
   assert.match(deletion.text, /id = \$1[\s\S]*user_id = \$2[\s\S]*provider = 'chatgpt'[\s\S]*scope = 'selected_export'/);
   const eventDeletion = calls.find((call) => call.text.trimStart().startsWith('DELETE FROM knowledge_product_events'));
-  assert.deepEqual(eventDeletion?.values[0], SYNTHETIC_USER.id);
-  assert.equal(eventDeletion?.values[1]?.length, 2);
+  assert.deepEqual(eventDeletion?.values, [
+    SYNTHETIC_USER.id,
+    [eventSubjectHash(SYNTHETIC_BATCH_ID), eventSubjectHash(SYNTHETIC_IMPORT_SESSION_ID)],
+  ]);
   assert.match(eventDeletion?.text ?? '', /subject_id = ANY\(\$2::text\[\]\)/);
-  assert.match(eventDeletion?.text ?? '', /conversation_import_started[\s\S]*conversation_import_candidates_ready/);
+  assert.doesNotMatch(eventDeletion?.text ?? '', /event_name/);
+  assert.ok(calls.indexOf(eventDeletion) < deleteIndex);
   assert.equal(calls.some((call) => call.text.startsWith('DELETE FROM knowledge_ingestion_request_tombstones')), false);
 });
 
@@ -342,7 +353,7 @@ test('exact import fallback refuses invalid identity and protected or mismatched
         if (text.includes('AS marker_matches')) {
           return { rows: [{
             id: SYNTHETIC_BATCH_ID,
-            request_id: `chatgpt-export:test:session:${SYNTHETIC_BATCH_ID}`,
+            request_id: `chatgpt-export:test:session:${SYNTHETIC_IMPORT_SESSION_ID}`,
             ...protectedRow,
           }] };
         }
@@ -370,7 +381,7 @@ test('exact import fallback rolls back when exact event cleanup cannot be verifi
       if (text.includes('AS marker_matches')) {
         return { rows: [{
           id: SYNTHETIC_BATCH_ID,
-          request_id: `chatgpt-export:test:session:${SYNTHETIC_BATCH_ID}`,
+          request_id: `chatgpt-export:test:session:${SYNTHETIC_IMPORT_SESSION_ID}`,
           marker_matches: 1,
           protected_drafts: 0,
           foreign_drafts: 0,

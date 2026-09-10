@@ -65,6 +65,8 @@ async function loadLocalizationAttempt(
   }, timeoutMs);
 
   try {
+    // Headers are not completion: keep the same abort bridge and wall-clock
+    // deadline active until the response body is parsed and validated.
     return await Promise.race([
       (async () => {
         const response = await fetcher(asset.path, {

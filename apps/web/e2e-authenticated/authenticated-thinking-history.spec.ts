@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { expect, test, type Locator, type Page, type Request, type Response } from "@playwright/test";
+import { isSuccessfulReviewNavigation } from "../scripts/authenticated-overlay-network.mjs";
 import { EXTRA_EN_MESSAGES } from "../src/i18n/catalogs/extended/en";
 
 const thinkingHistoryAsset = JSON.parse(
@@ -212,10 +213,7 @@ async function clickAndAcceptConfirm(
       return;
     }
     await expect(control).toBeEnabled({ timeout: 5_000 });
-    // The stable center/hit-target poll above already proves this rendered
-    // control owns the pointer coordinate. Do not let a second actionability
-    // scroll move it under mobile sticky chrome before the real tap.
-    await control.tap({ position: mobileTapPosition, force: true, timeout: 5_000 });
+    await control.tap({ position: mobileTapPosition, timeout: 5_000 });
   };
   const [dialogResult, activationResult] = await Promise.allSettled([
     confirmHandled,
@@ -405,12 +403,8 @@ async function activateExactReviewLink(
 
   const activate = async () => {
     if (mobileTapPosition) {
-      // The immediately preceding geometry and hit-target poll proves that this
-      // rendered anchor owns its stable center. Avoid a second Playwright
-      // actionability scroll that can move it behind mobile sticky chrome.
       await link.tap({
         position: mobileTapPosition,
-        force: true,
         timeout: 10_000,
       });
       return;
@@ -473,14 +467,14 @@ async function activateExactReviewLink(
   }).catch(() => undefined);
 
   const committed = page.url() === targetUrl.href;
-  if (committed && (observation.responseStatus === null || observation.responseStatus < 400)) return;
+  if (isSuccessfulReviewNavigation({ committed, ...observation })) return;
   if (activationError && !observation.requestSeen) {
     throw new Error(`REVIEW_LOCATOR_ACTIVATION_FAILED:${failureFingerprint(activationError)}`);
   }
+  if (observation.requestFailed) throw new Error("REVIEW_TARGET_REQUEST_FAILED");
   if (observation.responseStatus !== null && observation.responseStatus >= 400) {
     throw new Error(`REVIEW_DESTINATION_HTTP_ERROR:${observation.responseStatus}`);
   }
-  if (observation.requestFailed) throw new Error("REVIEW_TARGET_REQUEST_FAILED");
   if (!observation.requestSeen) throw new Error("REVIEW_ACTIVATION_NO_REQUEST");
   if (observation.responseStatus === null) throw new Error("REVIEW_TARGET_REQUEST_NO_RESPONSE");
   if (observation.responseStatus >= 300) {
