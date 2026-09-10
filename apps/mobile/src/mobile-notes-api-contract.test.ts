@@ -60,7 +60,10 @@ test('native note tags are owner-scoped, controlled, and included on create or u
     /collectKnowledgeTagSuggestions\(items\.map\(\(item\) => item\.tags\), locale\)/,
   );
   assert.match(mobileNotesSource, /const submittedTags = sanitizeKnowledgeTags\(\[\.\.\.tags, tagDraft\]\)/);
-  assert.match(mobileNotesSource, /mobileApi\.mutateKnowledge\(\{ action: 'create-note'[\s\S]*tags: submittedTags/);
+  assert.match(
+    mobileNotesSource,
+    /const createPayload = \{ action: 'create-note'[\s\S]*?tags: submittedTags[\s\S]*?mobileApi\.mutateKnowledge<[\s\S]*?\(\{[\s\S]*?\.\.\.createPayload/,
+  );
   assert.match(mobileNotesSource, /mobileApi\.mutateKnowledge\(\{ action: 'update-note'[\s\S]*tags: submittedTags/);
   assert.match(
     mobileNotesSource,
