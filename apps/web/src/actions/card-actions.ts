@@ -15,6 +15,7 @@ import {
 } from '@/lib/practice-queue';
 import {
   getEligiblePrivatePracticeCards,
+  getNextEligiblePrivatePracticeCard,
   getPrivatePracticeDomainProgress,
   getPrivatePracticeStats,
   getSavedPrivatePracticeCards,
@@ -44,7 +45,12 @@ import {
   type KnowledgeGraphCard,
 } from '@/lib/knowledge-graph-card';
 import { buildPracticeExcludeIds, runPracticeAdvance } from '@/lib/practice-advance';
-import { toPublicLeaderboardParticipantId } from '@/lib/leaderboard';
+import {
+  buildPublicLeaderboardQuery,
+  toPublicLeaderboardParticipantId,
+} from '@/lib/leaderboard';
+import { loadMobilePracticeCardAfterCursor } from '@/lib/mobile-practice-selector';
+import type { MobilePracticeCursorState } from '@/lib/mobile-practice-cursor';
 
 export type PrerequisiteInfo = {
   id: string;
@@ -124,6 +130,7 @@ type LeaderboardRow = {
   user_id: string;
   known_count: string;
   total_count: string;
+  leaderboard_rank: string;
 };
 
 // Bump this whenever CARD_CONTENT changes to force a DB refresh
@@ -159,6 +166,17 @@ const KNOWLEDGE_CARD_LIMIT = getKnowledgeCardLimit();
 
 const DRILL_GENERATION_BATCH = 250;
 const ALLOW_DRILL_CARDS = false;
+
+const PUBLIC_PRACTICE_CARD_ELIGIBILITY_SQL = `
+  COALESCE(kc.is_generated, FALSE) = FALSE
+  AND kc.id NOT LIKE 'personal:%'
+  AND kc.id NOT LIKE 'drill_%'
+  AND kc.id NOT LIKE 'graph_adv_%'
+  AND kc.title NOT ILIKE 'Sponsored Content %'
+  AND kc.id !~ '^[0-9]+$'
+  AND kc.title !~ '^[0-9]+$'
+  AND lower(trim(kc.title)) NOT IN ('test', 'test card', 'dummy', 'dummy card', 'sample card', 'placeholder', 'placeholder card')
+`;
 
 const EDGE_MAP = GRAPH_EDGES.reduce<Record<string, string[]>>((acc, edge) => {
   if (!acc[edge.source]) acc[edge.source] = [];
@@ -1044,6 +1062,188 @@ export async function generateQuizForNode(nodeId: string): Promise<NodeQuiz> {
   };
 }
 
+function withPracticePrerequisites(
+  selected: KnowledgeCard,
+  nodeStatusById: ReadonlyMap<string, CardStatus | null>,
+): KnowledgeCard {
+  const normalizedId = normalizeGraphNodeId(selected.id);
+  const prereqNodeIds = (PREREQ_INCOMING.get(normalizedId) ?? []).slice(0, 3);
+  const prerequisites: PrerequisiteInfo[] = prereqNodeIds.map((prereqId) => {
+    const label = NODE_BY_ID.get(prereqId)?.label ?? prereqId.replace(/_/g, ' ');
+    const status = nodeStatusById.get(prereqId) ?? null;
+    return { id: prereqId, label, status };
+  });
+  return { ...selected, prerequisites: prerequisites.length > 0 ? prerequisites : undefined };
+}
+
+function selectMockCardAfterCursor(
+  cards: CardWithStatusRow[],
+  mode: 'new' | 'review',
+  afterCardId: string | null,
+  privateLane: boolean,
+): KnowledgeCard | null {
+  const nodeStatusById = new Map<string, CardStatus | null>();
+  const eligible = cards
+    .map((card) => {
+      const normalized = {
+        ...card,
+        status: deriveLegacyStatus(card),
+      };
+      nodeStatusById.set(normalizeGraphNodeId(normalized.id), normalized.status);
+      return normalized;
+    })
+    .filter((card) => card.id > (afterCardId ?? ''))
+    .filter((card) => isPersonalCardId(card.id) === privateLane)
+    .filter((card) => isCardEligibleForPracticeSelection(
+      card.status,
+      mode,
+      {
+        isPrivateCard: isPersonalCardId(card.id),
+        progressState: card.progress_state ?? null,
+        dueAt: card.due_at ?? null,
+      },
+    ))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const selected = eligible[0];
+  return selected ? withPracticePrerequisites(selected, nodeStatusById) : null;
+}
+
+async function getNextPublicPracticeCardAfter(
+  userId: string,
+  mode: 'new' | 'review',
+  afterCardId: string | null,
+): Promise<KnowledgeCard | null> {
+  const modePredicate = mode === 'review'
+    ? `AND ucs.knowledge_state IS DISTINCT FROM 'known'
+       AND (
+         ucs.progress_state = 'learning'
+         OR (ucs.progress_state IS NULL AND ucs.status = 'saved')
+       )
+       AND (ucs.due_at IS NULL OR ucs.due_at <= NOW())`
+    : `AND ucs.status IS NULL
+       AND ucs.knowledge_state IS DISTINCT FROM 'known'
+       AND ucs.progress_state IS DISTINCT FROM 'learning'`;
+  const join = mode === 'review' ? 'JOIN' : 'LEFT JOIN';
+  const result = await pool.query<CardWithStatusRow>(`
+    SELECT kc.*
+         , ucs.status
+         , ucs.knowledge_state
+         , ucs.progress_state
+         , ucs.due_at
+         , ucs.last_seen
+    FROM knowledge_cards kc
+    ${join} user_card_states ucs
+      ON kc.id = ucs.card_id AND ucs.user_id = $1
+    WHERE (${PUBLIC_PRACTICE_CARD_ELIGIBILITY_SQL})
+      AND kc.id > $2
+      ${modePredicate}
+    ORDER BY kc.id ASC
+    LIMIT 1
+  `, [userId, afterCardId ?? '']);
+  const row = result.rows[0];
+  if (!row) return null;
+  return withCardDomains(withRelatedConcepts({
+    ...row,
+    status: deriveLegacyStatus(row),
+  }));
+}
+
+async function withCurrentPrerequisiteStatuses(
+  card: KnowledgeCard,
+  userId: string,
+): Promise<KnowledgeCard> {
+  if (isPersonalCardId(card.id)) return card;
+  const normalizedId = normalizeGraphNodeId(card.id);
+  const prereqNodeIds = (PREREQ_INCOMING.get(normalizedId) ?? []).slice(0, 3);
+  if (prereqNodeIds.length === 0) return card;
+  const cardIds = [...new Set(prereqNodeIds.flatMap((id) => [id, `graph_${id}`]))];
+  const result = await pool.query<{
+    card_id: string;
+    status: CardStatus | null;
+    knowledge_state: CardKnowledgeState | null;
+    progress_state: CardProgressState | null;
+  }>(`
+    SELECT card_id, status, knowledge_state, progress_state
+    FROM user_card_states
+    WHERE user_id = $1
+      AND card_id = ANY($2::text[])
+  `, [userId, cardIds]);
+  const nodeStatusById = new Map<string, CardStatus | null>();
+  for (const row of result.rows) {
+    nodeStatusById.set(normalizeGraphNodeId(row.card_id), deriveLegacyStatus(row));
+  }
+  return withPracticePrerequisites(card, nodeStatusById);
+}
+
+export async function getNextMobilePracticeCard(
+  mode: 'new' | 'review' = 'new',
+  cursor: MobilePracticeCursorState | null = null,
+  locale?: string,
+): Promise<{
+  card: KnowledgeCard | null;
+  nextCursor: MobilePracticeCursorState;
+}> {
+  const user = await requireCurrentActor();
+  let selection: {
+    card: KnowledgeCard | null;
+    nextCursor: MobilePracticeCursorState;
+  };
+
+  if (user.isGuest || !process.env.DATABASE_URL) {
+    const mockRows: CardWithStatusRow[] = limitCardsForGuest(
+      await getMockCardsForActor(user.isGuest),
+      user.isGuest,
+    ).map((candidate, index) => ({
+      ...candidate,
+      status: getMockCardStatus(index),
+      last_seen: null,
+    }));
+    selection = await loadMobilePracticeCardAfterCursor({
+      mode,
+      cursor,
+      getCardId: (card) => card.id,
+      loadNextPublic: async (afterCardId) => (
+        selectMockCardAfterCursor(mockRows, mode, afterCardId, false)
+      ),
+      loadNextPrivate: async (afterCardId) => (
+        selectMockCardAfterCursor(mockRows, mode, afterCardId, true)
+      ),
+    });
+  } else {
+    try {
+      await ensureCardSchema();
+      selection = await loadMobilePracticeCardAfterCursor({
+        mode,
+        cursor,
+        getCardId: (card) => card.id,
+        loadNextPublic: (afterCardId) => (
+          getNextPublicPracticeCardAfter(user.id, mode, afterCardId)
+        ),
+        loadNextPrivate: (afterCardId) => (
+          getNextEligiblePrivatePracticeCard(user.id, mode, afterCardId)
+        ),
+      });
+      if (selection.card) {
+        selection.card = await withCurrentPrerequisiteStatuses(selection.card, user.id);
+      }
+    } catch (error) {
+      console.error('Error in getNextMobilePracticeCard:', error);
+      throw error;
+    }
+  }
+
+  if (!selection.card || !locale) return selection;
+  const [localized] = await localizeKnowledgeCards([selection.card], locale, {
+    generateMissing: false,
+    maxGenerations: 0,
+    maxRelatedGenerations: 0,
+  });
+  return {
+    card: localized ?? selection.card,
+    nextCursor: selection.nextCursor,
+  };
+}
+
 async function getNextCardSource(mode: 'new' | 'review' = 'new', excludeIds?: string[]) {
   const user = await requireCurrentActor();
   const excluded = new Set(excludeIds ?? []);
@@ -1077,14 +1277,9 @@ async function getNextCardSource(mode: 'new' | 'review' = 'new', excludeIds?: st
         JOIN user_card_states ucs
           ON kc.id = ucs.card_id AND ucs.user_id = $1
         WHERE (ucs.progress_state = 'learning' OR (ucs.progress_state IS NULL AND ucs.status = 'saved'))
+          AND ucs.knowledge_state IS DISTINCT FROM 'known'
           AND (ucs.due_at IS NULL OR ucs.due_at <= NOW())
-          AND COALESCE(kc.is_generated, FALSE) = FALSE
-          AND kc.id NOT LIKE 'drill_%'
-          AND kc.id NOT LIKE 'graph_adv_%'
-          AND kc.title NOT ILIKE 'Sponsored Content %'
-          AND kc.id !~ '^[0-9]+$'
-          AND kc.title !~ '^[0-9]+$'
-          AND lower(trim(kc.title)) NOT IN ('test', 'test card', 'dummy', 'dummy card', 'sample card', 'placeholder', 'placeholder card')
+          AND (${PUBLIC_PRACTICE_CARD_ELIGIBILITY_SQL})
       `;
     } else {
       query = `
@@ -1097,13 +1292,7 @@ async function getNextCardSource(mode: 'new' | 'review' = 'new', excludeIds?: st
         FROM knowledge_cards kc
         LEFT JOIN user_card_states ucs
           ON kc.id = ucs.card_id AND ucs.user_id = $1
-        WHERE COALESCE(kc.is_generated, FALSE) = FALSE
-          AND kc.id NOT LIKE 'drill_%'
-          AND kc.id NOT LIKE 'graph_adv_%'
-          AND kc.title NOT ILIKE 'Sponsored Content %'
-          AND kc.id !~ '^[0-9]+$'
-          AND kc.title !~ '^[0-9]+$'
-          AND lower(trim(kc.title)) NOT IN ('test', 'test card', 'dummy', 'dummy card', 'sample card', 'placeholder', 'placeholder card')
+        WHERE (${PUBLIC_PRACTICE_CARD_ELIGIBILITY_SQL})
       `;
     }
 
@@ -1245,16 +1434,7 @@ function selectSmartSuggestedCard(cards: CardWithStatusRow[], mode: 'new' | 'rev
 
   const selected = candidates[0]?.card;
   if (!selected) return null;
-
-  const normalizedId = normalizeGraphNodeId(selected.id);
-  const prereqNodeIds = (PREREQ_INCOMING.get(normalizedId) ?? []).slice(0, 3);
-  const prerequisites: PrerequisiteInfo[] = prereqNodeIds.map((prereqId) => {
-    const label = NODE_BY_ID.get(prereqId)?.label ?? prereqId.replace(/_/g, ' ');
-    const status = nodeStatusById.get(prereqId) ?? null;
-    return { id: prereqId, label, status };
-  });
-
-  return { ...selected, prerequisites: prerequisites.length > 0 ? prerequisites : undefined };
+  return withPracticePrerequisites(selected, nodeStatusById);
 }
 
 export async function saveCardState(cardId: string, status: CardStatus) {
@@ -1474,7 +1654,7 @@ async function getSavedCardsSource() {
       });
   } catch (error) {
     console.error('Error in getSavedCards:', error);
-    return [];
+    throw error;
   }
 }
 
@@ -1569,7 +1749,14 @@ export async function getUserStats() {
             progress_state = 'learning'
             OR (progress_state IS NULL AND status = 'saved')
           )
+          AND knowledge_state IS DISTINCT FROM 'known'
           AND (due_at IS NULL OR due_at <= NOW())
+          AND EXISTS (
+            SELECT 1
+            FROM knowledge_cards kc
+            WHERE kc.id = user_card_states.card_id
+              AND (${PUBLIC_PRACTICE_CARD_ELIGIBILITY_SQL})
+          )
         ) AS reviewable_count
       FROM user_card_states
       WHERE user_id = $1;
@@ -1587,8 +1774,7 @@ export async function getUserStats() {
     };
   } catch (error) {
     console.error('Error in getUserStats:', error);
-    const stats = getMockPracticeStats((await getMockCards()).length);
-    return { ...stats, reviewable: stats.unclear };
+    throw error;
   }
 }
 type RateCardAndAdvanceInput = {
@@ -1959,6 +2145,7 @@ export async function resetUserCardProgress() {
 }
 
 export type CardLeaderboardEntry = {
+  rank: number;
   participantId: string;
   isCurrentUser: boolean;
   explainable: number;
@@ -1982,26 +2169,15 @@ export async function getCardLeaderboard(): Promise<CardLeaderboardEntry[]> {
     const [, currentUser] = await Promise.all([ensureCardSchema(), getCurrentUser()]);
 
     // Private conversation cards are intentionally excluded from global ranking.
-    const query = `
-      SELECT
-        user_id,
-        COUNT(*) FILTER (
-          WHERE knowledge_state = 'known'
-            OR (knowledge_state IS NULL AND status = 'known')
-        ) AS known_count,
-        COUNT(*) AS total_count
-      FROM user_card_states
-      WHERE user_id NOT LIKE 'guest\\_%' ESCAPE '\\'
-      GROUP BY user_id
-      ORDER BY known_count DESC, total_count DESC, user_id ASC
-      LIMIT 100;
-    `;
-
-    const res = await pool.query<LeaderboardRow>(query);
+    // Keep the current actor visible even when their deterministic rank is
+    // outside the public top-N window.
+    const query = buildPublicLeaderboardQuery(currentUser?.id ?? null);
+    const res = await pool.query<LeaderboardRow>(query.text, query.params);
     return res.rows.map((row) => {
       const known = parseInt(row.known_count, 10);
       const total = parseInt(row.total_count, 10);
       return {
+        rank: parseInt(row.leaderboard_rank, 10),
         participantId: toPublicLeaderboardParticipantId(row.user_id),
         isCurrentUser: row.user_id === currentUser?.id,
         explainable: known,

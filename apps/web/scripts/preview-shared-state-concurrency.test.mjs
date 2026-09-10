@@ -52,6 +52,7 @@ test('preview jobs serialize shared database and Worker-settings mutations', asy
 
   const orderedStatefulCommands = [
     /pnpm db:prepare:preview/,
+    /scripts\/mobile-practice-index-postgres\.test\.mjs/,
     /scripts\/recall-persistence-postgres\.test\.mjs/,
     /scripts\/knowledge-supersession-tombstone-postgres\.test\.mjs/,
     /scripts\/knowledge-resolution-postgres\.test\.mjs/,
@@ -68,13 +69,46 @@ test('preview jobs serialize shared database and Worker-settings mutations', asy
 
     if (command.source.includes('db:prepare')) {
       assert.equal(step.env.DATABASE_URL, '${{ secrets.DATABASE_URL_PREVIEW }}');
-    } else if (command.source.includes('postgres')) {
+    } else if (command.source.includes('postgres') && !command.source.includes('mobile-practice')) {
       assert.equal(
         step.env.LIVE_POSTGRES_TEST_DATABASE_URL,
         '${{ secrets.DATABASE_URL_PREVIEW }}',
       );
     }
   }
+
+  const mobilePlanStep = stepWithRun(
+    previewJob,
+    /scripts\/mobile-practice-index-postgres\.test\.mjs/,
+  ).step;
+  assert.equal(
+    mobilePlanStep.env.NEON_PREVIEW_DATABASE_URL,
+    '${{ secrets.DATABASE_URL_PREVIEW }}',
+  );
+  assert.equal(mobilePlanStep.env.LIVE_POSTGRES_TEST_DATABASE_URL, undefined);
+  assert.equal(
+    mobilePlanStep.env.EXPECTED_NEON_PREVIEW_BRANCH_ID,
+    '${{ vars.NEON_PREVIEW_BRANCH_ID }}',
+  );
+  assert.equal(
+    mobilePlanStep.env.EXPECTED_HEAD_SHA,
+    '${{ github.event.pull_request.head.sha }}',
+  );
+  assert.equal(mobilePlanStep.env.NODE_OPTIONS, '--conditions=react-server');
+
+  const mobilePlanIndex = previewJob.steps.findIndex((step) => step === mobilePlanStep);
+  const mobilePlanEvidenceIndex = previewJob.steps.findIndex((step) => (
+    step.name === 'Upload mobile Practice index evidence'
+  ));
+  const browserSmokeIndex = previewJob.steps.findIndex((step) => (
+    step.name === 'Browser smoke test preview'
+  ));
+  assert.ok(mobilePlanEvidenceIndex > mobilePlanIndex);
+  assert.ok(mobilePlanEvidenceIndex < browserSmokeIndex);
+  const mobilePlanEvidenceStep = previewJob.steps[mobilePlanEvidenceIndex];
+  assert.equal(mobilePlanEvidenceStep.if, '${{ always() }}');
+  assert.equal(mobilePlanEvidenceStep.uses, 'actions/upload-artifact@v7.0.1');
+  assert.match(mobilePlanEvidenceStep.with.path, /test-results\/mobile-practice-index\//);
 
   const deployMutationStep = stepWithRun(
     previewJob,

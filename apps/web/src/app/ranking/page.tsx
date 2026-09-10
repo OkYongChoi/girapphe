@@ -5,7 +5,7 @@ import { getServerI18n } from '@/i18n/server';
 
 export const dynamic = 'force-dynamic';
 
-const MEDALS: Record<number, string> = { 0: '🥇', 1: '🥈', 2: '🥉' };
+const MEDALS: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
 export default async function RankingPage() {
   const [{ t, formatNumber }, rows] = await Promise.all([
@@ -59,7 +59,7 @@ export default async function RankingPage() {
                   </td>
                 </tr>
               ) : (
-                rows.map((row, index) => {
+                rows.map((row) => {
                   return (
                     <tr
                       key={row.participantId}
@@ -67,8 +67,8 @@ export default async function RankingPage() {
                       aria-current={row.isCurrentUser ? 'true' : undefined}
                     >
                       <td className="px-4 py-3 font-semibold text-gray-700">
-                        <span aria-hidden="true">{MEDALS[index] ?? ''} </span>
-                        #{formatNumber(index + 1)}
+                        <span aria-hidden="true">{MEDALS[row.rank] ?? ''} </span>
+                        #{formatNumber(row.rank)}
                       </td>
                       <td className="px-4 py-3">
                         {row.isCurrentUser ? (

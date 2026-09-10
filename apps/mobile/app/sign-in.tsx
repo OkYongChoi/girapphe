@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth, useSignIn, useSignUp } from '@clerk/expo';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -20,6 +20,10 @@ import { LanguageSelector } from '@/components/language-selector';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
 import type { MessageKey } from '@/i18n/catalogs';
+import {
+  resolvePublicConceptCopyContinuation,
+  type PublicConceptCopyContinuationParams,
+} from '@/public-concept-copy';
 
 type AuthMode = 'signIn' | 'signUp';
 type SignInStage = 'credentials' | 'secondFactor' | 'resetCode' | 'newPassword';
@@ -221,6 +225,8 @@ function ConfiguredSignInScreen() {
   const { fetchStatus: signInFetchStatus, signIn } = useSignIn();
   const { fetchStatus: signUpFetchStatus, signUp } = useSignUp();
   const router = useRouter();
+  const continuationParams = useLocalSearchParams<PublicConceptCopyContinuationParams>();
+  const publicCopyContinuation = resolvePublicConceptCopyContinuation(continuationParams);
   const { direction, isRTL, locale, t } = useI18n();
   const [mode, setMode] = useState<AuthMode>('signIn');
   const [signInStage, setSignInStage] = useState<SignInStage>('credentials');
@@ -234,9 +240,31 @@ function ConfiguredSignInScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
+  const navigateAfterAuthentication = useCallback(() => {
+    if (publicCopyContinuation) {
+      router.replace({
+        pathname: '/(tabs)/notes',
+        params: {
+          draftKey: publicCopyContinuation.draftKey,
+          draftSourceId: publicCopyContinuation.sourceId,
+        },
+      });
+      return;
+    }
+    router.replace('/(tabs)/account');
+  }, [
+    publicCopyContinuation?.draftKey,
+    publicCopyContinuation?.sourceId,
+    router,
+  ]);
+
   useEffect(() => {
-    if (isSignedIn) router.replace('/(tabs)/account');
-  }, [isSignedIn, router]);
+    if (!isSignedIn) return;
+    navigateAfterAuthentication();
+  }, [
+    isSignedIn,
+    navigateAfterAuthentication,
+  ]);
 
   const factorOptions = useMemo(
     () => getFactorOptions(signIn?.supportedSecondFactors ?? []),
@@ -269,7 +297,7 @@ function ConfiguredSignInScreen() {
       showFailure(error, 'auth.error.generic');
       return false;
     }
-    router.replace('/');
+    navigateAfterAuthentication();
     return true;
   }
 
@@ -279,7 +307,7 @@ function ConfiguredSignInScreen() {
       showFailure(error, 'auth.error.generic');
       return false;
     }
-    router.replace('/');
+    navigateAfterAuthentication();
     return true;
   }
 

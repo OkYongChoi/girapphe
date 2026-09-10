@@ -150,7 +150,13 @@ Provenance retains source selectors and metadata, never raw transcript text.
 Context-pack downloads likewise contain only selected canonical knowledge and
 selector-only provenance. Web owns full comparison, editing, merge/update,
 graph, history, evidence, and export workflows; mobile provides quick
-save-as-new/ignore review and a compact Topic Hub.
+save-as-new/ignore review for simple candidates, requires detailed web review
+for causal candidates, and includes the owner-scoped Topics index plus compact
+Topic Hub. A public concept can prefill an editable My Notes copy from its
+validated public-node ID and trusted current-locale content; nothing is saved
+until the user explicitly adds the private note. Web, iOS, and Android My Notes
+share owner-scoped frequent-tag reuse, direct entry, and the same bounded tag
+normalization contract.
 
 Quality commands:
 
@@ -225,7 +231,7 @@ pnpm harness:deploy
 ```
 
 This runs the local harness, builds the Cloudflare/OpenNext Worker, and verifies
-that its compressed upload stays within the guarded release-size budget.
+that its uncompressed upload stays within the guarded release-size budget.
 
 Browser smoke checks use Playwright and start the web dev server automatically:
 
@@ -320,9 +326,13 @@ EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
 EXPO_PUBLIC_APP_BASE_URL
 ```
 
-Enable Clerk's Native API before producing a native build. `EXPO_PUBLIC_APP_BASE_URL` must point to the
-deployed HTTPS Worker that serves `/api/mobile`; it is where authenticated mobile notes, progress,
-knowledge-map state, and admin requests are processed.
+Enable Clerk's Native API before producing a native build.
+`EXPO_PUBLIC_APP_BASE_URL` must point to the deployed HTTPS Worker that serves
+`/api/mobile` and anchors first-party candidate review links. Authenticated
+Practice reads use a bounded `{ mode, cursor, cycleOnEmpty }` POST and
+server-side alternating keyset lanes instead of growing card-ID arrays; notes,
+topic summaries, progress, ranking, knowledge-map state, and admin requests use
+the same origin and authenticated private no-store responses.
 
 ## Environments & Deployment
 
@@ -332,8 +342,10 @@ Branch flow:
 feature branch -> PR preview -> PR merge to main -> production deploy
 ```
 
-- Pull requests deploy an isolated Cloudflare Preview Worker. They never run migrations.
-- `main` deploys to Cloudflare `prod`, runs migrations, then smoke tests production.
+- Pull requests deploy an isolated Cloudflare Preview Worker and apply only the
+  explicitly allowlisted, idempotent migration subset required by Preview.
+- `main` deploys to Cloudflare `prod`, runs the full migration history, then smoke
+  tests production.
 - Do not commit real `.env*` files. Keep local values in `apps/web/.env.local`;
   inject CI values with GitHub Secrets/Variables and Cloudflare runtime values
   with Wrangler Worker secrets.

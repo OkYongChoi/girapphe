@@ -13,6 +13,7 @@ import PracticeAdCard from './practice-ad-card';
 import { getPracticeAdSequence } from '@/lib/practice-ad-schedule';
 import { LocalizedLink } from '@/i18n/navigation';
 import { useI18n } from '@/i18n/client';
+import { mergePracticeRoundExclusions } from '@stem-brain/shared';
 
 interface CardViewerProps {
   initialCard: KnowledgeCard | null;
@@ -130,13 +131,18 @@ export default function CardViewer({
     setHistory(prev => [...prev, { card, action: status }]);
     const wasSkipped = skippedIds.current.has(card.id);
     skippedIds.current.delete(card.id); // rated → no longer needs cycling back
+    const roundExclusions = mergePracticeRoundExclusions([
+      [...ratedIds.current],
+      [...skippedIds.current],
+      [card.id],
+    ]);
 
     try {
       const result = await rateCardAndAdvance({
         cardId: card.id,
         status,
         mode,
-        excludeIds: [...ratedIds.current, card.id],
+        excludeIds: roundExclusions,
         locale,
       });
       if (!result.success) {
@@ -150,7 +156,10 @@ export default function CardViewer({
       // Exclude rated card from pool until the cycle resets.
       ratedIds.current.add(card.id);
       const reviewedCountNow = result.cycled ? reviewPool : ratedIds.current.size;
-      if (result.cycled) ratedIds.current.clear();
+      if (result.cycled) {
+        ratedIds.current.clear();
+        skippedIds.current.clear();
+      }
 
       if (mode === 'review') {
         setReviewedThisRound(reviewedCountNow);
@@ -200,10 +209,14 @@ export default function CardViewer({
 
     try {
       // Prefer cards not yet skipped this round; auto-retry once on transient failure
+      const roundExclusions = mergePracticeRoundExclusions([
+        [...ratedIds.current],
+        [...skippedIds.current],
+      ]);
       let next: KnowledgeCard | null = null;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          next = await getNextCard(mode, [...skippedIds.current], locale);
+          next = await getNextCard(mode, roundExclusions, locale);
           break;
         } catch {
           if (attempt === 1) throw new Error('retry_exhausted');
@@ -216,6 +229,7 @@ export default function CardViewer({
         if (mode === 'review' && reviewPool > 0) {
           setReviewRoundCompleted(true);
         }
+        ratedIds.current.clear();
         skippedIds.current.clear();
         next = await getNextCard(mode, undefined, locale);
       }

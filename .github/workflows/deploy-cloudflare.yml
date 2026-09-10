@@ -172,6 +172,24 @@ jobs:
           APP_ENV: preview
           DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
 
+      - name: Verify mobile Practice indexes on direct Preview PostgreSQL
+        working-directory: apps/web
+        run: pnpm exec tsx --test scripts/mobile-practice-index-postgres.test.mjs
+        env:
+          NODE_OPTIONS: --conditions=react-server
+          NEON_PREVIEW_DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
+          EXPECTED_NEON_PREVIEW_BRANCH_ID: ${{ vars.NEON_PREVIEW_BRANCH_ID }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+      - name: Upload mobile Practice index evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: mobile-practice-index-preview-pr-${{ github.event.number }}
+          path: test-results/mobile-practice-index/
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Verify Recall persistence database semantics
         working-directory: apps/web
         run: NODE_OPTIONS=--conditions=react-server pnpm exec tsx --test scripts/recall-persistence-postgres.test.mjs

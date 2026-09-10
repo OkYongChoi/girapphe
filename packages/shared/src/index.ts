@@ -28,6 +28,29 @@ export {
 } from './billing';
 
 export {
+  MAX_MOBILE_PRACTICE_BODY_BYTES,
+  MAX_MOBILE_PRACTICE_CARD_ID_LENGTH,
+  MAX_MOBILE_PRACTICE_CURSOR_LENGTH,
+  mergePracticeRoundExclusions,
+  type MobilePracticeMode,
+  type MobilePracticeRequest,
+  type MobilePracticeResponse,
+  type MobilePracticeStats,
+} from './mobile-practice';
+
+export {
+  MAX_KNOWLEDGE_TAG_CODE_POINTS,
+  MAX_KNOWLEDGE_TAG_SUGGESTIONS,
+  MAX_KNOWLEDGE_TAGS,
+  canonicalizeKnowledgeTag,
+  collectKnowledgeTagSuggestions,
+  normalizeKnowledgeTag,
+  parseStrictKnowledgeTags,
+  sanitizeKnowledgeTags,
+  splitKnowledgeTagInput,
+} from './knowledge-tags';
+
+export {
   DEFAULT_LOCALE,
   LOCALE_COOKIE_NAME,
   LOCALE_META,

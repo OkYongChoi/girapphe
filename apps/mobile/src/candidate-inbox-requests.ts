@@ -1,7 +1,76 @@
 export type CandidateInboxRequestGuard = Readonly<{
   begin: () => number;
+  invalidate: () => void;
   isLatest: (request: number) => boolean;
 }>;
+
+export type CandidateBatchSelection = Readonly<{
+  batchId: string | null;
+  revision: number;
+}>;
+
+export type CandidateBatchSelectionGuard = Readonly<{
+  capture: () => CandidateBatchSelection;
+  isCurrent: (selection: CandidateBatchSelection) => boolean;
+  select: (batchId: string | null) => void;
+  selected: () => string | null;
+}>;
+
+export type CandidateQuickAction = 'approve-candidate' | 'ignore-candidate';
+
+export type CandidateQuickActionDraft = {
+  id: string;
+  requires_detailed_review: boolean;
+};
+
+export type CandidateQuickActionOutcome<Result, Draft> =
+  | { status: 'detailed-review-required' }
+  | { status: 'resolved'; result: Result }
+  | {
+    status: 'stale';
+    latestDraft: Draft | null;
+    reloadSucceeded: boolean;
+  };
+
+export function candidateQuickActionRequiresDetailedReview(
+  draft: CandidateQuickActionDraft,
+  action: CandidateQuickAction,
+): boolean {
+  return action === 'approve-candidate' && draft.requires_detailed_review;
+}
+
+export async function resolveCandidateQuickAction<
+  Result,
+  Draft extends CandidateQuickActionDraft,
+>({
+  draft,
+  action,
+  mutate,
+  reloadLatest,
+  isStaleError,
+}: {
+  draft: Draft;
+  action: CandidateQuickAction;
+  mutate: () => Promise<Result>;
+  reloadLatest: () => Promise<readonly Draft[] | null>;
+  isStaleError: (reason: unknown) => boolean;
+}): Promise<CandidateQuickActionOutcome<Result, Draft>> {
+  if (candidateQuickActionRequiresDetailedReview(draft, action)) {
+    return { status: 'detailed-review-required' };
+  }
+
+  try {
+    return { status: 'resolved', result: await mutate() };
+  } catch (reason) {
+    if (!isStaleError(reason)) throw reason;
+    const latestDrafts = await reloadLatest();
+    return {
+      status: 'stale',
+      latestDraft: latestDrafts?.find((candidate) => candidate.id === draft.id) ?? null,
+      reloadSucceeded: latestDrafts !== null,
+    };
+  }
+}
 
 export function createCandidateInboxRequestGuard(): CandidateInboxRequestGuard {
   let latestRequest = 0;
@@ -11,8 +80,35 @@ export function createCandidateInboxRequestGuard(): CandidateInboxRequestGuard {
       latestRequest += 1;
       return latestRequest;
     },
+    invalidate() {
+      latestRequest += 1;
+    },
     isLatest(request) {
       return request === latestRequest;
+    },
+  };
+}
+
+export function createCandidateBatchSelectionGuard(
+  initialBatchId: string | null = null,
+): CandidateBatchSelectionGuard {
+  let batchId = initialBatchId;
+  let revision = 0;
+
+  return {
+    capture() {
+      return { batchId, revision };
+    },
+    isCurrent(selection) {
+      return selection.batchId === batchId && selection.revision === revision;
+    },
+    select(nextBatchId) {
+      if (nextBatchId === batchId) return;
+      batchId = nextBatchId;
+      revision += 1;
+    },
+    selected() {
+      return batchId;
     },
   };
 }
@@ -42,4 +138,31 @@ export function selectCandidateBatch<T extends { id: string }>(
   return (preferredBatchId
     ? batches.find((batch) => batch.id === preferredBatchId)
     : undefined) ?? batches[0] ?? null;
+}
+
+export type CandidateBatchScopeKind = 'current_conversation' | 'selected_export' | 'unsupported';
+
+export function classifyCandidateBatchScope(scope: unknown): CandidateBatchScopeKind {
+  if (scope === 'current_conversation' || scope === 'selected_export') {
+    return scope;
+  }
+  return 'unsupported';
+}
+
+export function buildCandidateWebReviewUrl(
+  appBaseUrl: string | undefined,
+  batchId: string,
+  draftId: string,
+): string | null {
+  if (!appBaseUrl || !batchId || !draftId) return null;
+  try {
+    const base = new URL(appBaseUrl);
+    if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password) return null;
+    return new URL(
+      `/knowledge-inbox/${encodeURIComponent(batchId)}/${encodeURIComponent(draftId)}/resolve`,
+      base,
+    ).toString();
+  } catch {
+    return null;
+  }
 }

@@ -426,6 +426,9 @@ test('database fixture is owner-bound and repeatable', async () => {
           private_edges: 2,
           public_links: 1,
           draft_probes: 0,
+          mobile_api_items: 0,
+          mobile_api_batches: 0,
+          mobile_api_ranking_rows: 0,
           import_submission_events: 0,
         }] };
       }
@@ -463,11 +466,16 @@ test('database fixture is owner-bound and repeatable', async () => {
     call.values[0] === SYNTHETIC_USER.id
     && call.values[1] === 'Unsaved create draft'
     && call.values[2] === `${AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX} %`
+    && call.values[3] === 'E2E\\_MOBILE\\_API\\_%'
   )));
 
   const tokenResets = calls.filter((call) => (
     call.text === 'DELETE FROM mcp_access_tokens WHERE user_id = $1'
   ));
+  assert.ok(calls.some((call) => (
+    call.text === 'DELETE FROM user_card_states WHERE user_id = $1'
+    && call.values[0] === SYNTHETIC_USER.id
+  )));
   assert.equal(tokenResets.length, 2);
   assert.ok(tokenResets.every((call) => (
     call.values.length === 1 && call.values[0] === SYNTHETIC_USER.id
@@ -522,6 +530,9 @@ test('database fixture remains valid when a schema-only preview has no public no
           private_edges: 2,
           public_links: 0,
           draft_probes: 0,
+          mobile_api_items: 0,
+          mobile_api_batches: 0,
+          mobile_api_ranking_rows: 0,
           import_submission_events: 0,
         }] };
       }

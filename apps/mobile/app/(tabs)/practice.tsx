@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { AccessibilityInfo, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getDomainColor } from '@stem-brain/graph-engine';
 import { NativeSponsoredCard } from '@/components/native-sponsored-card';
 import { TranslationFallbackNotice } from '@/components/translation-fallback-notice';
-import { mobileApi, type MobileCard } from '@/api';
+import { isTransientMobileApiError, mobileApi, type MobileCard, type MobilePracticeStats } from '@/api';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
 import { expressionHasReverseRecallCue, expressionRecallCue, expressionRecallDirectionLabel, knowledgeBundleRecallPrompt, knowledgeBundleTypeLabel, type ExpressionRecallDirection } from '@/knowledge-bundle-ui';
@@ -18,6 +18,23 @@ import {
   getRelatedNodes,
 } from '@/knowledge';
 import { useLocalizedContent } from '@/localized-content';
+import {
+  createPracticeHistoryState,
+  createReviewRoundProgress,
+  loadPracticeWithRetry,
+  prerequisiteKnowledgeState,
+  recordCompletedPracticeAction,
+  recordReviewRoundAdvance,
+  recoverPreviousPracticeCard,
+  resolvePendingRatedPracticeAdvance,
+  resolvePreviousPracticeActionAfterAdvance,
+  resolvePracticeFocusMode,
+  resolvePracticeSkipAdvance,
+  reviewQueueCount,
+  reviewedPracticeCardCount,
+  type PendingRatedPracticeAdvance,
+  type PracticeMode,
+} from '@/practice-parity';
 import { useSubscription } from '@/subscriptions';
 import { localizeDomain, localizeLevel, localizeType } from '@stem-brain/shared';
 
@@ -40,7 +57,6 @@ function LocalPracticeScreen() {
   const { isAdFree, isReady: subscriptionReady } = useSubscription();
   const practiceNodes = useMemo(() => getPracticeNodes(), []);
   const [cardIndex, setCardIndex] = useState(0);
-  const [cardAdvanceCount, setCardAdvanceCount] = useState(0);
   const cardAdvanceCountRef = useRef(0);
   const [showSponsoredCard, setShowSponsoredCard] = useState(false);
   const [isRevealed, setIsRevealed] = useState(false);
@@ -53,7 +69,8 @@ function LocalPracticeScreen() {
   const localized = useLocalizedContent(practiceNodes.map((node) => node.id), currentNode?.id);
   const content = currentNode ? localized.get(currentNode.id) : undefined;
   const knownCount = Object.values(ratings).filter((rating) => rating === 'known').length;
-  const progressRatio = practiceNodes.length > 0 ? (cardAdvanceCount / practiceNodes.length) * 100 : 0;
+  const reviewedCount = Object.keys(ratings).length;
+  const progressRatio = practiceNodes.length > 0 ? (reviewedCount / practiceNodes.length) * 100 : 0;
 
   function labelFor(node: (typeof practiceNodes)[number]) {
     return localized.get(node.id)?.label ?? localized.get(node.id)?.title ?? node.label;
@@ -98,7 +115,6 @@ function LocalPracticeScreen() {
     cardAdvanceCountRef.current = nextAdvanceCount;
     setIsRevealed(false);
     setCardIndex((index) => (index + 1) % practiceNodes.length);
-    setCardAdvanceCount(nextAdvanceCount);
     if (subscriptionReady && !isAdFree && nextAdvanceCount % 5 === 0) setShowSponsoredCard(true);
   }
 
@@ -116,7 +132,7 @@ function LocalPracticeScreen() {
 
         <View style={styles.progressPanel}>
           <View>
-            <Text style={styles.progressValue}>{formatNumber(cardAdvanceCount)}</Text>
+            <Text style={styles.progressValue}>{formatNumber(reviewedCount)}</Text>
             <Text style={styles.progressLabel}>{t('practice.reviewed')}</Text>
           </View>
           <View>
@@ -235,84 +251,233 @@ function LocalPracticeScreen() {
 
 function SyncedPracticeScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ mode?: string | string[] }>();
   const { direction, formatNumber, locale, t } = useI18n();
   const { isAdFree, isReady: subscriptionReady } = useSubscription();
-  const [mode, setMode] = useState<'new' | 'review'>('new');
+  const [mode, setMode] = useState<PracticeMode>('new');
   const [card, setCard] = useState<MobileCard | null>(null);
-  const [stats, setStats] = useState({ explainable: 0, unclear: 0 });
-  const [seen, setSeen] = useState<string[]>([]);
+  const [stats, setStats] = useState<MobilePracticeStats>({ explainable: 0, unclear: 0, reviewable: 0 });
+  const [historyState, setHistoryState] = useState(() => createPracticeHistoryState<MobileCard>());
+  const [previousAction, setPreviousAction] = useState<'known' | 'saved' | 'skip' | null>(null);
+  const [pendingRatedAdvance, setPendingRatedAdvance] = useState<PendingRatedPracticeAdvance | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [cardAdvanceCount, setCardAdvanceCount] = useState(0);
   const [showSponsoredCard, setShowSponsoredCard] = useState(false);
+  const [reviewRoundProgress, setReviewRoundProgress] = useState(createReviewRoundProgress);
   const [expressionDirection, setExpressionDirection] = useState<ExpressionRecallDirection>('forward');
+  const routeModeRef = useRef(params.mode);
+  const modeRef = useRef<PracticeMode>('new');
+  const cursorRef = useRef<string | null>(null);
+  const initialReviewPoolRef = useRef(0);
+  const sessionGenerationRef = useRef(0);
+  const requestSequenceRef = useRef(0);
+  const busyRef = useRef(false);
+  routeModeRef.current = params.mode;
 
-  const load = useCallback(async (nextMode: 'new' | 'review', exclude: string[]) => {
+  const load = useCallback(async (
+    nextMode: PracticeMode,
+    cursor: string | null,
+    sessionGeneration: number,
+    cycleOnEmpty = false,
+    captureReviewPool = false,
+  ): Promise<{ ok: boolean; cycled: boolean }> => {
+    if (sessionGeneration !== sessionGenerationRef.current) return { ok: false, cycled: false };
+    const requestSequence = ++requestSequenceRef.current;
+    const isCurrentRequest = () => (
+      sessionGeneration === sessionGenerationRef.current
+      && requestSequence === requestSequenceRef.current
+    );
+    busyRef.current = true;
     setLoading(true);
     setError(null);
     setIsRevealed(false);
     setExpressionDirection('forward');
     try {
-      const result = await mobileApi.practice(nextMode, exclude);
+      const result = await loadPracticeWithRetry(
+        () => mobileApi.practice(nextMode, cursor, cycleOnEmpty),
+        undefined,
+        isTransientMobileApiError,
+      );
+      if (!isCurrentRequest()) return { ok: false, cycled: false };
+      cursorRef.current = result.nextCursor;
       setCard(result.card);
       setStats(result.stats);
+      if (captureReviewPool) {
+        initialReviewPoolRef.current = reviewQueueCount(result.stats);
+        setReviewRoundProgress(createReviewRoundProgress());
+      }
+      return { ok: true, cycled: result.cycled };
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('practice.loadError'));
+      if (isCurrentRequest()) {
+        setError(cause instanceof Error ? cause.message : t('practice.loadError'));
+      }
+      return { ok: false, cycled: false };
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) {
+        busyRef.current = false;
+        setLoading(false);
+      }
     }
   }, [t]);
 
   useFocusEffect(useCallback(() => {
-    setMode('new');
-    setSeen([]);
-    void load('new', []);
-  }, [load]));
+    const focusMode = resolvePracticeFocusMode(routeModeRef.current, modeRef.current);
+    const sessionGeneration = ++sessionGenerationRef.current;
+    modeRef.current = focusMode.mode;
+    cursorRef.current = null;
+    setMode(focusMode.mode);
+    setCard(null);
+    setHistoryState((current) => ({ ...current, history: [] }));
+    setPreviousAction(null);
+    setPendingRatedAdvance(null);
+    setShowSponsoredCard(false);
+    setReviewRoundProgress(createReviewRoundProgress());
+    if (focusMode.consumeRouteIntent) router.setParams({ mode: undefined });
+    void load(focusMode.mode, null, sessionGeneration, false, true);
+    return () => {
+      requestSequenceRef.current += 1;
+      sessionGenerationRef.current += 1;
+      busyRef.current = false;
+    };
+  }, [load, router]));
 
   useEffect(() => {
     if (isAdFree) setShowSponsoredCard(false);
   }, [isAdFree]);
 
-  function recordAdvance() {
-    setCardAdvanceCount((current) => {
-      const next = current + 1;
-      if (subscriptionReady && !isAdFree && next % 5 === 0) setShowSponsoredCard(true);
+  function recordAdvance(completedCard: MobileCard, action: 'known' | 'saved' | 'skip') {
+    setHistoryState((current) => {
+      const next = recordCompletedPracticeAction(current, completedCard, action);
+      if (subscriptionReady && !isAdFree && next.completedCardActions % 5 === 0) {
+        setShowSponsoredCard(true);
+      }
       return next;
     });
   }
 
   async function rate(status: 'known' | 'saved') {
-    if (!card) return;
+    if (!card || busyRef.current) return;
+    const completedCard = card;
+    const actionMode = modeRef.current;
+    const cursor = cursorRef.current;
+    const sessionGeneration = sessionGenerationRef.current;
+    const ratedAdvance = resolvePendingRatedPracticeAdvance(
+      pendingRatedAdvance,
+      previousAction,
+      status,
+    );
+    busyRef.current = true;
+    setLoading(true);
+    setError(null);
+    setReviewRoundProgress((current) => ({ ...current, completed: false }));
     try {
-      await mobileApi.mutate({ action: 'rate-card', cardId: card.id, status });
-      const nextSeen = [...seen, card.id].slice(-100);
-      setSeen(nextSeen);
-      recordAdvance();
-      await load(mode, nextSeen);
+      await mobileApi.mutate({ action: 'rate-card', cardId: completedCard.id, status });
+      if (sessionGeneration !== sessionGenerationRef.current) return;
+      setPendingRatedAdvance(ratedAdvance);
+      const advanced = await load(actionMode, cursor, sessionGeneration, true);
+      if (sessionGeneration !== sessionGenerationRef.current) return;
+      setPreviousAction((current) => resolvePreviousPracticeActionAfterAdvance(current, advanced.ok));
+      if (!advanced.ok) return;
+      setPendingRatedAdvance(null);
+      if (actionMode === 'review') {
+        setReviewRoundProgress((current) => recordReviewRoundAdvance(current, {
+          pool: initialReviewPoolRef.current,
+          action: ratedAdvance.action,
+          replacesRatedAction: ratedAdvance.replacesRatedAction,
+          cycled: advanced.cycled,
+        }));
+      }
+      recordAdvance(completedCard, ratedAdvance.action);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('practice.saveError'));
+      if (sessionGeneration === sessionGenerationRef.current) {
+        setError(cause instanceof Error ? cause.message : t('practice.saveError'));
+      }
+    } finally {
+      if (sessionGeneration === sessionGenerationRef.current) {
+        busyRef.current = false;
+        setLoading(false);
+      }
     }
   }
 
-  function skip() {
-    if (!card) return;
-    const nextSeen = [...seen, card.id].slice(-100);
-    setSeen(nextSeen);
-    recordAdvance();
-    void load(mode, nextSeen);
+  async function skip() {
+    if (!card || busyRef.current) return;
+    const completedCard = card;
+    const skipAdvance = resolvePracticeSkipAdvance(pendingRatedAdvance, previousAction);
+    const actionMode = modeRef.current;
+    const cursor = cursorRef.current;
+    const sessionGeneration = sessionGenerationRef.current;
+    busyRef.current = true;
+    setReviewRoundProgress((current) => ({ ...current, completed: false }));
+    try {
+      const advanced = await load(actionMode, cursor, sessionGeneration, true);
+      if (sessionGeneration !== sessionGenerationRef.current) return;
+      setPreviousAction((current) => resolvePreviousPracticeActionAfterAdvance(current, advanced.ok));
+      if (!advanced.ok) return;
+      setPendingRatedAdvance(null);
+      if (actionMode === 'review') {
+        setReviewRoundProgress((current) => recordReviewRoundAdvance(current, {
+          pool: initialReviewPoolRef.current,
+          action: skipAdvance.action,
+          replacesRatedAction: skipAdvance.replacesRatedAction,
+          cycled: advanced.cycled,
+        }));
+      }
+      recordAdvance(completedCard, skipAdvance.action);
+    } finally {
+      if (sessionGeneration === sessionGenerationRef.current) {
+        busyRef.current = false;
+        setLoading(false);
+      }
+    }
   }
 
-  function changeMode(nextMode: 'new' | 'review') {
+  function showPrevious() {
+    if (busyRef.current || pendingRatedAdvance) return;
+    const recovered = recoverPreviousPracticeCard(historyState);
+    if (!recovered.entry) return;
+    setHistoryState(recovered.state);
+    setCard(recovered.entry.card);
+    setPreviousAction(recovered.entry.action);
+    setError(null);
+    setIsRevealed(true);
+    setExpressionDirection('forward');
+  }
+
+  function changeMode(nextMode: PracticeMode) {
+    if (busyRef.current || nextMode === modeRef.current) return;
+    const sessionGeneration = ++sessionGenerationRef.current;
+    modeRef.current = nextMode;
+    cursorRef.current = null;
     setMode(nextMode);
-    setSeen([]);
+    setCard(null);
+    setHistoryState((current) => ({ ...current, history: [] }));
+    setPreviousAction(null);
+    setPendingRatedAdvance(null);
     setShowSponsoredCard(false);
-    void load(nextMode, []);
+    setReviewRoundProgress(createReviewRoundProgress());
+    void load(nextMode, null, sessionGeneration, false, true);
   }
 
   const expressionContent = card?.structured_content?.type === 'expression' ? card.structured_content : null;
   const expressionCue = expressionContent ? expressionRecallCue(expressionContent, locale, expressionDirection) : '';
   const hasExpressionReverseCue = expressionContent ? expressionHasReverseRecallCue(expressionContent) : false;
+  const reviewable = reviewQueueCount(stats);
+  const reviewedCount = reviewedPracticeCardCount(historyState);
+  const reviewPool = initialReviewPoolRef.current;
+  const reviewProgress = Math.min(reviewRoundProgress.reviewed, reviewPool);
+  const sponsoredCardVisible = showSponsoredCard && subscriptionReady && !isAdFree;
+  const previousDisabled = historyState.history.length === 0 || pendingRatedAdvance !== null;
+  const selectedAction = pendingRatedAdvance?.action ?? previousAction;
+
+  useEffect(() => {
+    if (Platform.OS === 'ios' && reviewRoundProgress.completed) {
+      AccessibilityInfo.announceForAccessibility(
+        t('practice.roundComplete', { count: formatNumber(reviewPool) }),
+      );
+    }
+  }, [formatNumber, reviewPool, reviewRoundProgress.completed, t]);
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
@@ -325,18 +490,89 @@ function SyncedPracticeScreen() {
         <View style={styles.progressPanel}>
           <View><Text style={styles.progressValue}>{formatNumber(stats.explainable)}</Text><Text style={styles.progressLabel}>{t('progress.explainable')}</Text></View>
           <View><Text style={styles.progressValue}>{formatNumber(stats.unclear)}</Text><Text style={styles.progressLabel}>{t('progress.unclear')}</Text></View>
-          <View><Text style={styles.progressValue}>{formatNumber(cardAdvanceCount)}</Text><Text style={styles.progressLabel}>{t('practice.reviewed')}</Text></View>
+          <View><Text style={styles.progressValue}>{formatNumber(reviewedCount)}</Text><Text style={styles.progressLabel}>{t('practice.recentlyReviewed')}</Text></View>
         </View>
 
         <View style={styles.modeRow}>
-          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'new' }} onPress={() => changeMode('new')} style={[styles.modeButton, mode === 'new' && styles.modeButtonActive]}><Text style={styles.modeText}>{t('practice.learnNew')}</Text></Pressable>
-          <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === 'review' }} onPress={() => changeMode('review')} style={[styles.modeButton, mode === 'review' && styles.modeButtonActive]}><Text style={styles.modeText}>{t('practice.review', { count: formatNumber(stats.unclear) })}</Text></Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: mode === 'new', disabled: loading }}
+            disabled={loading}
+            onPress={() => changeMode('new')}
+            style={[styles.modeButton, mode === 'new' && styles.modeButtonActive, loading && styles.modeButtonDisabled]}
+          >
+            <Text style={styles.modeText}>{t('practice.learnNew')}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: mode === 'review', disabled: loading }}
+            disabled={loading}
+            onPress={() => changeMode('review')}
+            style={[styles.modeButton, mode === 'review' && styles.modeButtonActive, loading && styles.modeButtonDisabled]}
+          >
+            <Text style={styles.modeText}>{t('practice.review', { count: formatNumber(reviewable) })}</Text>
+          </Pressable>
         </View>
 
+        {mode === 'review' ? (
+          <View style={styles.reviewRoundPanel}>
+            <View style={styles.reviewRoundHeader}>
+              <Text style={styles.reviewRoundTitle}>{t('practice.reviewingQueue')}</Text>
+              <Text accessibilityLiveRegion="polite" style={styles.reviewRoundCount}>
+                {t('practice.reviewProgress', {
+                  done: formatNumber(reviewProgress),
+                  total: formatNumber(reviewPool),
+                })}
+              </Text>
+            </View>
+            <View
+              accessible
+              accessibilityLabel={t('practice.reviewProgress', {
+                done: formatNumber(reviewProgress),
+                total: formatNumber(reviewPool),
+              })}
+              accessibilityRole="progressbar"
+              accessibilityValue={{ min: 0, max: Math.max(reviewPool, 1), now: reviewProgress }}
+              style={styles.reviewRoundTrack}
+            >
+              <View style={[styles.reviewRoundFill, { width: reviewPool > 0 ? `${Math.min(100, Math.round((reviewProgress / reviewPool) * 100))}%` : '0%' }]} />
+            </View>
+            {reviewRoundProgress.completed ? <Text accessibilityLiveRegion="polite" style={styles.reviewRoundComplete}>{t('practice.roundComplete', { count: formatNumber(reviewPool) })}</Text> : null}
+          </View>
+        ) : null}
         {error ? <Text accessibilityLiveRegion="polite" style={styles.errorText}>{error}</Text> : null}
         {loading ? <Text style={styles.emptyText}>{t('common.loading')}</Text> : null}
 
-        {showSponsoredCard && subscriptionReady && !isAdFree ? (
+        {!loading && !sponsoredCardVisible && (card || historyState.history.length > 0) ? (
+          <View style={styles.navigationRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('practice.previousAria')}
+              accessibilityState={{ disabled: previousDisabled }}
+              disabled={previousDisabled}
+              onPress={showPrevious}
+              style={({ pressed }) => [
+                styles.navigationButton,
+                previousDisabled && styles.navigationButtonDisabled,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.navigationText}>{t('practice.previous')}</Text>
+            </Pressable>
+            {card ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('practice.skip')}
+                onPress={skip}
+                style={({ pressed }) => [styles.navigationButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.navigationText}>{t('practice.skip')}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        {sponsoredCardVisible ? (
           <NativeSponsoredCard onContinue={() => setShowSponsoredCard(false)} onUpgrade={() => router.push('/subscription')} />
         ) : !loading && card ? (
           <>
@@ -362,13 +598,59 @@ function SyncedPracticeScreen() {
                 <Pressable accessibilityRole="button" accessibilityLabel={t('practice.reveal')} onPress={() => setIsRevealed(true)} style={styles.revealButton}><Text style={styles.revealButtonText}>{t('practice.reveal')}</Text></Pressable>
               )}
             </View>
-            {isRevealed ? (
-              <View style={styles.ratingRow}>
-                <Pressable accessibilityRole="button" accessibilityLabel={t('practice.stillUnclear')} onPress={() => void rate('saved')} style={styles.ratingButton}><Text style={styles.ratingText}>{t('practice.stillUnclear')}</Text></Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel={t('practice.canExplain')} onPress={() => void rate('known')} style={[styles.ratingButton, styles.ratingButtonPrimary]}><Text style={[styles.ratingText, styles.ratingTextPrimary]}>{t('practice.canExplain')}</Text></Pressable>
+            {card.prerequisites && card.prerequisites.length > 0 ? (
+              <View style={styles.prerequisitesPanel}>
+                <Text style={styles.prerequisitesTitle}>
+                  {t('home.prerequisites', { count: formatNumber(card.prerequisites.length) })}
+                </Text>
+                {card.prerequisites.map((prerequisite) => {
+                  const state = prerequisiteKnowledgeState(prerequisite.status);
+                  const stateLabel = state === 'explainable'
+                    ? t('practice.canExplain')
+                    : state === 'unclear'
+                      ? t('practice.stillUnclear')
+                      : t('practice.learnNew');
+                  return (
+                    <View
+                      key={prerequisite.id}
+                      accessible
+                      accessibilityLabel={`${prerequisite.label}: ${stateLabel}`}
+                      style={styles.prerequisiteRow}
+                    >
+                      <Text accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.prerequisiteSymbol}>
+                        {state === 'explainable' ? '✓' : state === 'unclear' ? '◐' : '○'}
+                      </Text>
+                      <KnowledgeText value={prerequisite.label} direction={direction} numberOfLines={2} style={styles.prerequisiteLabel} />
+                      <Text style={styles.prerequisiteStatus}>{stateLabel}</Text>
+                    </View>
+                  );
+                })}
               </View>
             ) : null}
-            <Pressable accessibilityRole="button" accessibilityLabel={t('practice.skip')} onPress={skip} style={styles.skipButton}><Text style={styles.skipText}>{t('practice.skip')}</Text></Pressable>
+            {isRevealed ? (
+              <View style={styles.ratingRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('practice.stillUnclear')}
+                  accessibilityState={{ selected: selectedAction === 'saved' }}
+                  disabled={loading}
+                  onPress={() => void rate('saved')}
+                  style={[styles.ratingButton, selectedAction === 'saved' && styles.ratingButtonSelected]}
+                >
+                  <Text style={styles.ratingText}>{t('practice.stillUnclear')}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('practice.canExplain')}
+                  accessibilityState={{ selected: selectedAction === 'known' }}
+                  disabled={loading}
+                  onPress={() => void rate('known')}
+                  style={[styles.ratingButton, styles.ratingButtonPrimary, selectedAction === 'known' && styles.ratingButtonPrimarySelected]}
+                >
+                  <Text style={[styles.ratingText, styles.ratingTextPrimary]}>{t('practice.canExplain')}</Text>
+                </Pressable>
+              </View>
+            ) : null}
           </>
         ) : !loading ? (
           <View style={styles.emptyState}>
@@ -509,14 +791,87 @@ const styles = StyleSheet.create({
     borderColor: '#2563eb',
     backgroundColor: '#dbeafe',
   },
+  modeButtonDisabled: {
+    opacity: 0.5,
+  },
   modeText: {
     color: '#111827',
     fontWeight: '800',
+  },
+  reviewRoundPanel: {
+    borderColor: '#dbeafe',
+    borderWidth: 1,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    padding: 12,
+    marginBottom: 14,
+    gap: 8,
+  },
+  reviewRoundHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  reviewRoundTitle: {
+    flex: 1,
+    color: '#1d4ed8',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  reviewRoundCount: {
+    color: '#607080',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  reviewRoundTrack: {
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: '#eef2f7',
+    overflow: 'hidden',
+  },
+  reviewRoundFill: {
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: '#3b82f6',
+  },
+  reviewRoundComplete: {
+    color: '#047857',
+    borderColor: '#a7f3d0',
+    borderWidth: 1,
+    borderRadius: 8,
+    backgroundColor: '#ecfdf5',
+    padding: 10,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 18,
   },
   errorText: {
     color: '#b42318',
     fontWeight: '700',
     marginBottom: 12,
+  },
+  navigationRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 10,
+  },
+  navigationButton: {
+    minHeight: 44,
+    minWidth: 96,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  navigationButtonDisabled: {
+    opacity: 0.35,
+  },
+  navigationText: {
+    color: '#607080',
+    fontSize: 14,
+    fontWeight: '800',
   },
   card: {
     borderRadius: 8,
@@ -639,6 +994,43 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  prerequisitesPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e4e7ec',
+    backgroundColor: '#ffffff',
+    padding: 14,
+    gap: 8,
+    marginTop: 10,
+  },
+  prerequisitesTitle: {
+    color: '#607080',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  prerequisiteRow: {
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  prerequisiteSymbol: {
+    color: '#47606f',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  prerequisiteLabel: {
+    flex: 1,
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  prerequisiteStatus: {
+    color: '#607080',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   metaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -687,6 +1079,15 @@ const styles = StyleSheet.create({
   ratingButtonPrimary: {
     backgroundColor: '#111827',
     borderColor: '#111827',
+  },
+  ratingButtonSelected: {
+    backgroundColor: '#fef3c7',
+    borderColor: '#d97706',
+    borderWidth: 2,
+  },
+  ratingButtonPrimarySelected: {
+    borderColor: '#34d399',
+    borderWidth: 2,
   },
   ratingText: {
     color: '#111827',

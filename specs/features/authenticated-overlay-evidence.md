@@ -25,6 +25,10 @@ In scope:
 - Keep the authenticated graph payload canvas-shaped: private nodes and edges
   contain only rendered fields, and public link targets are limited to endpoints
   used by the owner's private edges.
+- On testing-token Preview only, exercise the deployed mobile Notes, Topics,
+  Ranking, Practice, and Candidate API contracts once in the mobile project,
+  then exactly remove every synthetic row and summarize only safe counts and
+  pass/fail fields.
 
 Out of scope:
 
@@ -33,6 +37,8 @@ Out of scope:
 - Establishing performance budgets before representative measurements exist.
 - Storing a raw conversation, publishing synthetic knowledge, or using a real
   user account as a fixture owner.
+- Physical-device interaction, VoiceOver/TalkBack, IME composition, signed EAS
+  binaries, store submission, or store availability.
 
 ## Acceptance criteria
 
@@ -60,6 +66,20 @@ Out of scope:
   identity/display fields and rendered edge fields, and returns only public
   link targets used by a private edge; rich private bundle content and the
   complete target catalog remain out of the overlay response.
+- [x] `AC-07`: The testing-token mobile project creates one marker-owned typed
+  note, retries that create with the same request ID but edited fields, proves
+  that only the original payload is stored once, and creates one two-draft
+  Candidate batch. It proves deployed Notes lifecycle,
+  exact private Topics/Hub visibility, deterministic private new/review
+  Practice and ratings, one pseudonymous current-user Ranking row, Candidate
+  approve/ignore success plus stale 409 responses, and `private, no-store` on
+  every authenticated response. Cleanup is owner-, marker-, batch-, item-,
+  event-hash-, mastery-, and ranking-row scoped and verifies zero residue.
+- [x] `AC-08`: The mobile API evidence file contains only schema/project names,
+  counts, and booleans. It is written after both the body and cleanup attempts;
+  multiple errors are preserved together. The runner attempts the aggregate
+  summary even after Playwright fails while retaining the original failure
+  status.
 
 The deployment workflow attaches the revision to the Worker version upload. It
 does not update the production revision in the earlier bulk-secret step, so a
@@ -70,7 +90,12 @@ failed code deployment cannot make stale production code claim the incoming SHA.
 The fixture accepts only an email containing the dedicated
 `+clerk_test_girapphe_overlay_e2e` marker. Database IDs are derived from a
 one-way hash of the Clerk user ID, and every insert and verification query is
-bound to that owner. The fixture contains synthetic titles and summaries only.
+bound to that owner. The fixtures contain synthetic titles and summaries only.
+Preview-only mobile mutations use a unique `E2E_MOBILE_API_` marker, a dedicated
+owner lock, one existing public card solely for an exactly deleted synthetic
+ranking state, and exact post-cleanup zero-count verification. If a regression
+creates more than one exact-marker note, cleanup removes every such row for only
+the validated synthetic owner and still verifies the marker has no residue.
 It never reads, clones, logs, or exports another user's private knowledge or any
 raw conversation. Clerk and database secrets remain runtime inputs and are not
 written to the repository or Playwright artifacts.
@@ -85,6 +110,8 @@ written to the repository or Playwright artifacts.
 | `AC-04` | `pnpm browser:authenticated-overlay` and its `test-results/authenticated-overlay-performance/summary.md` artifact. |
 | `AC-05` | Inspection of `.github/workflows/authenticated-performance.yml`, `.github/workflows/deploy-cloudflare.yml`, `playwright.authenticated.config.ts`, and the normal `playwright.config.ts`; `apps/web/scripts/verify-deployment-revision.test.mjs`. |
 | `AC-06` | `apps/web/src/lib/knowledge-ingestion.test.ts` lightweight-payload regression and `getKnowledgeGraphOverlayForUser()` projection/query. |
+| `AC-07` | `apps/web/e2e-authenticated/authenticated-mobile-api.spec.ts`, `apps/web/scripts/authenticated-mobile-api-fixture.test.mjs`, and the exact-head Preview artifact's Mobile API section. |
+| `AC-08` | `apps/web/scripts/authenticated-mobile-api-source.test.mjs`, `apps/web/scripts/authenticated-overlay-results.test.mjs`, and `pnpm browser:authenticated-overlay`. |
 
 Preview workflow run
 [`33466410279`](https://github.com/OkYongChoi/girapphe/actions/runs/33466410279)
@@ -107,7 +134,10 @@ Server Action ran before the click.
 
 The first automated run targets a deployed PR Preview Worker, preview Clerk
 instance, and schema-only preview database. It is manually dispatched and is
-not a required PR or deployment check. After preview evidence passes, production
+not a required PR or deployment check. Preview testing-token runs include the
+exactly cleaned mobile API mutation journey. Production sign-in-token runs skip
+that journey and do not make it physical-device or store evidence. After
+preview evidence passes, production
 may be dispatched once with the dedicated production synthetic account and the
 exact confirmation string documented in `docs/operations/development.md`.
 

@@ -1,12 +1,33 @@
 import { getClerkInstance } from '@clerk/expo';
-import type { KnowledgeBundleContent, KnowledgeBundleType, Locale } from '@stem-brain/shared';
+import type {
+  KnowledgeBundleContent,
+  KnowledgeBundleType,
+  Locale,
+  MobilePracticeMode,
+  MobilePracticeRequest,
+  MobilePracticeResponse,
+  MobilePracticeStats as SharedMobilePracticeStats,
+} from '@stem-brain/shared';
 import { getActiveLocale, translate } from '@/i18n';
+import {
+  MobileApiConfigurationError,
+  MobileApiNetworkError,
+  MobileApiRequestError,
+} from './mobile-api-errors';
+
+export {
+  MobileApiConfigurationError,
+  MobileApiNetworkError,
+  MobileApiRequestError,
+  isTransientMobileApiError,
+} from './mobile-api-errors';
 
 const apiBaseUrl = (process.env.EXPO_PUBLIC_APP_BASE_URL ?? '').replace(/\/$/, '');
 export const MOBILE_KNOWLEDGE_CAPABILITIES = 'expression-v1,event-chronology-v1,causal-relations-v1';
 
 export type CardStatus = 'known' | 'saved';
 export type TranslationStatus = 'source' | 'machine' | 'reviewed' | 'human' | 'failed' | 'partial' | 'fallback';
+export type MobilePracticeStats = SharedMobilePracticeStats;
 
 export type MobileCard = {
   id: string;
@@ -23,7 +44,7 @@ export type MobileCard = {
   status: CardStatus | null;
   related_concepts?: string[];
   prerequisites?: Array<{ id: string; label: string; status: CardStatus | null }>;
-  last_seen?: string;
+  last_seen?: string | null;
   source_locale?: Locale;
   resolved_locale?: Locale;
   translation_status?: TranslationStatus;
@@ -73,6 +94,7 @@ export type PersonalNote = {
   version: number;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
   deleted_at: string | null;
   purge_at: string | null;
 };
@@ -100,6 +122,26 @@ export type MobileTopicHubItem = PersonalNoteSummary & {
   valid_to: string | null;
   last_verified_at: string | null;
   review_at: string | null;
+};
+
+export type MobileTopicSummary = {
+  topic: string;
+  item_count: number;
+  open_question_count: number;
+  decision_count: number;
+  event_count: number;
+  source_count: number;
+  last_updated_at: string;
+  sample_titles: string[];
+};
+
+export type MobileRankingRow = {
+  rank: number;
+  label: string;
+  participantId: string;
+  isCurrentUser: boolean;
+  explainable: number;
+  avgScore: number;
 };
 
 export type MobileTopicHub = {
@@ -141,7 +183,7 @@ export type MobileCandidateBatch = {
   id: string;
   source_type: 'conversation';
   provider: string;
-  scope: 'current_conversation';
+  scope: 'current_conversation' | 'selected_export';
   conversation_ref: string | null;
   source_url: string | null;
   discussed_at: string | null;
@@ -168,6 +210,7 @@ export type MobileCandidateDraft = {
   bundle_schema_version: number | null;
   status: 'pending' | 'approved' | 'rejected';
   version: number;
+  requires_detailed_review: boolean;
   duplicate_suggestions: Array<{
     id: string;
     title: string;
@@ -189,16 +232,6 @@ export type MobileCandidateResolutionResult = {
   skippedEdges?: number;
 };
 
-export class MobileApiRequestError extends Error {
-  readonly code: string | null;
-
-  constructor(message: string, code: string | null) {
-    super(message);
-    this.name = 'MobileApiRequestError';
-    this.code = code;
-  }
-}
-
 function readApiErrorCode(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object' || !('code' in payload)) return null;
   const code = (payload as { code?: unknown }).code;
@@ -206,7 +239,9 @@ function readApiErrorCode(payload: unknown): string | null {
 }
 
 function getBaseUrl() {
-  if (!apiBaseUrl) throw new Error(translate(getActiveLocale(), 'api.missingUrl'));
+  if (!apiBaseUrl) {
+    throw new MobileApiConfigurationError(translate(getActiveLocale(), 'api.missingUrl'));
+  }
   return apiBaseUrl;
 }
 
@@ -216,13 +251,14 @@ async function authenticatedFetch(path: string, init?: RequestInit): Promise<Res
   try {
     token = await getClerkInstance().session?.getToken();
   } catch {
-    throw new Error(translate(locale, 'api.networkFailed'));
+    throw new MobileApiNetworkError(translate(locale, 'api.networkFailed'));
   }
   if (!token) throw new Error(translate(locale, 'api.signInRequired'));
 
+  const baseUrl = getBaseUrl();
   let response: Response;
   try {
-    response = await fetch(`${getBaseUrl()}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -235,7 +271,7 @@ async function authenticatedFetch(path: string, init?: RequestInit): Promise<Res
       },
     });
   } catch {
-    throw new Error(translate(locale, 'api.networkFailed'));
+    throw new MobileApiNetworkError(translate(locale, 'api.networkFailed'));
   }
   return response;
 }
@@ -248,6 +284,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new MobileApiRequestError(
       translate(locale, 'api.requestFailed', { status: new Intl.NumberFormat(locale).format(response.status) }),
       readApiErrorCode(payload),
+      response.status,
     );
   }
   return payload as T;
@@ -255,9 +292,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 async function publicRequest<T>(path: string): Promise<T> {
   const locale = getActiveLocale();
+  const baseUrl = getBaseUrl();
   let response: Response;
   try {
-    response = await fetch(`${getBaseUrl()}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       headers: {
         Accept: 'application/json',
         'Accept-Language': locale,
@@ -266,7 +304,7 @@ async function publicRequest<T>(path: string): Promise<T> {
       },
     });
   } catch {
-    throw new Error(translate(locale, 'api.networkFailed'));
+    throw new MobileApiNetworkError(translate(locale, 'api.networkFailed'));
   }
   const payload = await response.json().catch(() => ({})) as T;
   if (!response.ok) throw new Error(translate(locale, 'api.requestFailed', { status: new Intl.NumberFormat(locale).format(response.status) }));
@@ -285,15 +323,22 @@ export const mobileApi = {
     const query = boundedIds.map((id) => encodeURIComponent(id)).join(',');
     return publicRequest<ContentResponse>(withLocale(`/api/mobile?resource=content&ids=${query}`));
   },
-  notes: (view: 'active' | 'trash' = 'active') => request<{ items: PersonalNote[] }>(withLocale(`/api/mobile?resource=notes&view=${view}`)),
+  notes: (view: 'active' | 'archive' | 'trash' = 'active') => request<{ items: PersonalNote[] }>(withLocale(`/api/mobile?resource=notes&view=${view}`)),
+  topics: () => request<{ topics: MobileTopicSummary[] }>(withLocale('/api/mobile?resource=topics')),
   topicHub: (topic: string) => request<{ hub: MobileTopicHub }>(withLocale(`/api/mobile?resource=topic-hub&topic=${encodeURIComponent(topic)}`)),
   candidateInbox: () => request<{ batches: MobileCandidateBatch[] }>(withLocale('/api/mobile?resource=candidate-inbox')),
   candidateBatch: (batchId: string) => request<{ batch: MobileCandidateBatch; drafts: MobileCandidateDraft[] }>(withLocale(`/api/mobile?resource=candidate-batch&batchId=${encodeURIComponent(batchId)}`)),
   graph: () => request<{ cards: GraphCardSummary[]; personalItems: PersonalNoteSummary[] }>(withLocale('/api/mobile?resource=graph')),
-  practice: (mode: 'new' | 'review', exclude: string[] = []) => request<{ card: MobileCard | null; stats: { explainable: number; unclear: number } }>(withLocale(`/api/mobile?resource=practice&mode=${mode}${exclude.map((id) => `&exclude=${encodeURIComponent(id)}`).join('')}`)),
-  saved: () => request<{ cards: MobileCard[] }>(withLocale('/api/mobile?resource=saved')),
-  dashboard: () => request<{ stats: { explainable: number; unclear: number }; domains: Array<{ domain: string; domain_label?: string; reviewed: number; explainable: number; unclear: number }> }>(withLocale('/api/mobile?resource=dashboard')),
-  ranking: () => request<{ rows: Array<{ rank: number; label: string; explainable: number; avgScore: number }> }>(withLocale('/api/mobile?resource=ranking')),
+  practice: (mode: MobilePracticeMode, cursor: string | null = null, cycleOnEmpty = false) => {
+    const body: MobilePracticeRequest = { mode, cursor, cycleOnEmpty };
+    return request<MobilePracticeResponse<MobileCard>>(withLocale('/api/mobile?resource=practice'), {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  saved: () => request<{ cards: MobileCard[]; stats: MobilePracticeStats }>(withLocale('/api/mobile?resource=saved')),
+  dashboard: () => request<{ stats: MobilePracticeStats; domains: Array<{ domain: string; domain_label?: string; reviewed: number; explainable: number; unclear: number }> }>(withLocale('/api/mobile?resource=dashboard')),
+  ranking: () => request<{ rows: MobileRankingRow[] }>(withLocale('/api/mobile?resource=ranking')),
   adminNodes: () => request<{ nodes: Array<{ id: string; label: string; domain: string; level: number; difficulty: number; type: string }> }>(withLocale('/api/mobile?resource=admin-nodes')),
   adminEdges: () => request<{ edges: Array<{ id: number; source: string; target: string; type: string; weight: number }>; nodes: Array<{ id: string; label: string }> }>(withLocale('/api/mobile?resource=admin-edges')),
   adminUsers: () => request<{ users: Array<{ user_id: string; mastered: number; reinforcing: number; total: number; last_updated: string | null }> }>(withLocale('/api/mobile?resource=admin-users')),

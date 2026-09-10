@@ -90,10 +90,19 @@ test.describe('browser smoke', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' });
   });
 
-  test('mobile API rejects unauthenticated callers', async ({ request }) => {
+  test('mobile API rejects unauthenticated reads and Practice posts', async ({ request }) => {
     const response = await request.get('/api/mobile?resource=notes');
     expect(response.status()).toBe(401);
     await expect(response.json()).resolves.toEqual({
+      error: 'Sign in is required.',
+      code: 'AUTH_REQUIRED',
+    });
+
+    const practiceResponse = await request.post('/api/mobile?resource=practice', {
+      data: { mode: 'new', cursor: null, cycleOnEmpty: false },
+    });
+    expect(practiceResponse.status()).toBe(401);
+    await expect(practiceResponse.json()).resolves.toEqual({
       error: 'Sign in is required.',
       code: 'AUTH_REQUIRED',
     });

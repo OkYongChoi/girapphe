@@ -190,6 +190,7 @@ export const userKnowledgeItems = pgTable("user_knowledge_items", {
 }, (t) => [
   uniqueIndex("idx_user_knowledge_items_id_user_id").on(t.id, t.userId),
   index("idx_user_knowledge_items_user").on(t.userId),
+  index("idx_user_knowledge_items_user_id_cursor").on(t.userId, t.id),
   index("idx_user_knowledge_items_active_created").on(t.userId, t.createdAt).where(sql`${t.deletedAt} IS NULL`),
   index("idx_user_knowledge_items_purge_at").on(t.purgeAt).where(sql`${t.purgeAt} IS NOT NULL`),
   index("idx_user_knowledge_items_user_dedupe").on(t.userId, t.dedupeKey)
@@ -543,6 +544,8 @@ export const knowledgeCardDrafts = pgTable("knowledge_card_drafts", {
 }, (t) => [
   unique("knowledge_card_drafts_batch_client_card_key").on(t.batchId, t.clientCardId),
   index("idx_knowledge_card_drafts_user_status").on(t.userId, t.status),
+  index("idx_knowledge_card_drafts_approved_item_owner").on(t.userId, t.knowledgeItemId)
+    .where(sql`${t.status} = 'approved' AND ${t.approvedAt} IS NOT NULL`),
   index("idx_knowledge_card_drafts_user_created").on(t.userId, t.createdAt),
   index("idx_knowledge_card_drafts_batch").on(t.batchId),
   index("idx_knowledge_card_drafts_user_dedupe").on(t.userId, t.dedupeKey)

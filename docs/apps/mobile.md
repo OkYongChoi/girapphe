@@ -16,8 +16,12 @@ permissions, build, and device capability layers.
 - Entry point: `expo-router/entry`, configured in `apps/mobile/package.json`.
 - Route shell:
   - `app/_layout.tsx` defines the root stack.
-  - `app/(tabs)/_layout.tsx` defines Home, Browse, and Practice tabs.
-  - `app/topic/[id].tsx` renders topic detail pages.
+  - `app/(tabs)/_layout.tsx` exposes Home, Browse, Practice, My Notes, and
+    Account tabs.
+  - Progress, Review, and Ranking are hidden tab routes reached from the app's
+    signed-in surfaces.
+  - Topic detail, the private Topics index and Topic Hub, Candidate Inbox,
+    Sign In, Subscription, and Admin are root-stack routes.
 - iOS and Android are produced from the same source tree:
   - `pnpm --filter @stem-brain/mobile ios`
   - `pnpm --filter @stem-brain/mobile android`
@@ -40,7 +44,9 @@ When a field, relationship type, or knowledge-state value changes, update the
 graph engine first and then adjust app surfaces.
 
 `@stem-brain/shared` is reserved for constants, API client types, and utilities
-that are shared across web, mobile, and future app targets.
+that are shared across web, mobile, and future app targets. Its canonical tag
+contract keeps localized comma parsing, Unicode normalization, and code-point
+bounds identical across the native editor and web API.
 
 ## Feature Boundaries
 
@@ -48,15 +54,54 @@ Mobile feature code should be organized around user flows, not platform names:
 
 - Home: high-level map and featured topic entry points.
 - Browse: searchable and filterable topic discovery.
-- Practice: guest/local fallback plus authenticated, server-synced review using tri-state ratings.
-- My Knowledge: quick notes plus full-field version-one concept, procedure,
+- Practice: guest/local fallback plus authenticated, server-synced review using
+  tri-state ratings. Authenticated Review entry follows the server-owned
+  `reviewable` count. Synced traversal carries one bounded opaque cursor
+  across deterministic public/private keyset lanes instead of growing rated or
+  skipped ID arrays. Skips advance the frontier and advertising cadence but not
+  Reviewed, may reappear after a requested wrap, and only transient reads retry
+  once. A missing app base URL is a permanent local configuration error and is
+  never wrapped or retried as a network failure.
+- My Notes: quick notes plus full-field version-one concept, procedure,
   comparison, mechanism, structure, claim/evidence, question, decision, and
-  event bundles.
+  event and expression bundles. Active, Archive, and Trash are distinct views;
+  active knowledge supports tag-aware search plus topic, type, date, and sort
+  controls. A stale edit reloads the owner-scoped active list and installs the
+  winning server fields, version, and tags before retry. Cancel or selecting a
+  different note advances the editor request identity, so a delayed reload can
+  refresh the list but cannot overwrite the user's newer editor choice. Form
+  mutation controls are read-only while Save is pending, but Cancel and another
+  note's Edit remain available. If the stale item is absent from the refreshed
+  active list, its entered fields become an unsaved new-note draft instead of
+  being cleared. Create and edit reuse the owner's frequent active-note tags through
+  an opt-in picker that renders at most 24 suggestions at once; selected tags
+  remain removable chips, while direct, Enter, and comma-separated entry share
+  the 12-tag and 48-Unicode-code-point contract with web. My Notes links to the
+  private Topics index and accepts an explicitly unsaved draft copied from a
+  validated public-node ID for review and editing. React Native receives
+  platform-committed text through `onChangeText`/`onSubmitEditing`; unlike the
+  web DOM it exposes no equivalent composition-event contract here, so CJK and
+  complex-script IME timing remains a physical iOS/Android validation gate.
 - Candidate Inbox: quick save-as-new or ignore for explicitly submitted
-  current-conversation candidates.
+  current-conversation and selected-export candidates, with their source scope
+  labeled separately. A possible duplicate links to the exact detailed web
+  review when the configured app base URL is safe. Causal candidates require
+  that detailed review and cannot use mobile quick approval. A stale approve or
+  ignore conflict reloads the latest batch and drafts before another attempt.
+  Version freshness is evaluated before capability and causal gates, so a stale
+  request always reloads before the latest matching causal draft is routed to
+  detailed review.
+- Topics: owner-scoped summaries of active private knowledge, open questions,
+  decisions, events, sources, recent sample titles, and update time.
 - Topic Hub: compact approved knowledge, open questions, relations, timeline,
   and source-position views.
-- Topic detail: explanation plus prerequisite/dependent/related navigation.
+- Topic detail: explanation plus prerequisite/dependent/related navigation and
+  an explicit handoff to review an editable private-copy draft in My Notes.
+  Signed-out users resume that handoff after authentication; route-controlled
+  title and body text are never trusted as public-concept provenance.
+- Ranking: anonymous participant IDs with a localized, highlighted current-user
+  row; the legacy display label remains in the API only for installed-client
+  compatibility and does not expose account identity.
 
 Do not create separate iOS-only or Android-only versions of these flows unless
 the interaction model is genuinely platform-specific.
@@ -100,6 +145,27 @@ Shared request/response types should move into `@stem-brain/shared` only when th
 more than one app target. Keep the guest/local fallback explicit; never silently present it as
 account-synced state.
 
+New clients read Practice through `POST /api/mobile?resource=practice`, with
+`mode`, a null or opaque `cursor` of at most 1,024 characters, and
+`cycleOnEmpty` in a JSON body capped at 2 KiB. The server alternates public and
+owner-private lanes while traversing IDs deterministically within each lane;
+database branches fetch at most one candidate per lane with `LIMIT 1`. A
+non-null cursor may wrap to a fresh round exactly once only when
+`cycleOnEmpty` is true. The response supplies `card`, `stats`, `nextCursor`,
+and `cycled` under `private, no-store`. The client keeps `nextCursor`, a capped
+100-entry previous-card history, and constant-size round counters; it does not
+grow a card-ID collection or rewind the frontier when reopening the previous
+card. The synced Reviewed tile counts distinct rated IDs inside that recent
+history window, while advertising cadence uses a separate monotonic
+successful-advance counter. The server keeps no request-global traversal
+state. Saved-card reads
+also return authoritative stats so Review navigation never infers due work
+from list length. When a database is configured, failures propagate instead
+of being presented as empty or mock account state. Review and Practice use
+latest-request guards so stale focus or mutation loads cannot overwrite
+current state. The bounded legacy GET remains only for already-installed
+clients.
+
 Typed personal items retain the flat note fields for compatibility. Mobile
 renders their type badge and central question, supports full-field create/edit
 and explicit legacy-note conversion, filters personal graph nodes by type, and
@@ -107,18 +173,35 @@ reuses the existing reveal/rating/review schedule with a type-specific recall
 prompt.
 
 Candidate review is intentionally split by interaction depth. Mobile supports
-quick save-as-new and ignore; a possible duplicate links to the web review
-surface. Web owns side-by-side comparison, full editing, merge/update, evidence
-selection, lifecycle actions, local graph/history, and context-pack export.
-Mobile Topic Hub views remain compact while consuming the same owner-scoped
-canonical data. Neither app retains raw conversation text: provenance is
-selector-only.
+quick save-as-new and ignore for simple candidates; a possible duplicate or
+causal candidate links to the web review surface, and causal quick approval is
+disabled. Web owns side-by-side comparison, full editing, merge/update, evidence
+selection, advanced canonical lifecycle actions, local graph/history, native
+ChatGPT archive parsing, Thinking History signal generation, and context-pack
+export. Basic archive, restore, and trash organization is available in mobile
+My Notes. Mobile Topics and Topic Hub views consume the same owner-scoped
+canonical data. Opening a public-concept copy passes only a bounded public-node
+ID and one-time key; My Notes resolves the title and body from trusted public
+catalog/current-locale content. The draft is not private knowledge until the
+user explicitly submits the form. Neither app retains raw conversation text:
+provenance is selector-only.
+
+My Notes derives frequent-tag suggestions locally from the current owner's
+already-loaded active-note response. The shared normalization utility is used
+by web, the native editor, and the mobile server adapter; no public or global
+tag-suggestion endpoint is part of the mobile contract.
+
+The web Settings connection guide and Context Pack format are browser-local
+presentation preferences, so they do not create a mobile API contract or a new
+mobile navigation destination. Mobile retains its existing Account adapter;
+MCP connection management and those reusable-context defaults remain web-owned.
 
 ## Platform Rules
 
 - Keep product behavior shared between iOS and Android by default.
-- Use Expo configuration in `apps/mobile/app.json` for platform identifiers and
-  app-level capabilities.
+- Keep static identifiers and defaults in `apps/mobile/app.json`; production
+  environment validation and plugin composition live in
+  `apps/mobile/app.config.ts`.
 - Put platform branches behind narrow adapters, for example push notifications,
   deep links, secure storage, camera, or haptics.
 - Avoid importing web-only code from `apps/web` into mobile. Shared logic should

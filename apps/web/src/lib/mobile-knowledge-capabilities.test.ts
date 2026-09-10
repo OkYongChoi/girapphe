@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   MOBILE_CAUSAL_RELATION_TYPES,
+  classifyMobileCandidateMutationPreflight,
   mobileCandidateApprovalRequiresCapability,
   mobileCandidateRequiresDetailedCausalReview,
   mobileKnowledgeEditRequiresCapability,
@@ -69,4 +70,37 @@ test('capable mobile clients retain expression and historical chronology', () =>
   assert.equal(mobileKnowledgeEditRequiresCapability(item, capabilities), false);
   assert.equal(mobileCandidateApprovalRequiresCapability(item, capabilities), false);
   assert.equal(mobileCandidateApprovalRequiresCapability({ relations: [{ type: 'causes' }] }, capabilities), false);
+});
+
+test('candidate mutation preflight reports a stale client version before latest causal review gates', () => {
+  const capabilities = readMobileKnowledgeCapabilities(allCapabilities);
+  const latestCausalDraft = {
+    version: 2,
+    relations: [{ type: 'causes' }],
+  };
+
+  assert.equal(classifyMobileCandidateMutationPreflight({
+    action: 'approve-candidate',
+    draft: latestCausalDraft,
+    draftVersion: 1,
+    capabilities,
+  }), 'stale');
+  assert.equal(classifyMobileCandidateMutationPreflight({
+    action: 'approve-candidate',
+    draft: latestCausalDraft,
+    draftVersion: 2,
+    capabilities,
+  }), 'causal-review-required');
+  assert.equal(classifyMobileCandidateMutationPreflight({
+    action: 'ignore-candidate',
+    draft: latestCausalDraft,
+    draftVersion: 1,
+    capabilities,
+  }), 'stale');
+  assert.equal(classifyMobileCandidateMutationPreflight({
+    action: 'ignore-candidate',
+    draft: latestCausalDraft,
+    draftVersion: 2,
+    capabilities,
+  }), 'ready');
 });

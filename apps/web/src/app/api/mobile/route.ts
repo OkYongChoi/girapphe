@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseAcceptLanguage } from '@stem-brain/shared';
+import { parseAcceptLanguage, parseStrictKnowledgeTags } from '@stem-brain/shared';
 import {
   getAllCardsWithStatus,
   getCardLeaderboard,
   getNextCard,
+  getNextMobilePracticeCard,
   getSavedCards,
   getUserCardDomainProgress,
   getUserStats,
@@ -13,12 +14,14 @@ import {
   type CardStatus,
 } from '@/actions/card-actions';
 import {
-  createKnowledgeItem,
+  archiveKnowledgeItem,
+  createKnowledgeItemWithOutcome,
   deleteKnowledgeItem,
   getArchivedKnowledgeItems,
   getDeletedKnowledgeItems,
   getUserKnowledgeItems,
   restoreKnowledgeItem,
+  restoreArchivedKnowledgeItem,
   updateKnowledgeItem,
   type UserKnowledgeItem,
 } from '@/actions/user-knowledge-actions';
@@ -36,7 +39,10 @@ import { readBoundedJson } from '@/lib/billing/bounded-json';
 import { handlePublicContentRequest } from '@/lib/public-content-api';
 import { parseContentLocale } from '@/lib/content-localization';
 import { parseKnowledgeBundleFields } from '@/lib/knowledge-bundle-runtime';
-import { getTopicKnowledgeHubForUser } from '@/lib/topic-knowledge-hub';
+import {
+  getActiveKnowledgeTopicSummariesForUser,
+  getTopicKnowledgeHubForUser,
+} from '@/lib/topic-knowledge-hub';
 import {
   getKnowledgeDraftBatch,
   getKnowledgeDraftBatches,
@@ -51,8 +57,9 @@ import {
   getKnowledgeDuplicateSuggestionsForDraftsForUser,
 } from '@/lib/knowledge-ingestion';
 import { resolveMobileNoteUpdateVersion } from '@/lib/mobile-note-update-version';
+import { toMobileNoteCreateHttpResult } from '@/lib/knowledge-item-create-result';
 import {
-  mobileCandidateApprovalRequiresCapability,
+  classifyMobileCandidateMutationPreflight,
   mobileCandidateRequiresDetailedCausalReview,
   mobileKnowledgeEditRequiresCapability,
   readMobileKnowledgeCapabilities,
@@ -61,6 +68,10 @@ import {
   withMobileRelationCompatibility,
   type MobileKnowledgeCapabilities,
 } from '@/lib/mobile-knowledge-capabilities';
+import {
+  parseLegacyMobilePracticeExcludeIds,
+} from '@/lib/mobile-practice-contract';
+import { handleMobilePracticePost } from '@/lib/mobile-practice-handler';
 
 const MAX_JSON_BYTES = 16_384;
 async function requireMobileUser() {
@@ -75,16 +86,19 @@ async function isMobileAdmin() {
 }
 
 function unauthorized() {
-  return NextResponse.json({ error: 'Sign in is required.', code: 'AUTH_REQUIRED' }, { status: 401 });
+  return privateJson({ error: 'Sign in is required.', code: 'AUTH_REQUIRED' }, { status: 401 });
 }
 
 function invalid(message: string, code = 'INVALID_REQUEST') {
-  return NextResponse.json({ error: message, code }, { status: 400 });
+  return privateJson({ error: message, code }, { status: 400 });
 }
 
-function privateJson(body: unknown) {
+function privateJson(body: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set('Cache-Control', 'private, no-store');
   return NextResponse.json(body, {
-    headers: { 'Cache-Control': 'private, no-store' },
+    ...init,
+    headers,
   });
 }
 
@@ -103,6 +117,7 @@ function toMobileNote(item: UserKnowledgeItem, capabilities: MobileKnowledgeCapa
     version: item.version,
     created_at: item.created_at,
     updated_at: item.updated_at,
+    archived_at: item.archived_at,
     deleted_at: item.deleted_at,
     purge_at: item.purge_at,
   }, capabilities);
@@ -149,9 +164,7 @@ function parseMobileBundle(body: Record<string, unknown>, capabilities: MobileKn
 
 function parseMobileTags(value: unknown): string[] | null {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > 12) return null;
-  const tags = value.map((tag) => typeof tag === 'string' ? tag.trim() : '');
-  return tags.every((tag) => tag.length > 0 && tag.length <= 48) ? tags : null;
+  return parseStrictKnowledgeTags(value);
 }
 
 async function readBody(request: NextRequest) {
@@ -172,12 +185,12 @@ function toFormData(values: Record<string, string>) {
 
 function mutationResponse(result: { success?: boolean; error?: string }) {
   if (result.success === false) {
-    return NextResponse.json(
+    return privateJson(
       { error: result.error === 'guest_card_not_available' ? 'This card is not available.' : 'The change could not be saved.' },
       { status: result.error === 'guest_card_not_available' ? 400 : 500 },
     );
   }
-  return NextResponse.json(result);
+  return privateJson(result);
 }
 
 export async function GET(request: NextRequest) {
@@ -196,14 +209,14 @@ export async function GET(request: NextRequest) {
 
   switch (resource) {
     case 'admin-nodes':
-      if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
-      return NextResponse.json({ nodes: await getAdminNodes() });
+      if (!await isMobileAdmin()) return privateJson({ error: 'Administrator access is required.' }, { status: 403 });
+      return privateJson({ nodes: await getAdminNodes() });
     case 'admin-edges':
-      if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
-      return NextResponse.json({ edges: await getAdminEdges(), nodes: await getAdminNodes() });
+      if (!await isMobileAdmin()) return privateJson({ error: 'Administrator access is required.' }, { status: 403 });
+      return privateJson({ edges: await getAdminEdges(), nodes: await getAdminNodes() });
     case 'admin-users':
-      if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
-      return NextResponse.json({ users: await getAdminUsers() });
+      if (!await isMobileAdmin()) return privateJson({ error: 'Administrator access is required.' }, { status: 403 });
+      return privateJson({ users: await getAdminUsers() });
     case 'notes': {
       const view = request.nextUrl.searchParams.get('view');
       const items = view === 'trash'
@@ -223,13 +236,15 @@ export async function GET(request: NextRequest) {
         relations: withMobileRelationCompatibility(hub.relations, capabilities),
       } });
     }
+    case 'topics':
+      return privateJson({ topics: await getActiveKnowledgeTopicSummariesForUser(mobileUser.id) });
     case 'candidate-inbox':
       return privateJson({ batches: await getKnowledgeDraftBatches() });
     case 'candidate-batch': {
       const batchId = request.nextUrl.searchParams.get('batchId')?.trim() ?? '';
       if (!batchId || batchId.length > 240 || !/^[A-Za-z0-9._:-]+$/.test(batchId)) return invalid('A valid batch id is required.', 'INVALID_BATCH');
       const result = await getKnowledgeDraftBatch(batchId);
-      if (!result) return NextResponse.json({ error: 'The candidate batch was not found.', code: 'BATCH_NOT_FOUND' }, { status: 404 });
+      if (!result) return privateJson({ error: 'The candidate batch was not found.', code: 'BATCH_NOT_FOUND' }, { status: 404 });
       const pending = result.drafts.filter((draft) => draft.status === 'pending');
       const duplicateSuggestions = await getKnowledgeDuplicateSuggestionsForDraftsForUser(mobileUser.id, pending);
       return privateJson({
@@ -244,6 +259,7 @@ export async function GET(request: NextRequest) {
           return {
             ...compatibleDraft,
             relations: withMobileRelationCompatibility(compatibleDraft.relations, capabilities),
+            requires_detailed_review: mobileCandidateRequiresDetailedCausalReview(draft),
           };
         }),
       });
@@ -260,24 +276,43 @@ export async function GET(request: NextRequest) {
     }
     case 'practice': {
       const mode = request.nextUrl.searchParams.get('mode') === 'review' ? 'review' : 'new';
-      const exclude = request.nextUrl.searchParams.getAll('exclude').filter((id) => id.length <= 160).slice(0, 100);
-      const [card, stats] = await Promise.all([getNextCard(mode, exclude, locale), getUserStats()]);
-      return NextResponse.json({ card: card ? withMobileKnowledgeCompatibility(card, capabilities) : null, stats });
+      const legacyExcludeIds = request.nextUrl.searchParams.getAll('exclude');
+      const parsed = parseLegacyMobilePracticeExcludeIds(legacyExcludeIds);
+      if (!parsed.ok && parsed.reason === 'too_many') {
+        return invalid('Use the mobile Practice POST resource for larger rounds.', 'PRACTICE_EXCLUSIONS_TOO_LARGE');
+      }
+      if (!parsed.ok) {
+        return invalid('Every excluded card id must be valid.', 'INVALID_PRACTICE_EXCLUSIONS');
+      }
+      const [card, stats] = await Promise.all([
+        getNextCard(mode, parsed.excludeIds, locale),
+        getUserStats(),
+      ]);
+      return privateJson({
+        card: card ? withMobileKnowledgeCompatibility(card, capabilities) : null,
+        stats,
+        cycled: false,
+      });
     }
     case 'saved': {
-      const cards = await getSavedCards(locale);
-      return NextResponse.json({ cards: withMobileKnowledgeListCompatibility(cards, capabilities) });
+      const [cards, stats] = await Promise.all([
+        getSavedCards(locale),
+        getUserStats(),
+      ]);
+      return privateJson({ cards: withMobileKnowledgeListCompatibility(cards, capabilities), stats });
     }
     case 'dashboard': {
       const [stats, domains] = await Promise.all([getUserStats(), getUserCardDomainProgress(locale)]);
-      return NextResponse.json({ stats, domains });
+      return privateJson({ stats, domains });
     }
     case 'ranking': {
       const rows = await getCardLeaderboard();
-      return NextResponse.json({
-        rows: rows.map((row, index) => ({
-          rank: index + 1,
-          label: `Learner ${index + 1}`,
+      return privateJson({
+        rows: rows.map((row) => ({
+          rank: row.rank,
+          label: `Learner ${row.rank}`,
+          participantId: row.participantId,
+          isCurrentUser: row.isCurrentUser,
           explainable: row.explainable,
           avgScore: row.avgScore,
         })),
@@ -291,9 +326,26 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const mobileUser = await requireMobileUser();
   if (!mobileUser) return unauthorized();
+
+  if (request.nextUrl.searchParams.get('resource') === 'practice') {
+    const explicitLocale = request.nextUrl.searchParams.get('locale');
+    const localeInput = explicitLocale
+      ?? request.headers.get('x-girapphe-locale')
+      ?? parseAcceptLanguage(request.headers.get('accept-language'));
+    const locale = parseContentLocale(localeInput);
+    if (!locale) return invalid('The requested locale is not supported.', 'UNSUPPORTED_LOCALE');
+
+    const capabilities = readMobileKnowledgeCapabilities(request.headers.get('x-girapphe-knowledge-capabilities'));
+    return handleMobilePracticePost(request, {
+      loadCard: (mode, cursor) => getNextMobilePracticeCard(mode, cursor, locale),
+      loadStats: getUserStats,
+      mapCard: (card) => withMobileKnowledgeCompatibility(card, capabilities),
+    });
+  }
+
   const parsedBody = await readBody(request);
   if (!parsedBody.ok) {
-    return NextResponse.json(
+    return privateJson(
       { error: parsedBody.reason === 'too_large' ? 'The request body is too large.' : 'A small JSON object is required.' },
       { status: parsedBody.reason === 'too_large' ? 413 : 400 },
     );
@@ -305,24 +357,24 @@ export async function POST(request: NextRequest) {
   if (!action) return invalid('An action is required.');
 
   if (action.startsWith('admin-')) {
-    if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
+    if (!await isMobileAdmin()) return privateJson({ error: 'Administrator access is required.' }, { status: 403 });
     if (action === 'admin-delete-node') {
       const id = stringField(body.id, 100); if (!id) return invalid('A node id is required.');
-      await deleteAdminNode(id); return NextResponse.json({ success: true });
+      await deleteAdminNode(id); return privateJson({ success: true });
     }
     if (action === 'admin-delete-edge') {
       const id = body.id; if (!Number.isInteger(id) || (id as number) < 1) return invalid('A valid edge id is required.');
-      await deleteAdminEdge(id as number); return NextResponse.json({ success: true });
+      await deleteAdminEdge(id as number); return privateJson({ success: true });
     }
     if (action === 'admin-create-node') {
       const id = stringField(body.id, 100); const label = stringField(body.label, 200); const domain = stringField(body.domain, 50); const type = stringField(body.type, 50);
       if (!id || !label || !domain || !type || typeof body.level !== 'number' || typeof body.difficulty !== 'number') return invalid('Complete node fields are required.');
-      await createAdminNode({ id, label, domain, type, level: body.level, difficulty: body.difficulty }); return NextResponse.json({ success: true }, { status: 201 });
+      await createAdminNode({ id, label, domain, type, level: body.level, difficulty: body.difficulty }); return privateJson({ success: true }, { status: 201 });
     }
     if (action === 'admin-create-edge') {
       const source = stringField(body.source, 100); const target = stringField(body.target, 100); const type = stringField(body.type, 50);
       if (!source || !target || !type || typeof body.weight !== 'number') return invalid('Complete edge fields are required.');
-      await createAdminEdge({ source, target, type, weight: body.weight }); return NextResponse.json({ success: true }, { status: 201 });
+      await createAdminEdge({ source, target, type, weight: body.weight }); return privateJson({ success: true }, { status: 201 });
     }
     return invalid('Unknown administrator action.');
   }
@@ -346,10 +398,19 @@ export async function POST(request: NextRequest) {
     const batchId = stringField(body.batchId, 240);
     const draftId = stringField(body.draftId, 240);
     const draftVersion = body.draftVersion;
-    if (!batchId || !draftId || !Number.isSafeInteger(draftVersion) || (draftVersion as number) <= 0) return invalid('A valid candidate and version are required.');
+    if (!batchId || !draftId || typeof draftVersion !== 'number' || !Number.isSafeInteger(draftVersion) || draftVersion <= 0) return invalid('A valid candidate and version are required.');
     const context = await getKnowledgeDraftResolutionContext(draftId);
     if (!context || context.draft.batch_id !== batchId || context.draft.status !== 'pending') {
-      return NextResponse.json({ error: 'The candidate is no longer pending.', code: 'CANDIDATE_STALE' }, { status: 409 });
+      return privateJson({ error: 'The candidate is no longer pending.', code: 'CANDIDATE_STALE' }, { status: 409 });
+    }
+    const preflight = classifyMobileCandidateMutationPreflight({
+      action,
+      draft: context.draft,
+      draftVersion,
+      capabilities,
+    });
+    if (preflight === 'stale') {
+      return privateJson({ error: 'The candidate changed before review.', code: 'CANDIDATE_STALE' }, { status: 409 });
     }
     const candidateForm = toFormData({
       batch_id: batchId,
@@ -358,17 +419,23 @@ export async function POST(request: NextRequest) {
     });
     if (action === 'ignore-candidate') {
       const result = await ignoreKnowledgeDraft(candidateForm);
-      return result.resolved ? NextResponse.json(result) : NextResponse.json({ ...result, error: 'The candidate changed before it was ignored.' }, { status: 409 });
+      return result.resolved
+        ? privateJson(result)
+        : privateJson({
+          ...result,
+          error: 'The candidate changed before it was ignored.',
+          code: 'CANDIDATE_STALE',
+        }, { status: 409 });
     }
     const draft = context.draft;
-    if (mobileCandidateApprovalRequiresCapability(draft, capabilities)) {
-      return NextResponse.json({
+    if (preflight === 'knowledge-capability-required') {
+      return privateJson({
         error: 'Update the app before approving knowledge features that are unavailable in this version.',
         code: 'KNOWLEDGE_CAPABILITY_REQUIRED',
       }, { status: 409 });
     }
-    if (mobileCandidateRequiresDetailedCausalReview(draft)) {
-      return NextResponse.json({
+    if (preflight === 'causal-review-required') {
+      return privateJson({
         error: 'Review causal relationship targets, directions, and evidence in the detailed web review before approval.',
         code: 'CAUSAL_REVIEW_REQUIRED',
       }, { status: 409 });
@@ -393,15 +460,15 @@ export async function POST(request: NextRequest) {
       }
     }
     const result = await resolveKnowledgeDraft(candidateForm);
-    if (result.resolved) return NextResponse.json(result);
+    if (result.resolved) return privateJson(result);
     if (result.pendingDependency) {
-      return NextResponse.json({
+      return privateJson({
         ...result,
         error: 'A related candidate must be approved first.',
         code: 'CANDIDATE_DEPENDENCY_PENDING',
       }, { status: 409 });
     }
-    return NextResponse.json({
+    return privateJson({
       ...result,
       error: 'The candidate changed before it was saved.',
       code: 'CANDIDATE_STALE',
@@ -419,11 +486,12 @@ export async function POST(request: NextRequest) {
     const bundle = parseMobileBundle(body, capabilities);
     if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
     const tags = parseMobileTags(body.tags);
-    if (!tags) return invalid('Tags must contain at most 12 non-empty values.', 'INVALID_TAGS');
-    await createKnowledgeItem(toFormData({ title, summary, content, topic, tags: tags.join(','), request_id: requestId,
+    if (!tags) return invalid('Tags must contain at most 12 valid values of 48 Unicode code points each.', 'INVALID_TAGS');
+    const result = await createKnowledgeItemWithOutcome(toFormData({ title, summary, content, topic, tags: tags.join(','), request_id: requestId,
       knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
       bundle_schema_version: bundle.knowledgeType ? '1' : '' }));
-    return NextResponse.json({ success: true }, { status: 201 });
+    const response = toMobileNoteCreateHttpResult(result);
+    return privateJson(response.body, { status: response.status });
   }
 
   if (!id) return invalid('A note id is required.');
@@ -436,7 +504,7 @@ export async function POST(request: NextRequest) {
     const bundle = parseMobileBundle(body, capabilities);
     if (!bundle) return invalid('The structured knowledge bundle is invalid.', 'INVALID_KNOWLEDGE_BUNDLE');
     const tags = parseMobileTags(body.tags);
-    if (!tags) return invalid('Tags must contain at most 12 non-empty values.', 'INVALID_TAGS');
+    if (!tags) return invalid('Tags must contain at most 12 valid values of 48 Unicode code points each.', 'INVALID_TAGS');
     const resolvedVersion = await resolveMobileNoteUpdateVersion(
       body.version,
       () => getActiveKnowledgeItemVersionForUser(mobileUser.id, id),
@@ -445,12 +513,12 @@ export async function POST(request: NextRequest) {
       return invalid('A valid note version is required.', 'INVALID_NOTE_VERSION');
     }
     if (!resolvedVersion.ok) {
-      return NextResponse.json({ error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
+      return privateJson({ error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
     }
     if (!capabilities.expression || !capabilities.eventChronology) {
       const currentItem = (await getUserKnowledgeItems()).find((item) => item.id === id);
       if (mobileKnowledgeEditRequiresCapability(currentItem, capabilities)) {
-        return NextResponse.json({
+        return privateJson({
           error: 'Update the app before editing this structured note.',
           code: 'KNOWLEDGE_CAPABILITY_REQUIRED',
         }, { status: 409 });
@@ -461,20 +529,36 @@ export async function POST(request: NextRequest) {
       knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
       bundle_schema_version: bundle.knowledgeType ? '1' : '' }));
     if (!result.updated && 'stale' in result) {
-      return NextResponse.json({ ...result, error: 'The note changed before this edit was saved.', code: 'NOTE_STALE' }, { status: 409 });
+      return privateJson({ ...result, error: 'The note changed before this edit was saved.', code: 'NOTE_STALE' }, { status: 409 });
     }
     if (!result.updated) {
-      return NextResponse.json({ ...result, error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
+      return privateJson({ ...result, error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
     }
-    return NextResponse.json({ success: true, version: result.version });
+    return privateJson({ success: true, version: result.version });
   }
   if (action === 'delete-note') {
     await deleteKnowledgeItem(toFormData({ id }));
-    return NextResponse.json({ success: true });
+    return privateJson({ success: true });
+  }
+  if (action === 'archive-note' || action === 'restore-archived-note') {
+    const version = body.version;
+    if (!Number.isSafeInteger(version) || (version as number) <= 0) {
+      return invalid('A valid note version is required.', 'INVALID_NOTE_VERSION');
+    }
+    const result = action === 'archive-note'
+      ? await archiveKnowledgeItem(toFormData({ id, version: String(version) }))
+      : await restoreArchivedKnowledgeItem(toFormData({ id, version: String(version) }));
+    if (result.stale || result.version === null) {
+      return privateJson(
+        { ...result, error: 'The note changed before its archive state was updated.', code: 'NOTE_STALE' },
+        { status: 409 },
+      );
+    }
+    return privateJson({ success: true, archived: result.archived, version: result.version });
   }
   if (action === 'restore-note') {
     await restoreKnowledgeItem(toFormData({ id }));
-    return NextResponse.json({ success: true });
+    return privateJson({ success: true });
   }
 
   return invalid('Unknown mobile action.', 'UNKNOWN_MOBILE_ACTION');

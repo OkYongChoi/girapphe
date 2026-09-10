@@ -616,6 +616,7 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
       'Unsaved create draft',
       `${AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX} %`,
     ];
+    const mobileApiTitlePattern = 'E2E\\_MOBILE\\_API\\_%';
     await client.query(
       `DELETE FROM user_graph_nodes
        WHERE user_id = $1
@@ -623,15 +624,21 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
            SELECT id
            FROM user_knowledge_items
            WHERE user_id = $1
-             AND (title = $2 OR title LIKE $3)
+             AND (title = $2 OR title LIKE $3 OR title LIKE $4 ESCAPE '\\')
          )`,
-      [userId, ...draftProbeTitles],
+      [userId, ...draftProbeTitles, mobileApiTitlePattern],
     );
     await client.query(
       `DELETE FROM user_knowledge_items
        WHERE user_id = $1
-         AND (title = $2 OR title LIKE $3)`,
-      [userId, ...draftProbeTitles],
+         AND (title = $2 OR title LIKE $3 OR title LIKE $4 ESCAPE '\\')`,
+      [userId, ...draftProbeTitles, mobileApiTitlePattern],
+    );
+    // This Clerk account is dedicated to synthetic Preview evidence. Remove
+    // any public-card state left by an interrupted mobile API evidence run.
+    await client.query(
+      'DELETE FROM user_card_states WHERE user_id = $1',
+      [userId],
     );
 
     if (resetMcpAccessTokens) {
@@ -649,6 +656,13 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
     await client.query(
       `DELETE FROM knowledge_ingestion_batches
        WHERE user_id = $1 AND scope = 'selected_export'`,
+      [userId],
+    );
+    await client.query(
+      `DELETE FROM knowledge_ingestion_batches
+       WHERE user_id = $1 AND provider = 'other'
+         AND scope = 'current_conversation'
+         AND request_id LIKE 'mobile-api-evidence:E2E\\_MOBILE\\_API\\_%' ESCAPE '\\'`,
       [userId],
     );
     await client.query(
@@ -808,6 +822,14 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
             AND target_private_node_id IS NOT NULL AND deleted_at IS NULL) AS public_links,
          (SELECT COUNT(*)::int FROM user_knowledge_items
           WHERE user_id = $1 AND (title = $5 OR title LIKE $6)) AS draft_probes,
+         (SELECT COUNT(*)::int FROM user_knowledge_items
+          WHERE user_id = $1 AND title LIKE $7 ESCAPE '\\') AS mobile_api_items,
+         (SELECT COUNT(*)::int FROM knowledge_ingestion_batches
+          WHERE user_id = $1 AND provider = 'other'
+            AND scope = 'current_conversation'
+            AND request_id LIKE 'mobile-api-evidence:E2E\\_MOBILE\\_API\\_%' ESCAPE '\\') AS mobile_api_batches,
+         (SELECT COUNT(*)::int FROM user_card_states
+          WHERE user_id = $1) AS mobile_api_ranking_rows,
          (SELECT COUNT(*)::int FROM knowledge_product_events
           WHERE user_id = $1 AND event_name IN (
             'conversation_import_started', 'conversation_import_parsed'
@@ -818,6 +840,7 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
         [ids.privateEdgeId, ids.secondaryPrivateEdgeId],
         ids.publicEdgeId,
         ...draftProbeTitles,
+        mobileApiTitlePattern,
       ],
     );
     const counts = verification.rows[0] ?? {};
@@ -825,6 +848,9 @@ export async function seedAuthenticatedOverlayFixtureWithClient(
       Number(counts.private_nodes) < 4
       || Number(counts.private_edges) < 2
       || Number(counts.draft_probes) !== 0
+      || Number(counts.mobile_api_items) !== 0
+      || Number(counts.mobile_api_batches) !== 0
+      || Number(counts.mobile_api_ranking_rows) !== 0
       || Number(counts.import_submission_events) !== 0) {
       throw new Error('Authenticated overlay fixture verification did not find the required owner-scoped rows.');
     }
