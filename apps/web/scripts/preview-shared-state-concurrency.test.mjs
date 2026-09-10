@@ -69,7 +69,7 @@ test('preview jobs serialize shared database and Worker-settings mutations', asy
 
     if (command.source.includes('db:prepare')) {
       assert.equal(step.env.DATABASE_URL, '${{ secrets.DATABASE_URL_PREVIEW }}');
-    } else if (command.source.includes('postgres')) {
+    } else if (command.source.includes('postgres') && !command.source.includes('mobile-practice')) {
       assert.equal(
         step.env.LIVE_POSTGRES_TEST_DATABASE_URL,
         '${{ secrets.DATABASE_URL_PREVIEW }}',
@@ -81,6 +81,11 @@ test('preview jobs serialize shared database and Worker-settings mutations', asy
     previewJob,
     /scripts\/mobile-practice-index-postgres\.test\.mjs/,
   ).step;
+  assert.equal(
+    mobilePlanStep.env.NEON_PREVIEW_DATABASE_URL,
+    '${{ secrets.DATABASE_URL_PREVIEW }}',
+  );
+  assert.equal(mobilePlanStep.env.LIVE_POSTGRES_TEST_DATABASE_URL, undefined);
   assert.equal(
     mobilePlanStep.env.EXPECTED_NEON_PREVIEW_BRANCH_ID,
     '${{ vars.NEON_PREVIEW_BRANCH_ID }}',

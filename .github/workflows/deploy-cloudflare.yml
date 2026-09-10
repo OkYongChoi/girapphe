@@ -177,7 +177,7 @@ jobs:
         run: pnpm exec tsx --test scripts/mobile-practice-index-postgres.test.mjs
         env:
           NODE_OPTIONS: --conditions=react-server
-          LIVE_POSTGRES_TEST_DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
+          NEON_PREVIEW_DATABASE_URL: ${{ secrets.DATABASE_URL_PREVIEW }}
           EXPECTED_NEON_PREVIEW_BRANCH_ID: ${{ vars.NEON_PREVIEW_BRANCH_ID }}
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 

@@ -86,20 +86,28 @@ Mobile Practice private keyset reads depend on migration
 `(user_id, id)` seek index plus the approved-draft item/owner lookup index. The
 protected `main` workflow runs checked-in Drizzle
 migrations before activating the production Worker. The protected Preview job
-uses repository variable `NEON_PREVIEW_BRANCH_ID` to prove that the direct,
-non-pooler `DATABASE_URL_PREVIEW` points to the intended isolated branch, then
-captures sanitized `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` evidence for both
-new and review modes through the same production query builder. It verifies
+accepts the configured pooled or direct Neon `DATABASE_URL_PREVIEW`, derives a
+direct connection in memory using Neon's `-pooler` hostname convention, and
+uses repository variable `NEON_PREVIEW_BRANCH_ID` to prove that the resolved
+connection points to the intended isolated branch. It then captures sanitized
+`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` evidence for both new and review modes
+through the same production query builder. It verifies
 both exact 0025 index definitions and fails unless the latency-critical
 owner-cursor index appears in each plan. PostgreSQL may correctly prefer a
 sequential scan for the approved-draft predicate while that table is small; its
 partial index remains definition-gated for growth. A failed plan assertion
 still leaves the sanitized artifact for diagnosis. To reproduce that gate
-manually, set
-`LIVE_POSTGRES_TEST_DATABASE_URL`, `EXPECTED_NEON_PREVIEW_BRANCH_ID`, and a
-40-character `EXPECTED_HEAD_SHA`, then run
-`pnpm exec tsx --test scripts/mobile-practice-index-postgres.test.mjs` from
-`apps/web`. Local
+manually from `apps/web`, set `NEON_PREVIEW_DATABASE_URL` to a pooled or direct
+Preview URL and provide the expected branch plus revision:
+
+```bash
+export NEON_PREVIEW_DATABASE_URL='<preview-postgres-url>'
+export EXPECTED_NEON_PREVIEW_BRANCH_ID='br-...'
+export EXPECTED_HEAD_SHA='<40-character-pr-head-sha>'
+NODE_OPTIONS=--conditions=react-server pnpm exec tsx --test scripts/mobile-practice-index-postgres.test.mjs
+```
+
+Local
 `harness:deploy` validates code, the Worker build, and size only; it does not
 execute migrations or prove a live Postgres query plan.
 

@@ -10,7 +10,46 @@ const { buildEligiblePrivatePracticeQuery } = privatePracticeCards;
 
 const OWNER_CURSOR_INDEX = 'idx_user_knowledge_items_user_id_cursor';
 const APPROVED_DRAFT_INDEX = 'idx_knowledge_card_drafts_approved_item_owner';
-const databaseUrl = process.env.LIVE_POSTGRES_TEST_DATABASE_URL?.trim();
+const configuredDatabaseUrl = (
+  process.env.NEON_PREVIEW_DATABASE_URL?.trim()
+  || process.env.LIVE_POSTGRES_TEST_DATABASE_URL?.trim()
+);
+
+export function resolveDirectNeonConnectionString(value) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error('Preview database URL must be a valid PostgreSQL URL');
+  }
+
+  if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+    throw new Error('Preview database URL must use the PostgreSQL protocol');
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (!hostname.endsWith('.neon.tech')) {
+    throw new Error('Preview database URL must target Neon');
+  }
+
+  const labels = hostname.split('.');
+  const firstLabel = labels[0] ?? '';
+  const endpointLabel = firstLabel.endsWith('-pooler')
+    ? firstLabel.slice(0, -'-pooler'.length)
+    : firstLabel;
+  if (!/^ep-[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(endpointLabel)) {
+    throw new Error('Preview database URL must target a Neon endpoint');
+  }
+
+  if (endpointLabel !== firstLabel) {
+    parsed.hostname = [endpointLabel, ...labels.slice(1)].join('.');
+  }
+  return parsed.toString();
+}
+
+const databaseUrl = configuredDatabaseUrl
+  ? resolveDirectNeonConnectionString(configuredDatabaseUrl)
+  : undefined;
 
 export function collectPlanIndexes(node, names = new Set()) {
   if (!node || typeof node !== 'object') return names;
@@ -83,8 +122,34 @@ test('direct Preview guard rejects pooled, foreign, and malformed targets', () =
   }), /configured Preview branch/);
 });
 
+test('direct Neon resolver accepts direct URLs and safely derives a direct host from a pooler URL', () => {
+  const direct = 'postgresql://preview_role:p%40ss@ep-preview-123.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+  const pooled = 'postgresql://preview_role:p%40ss@ep-preview-123-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+
+  assert.equal(resolveDirectNeonConnectionString(direct), direct);
+  assert.equal(resolveDirectNeonConnectionString(pooled), direct);
+});
+
+test('direct Neon resolver rejects malformed, non-PostgreSQL, non-Neon, and invalid endpoint URLs without echoing secrets', () => {
+  const invalidTargets = [
+    ['not a URL with top-secret', /valid PostgreSQL URL/],
+    ['https://ep-preview.us-east-2.aws.neon.tech/neondb?secret=top-secret', /PostgreSQL protocol/],
+    ['postgresql://role:top-secret@example.com/neondb', /target Neon/],
+    ['postgresql://role:top-secret@preview.us-east-2.aws.neon.tech/neondb', /Neon endpoint/],
+  ];
+
+  for (const [target, expectedMessage] of invalidTargets) {
+    assert.throws(
+      () => resolveDirectNeonConnectionString(target),
+      (error) => expectedMessage.test(error.message) && !error.message.includes('top-secret'),
+    );
+  }
+});
+
 test('migration 0025 indexes serve the production new and review queries on live Preview PostgreSQL', {
-  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the live mobile Practice plan test',
+  skip: databaseUrl
+    ? false
+    : 'set NEON_PREVIEW_DATABASE_URL for the live mobile Practice plan test',
 }, async () => {
   const expectedBranchId = process.env.EXPECTED_NEON_PREVIEW_BRANCH_ID?.trim() ?? '';
   const expectedRevision = process.env.EXPECTED_HEAD_SHA?.trim() ?? '';
