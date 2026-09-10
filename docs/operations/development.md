@@ -149,7 +149,10 @@ the one-time value and immediately hides that surface,
 proves the copied OpenAI and Claude snippets retain `GIRAPPHE_MCP_TOKEN` while
 omitting the captured value, clears the clipboard with readback, revokes the
 PAT in Settings, reloads, and verifies the locked exact database row has zero
-active matches before any durable success screenshot. The PAT specs disable
+active matches before any durable success screenshot. If the normal create
+attempt commits but the one-time value cannot be captured, the locked exact
+owner/label/random-marker fallback revokes that row and the run still fails
+without accepted evidence. The PAT specs disable
 Playwright's automatic failure screenshots, and the authenticated runner
 disables automatic screenshots, AI-oriented accessibility page snapshots, and
 Git author metadata. Tests retain only explicit post-revocation success

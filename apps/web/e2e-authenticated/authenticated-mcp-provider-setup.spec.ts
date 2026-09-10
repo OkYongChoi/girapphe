@@ -10,6 +10,7 @@ import {
 } from '../scripts/authenticated-overlay-auth.mjs';
 import {
   revokeExactAuthenticatedOverlayMcpToken,
+  revokeExactAuthenticatedOverlayMcpTokenByMarker,
   verifyExactAuthenticatedOverlayMcpTokenInactive,
 } from '../scripts/authenticated-overlay-fixture.mjs';
 
@@ -206,6 +207,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
 
   const runMarker = `${AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE}:mcp-pat:${randomUUID()}`;
   const connectionLabel = `PAT ${runMarker}`;
+  let createAttempted = false;
   let rawToken = '';
   let rawTokenHasExpectedShape = false;
   let openAiSnippetChecks = {
@@ -235,6 +237,7 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
 
   try {
     await page.getByLabel('Connection label').fill(connectionLabel);
+    createAttempted = true;
     await page.getByRole('button', { name: 'Create token' }).click();
     rawToken = await captureAndHideOneTimePat(page);
     rawTokenHasExpectedShape = RAW_PAT_SHAPE.test(rawToken);
@@ -408,8 +411,23 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
       } catch (error) {
         cleanupError ??= error;
       }
-    } else if (rawToken.length > 0) {
-      cleanupError ??= new Error('SYNTHETIC_MCP_TOKEN_CLEANUP_TOKEN_INVALID');
+    } else if (createAttempted) {
+      // A create may commit before the one-time PAT reaches the page. The
+      // unique random marker is the only safe emergency identity in that
+      // case, so revoke that exact row and still fail this evidence run.
+      try {
+        const databaseCleanup = await revokeExactAuthenticatedOverlayMcpTokenByMarker({
+          connectionLabel,
+          runMarker,
+        });
+        normalUiRemainingActive = databaseCleanup.remainingActive;
+        if (databaseCleanup.remainingActive !== 0) {
+          throw new Error('Synthetic PAT marker cleanup left an active credential.');
+        }
+      } catch (error) {
+        cleanupError ??= error;
+      }
+      cleanupEvidenceError ??= new Error('SYNTHETIC_MCP_TOKEN_CAPTURE_FAILED');
     }
 
     revokedAfterReload = exactConnectionObserved;

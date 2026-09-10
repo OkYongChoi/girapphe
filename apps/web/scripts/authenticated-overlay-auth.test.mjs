@@ -156,9 +156,17 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     'await revokeExactAuthenticatedOverlayMcpToken({',
     firstReloadCleanup,
   );
+  const markerFallback = source.indexOf(
+    'await revokeExactAuthenticatedOverlayMcpTokenByMarker({',
+    databaseFallback,
+  );
+  const captureFailureResurface = source.indexOf(
+    "cleanupEvidenceError ??= new Error('SYNTHETIC_MCP_TOKEN_CAPTURE_FAILED')",
+    markerFallback,
+  );
   const cleanupFailureResurface = source.indexOf(
     'if (cleanupError) throw cleanupError',
-    databaseFallback,
+    markerFallback,
   );
   const originalEvidenceResurface = source.indexOf(
     'if (originalEvidenceFailed) throw originalEvidenceError',
@@ -176,10 +184,13 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
       && cleanupReserve < firstCleanupOperation
       && firstCleanupOperation < immediateEvidence
       && immediateEvidence < firstReloadCleanup
+      && databaseFallback < markerFallback
+      && markerFallback < captureFailureResurface
+      && captureFailureResurface < cleanupFailureResurface
       && databaseFallback < cleanupFailureResurface
       && cleanupFailureResurface < originalEvidenceResurface
       && originalEvidenceResurface < cleanupEvidenceFailureResurface,
-    'cleanup must reserve time before bounded UI retries, exact-token database fallback, and the original evidence rethrow',
+    'cleanup must reserve time before bounded UI retries, exact-token or marker database fallback, and the original evidence rethrow',
   );
   assert.match(
     source.slice(testStartedAt, cleanupFinally),
@@ -206,8 +217,16 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     /uiCleanupErrors\.length === 2 && rawTokenHasExpectedShape/,
   );
   assert.match(
+    source.slice(databaseFallback, markerFallback),
+    /else if \(createAttempted\)/,
+  );
+  assert.match(
     source.slice(databaseFallback, originalEvidenceResurface),
     /databaseCleanup\.remainingActive !== 0/,
+  );
+  assert.match(
+    source.slice(markerFallback, cleanupFailureResurface),
+    /connectionLabel,[\s\S]*runMarker,[\s\S]*normalUiRemainingActive = databaseCleanup\.remainingActive/,
   );
 
   const hideEvaluation = source.indexOf('const hide = () => page.evaluate');

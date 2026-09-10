@@ -105,7 +105,9 @@ Each label contains the unique
 redacts the one-time secret immediately after capture, clears the clipboard
 with readback, revokes through Settings, and verifies under the account and
 token advisory locks that the exact owner, label, marker, and SHA-256 hash have
-zero active matches.
+zero active matches. If that normal create attempt commits but the one-time PAT
+cannot be captured, the same locked owner/label/random-marker fallback revokes
+the exact synthetic row and the run still fails without accepted evidence.
 
 The separate fault path lets the create POST commit, extracts the one-time PAT
 only in process memory, replaces it in the fulfilled response, then faults both
@@ -113,7 +115,7 @@ UI cleanup paths. The database fallback runs after the create attempt even when
 clipboard, response-capture, or UI assertions error; the evidence itself still
 requires PAT capture and exactly two UI faults. The same locked exact predicate and hash check
 revokes the row and proves `active=0` before the original sentinel Error object
-is rethrown unchanged. If the create commits but response capture fails, a
+is rethrown unchanged. If its create commits but response capture fails, a
 locked owner/label/random-marker fallback still revokes the exact synthetic row,
 then fails the run without producing accepted evidence.
 Provider JSON evidence and the generated job summary contain counts and
