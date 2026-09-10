@@ -201,9 +201,10 @@ test('owner data controls depend only on the verified Clerk session subject', as
   assert.match(source, /requireCurrentUser\(\)/);
   assert.doesNotMatch(source, /requireCurrentUserProfile|currentUser\(/);
   assert.match(source, /getKnowledgeDraftBatchesForUser\(user\.id, true/);
+  assert.match(source, /const \[user, \{ t, locale \}, resolvedSearchParams\] = await Promise\.all/);
   assert.match(
     source,
-    /<ClerkProvider>[\s\S]*<AccountDeletionPanel email=\{user\.email\} \/>[\s\S]*<\/ClerkProvider>/,
+    /<ClerkProvider localization=\{getClerkLocalization\(locale\)\}>[\s\S]*<AccountDeletionPanel email=\{user\.email\} \/>[\s\S]*<\/ClerkProvider>/,
   );
 });
 

@@ -3,6 +3,7 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { AccountDeletionPanel } from '@/components/account-deletion-panel';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import { deleteKnowledgeImportBatch } from '@/actions/knowledge-ingestion-actions';
+import { getClerkLocalization } from '@/i18n/clerk';
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
 import { requireCurrentUser } from '@/lib/auth';
@@ -19,7 +20,7 @@ export async function generateMetadata(): Promise<Metadata> {
 type DeleteAccountPageProps = { searchParams: Promise<{ importPage?: string | string[] }> };
 
 export default async function DeleteAccountPage({ searchParams }: DeleteAccountPageProps) {
-  const [user, { t }, resolvedSearchParams] = await Promise.all([
+  const [user, { t, locale }, resolvedSearchParams] = await Promise.all([
     // This critical owner-data route needs only the verified session subject.
     // Avoid making it depend on a second Clerk Backend API profile lookup;
     // the email is optional display copy with an existing localized fallback.
@@ -95,7 +96,7 @@ export default async function DeleteAccountPage({ searchParams }: DeleteAccountP
           <h2 className="mt-7 text-3xl font-black tracking-tight text-red-950">{t('account.data.deleteAccountTitle')}</h2>
           <p className="mt-3 leading-7 text-slate-600">{t('account.data.deleteAccountBody')}</p>
         </div>
-        <ClerkProvider>
+        <ClerkProvider localization={getClerkLocalization(locale)}>
           <AccountDeletionPanel email={user.email} />
         </ClerkProvider>
         <p className="mt-6 text-sm leading-6 text-slate-500">

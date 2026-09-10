@@ -242,9 +242,11 @@ test('account deletion requires strict Clerk reverification on server and client
   assert.match(route, /has\(\{ reverification: 'strict' \}\)/);
   assert.match(route, /reverificationErrorResponse\('strict'\)/);
   assert.match(page, /import \{ ClerkProvider \} from '@clerk\/nextjs'/);
+  assert.match(page, /import \{ getClerkLocalization \} from '@\/i18n\/clerk'/);
+  assert.match(page, /const \[user, \{ t, locale \}, resolvedSearchParams\] = await Promise\.all/);
   assert.match(
     page,
-    /<ClerkProvider>[\s\S]*<AccountDeletionPanel email=\{user\.email\} \/>[\s\S]*<\/ClerkProvider>/,
+    /<ClerkProvider localization=\{getClerkLocalization\(locale\)\}>[\s\S]*<AccountDeletionPanel email=\{user\.email\} \/>[\s\S]*<\/ClerkProvider>/,
   );
   assert.match(panel, /useReverification\(requestAccountDeletion\)/);
   assert.match(panel, /isReverificationCancelledError/);
