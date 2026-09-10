@@ -375,10 +375,9 @@ test('web Concepts includes current guest notes without enabling the signed-in p
   assert.doesNotMatch(gridSource, /getPrivateKnowledgeGraph|getKnowledgeLinkTargets/);
   assert.match(gridSource, /initialView="grid"/);
   assert.match(gridSource, /isGuest=\{actor\.isGuest\}/);
-  assert.match(knowledgeSource, /actor\.isGuest \? Promise\.resolve\(null\) : getPrivateKnowledgeGraph\(\)/);
-  assert.match(knowledgeSource, /actor\.isGuest \? Promise\.resolve\(\[\]\) : getKnowledgeLinkTargets\(\)/);
-  assert.match(knowledgeSource, /privateGraph=\{actor\.isGuest \? null : privateGraph\}/);
-  assert.match(knowledgeSource, /graphLinkTargets=\{graphLinkTargets\}/);
+  assert.match(knowledgeSource, /actor\.isGuest \? Promise\.resolve\(null\) : getKnowledgeGraphOverlayForUser\(actor\.id\)/);
+  assert.match(knowledgeSource, /privateGraph=\{graphOverlay\?\.privateGraph \?\? null\}/);
+  assert.match(knowledgeSource, /graphLinkTargets=\{graphOverlay\?\.graphLinkTargets \?\? \[\]\}/);
 });
 
 test('grid loads the authenticated private graph overlay only when graph view opens', async () => {
@@ -403,7 +402,5 @@ test('grid loads the authenticated private graph overlay only when graph view op
   const overlayActionEnd = actionSource.indexOf('export async function createPrivateKnowledgeEdge', overlayActionStart);
   const overlayActionSource = actionSource.slice(overlayActionStart, overlayActionEnd);
   assert.match(overlayActionSource, /const user = await requireCurrentUser\(\)/);
-  assert.match(overlayActionSource, /await Promise\.all\(\[/);
-  assert.match(overlayActionSource, /getPrivateKnowledgeGraphForUser\(user\.id\)/);
-  assert.match(overlayActionSource, /getKnowledgeLinkTargetsForUser\(user\.id\)/);
+  assert.match(overlayActionSource, /return getKnowledgeGraphOverlayForUser\(user\.id\)/);
 });

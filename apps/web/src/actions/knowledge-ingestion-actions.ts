@@ -16,6 +16,7 @@ import {
   discardKnowledgeDraftBatchForUser,
   getKnowledgeDraftBatchForUser,
   getKnowledgeDraftBatchesForUser,
+  getKnowledgeGraphOverlayForUser,
   getKnowledgeLinkTargetsForUser,
   getMcpAccessTokensForUser,
   getPrivateKnowledgeGraphForUser,
@@ -25,6 +26,7 @@ import {
   updateKnowledgeDraftForUser,
   type KnowledgeCardDraft,
   type KnowledgeDraftBatch,
+  type KnowledgeGraphOverlay,
   type KnowledgeLinkTarget,
   type McpAccessToken,
   type PrivateKnowledgeGraph,
@@ -41,6 +43,7 @@ export type {
   KnowledgeLinkTarget,
   McpAccessToken,
   PrivateKnowledgeGraph,
+  KnowledgeGraphOverlay,
   PrivateKnowledgeNode,
   PrivateKnowledgeEdge,
   ProposedKnowledgeRelation,
@@ -189,16 +192,9 @@ export async function getKnowledgeLinkTargets(query = ''): Promise<KnowledgeLink
   return getKnowledgeLinkTargetsForUser(user.id, query);
 }
 
-export async function getKnowledgeGraphOverlay(): Promise<{
-  privateGraph: PrivateKnowledgeGraph;
-  graphLinkTargets: KnowledgeLinkTarget[];
-}> {
+export async function getKnowledgeGraphOverlay(): Promise<KnowledgeGraphOverlay> {
   const user = await requireCurrentUser();
-  const [privateGraph, graphLinkTargets] = await Promise.all([
-    getPrivateKnowledgeGraphForUser(user.id),
-    getKnowledgeLinkTargetsForUser(user.id),
-  ]);
-  return { privateGraph, graphLinkTargets };
+  return getKnowledgeGraphOverlayForUser(user.id);
 }
 
 export async function createPrivateKnowledgeEdge(formData: FormData): Promise<{ created: boolean; reason?: 'invalid' | 'cycle_or_duplicate' }> {
