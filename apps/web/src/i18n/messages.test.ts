@@ -260,6 +260,40 @@ test('non-English catalogs are genuine locale-specific translations', () => {
   assert.equal(heroCopy.size, SUPPORTED_LOCALES.length, 'every locale needs distinct home copy');
 });
 
+test('knowledge data controls handoff uses localized identity-confirmation copy', () => {
+  const pageSource = readFileSync(
+    new URL('../app/account/data-controls-handoff/page.tsx', import.meta.url),
+    'utf8',
+  );
+  const keys = [
+    'account.dataControlsHandoff.eyebrow',
+    'account.dataControlsHandoff.title',
+    'account.dataControlsHandoff.bodyBeforeIdentity',
+    'account.dataControlsHandoff.bodyAfterIdentity',
+    'account.dataControlsHandoff.continue',
+    'account.dataControlsHandoff.switchAccount',
+    'account.dataControlsHandoff.switchAccountAria',
+    'account.data.metadataDescription',
+  ] as const;
+
+  for (const key of keys) {
+    assert.ok(pageSource.includes(`t('${key}')`), `handoff page must translate ${key}`);
+    for (const locale of SUPPORTED_LOCALES) {
+      const message = MESSAGE_CATALOGS[locale][key];
+      assert.ok(typeof message === 'string', `${locale}.${key} must be a string`);
+      assert.ok(message.length > 0, `${locale}.${key} must not be empty`);
+    }
+  }
+
+  assert.doesNotMatch(pageSource, />Confirm the browser account</u);
+  assert.doesNotMatch(pageSource, /label="Use a different account"/u);
+  assert.doesNotMatch(pageSource, /ariaLabel="Sign out of this browser/u);
+  assert.match(pageSource, /export async function generateMetadata\(\): Promise<Metadata>/u);
+  assert.match(pageSource, /title: t\('account\.dataControlsHandoff\.title'\)/u);
+  assert.match(pageSource, /description: t\('account\.data\.metadataDescription'\)/u);
+  assert.doesNotMatch(pageSource, /title: 'Knowledge data controls'/u);
+});
+
 test('ChatGPT quick guides separate web OAuth from server-side PAT use', () => {
   for (const locale of SUPPORTED_LOCALES) {
     const guide = variants(MESSAGE_CATALOGS[locale]['settings.aiGuide.chatgpt']).join(' ');

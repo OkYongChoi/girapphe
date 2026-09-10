@@ -22,7 +22,7 @@ export default async function DeleteAccountPage({ searchParams }: DeleteAccountP
     // This critical owner-data route needs only the verified session subject.
     // Avoid making it depend on a second Clerk Backend API profile lookup;
     // the email is optional display copy with an existing localized fallback.
-    requireCurrentUser(),
+    requireCurrentUser('/account/delete'),
     getServerI18n(),
     searchParams,
   ]);

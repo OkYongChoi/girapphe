@@ -19,7 +19,7 @@ function isolateLTR(value: string | number): string {
 }
 
 export default function AdminScreen() {
-  return <AuthRequired><AdminContent /></AuthRequired>;
+  return <AuthRequired continuation={{ destination: 'admin' }}><AdminContent /></AuthRequired>;
 }
 
 function AdminContent() {

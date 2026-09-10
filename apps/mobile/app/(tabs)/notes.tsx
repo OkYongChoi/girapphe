@@ -112,7 +112,7 @@ const OPEN_TOPIC_COPY: Record<Locale, string> = {
 };
 
 export default function NotesScreen() {
-  return <AuthRequired><NotesContent /></AuthRequired>;
+  return <AuthRequired continuation={{ destination: 'notes' }}><NotesContent /></AuthRequired>;
 }
 
 function NotesContent() {
@@ -323,12 +323,12 @@ function NotesContent() {
         summary, knowledge_type: '', central_question: '', structured_content: null, bundle_schema_version: null,
       };
       if (submittedEditing) {
-        await mobileApi.mutate({ action: 'update-note', id: submittedEditing.id, version: submittedEditing.version, title, topic, content, tags: submittedTags, ...typedFields });
+        await mobileApi.mutateKnowledge({ action: 'update-note', id: submittedEditing.id, version: submittedEditing.version, title, topic, content, tags: submittedTags, ...typedFields });
       } else {
         const createPayload = { action: 'create-note', title, topic, content, tags: submittedTags, ...typedFields };
         const submittedDraftKey = JSON.stringify(createPayload);
         const createRequest = createRequestGuard.current.begin(submittedDraftKey);
-        const result = await mobileApi.mutate<{ success: true; outcome?: 'inserted' | 'replayed' }>({
+        const result = await mobileApi.mutateKnowledge<{ success: true; outcome?: 'inserted' | 'replayed' }>({
           ...createPayload,
           requestId: createRequest.requestId,
         });
@@ -372,6 +372,8 @@ function NotesContent() {
         setError(
           reason instanceof MobileApiRequestError && reason.code === 'KNOWLEDGE_ITEM_QUOTA_EXCEEDED'
             ? `${t('notes.quotaError')} ${t('notes.quotaRetention')}`
+            : reason instanceof MobileApiRequestError && reason.code === 'MOBILE_KNOWLEDGE_REQUEST_TOO_LARGE'
+              ? t('notes.payloadTooLarge')
             : reason instanceof Error
               ? reason.message
               : t('notes.saveError'),

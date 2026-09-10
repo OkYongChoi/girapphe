@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import {
+  advanceDuplicateSubscriptionAnnouncement,
+  duplicateSubscriptionAnnouncementKey,
+} from './subscription-accessibility';
 
 test('Clerk sign-out still completes when native Superwall reset fails', () => {
   for (const relativePath of [
@@ -29,6 +33,57 @@ test('retained legacy web subscribers keep visible purchase-source metadata', ()
   assert.match(screen, /active\?\.store === 'web'/);
   assert.match(screen, /subscription\.sourceLegacyWeb/);
   assert.match(screen, /activeMeta/);
+});
+
+test('canonical duplicate and acquisition-block states remain visible on mobile', () => {
+  const provider = readFileSync(new URL('./subscriptions.tsx', import.meta.url), 'utf8');
+  const screen = readFileSync(new URL('../app/subscription.tsx', import.meta.url), 'utf8');
+  const catalog = readFileSync(new URL('./i18n/catalogs.ts', import.meta.url), 'utf8');
+
+  assert.match(provider, /acquisitionBlocked: currentServerState\?\.acquisitionBlocked === true/);
+  assert.match(provider, /duplicateDetected: currentServerState\?\.duplicateDetected === true/);
+  assert.match(
+    screen,
+    /subscription\.duplicateDetected[\s\S]*?accessibilityLiveRegion="assertive"[\s\S]*?accessibilityRole="alert"/,
+  );
+  assert.match(screen, /Platform\.OS === 'ios'[\s\S]*?AccessibilityInfo\.announceForAccessibility/);
+  assert.match(
+    screen,
+    /subscription\.isConfirming \|\| subscription\.acquisitionBlocked[\s\S]*?subscription\.confirming/,
+  );
+  assert.match(screen, /subscription\.acquisitionBlocked[\s\S]*?subscription\.refresh\(\)/);
+  assert.match(catalog, /Duplicate subscriptions need review/);
+  assert.match(catalog, /blocked so you are not charged again/);
+});
+
+test('duplicate billing announcements reset and follow the current account and locale', () => {
+  const accountAEnglish = duplicateSubscriptionAnnouncementKey('user_a', 'en', true);
+  assert.deepEqual(
+    advanceDuplicateSubscriptionAnnouncement(null, accountAEnglish),
+    { key: accountAEnglish, shouldAnnounce: true },
+  );
+  assert.deepEqual(
+    advanceDuplicateSubscriptionAnnouncement(accountAEnglish, accountAEnglish),
+    { key: accountAEnglish, shouldAnnounce: false },
+  );
+
+  const accountBEnglish = duplicateSubscriptionAnnouncementKey('user_b', 'en', true);
+  assert.deepEqual(
+    advanceDuplicateSubscriptionAnnouncement(accountAEnglish, accountBEnglish),
+    { key: accountBEnglish, shouldAnnounce: true },
+  );
+
+  const accountBArabic = duplicateSubscriptionAnnouncementKey('user_b', 'ar', true);
+  assert.deepEqual(
+    advanceDuplicateSubscriptionAnnouncement(accountBEnglish, accountBArabic),
+    { key: accountBArabic, shouldAnnounce: true },
+  );
+  assert.deepEqual(
+    advanceDuplicateSubscriptionAnnouncement(accountBArabic, null),
+    { key: null, shouldAnnounce: false },
+  );
+  assert.equal(duplicateSubscriptionAnnouncementKey(null, 'en', true), null);
+  assert.equal(duplicateSubscriptionAnnouncementKey('user_b', 'en', false), null);
 });
 
 test('unknown local billing state cannot expose plans or cross the final purchase preflight', () => {

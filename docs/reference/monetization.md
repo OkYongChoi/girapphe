@@ -91,6 +91,9 @@ uses `GET /api/billing/entitlement`.
 On logout or account switch, the app clears the previous user-specific SDK
 state, identifies the new Clerk user, and refreshes server entitlement before
 showing Plus. Email is not an ownership key and does not transfer a subscription.
+An asynchronously returned duplicate-subscription warning remains visibly
+actionable and is announced once for the current account and locale on both
+native platforms; stale account state cannot trigger that announcement.
 The server accepts only configured Superwall project/application, package or
 bundle, store, environment, product, and `ad_free` entitlement state. Signed
 Svix webhook delivery is a reconciliation trigger; authoritative Superwall

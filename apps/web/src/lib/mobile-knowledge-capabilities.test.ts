@@ -4,6 +4,7 @@ import {
   MOBILE_CAUSAL_RELATION_TYPES,
   classifyMobileCandidateMutationPreflight,
   mobileCandidateApprovalRequiresCapability,
+  mobileCandidateDetailedReviewReason,
   mobileCandidateRequiresDetailedCausalReview,
   mobileKnowledgeEditRequiresCapability,
   readMobileKnowledgeCapabilities,
@@ -57,6 +58,10 @@ test('older mobile clients receive additive knowledge as legacy-compatible data'
   assert.equal(mobileCandidateApprovalRequiresCapability({ relations: [{ type: 'related' }] }, legacy), false);
   assert.equal(mobileCandidateRequiresDetailedCausalReview({ relations: [{ type: 'causes' }] }), true);
   assert.equal(mobileCandidateRequiresDetailedCausalReview({ relations: [{ type: 'related' }] }), false);
+  assert.equal(mobileCandidateDetailedReviewReason({ relations: [{ type: 'causes' }] }), 'causal_relations');
+  assert.equal(mobileCandidateDetailedReviewReason({ relations: [{ type: 'related' }] }), 'provenance');
+  assert.equal(mobileCandidateDetailedReviewReason({ proposed_evidence: [{}] }), 'provenance');
+  assert.equal(mobileCandidateDetailedReviewReason({ relations: [], proposed_evidence: [] }), null);
 });
 
 test('capable mobile clients retain expression and historical chronology', () => {
@@ -103,4 +108,22 @@ test('candidate mutation preflight reports a stale client version before latest 
     draftVersion: 2,
     capabilities,
   }), 'ready');
+
+  const latestProvenanceDraft = {
+    version: 3,
+    relations: [{ type: 'related' }],
+    proposed_evidence: [{}],
+  };
+  assert.equal(classifyMobileCandidateMutationPreflight({
+    action: 'approve-candidate',
+    draft: latestProvenanceDraft,
+    draftVersion: 2,
+    capabilities,
+  }), 'stale');
+  assert.equal(classifyMobileCandidateMutationPreflight({
+    action: 'approve-candidate',
+    draft: latestProvenanceDraft,
+    draftVersion: 3,
+    capabilities,
+  }), 'provenance-review-required');
 });

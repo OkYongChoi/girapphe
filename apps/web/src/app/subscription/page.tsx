@@ -42,7 +42,7 @@ function sourceLabel(provider: string, store: string) {
 export default async function SubscriptionPage(props: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const user = await requireCurrentUser();
+  const user = await requireCurrentUser('/subscription');
   const searchParams = await props.searchParams;
   const entitlement = await requireBillingEntitlementState(user.id);
   const subscription = entitlement.subscriptions.find((candidate) => (

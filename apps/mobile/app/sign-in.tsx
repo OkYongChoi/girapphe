@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth, useSignIn, useSignUp } from '@clerk/expo';
+import { useHostedAuth } from '@clerk/expo/hosted-auth';
+import * as ExpoLinking from 'expo-linking';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
@@ -18,6 +20,10 @@ import {
 } from 'react-native';
 import { LanguageSelector } from '@/components/language-selector';
 import { useMobileAuth } from '@/auth';
+import {
+  resolveMobileAuthContinuation,
+  type MobileAuthContinuationParams,
+} from '@/auth-continuation';
 import { useI18n } from '@/i18n';
 import type { MessageKey } from '@/i18n/catalogs';
 import {
@@ -33,6 +39,7 @@ type FieldName = 'email' | 'password' | 'code';
 type FieldErrors = Partial<Record<FieldName, string>>;
 type ClerkFailure = { code: string } | null;
 type Factor = { strategy: string; safeIdentifier?: string };
+type SignInContinuationParams = PublicConceptCopyContinuationParams & MobileAuthContinuationParams;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FACTOR_ORDER: FactorStrategy[] = ['email_code', 'phone_code', 'totp', 'backup_code'];
@@ -224,9 +231,18 @@ function ConfiguredSignInScreen() {
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
   const { fetchStatus: signInFetchStatus, signIn } = useSignIn();
   const { fetchStatus: signUpFetchStatus, signUp } = useSignUp();
+  const { startHostedAuth } = useHostedAuth();
   const router = useRouter();
-  const continuationParams = useLocalSearchParams<PublicConceptCopyContinuationParams>();
+  const continuationParams = useLocalSearchParams<SignInContinuationParams>();
   const publicCopyContinuation = resolvePublicConceptCopyContinuation(continuationParams);
+  const protectedRouteContinuation = useMemo(
+    () => resolveMobileAuthContinuation(continuationParams),
+    [
+      continuationParams.continueAction,
+      continuationParams.continueDestination,
+      continuationParams.continueTopic,
+    ],
+  );
   const { direction, isRTL, locale, t } = useI18n();
   const [mode, setMode] = useState<AuthMode>('signIn');
   const [signInStage, setSignInStage] = useState<SignInStage>('credentials');
@@ -251,8 +267,13 @@ function ConfiguredSignInScreen() {
       });
       return;
     }
+    if (protectedRouteContinuation) {
+      router.replace(protectedRouteContinuation);
+      return;
+    }
     router.replace('/(tabs)/account');
   }, [
+    protectedRouteContinuation,
     publicCopyContinuation?.draftKey,
     publicCopyContinuation?.sourceId,
     router,
@@ -346,6 +367,23 @@ function ConfiguredSignInScreen() {
         return;
       }
       setFormError(t('auth.error.unsupportedRequirements'));
+    } catch {
+      setFormError(t('auth.error.network'));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function submitHostedAuth() {
+    resetFeedback();
+    setWorking(true);
+    try {
+      const result = await startHostedAuth({
+        mode: mode === 'signIn' ? 'sign-in' : 'sign-up',
+        redirectUrl: ExpoLinking.createURL('hosted-auth-callback'),
+        authSessionOptions: { preferEphemeralSession: true },
+      });
+      if (result.createdSessionId) navigateAfterAuthentication();
     } catch {
       setFormError(t('auth.error.network'));
     } finally {
@@ -838,6 +876,22 @@ function ConfiguredSignInScreen() {
               </View>
             ) : (
               <View style={styles.form}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ busy: working, disabled: busy }}
+                  disabled={busy}
+                  onPress={() => void submitHostedAuth()}
+                  style={({ pressed }) => [styles.hostedAuthButton, busy && styles.disabled, pressed && !busy && styles.pressed]}
+                >
+                  <Text style={[styles.hostedAuthButtonText, logicalText]}>
+                    {t(mode === 'signIn' ? 'auth.hostedSignIn' : 'auth.hostedSignUp')}
+                  </Text>
+                </Pressable>
+                <View accessible={false} style={styles.separatorRow}>
+                  <View style={styles.separatorLine} />
+                  <Text style={styles.separatorText}>{t('auth.orUseEmail')}</Text>
+                  <View style={styles.separatorLine} />
+                </View>
                 <AuthField
                   autoCapitalize="none"
                   autoComplete="email"
@@ -931,6 +985,11 @@ const styles = StyleSheet.create({
   title: { color: '#0f172a', fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },
   copy: { color: '#64748b', fontSize: 15, lineHeight: 22 },
   form: { gap: 14 },
+  hostedAuthButton: { minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: '#94a3b8', backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  hostedAuthButtonText: { color: '#0f172a', fontSize: 15, lineHeight: 21, fontWeight: '900' },
+  separatorRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  separatorLine: { height: 1, flex: 1, backgroundColor: '#e2e8f0' },
+  separatorText: { color: '#64748b', fontSize: 12, fontWeight: '700' },
   field: { gap: 6 },
   label: { color: '#334155', fontSize: 14, fontWeight: '800' },
   input: { minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#ffffff', color: '#0f172a', fontSize: 16, paddingHorizontal: 14, paddingVertical: 12 },

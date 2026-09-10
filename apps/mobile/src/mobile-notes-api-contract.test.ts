@@ -60,8 +60,11 @@ test('native note tags are owner-scoped, controlled, and included on create or u
     /collectKnowledgeTagSuggestions\(items\.map\(\(item\) => item\.tags\), locale\)/,
   );
   assert.match(mobileNotesSource, /const submittedTags = sanitizeKnowledgeTags\(\[\.\.\.tags, tagDraft\]\)/);
-  assert.match(mobileNotesSource, /action: 'create-note'[\s\S]*tags: submittedTags/);
-  assert.match(mobileNotesSource, /action: 'update-note'[\s\S]*tags: submittedTags/);
+  assert.match(
+    mobileNotesSource,
+    /const createPayload = \{ action: 'create-note'[\s\S]*?tags: submittedTags[\s\S]*?mobileApi\.mutateKnowledge<[\s\S]*?\(\{[\s\S]*?\.\.\.createPayload/,
+  );
+  assert.match(mobileNotesSource, /mobileApi\.mutateKnowledge\(\{ action: 'update-note'[\s\S]*tags: submittedTags/);
   assert.match(
     mobileNotesSource,
     /<KnowledgeTagPicker[\s\S]*key=\{tagEditorKey\}[\s\S]*value=\{tags\}[\s\S]*draft=\{tagDraft\}[\s\S]*suggestions=\{tagSuggestions\}[\s\S]*disabled=\{submitting\}/,
@@ -84,6 +87,27 @@ test('native create retries keep one editor request and preserve edits after a r
     /reason\.code === 'KNOWLEDGE_ITEM_QUOTA_EXCEEDED'[\s\S]*?t\('notes\.quotaError'\)[\s\S]*?t\('notes\.quotaRetention'\)/,
   );
   assert.ok((mobileNotesSource.match(/createRequestGuard\.current\.reset\(\)/g) ?? []).length >= 5);
+});
+
+test('large valid typed notes use a dedicated bounded mobile mutation contract', () => {
+  assert.match(
+    mobileApiSource,
+    /mutateKnowledge: <T>\(body: Record<string, unknown>\) => request<T>\('\/api\/mobile\?resource=notes'/,
+  );
+  assert.match(mobileRouteSource, /MAX_MOBILE_KNOWLEDGE_MUTATION_BYTES/);
+  assert.match(
+    mobileRouteSource,
+    /knowledgeMutationResource \? MAX_MOBILE_KNOWLEDGE_MUTATION_BYTES : MAX_JSON_BYTES/,
+  );
+  assert.match(
+    mobileRouteSource,
+    /knowledgeMutationResource[\s\S]*?action !== 'create-note'[\s\S]*?action !== 'update-note'[\s\S]*?INVALID_MOBILE_RESOURCE_ACTION/,
+  );
+  assert.match(mobileRouteSource, /MOBILE_KNOWLEDGE_REQUEST_TOO_LARGE/);
+  assert.match(
+    mobileNotesSource,
+    /reason\.code === 'MOBILE_KNOWLEDGE_REQUEST_TOO_LARGE'[\s\S]*?notes\.payloadTooLarge/,
+  );
 });
 
 test('native tag picker keeps suggestions opt-in, render-bounded, and touch accessible', () => {

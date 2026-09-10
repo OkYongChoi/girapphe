@@ -20,6 +20,9 @@ import {
 } from '@/lib/knowledge-source-url';
 
 export const MAX_TOPIC_HUB_ITEMS = 200;
+export const MAX_TOPIC_HUB_SOURCES = 500;
+export const MAX_TOPIC_HUB_EVIDENCE_SELECTORS = 1000;
+export const MAX_TOPIC_RELATION_EVIDENCE_SELECTORS = 24;
 export const MAX_CONTEXT_PACK_ITEMS = 100;
 export const DEFAULT_CONTEXT_PACK_ITEMS = 50;
 export const MAX_CONTEXT_PACK_BYTES = 256 * 1024;
@@ -298,6 +301,35 @@ function oldestFirst(
   return leftTimestamp.localeCompare(rightTimestamp) || leftId.localeCompare(rightId);
 }
 
+function selectBoundedTopicProvenance(
+  itemIds: Set<string>,
+  sources: TopicKnowledgeSource[],
+  evidenceSelectors: TopicKnowledgeEvidenceSelector[],
+  relationEvidenceIds: Set<string>,
+) {
+  const boundedEvidenceSelectors = [...evidenceSelectors]
+    .sort((left, right) => Number(relationEvidenceIds.has(right.id)) - Number(relationEvidenceIds.has(left.id))
+      || left.knowledge_item_id.localeCompare(right.knowledge_item_id)
+      || oldestFirst(left.created_at, right.created_at, left.id, right.id))
+    .slice(0, MAX_TOPIC_HUB_EVIDENCE_SELECTORS);
+  const evidenceSourceIds = new Set(boundedEvidenceSelectors.map((entry) => entry.source_id));
+  const relationEvidenceSourceIds = new Set(boundedEvidenceSelectors
+    .filter((entry) => relationEvidenceIds.has(entry.id))
+    .map((entry) => entry.source_id));
+  const boundedSources = [...sources]
+    .filter((source) => itemIds.has(source.knowledge_item_id) || evidenceSourceIds.has(source.id))
+    .sort((left, right) => Number(relationEvidenceSourceIds.has(right.id)) - Number(relationEvidenceSourceIds.has(left.id))
+      || Number(evidenceSourceIds.has(right.id)) - Number(evidenceSourceIds.has(left.id))
+      || oldestFirst(left.created_at, right.created_at, left.id, right.id))
+    .slice(0, MAX_TOPIC_HUB_SOURCES);
+  const retainedSourceIds = new Set(boundedSources.map((source) => source.id));
+
+  return {
+    sources: boundedSources,
+    evidenceSelectors: boundedEvidenceSelectors.filter((entry) => retainedSourceIds.has(entry.source_id)),
+  };
+}
+
 function deterministicGeneratedAt(collections: TopicKnowledgeHubCollections): string {
   const timestamps = [
     ...collections.items.map((item) => item.updated_at),
@@ -427,43 +459,50 @@ export async function getTopicKnowledgeHubForUser(
         type: edge.type,
         relation_origin: relationOrigin(edge.relation_origin, edge.origin),
         confirmed_at: edge.confirmed_at,
-        evidence_span_ids: edge.evidence_span_ids,
+        evidence_span_ids: edge.evidence_span_ids.slice(0, MAX_TOPIC_RELATION_EVIDENCE_SELECTORS),
       }));
     const relationEvidenceIds = new Set(relations.flatMap((relation) => relation.evidence_span_ids));
+    const evidenceSelectors = getMemoryKnowledgeEvidenceForUser(userId)
+      .filter((entry) => itemIds.has(entry.knowledge_item_id) || relationEvidenceIds.has(entry.id))
+      .map((entry) => {
+        const selector = entry.selector;
+        return mapEvidenceSelector({
+          id: entry.id,
+          knowledge_item_id: entry.knowledge_item_id,
+          source_id: entry.source_id,
+          selector_type: selector.selectorType,
+          selector: {
+            ...(selector.sourceRef ? { source_ref: selector.sourceRef } : {}),
+            ...(selector.messageRef ? { message_ref: selector.messageRef } : {}),
+            ...(selector.start !== undefined ? { start: selector.start } : {}),
+            ...(selector.end !== undefined ? { end: selector.end } : {}),
+            ...(selector.lineStart !== undefined ? { line_start: selector.lineStart } : {}),
+            ...(selector.lineEnd !== undefined ? { line_end: selector.lineEnd } : {}),
+          },
+          polarity: selector.polarity,
+          quality: selector.quality,
+          relation_origin: selector.relationOrigin,
+          confirmed_at: entry.created_at,
+          created_at: entry.created_at,
+        });
+      });
+    const provenance = selectBoundedTopicProvenance(
+      itemIds,
+      getMemoryKnowledgeSourcesForUser(userId)
+        .map((source) => mapSource(source as unknown as Record<string, unknown>)),
+      evidenceSelectors,
+      relationEvidenceIds,
+    );
     return finalizeTopicKnowledgeHub(topic, {
       items: memoryItems,
-      sources: getMemoryKnowledgeSourcesForUser(userId, itemIds)
-        .map((source) => mapSource(source as unknown as Record<string, unknown>)),
+      sources: provenance.sources,
       activity: getMemoryKnowledgeActivityForUser(userId, itemIds)
         .map((entry) => mapActivity(entry as unknown as Record<string, unknown>)),
       relations,
       revisions: getMemoryKnowledgeRevisionsForUser(userId, historyItemIds)
         .map((revision) => mapRevision(revision as unknown as Record<string, unknown>)),
       supersessions,
-      evidence_selectors: getMemoryKnowledgeEvidenceForUser(userId)
-        .filter((entry) => itemIds.has(entry.knowledge_item_id) || relationEvidenceIds.has(entry.id))
-        .map((entry) => {
-          const selector = entry.selector;
-          return mapEvidenceSelector({
-            id: entry.id,
-            knowledge_item_id: entry.knowledge_item_id,
-            source_id: entry.source_id,
-            selector_type: selector.selectorType,
-            selector: {
-              ...(selector.sourceRef ? { source_ref: selector.sourceRef } : {}),
-              ...(selector.messageRef ? { message_ref: selector.messageRef } : {}),
-              ...(selector.start !== undefined ? { start: selector.start } : {}),
-              ...(selector.end !== undefined ? { end: selector.end } : {}),
-              ...(selector.lineStart !== undefined ? { line_start: selector.lineStart } : {}),
-              ...(selector.lineEnd !== undefined ? { line_end: selector.lineEnd } : {}),
-            },
-            polarity: selector.polarity,
-            quality: selector.quality,
-            relation_origin: selector.relationOrigin,
-            confirmed_at: entry.created_at,
-            created_at: entry.created_at,
-          });
-        }),
+      evidence_selectors: provenance.evidenceSelectors,
     });
   }
 
@@ -528,21 +567,11 @@ export async function getTopicKnowledgeHubForUser(
   const historyItemIds = historyIdResult.rows.map((row) => row.id);
 
   const [
-    sourceResult,
     activityResult,
     relationResult,
     revisionResult,
     supersessionResult,
   ] = await Promise.all([
-    pool.query<Record<string, unknown>>(
-      `SELECT id, knowledge_item_id, source_type, provider, conversation_ref, source_url,
-         source_locator, discussed_at, relation_origin, confirmed_at, created_at
-       FROM knowledge_card_sources
-       WHERE user_id = $1 AND knowledge_item_id = ANY($2::text[])
-       ORDER BY created_at, id
-       LIMIT 500`,
-      [userId, itemIds],
-    ),
     pool.query<Record<string, unknown>>(
       `SELECT id, knowledge_item_id, activity_type, metadata, created_at
        FROM knowledge_item_activity
@@ -557,9 +586,14 @@ export async function getTopicKnowledgeHubForUser(
          COALESCE('personal:' || tn.knowledge_item_id, 'public:' || e.target_public_node_id) AS target,
          e.type, e.origin, e.relation_origin, e.confirmed_at,
          COALESCE((
-           SELECT array_agg(re.evidence_span_id ORDER BY re.evidence_span_id)
-           FROM knowledge_relation_evidence re
-           WHERE re.edge_id = e.id AND re.user_id = e.user_id
+           SELECT array_agg(relation_evidence.evidence_span_id ORDER BY relation_evidence.created_at, relation_evidence.evidence_span_id)
+           FROM (
+             SELECT re.evidence_span_id, re.created_at
+             FROM knowledge_relation_evidence re
+             WHERE re.edge_id = e.id AND re.user_id = e.user_id
+             ORDER BY re.created_at, re.evidence_span_id
+             LIMIT $3
+           ) relation_evidence
          ), ARRAY[]::text[]) AS evidence_span_ids
        FROM user_graph_edges e
        LEFT JOIN user_graph_nodes sn ON sn.id = e.source_private_node_id AND sn.user_id = e.user_id
@@ -588,7 +622,7 @@ export async function getTopicKnowledgeHubForUser(
          AND (e.target_private_node_id IS NULL OR ti.id IS NOT NULL)
        ORDER BY e.created_at, e.id
        LIMIT 500`,
-      [userId, itemIds],
+      [userId, itemIds, MAX_TOPIC_RELATION_EVIDENCE_SELECTORS],
     ),
     pool.query<Record<string, unknown>>(
       `SELECT r.id, r.knowledge_item_id, r.version, r.snapshot, r.change_reason, r.created_at
@@ -622,6 +656,8 @@ export async function getTopicKnowledgeHubForUser(
          polarity, quality, relation_origin, confirmed_at, created_at
        FROM knowledge_evidence_spans
        WHERE user_id = $1 AND id = ANY($3::text[])
+       ORDER BY created_at, id
+       LIMIT $4
      ), topic_evidence AS (
        SELECT id, knowledge_item_id, source_id, selector_type, selector,
          polarity, quality, relation_origin, confirmed_at, created_at
@@ -629,18 +665,47 @@ export async function getTopicKnowledgeHubForUser(
        WHERE user_id = $1 AND knowledge_item_id = ANY($2::text[])
          AND NOT (id = ANY($3::text[]))
        ORDER BY created_at, id
-       LIMIT 1000
+       LIMIT $4
+     ), combined_evidence AS (
+       SELECT * FROM referenced_evidence
+       UNION ALL
+       SELECT * FROM topic_evidence
      )
-     SELECT * FROM referenced_evidence
-     UNION ALL
-     SELECT * FROM topic_evidence
-     ORDER BY created_at, id`,
-    [userId, itemIds, relationEvidenceIds],
+     SELECT * FROM combined_evidence
+     ORDER BY CASE WHEN id = ANY($3::text[]) THEN 0 ELSE 1 END, created_at, id
+     LIMIT $4`,
+    [userId, itemIds, relationEvidenceIds, MAX_TOPIC_HUB_EVIDENCE_SELECTORS],
+  );
+  const evidenceSelectors = evidenceResult.rows.map(mapEvidenceSelector);
+  const evidenceSourceIds = [...new Set(evidenceSelectors.map((entry) => entry.source_id))];
+  const relationEvidenceIdSet = new Set(relationEvidenceIds);
+  const relationEvidenceSourceIds = [...new Set(evidenceSelectors
+    .filter((entry) => relationEvidenceIdSet.has(entry.id))
+    .map((entry) => entry.source_id))];
+  const sourceResult = await pool.query<Record<string, unknown>>(
+    `SELECT id, knowledge_item_id, source_type, provider, conversation_ref, source_url,
+       source_locator, discussed_at, relation_origin, confirmed_at, created_at
+     FROM knowledge_card_sources
+     WHERE user_id = $1
+       AND (knowledge_item_id = ANY($2::text[]) OR id = ANY($3::text[]))
+     ORDER BY CASE
+       WHEN id = ANY($4::text[]) THEN 0
+       WHEN id = ANY($3::text[]) THEN 1
+       ELSE 2
+     END, created_at, id
+     LIMIT $5`,
+    [userId, itemIds, evidenceSourceIds, relationEvidenceSourceIds, MAX_TOPIC_HUB_SOURCES],
+  );
+  const provenance = selectBoundedTopicProvenance(
+    new Set(itemIds),
+    sourceResult.rows.map(mapSource),
+    evidenceSelectors,
+    new Set(relationEvidenceIds),
   );
 
   return finalizeTopicKnowledgeHub(topic, {
     items,
-    sources: sourceResult.rows.map(mapSource),
+    sources: provenance.sources,
     activity: activityResult.rows.map(mapActivity),
     relations: relationResult.rows.map((row) => ({
       id: String(row.id),
@@ -661,7 +726,7 @@ export async function getTopicKnowledgeHubForUser(
       reason: row.reason ? String(row.reason) : null,
       created_at: iso(row.created_at) ?? new Date(0).toISOString(),
     })),
-    evidence_selectors: evidenceResult.rows.map(mapEvidenceSelector),
+    evidence_selectors: provenance.evidenceSelectors,
   });
 }
 

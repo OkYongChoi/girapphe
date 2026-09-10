@@ -1,23 +1,44 @@
-import { useRouter } from 'expo-router';
-import { Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { type Href, useRouter } from 'expo-router';
+import {
+  AccessibilityInfo,
+  Linking,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useMobileAuth } from '@/auth';
 import { useI18n } from '@/i18n';
 import { appBaseUrl, useSubscription, type SubscriptionPlan } from '@/subscriptions';
+import { buildMobileAuthContinuationParams } from '@/auth-continuation';
+import {
+  advanceDuplicateSubscriptionAnnouncement,
+  duplicateSubscriptionAnnouncementKey,
+} from '@/subscription-accessibility';
 
 const configuredTermsUrl = process.env.EXPO_PUBLIC_TERMS_URL?.trim();
 const configuredPrivacyUrl = process.env.EXPO_PUBLIC_PRIVACY_URL?.trim();
+const configuredSupportUrl = process.env.EXPO_PUBLIC_SUPPORT_URL?.trim();
 const termsUrl = configuredTermsUrl && /^https:\/\//.test(configuredTermsUrl)
   ? configuredTermsUrl
   : null;
 const privacyUrl = configuredPrivacyUrl && /^https:\/\//.test(configuredPrivacyUrl)
   ? configuredPrivacyUrl
   : null;
+const supportUrl = configuredSupportUrl && /^https:\/\//.test(configuredSupportUrl)
+  ? configuredSupportUrl
+  : null;
 
 export default function SubscriptionScreen() {
   const router = useRouter();
   const auth = useMobileAuth();
   const subscription = useSubscription();
-  const { direction, formatDate, formatNumber, t } = useI18n();
+  const { direction, formatDate, formatNumber, locale, t } = useI18n();
+  const announcedDuplicateKey = useRef<string | null>(null);
   const active = subscription.activeSubscription;
   const legacyWebProvider = active?.provider === 'stripe'
     ? 'Stripe'
@@ -39,6 +60,26 @@ export default function SubscriptionScreen() {
   const accessThrough = accessThroughDate && Number.isFinite(accessThroughDate.getTime())
     ? formatDate(accessThroughDate, { dateStyle: 'medium' })
     : null;
+  const duplicateAnnouncement = [
+    t('subscription.duplicateTitle'),
+    t('subscription.duplicateBody'),
+  ].join('\n');
+  const duplicateAnnouncementKey = duplicateSubscriptionAnnouncementKey(
+    auth.userId,
+    locale,
+    subscription.duplicateDetected,
+  );
+
+  useEffect(() => {
+    const transition = advanceDuplicateSubscriptionAnnouncement(
+      announcedDuplicateKey.current,
+      duplicateAnnouncementKey,
+    );
+    announcedDuplicateKey.current = transition.key;
+    if (transition.shouldAnnounce && Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility(duplicateAnnouncement);
+    }
+  }, [duplicateAnnouncement, duplicateAnnouncementKey]);
 
   return (
     <SafeAreaView style={[styles.safeArea, { direction }]}>
@@ -52,12 +93,38 @@ export default function SubscriptionScreen() {
           <Text style={styles.benefitText}>{t('subscription.benefitText', { count: formatNumber(5) })}</Text>
         </View>
 
+        {subscription.duplicateDetected ? (
+          <View
+            accessibilityLiveRegion="assertive"
+            accessibilityRole="alert"
+            style={styles.duplicateCard}
+          >
+            <Text style={styles.duplicateTitle}>{t('subscription.duplicateTitle')}</Text>
+            <Text style={styles.duplicateText}>{t('subscription.duplicateBody')}</Text>
+            {supportUrl ? (
+              <Pressable
+                accessibilityRole="link"
+                onPress={() => void Linking.openURL(supportUrl)}
+                style={({ pressed }) => [styles.inlineLink, pressed && styles.pressed]}
+              >
+                <Text style={styles.inlineLinkText}>{t('subscription.contactSupport')}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
         {!auth.configured ? (
           <SetupNotice body={t('subscription.clerkMissing')} />
         ) : !auth.isSignedIn ? (
           <>
             <SetupNotice body={t('subscription.signInFirst')} />
-            <PrimaryButton label={t('auth.signIn')} onPress={() => router.push('/sign-in')} />
+            <PrimaryButton
+              label={t('auth.signIn')}
+              onPress={() => router.push({
+                pathname: '/sign-in',
+                params: buildMobileAuthContinuationParams({ destination: 'subscription' }),
+              } as Href)}
+            />
           </>
         ) : !subscription.isReady ? (
           <SetupNotice body={t('subscription.checking')} title={t('subscription.kicker')} />
@@ -78,7 +145,7 @@ export default function SubscriptionScreen() {
               <Text style={styles.activeMeta}>{t('subscription.cancelsAtPeriodEnd')}</Text>
             ) : null}
           </View>
-        ) : subscription.isConfirming ? (
+        ) : subscription.isConfirming || subscription.acquisitionBlocked ? (
           <SetupNotice body={t('subscription.confirming')} title={t('subscription.kicker')} />
         ) : !subscription.isConfigured ? (
           <SetupNotice body={t('subscription.storeKeyMissing')} />
@@ -109,6 +176,19 @@ export default function SubscriptionScreen() {
           <Text accessibilityLiveRegion="polite" style={styles.errorText}>
             {subscription.error}
           </Text>
+        ) : null}
+
+        {auth.isSignedIn && subscription.isReady && subscription.acquisitionBlocked ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('subscription.refreshStatus')}
+            accessibilityState={{ disabled: subscription.isBusy }}
+            disabled={subscription.isBusy}
+            onPress={() => void subscription.refresh()}
+            style={({ pressed }) => [styles.restoreButton, pressed && styles.pressed, subscription.isBusy && styles.disabled]}
+          >
+            <Text style={styles.restoreButtonText}>{t('subscription.refreshStatus')}</Text>
+          </Pressable>
         ) : null}
 
         {auth.isSignedIn && subscription.isConfigured ? (
@@ -207,6 +287,11 @@ const styles = StyleSheet.create({
   activeTitle: { color: '#176b38', fontSize: 19, fontWeight: '900' },
   activeText: { color: '#2a7145', fontSize: 14, lineHeight: 21, marginTop: 7 },
   activeMeta: { color: '#2a7145', fontSize: 12, lineHeight: 18, marginTop: 7 },
+  duplicateCard: { borderRadius: 12, borderWidth: 1, borderColor: '#f59e0b', backgroundColor: '#fffbeb', padding: 18, marginBottom: 14 },
+  duplicateTitle: { color: '#78350f', fontSize: 18, fontWeight: '900' },
+  duplicateText: { color: '#92400e', fontSize: 14, lineHeight: 21, marginTop: 7 },
+  inlineLink: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center', marginTop: 6 },
+  inlineLinkText: { color: '#1d4ed8', fontSize: 14, fontWeight: '900', textDecorationLine: 'underline' },
   noticeCard: { borderRadius: 12, borderWidth: 1, borderColor: '#e0e5ec', backgroundColor: '#ffffff', padding: 18 },
   noticeTitle: { color: '#111827', fontSize: 18, fontWeight: '900' },
   noticeText: { color: '#607080', fontSize: 14, lineHeight: 21, marginTop: 7 },

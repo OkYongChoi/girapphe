@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseAcceptLanguage, parseStrictKnowledgeTags } from '@stem-brain/shared';
+import {
+  MAX_MOBILE_KNOWLEDGE_MUTATION_BYTES,
+  parseAcceptLanguage,
+  parseStrictKnowledgeTags,
+} from '@stem-brain/shared';
 import {
   getAllCardsWithStatus,
   getCardLeaderboard,
@@ -43,6 +47,7 @@ import {
   getActiveKnowledgeTopicSummariesForUser,
   getTopicKnowledgeHubForUser,
 } from '@/lib/topic-knowledge-hub';
+import { toMobileTopicHub } from '@/lib/mobile-topic-hub';
 import {
   getKnowledgeDraftBatch,
   getKnowledgeDraftBatches,
@@ -53,14 +58,16 @@ import {
   resolveKnowledgeDraft,
 } from '@/actions/user-knowledge-actions';
 import {
+  deleteKnowledgeImportBatchForUser,
   getActiveKnowledgeItemVersionForUser,
   getKnowledgeDuplicateSuggestionsForDraftsForUser,
+  getKnowledgeDraftBatchesForUser,
 } from '@/lib/knowledge-ingestion';
 import { resolveMobileNoteUpdateVersion } from '@/lib/mobile-note-update-version';
 import { toMobileNoteCreateHttpResult } from '@/lib/knowledge-item-create-result';
 import {
   classifyMobileCandidateMutationPreflight,
-  mobileCandidateRequiresDetailedCausalReview,
+  mobileCandidateDetailedReviewReason,
   mobileKnowledgeEditRequiresCapability,
   readMobileKnowledgeCapabilities,
   withMobileKnowledgeCompatibility,
@@ -96,10 +103,19 @@ function invalid(message: string, code = 'INVALID_REQUEST') {
 function privateJson(body: unknown, init: ResponseInit = {}) {
   const headers = new Headers(init.headers);
   headers.set('Cache-Control', 'private, no-store');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Vary', 'Cookie, Authorization');
   return NextResponse.json(body, {
     ...init,
     headers,
   });
+}
+
+function parseDataControlsPage(value: string | null): number | null {
+  if (value === null || value === '') return 1;
+  if (!/^\d{1,3}$/.test(value)) return null;
+  const page = Number(value);
+  return Number.isSafeInteger(page) && page >= 1 && page <= 400 ? page : null;
 }
 
 function toMobileNote(item: UserKnowledgeItem, capabilities: MobileKnowledgeCapabilities) {
@@ -167,8 +183,8 @@ function parseMobileTags(value: unknown): string[] | null {
   return parseStrictKnowledgeTags(value);
 }
 
-async function readBody(request: NextRequest) {
-  const result = await readBoundedJson(request, MAX_JSON_BYTES);
+async function readBody(request: NextRequest, maxBytes = MAX_JSON_BYTES) {
+  const result = await readBoundedJson(request, maxBytes);
   if (!result.ok) return result;
   const value = result.value;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -230,14 +246,33 @@ export async function GET(request: NextRequest) {
       const topic = request.nextUrl.searchParams.get('topic')?.trim() ?? '';
       if (!topic || topic.length > 120) return invalid('A bounded topic is required.', 'INVALID_TOPIC');
       const hub = await getTopicKnowledgeHubForUser(mobileUser.id, topic);
-      return privateJson({ hub: {
-        ...hub,
-        items: hub.items.map((item) => withMobileKnowledgeCompatibility(item, capabilities)),
-        relations: withMobileRelationCompatibility(hub.relations, capabilities),
-      } });
+      return privateJson({ hub: toMobileTopicHub(hub, capabilities) });
     }
     case 'topics':
       return privateJson({ topics: await getActiveKnowledgeTopicSummariesForUser(mobileUser.id) });
+    case 'knowledge-data-controls': {
+      const page = parseDataControlsPage(request.nextUrl.searchParams.get('page'));
+      if (!page) return invalid('A page from 1 to 400 is required.', 'INVALID_PAGE');
+      const pageSize = 50;
+      const batches = await getKnowledgeDraftBatchesForUser(mobileUser.id, true, {
+        limit: pageSize + 1,
+        offset: (page - 1) * pageSize,
+      });
+      return privateJson({
+        jobs: batches.slice(0, pageSize).map((batch) => ({
+          id: batch.id,
+          provider: batch.provider,
+          scope: batch.scope,
+          status: batch.status,
+          draft_count: batch.draft_count,
+          pending_count: batch.pending_count,
+          approved_count: batch.approved_count,
+          created_at: batch.created_at,
+        })),
+        page,
+        hasNextPage: batches.length > pageSize,
+      });
+    }
     case 'candidate-inbox':
       return privateJson({ batches: await getKnowledgeDraftBatches() });
     case 'candidate-batch': {
@@ -250,6 +285,7 @@ export async function GET(request: NextRequest) {
       return privateJson({
         batch: result.batch,
         drafts: pending.map((draft) => {
+          const detailedReviewReason = mobileCandidateDetailedReviewReason(draft);
           const compatibleDraft = withMobileKnowledgeCompatibility({
             ...draft,
             duplicate_suggestions: (duplicateSuggestions[draft.id] ?? []).map((suggestion) => (
@@ -259,7 +295,8 @@ export async function GET(request: NextRequest) {
           return {
             ...compatibleDraft,
             relations: withMobileRelationCompatibility(compatibleDraft.relations, capabilities),
-            requires_detailed_review: mobileCandidateRequiresDetailedCausalReview(draft),
+            requires_detailed_review: detailedReviewReason !== null,
+            detailed_review_reason: detailedReviewReason,
           };
         }),
       });
@@ -343,10 +380,20 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const parsedBody = await readBody(request);
+  const mobileResource = request.nextUrl.searchParams.get('resource');
+  const knowledgeMutationResource = mobileResource === 'notes';
+  const parsedBody = await readBody(
+    request,
+    knowledgeMutationResource ? MAX_MOBILE_KNOWLEDGE_MUTATION_BYTES : MAX_JSON_BYTES,
+  );
   if (!parsedBody.ok) {
     return privateJson(
-      { error: parsedBody.reason === 'too_large' ? 'The request body is too large.' : 'A small JSON object is required.' },
+      {
+        error: parsedBody.reason === 'too_large' ? 'The request body is too large.' : 'A small JSON object is required.',
+        code: parsedBody.reason === 'too_large'
+          ? knowledgeMutationResource ? 'MOBILE_KNOWLEDGE_REQUEST_TOO_LARGE' : 'MOBILE_REQUEST_TOO_LARGE'
+          : 'INVALID_JSON',
+      },
       { status: parsedBody.reason === 'too_large' ? 413 : 400 },
     );
   }
@@ -355,6 +402,16 @@ export async function POST(request: NextRequest) {
 
   const action = stringField(body.action, 64);
   if (!action) return invalid('An action is required.');
+  if (
+    knowledgeMutationResource
+    && action !== 'create-note'
+    && action !== 'update-note'
+  ) {
+    return invalid(
+      'The notes mutation resource accepts only note creation or updates.',
+      'INVALID_MOBILE_RESOURCE_ACTION',
+    );
+  }
 
   if (action.startsWith('admin-')) {
     if (!await isMobileAdmin()) return privateJson({ error: 'Administrator access is required.' }, { status: 403 });
@@ -393,6 +450,12 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === 'reset-progress') return mutationResponse(await resetUserCardProgress());
+
+  if (action === 'delete-import-batch') {
+    const batchId = stringField(body.batchId, 160);
+    if (!batchId) return invalid('A valid import batch id is required.', 'INVALID_BATCH');
+    return privateJson(await deleteKnowledgeImportBatchForUser(mobileUser.id, batchId));
+  }
 
   if (action === 'approve-candidate' || action === 'ignore-candidate') {
     const batchId = stringField(body.batchId, 240);
@@ -438,6 +501,12 @@ export async function POST(request: NextRequest) {
       return privateJson({
         error: 'Review causal relationship targets, directions, and evidence in the detailed web review before approval.',
         code: 'CAUSAL_REVIEW_REQUIRED',
+      }, { status: 409 });
+    }
+    if (preflight === 'provenance-review-required') {
+      return privateJson({
+        error: 'Review source evidence and relationship suggestions in the detailed web review before approval.',
+        code: 'PROVENANCE_REVIEW_REQUIRED',
       }, { status: 409 });
     }
     candidateForm.set('resolution_action', 'create');

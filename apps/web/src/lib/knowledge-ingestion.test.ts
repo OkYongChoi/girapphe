@@ -10,8 +10,10 @@ import {
   createMcpAccessTokenForUser,
   createMemoryKnowledgeItemForUser,
   createPrivateKnowledgeEdgeForUser,
+  deleteKnowledgeImportBatchForUser,
   getKnowledgeGraphOverlayForUser,
   getKnowledgeDraftBatchForUser,
+  getKnowledgeDraftBatchesForUser,
   getKnowledgeDraftResolutionContextForUser,
   getKnowledgeLinkTargetsForUser,
   getActiveKnowledgeItemVersionForUser,
@@ -243,6 +245,60 @@ test('creates scope-aware idempotent memory draft batches and preserves normaliz
   assert.deepEqual(selectedRetry, { ...selected, created: false });
   const loaded = await getKnowledgeDraftBatchForUser(userId, current.batchId);
   assert.deepEqual(loaded?.drafts[0].tags, ['확률-이론', 'bayes']);
+});
+
+test('import-job deletion is owner-scoped, retry-safe, and preserves approved knowledge', async () => {
+  const ownerId = `user_import_delete_owner_${crypto.randomUUID()}`;
+  const otherUserId = `user_import_delete_other_${crypto.randomUUID()}`;
+  const batchId = `legacy+batch-한글-${crypto.randomUUID()}`;
+  const created = await createKnowledgeDraftBatchForUser(ownerId, {
+    provider: 'chatgpt',
+    requestId: `import-delete-${crypto.randomUUID()}`,
+    cards: [
+      { title: 'Approved knowledge', explanation: 'This item must survive batch deletion.' },
+      { title: 'Pending candidate', explanation: 'This pending draft must be removed.' },
+    ],
+  }, null, batchId);
+  assert.equal(created.batchId, batchId);
+  const otherBatchId = `other-owner-batch-${crypto.randomUUID()}`;
+  await createKnowledgeDraftBatchForUser(otherUserId, {
+    provider: 'other',
+    requestId: `other-import-delete-${crypto.randomUUID()}`,
+    cards: [{ title: 'Other owner candidate', explanation: 'Must remain isolated.' }],
+  }, null, otherBatchId);
+
+  assert.deepEqual((await getKnowledgeDraftBatchesForUser(ownerId, true)).map((batch) => batch.id), [batchId]);
+  assert.deepEqual((await getKnowledgeDraftBatchesForUser(otherUserId, true)).map((batch) => batch.id), [otherBatchId]);
+
+  const loaded = await getKnowledgeDraftBatchForUser(ownerId, batchId);
+  assert.ok(loaded);
+  const approvedDraft = loaded.drafts[0];
+  assert.equal((await resolveKnowledgeDraftForUser(ownerId, {
+    batchId,
+    draftId: approvedDraft.id,
+    expectedDraftVersion: approvedDraft.version,
+    action: 'create',
+  })).resolved, true);
+
+  assert.deepEqual(
+    await deleteKnowledgeImportBatchForUser(otherUserId, batchId),
+    { deleted: false, approvedKnowledgePreserved: 0 },
+  );
+  assert.ok(await getKnowledgeDraftBatchForUser(ownerId, batchId));
+  assert.ok(await getKnowledgeDraftBatchForUser(otherUserId, otherBatchId));
+
+  assert.deepEqual(
+    await deleteKnowledgeImportBatchForUser(ownerId, batchId),
+    { deleted: true, approvedKnowledgePreserved: 1 },
+  );
+  assert.equal(await getKnowledgeDraftBatchForUser(ownerId, batchId), null);
+  assert.equal(getMemoryKnowledgeItemsForUser(ownerId).length, 1);
+  assert.equal(getMemoryKnowledgeItemsForUser(ownerId)[0]?.title, 'Approved knowledge');
+  assert.ok(await getKnowledgeDraftBatchForUser(otherUserId, otherBatchId));
+  assert.deepEqual(
+    await deleteKnowledgeImportBatchForUser(ownerId, batchId),
+    { deleted: false, approvedKnowledgePreserved: 0 },
+  );
 });
 
 test('reserves a bounded pair of durable identities for every selected-export batch', () => {

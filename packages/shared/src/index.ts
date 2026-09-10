@@ -39,6 +39,10 @@ export {
 } from './mobile-practice';
 
 export {
+  MAX_MOBILE_KNOWLEDGE_MUTATION_BYTES,
+} from './mobile-knowledge';
+
+export {
   MAX_KNOWLEDGE_TAG_CODE_POINTS,
   MAX_KNOWLEDGE_TAG_SUGGESTIONS,
   MAX_KNOWLEDGE_TAGS,

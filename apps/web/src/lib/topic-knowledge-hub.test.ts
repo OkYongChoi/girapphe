@@ -26,6 +26,9 @@ import {
   buildTopicKnowledgeContextPackForUser,
   getActiveKnowledgeTopicSummariesForUser,
   getTopicKnowledgeHubForUser,
+  MAX_TOPIC_HUB_EVIDENCE_SELECTORS,
+  MAX_TOPIC_HUB_SOURCES,
+  MAX_TOPIC_RELATION_EVIDENCE_SELECTORS,
   serializeTopicKnowledgeHub,
 } from './topic-knowledge-hub';
 
@@ -179,6 +182,8 @@ test('cross-topic relationship views retain the reviewed evidence selector', asy
     oppositeTopicHub.relations[0]?.evidence_span_ids[0],
   );
   assert.deepEqual(oppositeTopicHub.evidence_selectors[0]?.selector, { message_ref: 'cross-topic-message' });
+  assert.equal(oppositeTopicHub.sources.length, 1);
+  assert.equal(oppositeTopicHub.sources[0]?.id, oppositeTopicHub.evidence_selectors[0]?.source_id);
 });
 
 test('merge requires both optimistic versions and writes reviewed history, provenance, and selector-only evidence', async () => {
@@ -517,6 +522,12 @@ test('PostgreSQL topic hubs load selectors referenced by cross-topic relations',
       }] };
     }
     if (text.includes('FROM user_graph_edges e')) {
+      assert.deepEqual(params, [
+        'database-cross-topic-user',
+        ['topic-item'],
+        MAX_TOPIC_RELATION_EVIDENCE_SELECTORS,
+      ]);
+      assert.match(text, /FROM knowledge_relation_evidence re[\s\S]*LIMIT \$3/u);
       return { rows: [{
         id: 'cross-topic-edge',
         source: 'personal:other-topic-item',
@@ -529,12 +540,18 @@ test('PostgreSQL topic hubs load selectors referenced by cross-topic relations',
       }] };
     }
     if (text.includes('FROM knowledge_evidence_spans')) {
-      assert.deepEqual(params, ['database-cross-topic-user', ['topic-item'], ['cross-topic-evidence']]);
+      assert.deepEqual(params, [
+        'database-cross-topic-user',
+        ['topic-item'],
+        ['cross-topic-evidence'],
+        MAX_TOPIC_HUB_EVIDENCE_SELECTORS,
+      ]);
       assert.match(text, /WITH referenced_evidence AS/u);
       assert.match(text, /WHERE user_id = \$1 AND id = ANY\(\$3::text\[\]\)/u);
       assert.match(text, /topic_evidence AS/u);
-      assert.match(text, /AND NOT \(id = ANY\(\$3::text\[\]\)\)[\s\S]*LIMIT 1000/u);
-      assert.match(text, /SELECT \* FROM referenced_evidence[\s\S]*UNION ALL[\s\S]*SELECT \* FROM topic_evidence/u);
+      assert.match(text, /AND NOT \(id = ANY\(\$3::text\[\]\)\)[\s\S]*LIMIT \$4/u);
+      assert.match(text, /combined_evidence AS[\s\S]*SELECT \* FROM referenced_evidence[\s\S]*UNION ALL[\s\S]*SELECT \* FROM topic_evidence/u);
+      assert.match(text, /CASE WHEN id = ANY\(\$3::text\[\]\) THEN 0 ELSE 1 END[\s\S]*LIMIT \$4/u);
       return { rows: [{
         id: 'cross-topic-evidence',
         knowledge_item_id: 'other-topic-item',
@@ -548,6 +565,31 @@ test('PostgreSQL topic hubs load selectors referenced by cross-topic relations',
         created_at: now,
       }] };
     }
+    if (text.includes('FROM knowledge_card_sources')) {
+      assert.deepEqual(params, [
+        'database-cross-topic-user',
+        ['topic-item'],
+        ['other-topic-source'],
+        ['other-topic-source'],
+        MAX_TOPIC_HUB_SOURCES,
+      ]);
+      assert.match(text, /WHERE user_id = \$1/u);
+      assert.match(text, /knowledge_item_id = ANY\(\$2::text\[\]\) OR id = ANY\(\$3::text\[\]\)/u);
+      assert.match(text, /WHEN id = ANY\(\$4::text\[\]\) THEN 0[\s\S]*WHEN id = ANY\(\$3::text\[\]\) THEN 1[\s\S]*LIMIT \$5/u);
+      return { rows: [{
+        id: 'other-topic-source',
+        knowledge_item_id: 'other-topic-item',
+        source_type: 'conversation',
+        provider: 'chatgpt',
+        conversation_ref: null,
+        source_url: null,
+        source_locator: { message_ref: 'cross-topic-message' },
+        discussed_at: null,
+        relation_origin: 'explicit_user',
+        confirmed_at: now,
+        created_at: now,
+      }] };
+    }
     return { rows: [] };
   }) as typeof db.query;
   try {
@@ -555,6 +597,8 @@ test('PostgreSQL topic hubs load selectors referenced by cross-topic relations',
     assert.deepEqual(hub.relations[0]?.evidence_span_ids, ['cross-topic-evidence']);
     assert.equal(hub.evidence_selectors[0]?.id, 'cross-topic-evidence');
     assert.deepEqual(hub.evidence_selectors[0]?.selector, { message_ref: 'cross-topic-message' });
+    assert.equal(hub.sources[0]?.id, 'other-topic-source');
+    assert.equal(hub.sources[0]?.id, hub.evidence_selectors[0]?.source_id);
   } finally {
     db.query = originalQuery;
     delete process.env.DATABASE_URL;

@@ -144,6 +144,45 @@ export type MobileRankingRow = {
   avgScore: number;
 };
 
+export type MobileProvenancePosition = {
+  source_ref?: string;
+  message_ref?: string;
+  start?: number;
+  end?: number;
+  line_start?: number;
+  line_end?: number;
+};
+
+type MobileTopicHubEvidenceMetadata = {
+  id: string;
+  knowledge_item_id: string;
+  source_id: string;
+  polarity: 'supports' | 'contradicts';
+  quality: 'unknown' | 'low' | 'medium' | 'high';
+  relation_origin: 'explicit_user' | 'extracted_from_source' | 'model_inferred';
+  confirmed_at: string | null;
+  created_at: string;
+};
+
+export type MobileTopicHubEvidenceSelector = MobileTopicHubEvidenceMetadata & (
+  | {
+    selector_type: 'message';
+    selector: { message_ref: string; source_ref?: string };
+  }
+  | {
+    selector_type: 'external_ref';
+    selector: { source_ref: string };
+  }
+  | {
+    selector_type: 'text_position';
+    selector: { start: number; end: number };
+  }
+  | {
+    selector_type: 'line_range';
+    selector: { line_start: number; line_end: number };
+  }
+);
+
 export type MobileTopicHub = {
   topic: string;
   generated_at: string;
@@ -155,12 +194,13 @@ export type MobileTopicHub = {
     provider: string;
     conversation_ref: string | null;
     source_url: string | null;
-    source_locator: Record<string, unknown> | null;
+    source_locator: MobileProvenancePosition | null;
     discussed_at: string | null;
     relation_origin: 'explicit_user' | 'extracted_from_source' | 'model_inferred';
     confirmed_at: string | null;
     created_at: string;
   }>;
+  evidence_selectors: MobileTopicHubEvidenceSelector[];
   activity: Array<{
     id: string;
     knowledge_item_id: string;
@@ -196,6 +236,18 @@ export type MobileCandidateBatch = {
   committed_at: string | null;
 };
 
+export type MobileKnowledgeImportJob = Pick<
+  MobileCandidateBatch,
+  | 'id'
+  | 'provider'
+  | 'scope'
+  | 'status'
+  | 'draft_count'
+  | 'pending_count'
+  | 'approved_count'
+  | 'created_at'
+>;
+
 export type MobileCandidateDraft = {
   id: string;
   batch_id: string;
@@ -211,6 +263,7 @@ export type MobileCandidateDraft = {
   status: 'pending' | 'approved' | 'rejected';
   version: number;
   requires_detailed_review: boolean;
+  detailed_review_reason: 'causal_relations' | 'provenance' | null;
   duplicate_suggestions: Array<{
     id: string;
     title: string;
@@ -325,6 +378,16 @@ export const mobileApi = {
   },
   notes: (view: 'active' | 'archive' | 'trash' = 'active') => request<{ items: PersonalNote[] }>(withLocale(`/api/mobile?resource=notes&view=${view}`)),
   topics: () => request<{ topics: MobileTopicSummary[] }>(withLocale('/api/mobile?resource=topics')),
+  knowledgeDataControls: (page = 1) => {
+    const boundedPage = Number.isSafeInteger(page) ? Math.max(1, Math.min(400, page)) : 1;
+    return request<{ jobs: MobileKnowledgeImportJob[]; page: number; hasNextPage: boolean }>(
+      withLocale(`/api/mobile?resource=knowledge-data-controls&page=${boundedPage}`),
+    );
+  },
+  deleteKnowledgeImportBatch: (batchId: string) => request<{ deleted: boolean; approvedKnowledgePreserved: number }>('/api/mobile', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'delete-import-batch', batchId }),
+  }),
   topicHub: (topic: string) => request<{ hub: MobileTopicHub }>(withLocale(`/api/mobile?resource=topic-hub&topic=${encodeURIComponent(topic)}`)),
   candidateInbox: () => request<{ batches: MobileCandidateBatch[] }>(withLocale('/api/mobile?resource=candidate-inbox')),
   candidateBatch: (batchId: string) => request<{ batch: MobileCandidateBatch; drafts: MobileCandidateDraft[] }>(withLocale(`/api/mobile?resource=candidate-batch&batchId=${encodeURIComponent(batchId)}`)),
@@ -342,5 +405,6 @@ export const mobileApi = {
   adminNodes: () => request<{ nodes: Array<{ id: string; label: string; domain: string; level: number; difficulty: number; type: string }> }>(withLocale('/api/mobile?resource=admin-nodes')),
   adminEdges: () => request<{ edges: Array<{ id: number; source: string; target: string; type: string; weight: number }>; nodes: Array<{ id: string; label: string }> }>(withLocale('/api/mobile?resource=admin-edges')),
   adminUsers: () => request<{ users: Array<{ user_id: string; mastered: number; reinforcing: number; total: number; last_updated: string | null }> }>(withLocale('/api/mobile?resource=admin-users')),
+  mutateKnowledge: <T>(body: Record<string, unknown>) => request<T>('/api/mobile?resource=notes', { method: 'POST', body: JSON.stringify(body) }),
   mutate: <T>(body: Record<string, unknown>) => request<T>('/api/mobile', { method: 'POST', body: JSON.stringify(body) }),
 };

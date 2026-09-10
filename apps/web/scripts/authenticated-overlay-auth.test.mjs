@@ -285,7 +285,7 @@ test('owner data controls depend only on the verified Clerk session subject', as
   ]);
 
   assert.match(source, /import \{ requireCurrentUser \} from '@\/lib\/auth'/);
-  assert.match(source, /requireCurrentUser\(\)/);
+  assert.match(source, /requireCurrentUser\('\/account\/delete'\)/);
   assert.doesNotMatch(source, /requireCurrentUserProfile|currentUser\(/);
   assert.match(source, /getKnowledgeDraftBatchesForUser\(user\.id, true/);
   assert.match(source, /const \[user, \{ t, locale \}, resolvedSearchParams\] = await Promise\.all/);

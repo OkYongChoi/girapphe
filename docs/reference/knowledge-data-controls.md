@@ -26,6 +26,31 @@ knowledge record:
 MCP token identifiers and credential material are excluded. Export is never
 paywalled.
 
+## iOS and Android
+
+The signed-in mobile Account screen always links to Knowledge Data Controls.
+That native screen lists active and completed import jobs from the
+owner-scoped mobile API and requires a destructive confirmation before deleting
+one. Deletion remains retry-safe: an already deleted or non-owned ID returns the
+same non-disclosing result, while the server preserves approved knowledge and
+its hashed provenance.
+
+Complete export uses a fixed first-party browser handoff at
+`/account/data-controls-handoff`. A browser session that is already signed in
+shows its account identity with localized page metadata and requires an
+explicit confirmation before continuing to `/account/delete#knowledge-data`;
+otherwise the handoff uses the fixed, allowlisted login `returnTo` for that same
+confirmation. This prevents a silently reused browser session from being
+mistaken for the account currently open in the app. The mobile Clerk bearer
+token is never put in a URL or sent to
+the browser.
+
+The full export is not bounded enough for React Native's text-sharing API.
+Keeping generation and download on the existing authenticated web endpoint
+avoids loading a complete private export into JavaScript memory or adding a
+direct native file-sharing dependency. The new Knowledge Data Controls UI and
+handoff link still ship through the normal new iOS and Android binary.
+
 ## Deletion boundaries
 
 `/account/delete` distinguishes three destructive actions:

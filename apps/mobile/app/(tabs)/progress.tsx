@@ -9,7 +9,7 @@ import { localizeDomain } from '@stem-brain/shared';
 type Domain = { domain: string; domain_label?: string; reviewed: number; explainable: number; unclear: number };
 
 export default function ProgressScreen() {
-  return <AuthRequired><ProgressContent /></AuthRequired>;
+  return <AuthRequired continuation={{ destination: 'progress' }}><ProgressContent /></AuthRequired>;
 }
 
 function ProgressContent() {
