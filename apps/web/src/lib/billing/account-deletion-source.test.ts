@@ -238,16 +238,19 @@ test('account deletion requires strict Clerk reverification on server and client
   const route = readFileSync(new URL('../../app/api/account/route.ts', import.meta.url), 'utf8');
   const page = readFileSync(new URL('../../app/account/delete/page.tsx', import.meta.url), 'utf8');
   const panel = readFileSync(new URL('../../components/account-deletion-panel.tsx', import.meta.url), 'utf8');
+  const entrypoint = readFileSync(new URL('../../components/account-deletion-panel-entrypoint.tsx', import.meta.url), 'utf8');
+  const localizedPanel = readFileSync(new URL('../../components/localized-account-deletion-panel.tsx', import.meta.url), 'utf8');
 
   assert.match(route, /has\(\{ reverification: 'strict' \}\)/);
   assert.match(route, /reverificationErrorResponse\('strict'\)/);
-  assert.match(page, /import \{ ClerkProvider \} from '@clerk\/nextjs'/);
-  assert.match(page, /import \{ getClerkLocalization \} from '@\/i18n\/clerk'/);
+  assert.match(page, /import \{ AccountDeletionPanelEntrypoint \} from '@\/components\/account-deletion-panel-entrypoint'/);
   assert.match(page, /const \[user, \{ t, locale \}, resolvedSearchParams\] = await Promise\.all/);
-  assert.match(
-    page,
-    /<ClerkProvider localization=\{getClerkLocalization\(locale\)\}>[\s\S]*<AccountDeletionPanel email=\{user\.email\} \/>[\s\S]*<\/ClerkProvider>/,
-  );
+  assert.match(page, /<AccountDeletionPanelEntrypoint email=\{user\.email\} locale=\{locale\} \/>/);
+  assert.match(entrypoint, /import\('\.\/localized-account-deletion-panel'\)/);
+  assert.match(entrypoint, /\{ ssr: false, loading: LoadingAccountDeletionPanel \}/);
+  assert.match(entrypoint, /<LocalizedAccountDeletionPanel email=\{email\} locale=\{locale\} \/>/);
+  assert.match(localizedPanel, /const localization = useClerkLocalization\(locale\)/);
+  assert.match(localizedPanel, /<ClerkProvider localization=\{localization\}>[\s\S]*<AccountDeletionPanel email=\{email\} \/>[\s\S]*<\/ClerkProvider>/);
   assert.match(panel, /useReverification\(requestAccountDeletion\)/);
   assert.match(panel, /isReverificationCancelledError/);
 });

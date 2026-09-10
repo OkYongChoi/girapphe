@@ -205,9 +205,7 @@ async function clickAndAcceptConfirm(
       return;
     }
     await expect(control).toBeEnabled({ timeout: 5_000 });
-    await control.focus();
-    await expect(control).toBeFocused();
-    await page.keyboard.press("Enter");
+    await control.tap({ timeout: 5_000 });
   };
   const [dialogResult, activationResult] = await Promise.allSettled([
     confirmHandled,
@@ -340,9 +338,8 @@ async function activateExactReviewLink(
   const smoothScrollOverride = await page.addStyleTag({
     content: "html { scroll-behavior: auto !important; }",
   });
-  let clickTarget: { x: number; y: number } | null = null;
   await expect.poll(async () => {
-    clickTarget = await link.evaluate(async (element) => {
+    return link.evaluate(async (element) => {
       element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
       await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
       const firstBounds = element.getBoundingClientRect();
@@ -364,9 +361,8 @@ async function activateExactReviewLink(
         && hitTarget !== null
         && (hitTarget === element || element.contains(hitTarget))
         && element.href.length > 0;
-      return ready ? point : null;
+      return ready;
     });
-    return clickTarget !== null;
   }, {
     message: "the stable centered review link is the next pointer target",
     timeout: 10_000,
@@ -374,14 +370,18 @@ async function activateExactReviewLink(
   }).toBe(true);
 
   const activate = async (trial: boolean) => {
-    if (!hasTouch) {
-      await link.click({ trial, timeout: 10_000 });
+    if (trial) {
+      if (hasTouch) await link.tap({ trial: true, timeout: 10_000 });
+      else await link.click({ trial: true, timeout: 10_000 });
       return;
     }
-    if (!clickTarget) throw new Error("REVIEW_TOUCH_TARGET_MISSING");
+    if (hasTouch) {
+      await link.tap({ timeout: 10_000 });
+      return;
+    }
     await link.focus();
     await expect(link).toBeFocused();
-    if (!trial) await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
   };
   try {
     await activate(true);

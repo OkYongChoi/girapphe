@@ -121,7 +121,8 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)/);
   assert.match(source, /const firstBounds = element\.getBoundingClientRect\(\)[\s\S]{0,220}const bounds = element\.getBoundingClientRect\(\)[\s\S]{0,500}const boundsAreStable/);
   assert.match(source, /document\.elementFromPoint\(point\.x, point\.y\)/);
-  assert.match(source, /if \(!hasTouch\)[\s\S]{0,120}link\.click\(\{ trial, timeout: 10_000 \}\)[\s\S]{0,240}link\.focus\(\)[\s\S]{0,120}expect\(link\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
+  assert.match(source, /if \(trial\)[\s\S]{0,120}if \(hasTouch\) await link\.tap\(\{ trial: true, timeout: 10_000 \}\)[\s\S]{0,120}else await link\.click\(\{ trial: true, timeout: 10_000 \}\)/);
+  assert.match(source, /if \(hasTouch\)[\s\S]{0,120}await link\.tap\(\{ timeout: 10_000 \}\)[\s\S]{0,180}link\.focus\(\)[\s\S]{0,120}expect\(link\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
   assert.match(source, /await activate\(true\)[\s\S]{0,1800}page\.on\("request", onRequest\)[\s\S]{0,300}await activate\(false\)/);
   assert.match(source, /REVIEW_ACTIVATION_NO_REQUEST/);
   assert.match(source, /REVIEW_DESTINATION_HTTP_ERROR/);
@@ -129,13 +130,13 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /REVIEW_TARGET_REDIRECT_NO_COMMIT/);
   assert.match(source, /REVIEW_TARGET_SUCCESS_NO_COMMIT/);
   assert.match(source, /await activateExactReviewLink\([\s\S]{0,180}reviewLinks\.first\(\)[\s\S]{0,100}batchId,[\s\S]{0,100}testInfo\.project\.use\.hasTouch === true/);
-  assert.doesNotMatch(source, /link\.tap|page\.touchscreen\.tap|page\.mouse\.click/);
+  assert.doesNotMatch(source, /page\.touchscreen\.tap|page\.mouse\.click/);
   assert.doesNotMatch(source, /click\(\{ force: true \}\)/);
   assert.match(source, /async function gotoOwnerKnowledgeData\([\s\S]{0,1200}attempt <= 2[\s\S]{0,500}\/account\/delete#knowledge-data[\s\S]{0,700}OWNER_DATA_CONTROLS_UNAVAILABLE/);
   assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,500}html \{ scroll-behavior: auto !important; \}/);
   assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,1200}scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)[\s\S]{0,1000}document\.elementFromPoint\(point\.x, point\.y\)[\s\S]{0,700}the confirmation control is the stable centered pointer target/);
   assert.match(source, /const confirmHandled = page\.waitForEvent\("dialog", \{ timeout: 5_000 \}\)[\s\S]{0,300}dialog\.accept\(\)[\s\S]{0,100}dialog\.dismiss\(\)/);
-  assert.match(source, /const activateControl = async \(\) => \{[\s\S]{0,180}if \(!hasTouch\)[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,300}expect\(control\)\.toBeEnabled[\s\S]{0,120}control\.focus\(\)[\s\S]{0,120}expect\(control\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
+  assert.match(source, /const activateControl = async \(\) => \{[\s\S]{0,180}if \(!hasTouch\)[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,300}expect\(control\)\.toBeEnabled[\s\S]{0,120}control\.tap\(\{ timeout: 5_000 \}\)/);
   assert.match(source, /Promise\.allSettled\(\[[\s\S]{0,120}confirmHandled,[\s\S]{0,80}activateControl\(\)[\s\S]{0,700}UNEXPECTED_DIALOG_TYPE/);
   assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await clickAndAcceptConfirm\([\s\S]{0,220}deleteImportCopy[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
   assert.doesNotMatch(source, /page\.once\("dialog"/);
@@ -195,17 +196,30 @@ test('owner data controls depend only on the verified Clerk session subject', as
     '../src/app/account/delete/page.tsx',
     import.meta.url,
   );
-  const source = await fs.readFile(pageUrl, 'utf8');
+  const entrypointUrl = new URL(
+    '../src/components/account-deletion-panel-entrypoint.tsx',
+    import.meta.url,
+  );
+  const localizedPanelUrl = new URL(
+    '../src/components/localized-account-deletion-panel.tsx',
+    import.meta.url,
+  );
+  const [source, entrypoint, localizedPanel] = await Promise.all([
+    fs.readFile(pageUrl, 'utf8'),
+    fs.readFile(entrypointUrl, 'utf8'),
+    fs.readFile(localizedPanelUrl, 'utf8'),
+  ]);
 
   assert.match(source, /import \{ requireCurrentUser \} from '@\/lib\/auth'/);
   assert.match(source, /requireCurrentUser\(\)/);
   assert.doesNotMatch(source, /requireCurrentUserProfile|currentUser\(/);
   assert.match(source, /getKnowledgeDraftBatchesForUser\(user\.id, true/);
   assert.match(source, /const \[user, \{ t, locale \}, resolvedSearchParams\] = await Promise\.all/);
-  assert.match(
-    source,
-    /<ClerkProvider localization=\{getClerkLocalization\(locale\)\}>[\s\S]*<AccountDeletionPanel email=\{user\.email\} \/>[\s\S]*<\/ClerkProvider>/,
-  );
+  assert.match(source, /<AccountDeletionPanelEntrypoint email=\{user\.email\} locale=\{locale\} \/>/);
+  assert.match(entrypoint, /import\('\.\/localized-account-deletion-panel'\)/);
+  assert.match(entrypoint, /\{ ssr: false, loading: LoadingAccountDeletionPanel \}/);
+  assert.match(localizedPanel, /const localization = useClerkLocalization\(locale\)/);
+  assert.match(localizedPanel, /<ClerkProvider localization=\{localization\}>[\s\S]*<AccountDeletionPanel email=\{email\} \/>[\s\S]*<\/ClerkProvider>/);
 });
 
 test('production-compatible sign-in ticket is short lived and owner scoped', async () => {

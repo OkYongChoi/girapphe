@@ -69,7 +69,8 @@ On the mobile long-form review page, the resolution link is centered below the
 sticky navigation with smooth scrolling temporarily disabled. Its bounds must
 stay unchanged across two animation frames, and its midpoint must be the
 browser's actual pointer target. Playwright then performs a trial actionability
-check followed by a real locator `tap` on mobile or locator `click` on desktop;
+check followed by a real locator `tap` on mobile, while desktop separately
+activates the same link with focused-keyboard `Enter`;
 coordinate-level page input, forced clicks, and DOM-dispatched clicks are not
 accepted as evidence. The href must be the same-origin, exact batch and draft
 resolution route. Request observers start only after the trial check so a

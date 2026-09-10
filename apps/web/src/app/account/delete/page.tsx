@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
-import { ClerkProvider } from '@clerk/nextjs';
-import { AccountDeletionPanel } from '@/components/account-deletion-panel';
+import { AccountDeletionPanelEntrypoint } from '@/components/account-deletion-panel-entrypoint';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
 import { deleteKnowledgeImportBatch } from '@/actions/knowledge-ingestion-actions';
-import { getClerkLocalization } from '@/i18n/clerk';
 import { LocalizedLink } from '@/i18n/navigation';
 import { getServerI18n } from '@/i18n/server';
 import { requireCurrentUser } from '@/lib/auth';
@@ -96,9 +94,7 @@ export default async function DeleteAccountPage({ searchParams }: DeleteAccountP
           <h2 className="mt-7 text-3xl font-black tracking-tight text-red-950">{t('account.data.deleteAccountTitle')}</h2>
           <p className="mt-3 leading-7 text-slate-600">{t('account.data.deleteAccountBody')}</p>
         </div>
-        <ClerkProvider localization={getClerkLocalization(locale)}>
-          <AccountDeletionPanel email={user.email} />
-        </ClerkProvider>
+        <AccountDeletionPanelEntrypoint email={user.email} locale={locale} />
         <p className="mt-6 text-sm leading-6 text-slate-500">
           {t('account.data.privacyPrefix')} <LocalizedLink href="/privacy" className="font-semibold text-blue-700 underline underline-offset-4">{t('account.data.privacyPolicy')}</LocalizedLink>
           {' '}{t('account.data.privacySuffix')}

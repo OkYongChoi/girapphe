@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { SUPPORTED_LOCALES, type Locale } from '@stem-brain/shared';
+import { loadClerkLocalization } from './clerk';
 import { MESSAGE_CATALOGS, type MessageValue } from './messages';
 
 const SCRIPT_PATTERNS: Partial<Record<Locale, RegExp>> = {
@@ -37,6 +38,30 @@ test('server message loading stays locale-lazy', () => {
       new RegExp(`from\\s+['"]\\./extended/${catalog}['"]`, 'u'),
       `${catalog} must import only its locale extension`,
     );
+  }
+});
+
+test('Clerk localization loading stays locale-lazy and maps every supported locale', async () => {
+  const clerkSource = readFileSync(new URL('./clerk.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(clerkSource, /^import\s+.+from\s+['"]@clerk\/localizations\//mu);
+
+  const expected = {
+    en: ['en-US', 'en-US'],
+    ja: ['ja-JP', 'ja-JP'],
+    'zh-CN': ['zh-CN', 'zh-CN'],
+    es: ['es-ES', 'es-ES'],
+    ar: ['ar-SA', 'ar-SA'],
+    hi: ['hi-IN', 'hi-IN'],
+  } satisfies Record<Locale, [modulePath: string, resolvedLocale: string]>;
+
+  for (const locale of SUPPORTED_LOCALES) {
+    const [modulePath, resolvedLocale] = expected[locale];
+    assert.match(
+      clerkSource,
+      new RegExp(`import\\(['"]@clerk/localizations/${modulePath}['"]\\)`, 'u'),
+      `${locale} must be loaded through its own dynamic import`,
+    );
+    assert.equal((await loadClerkLocalization(locale)).locale, resolvedLocale);
   }
 });
 

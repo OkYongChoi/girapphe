@@ -1,20 +1,16 @@
-import { arSA } from '@clerk/localizations/ar-SA';
-import { enUS } from '@clerk/localizations/en-US';
-import { esES } from '@clerk/localizations/es-ES';
-import { hiIN } from '@clerk/localizations/hi-IN';
-import { jaJP } from '@clerk/localizations/ja-JP';
-import { zhCN } from '@clerk/localizations/zh-CN';
 import type { Locale } from '@stem-brain/shared';
 
-const CLERK_LOCALIZATIONS = {
-  en: enUS,
-  ja: jaJP,
-  'zh-CN': zhCN,
-  es: esES,
-  ar: arSA,
-  hi: hiIN,
-} satisfies Record<Locale, typeof enUS>;
+export type ClerkLocalization = typeof import('@clerk/localizations/en-US')['enUS'];
 
-export function getClerkLocalization(locale: Locale): typeof enUS {
-  return CLERK_LOCALIZATIONS[locale] ?? enUS;
+const CLERK_LOCALIZATION_LOADERS = {
+  en: async () => (await import('@clerk/localizations/en-US')).enUS,
+  ja: async () => (await import('@clerk/localizations/ja-JP')).jaJP,
+  'zh-CN': async () => (await import('@clerk/localizations/zh-CN')).zhCN,
+  es: async () => (await import('@clerk/localizations/es-ES')).esES,
+  ar: async () => (await import('@clerk/localizations/ar-SA')).arSA,
+  hi: async () => (await import('@clerk/localizations/hi-IN')).hiIN,
+} satisfies Record<Locale, () => Promise<ClerkLocalization>>;
+
+export function loadClerkLocalization(locale: Locale): Promise<ClerkLocalization> {
+  return CLERK_LOCALIZATION_LOADERS[locale]();
 }
