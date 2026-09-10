@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './authenticated-test';
 import {
   AUTHENTICATED_OVERLAY_EMAIL_MARKER,
   AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
