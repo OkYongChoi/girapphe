@@ -20,6 +20,10 @@ const { Pool } = pg;
 const IMPORT_BATCH_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const THINKING_HISTORY_IMPORT_MARKER_PATTERN = /^E2E_SELECTED_QUESTION_A_[0-9a-f]{32}$/;
 const SELECTED_EXPORT_SESSION_SUFFIX = /:session:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+const RAW_MCP_PAT_PATTERN = /^girapphe_mcp_[A-Za-z0-9_-]{43}$/;
+const MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS = 5_000;
+const MCP_CLEANUP_DB_QUERY_TIMEOUT_MS = 10_000;
+const MCP_CLEANUP_DB_LOCK_TIMEOUT_MS = 5_000;
 
 function authenticatedOverlayFixtureError(code, cause) {
   const suffix = cause === undefined
@@ -459,6 +463,89 @@ export async function deleteExactAuthenticatedOverlayImportWithClient(
   }
 }
 
+export async function revokeExactAuthenticatedOverlayMcpTokenWithClient(
+  client,
+  syntheticUser,
+  { rawToken: rawTokenInput },
+) {
+  const userId = requireSyntheticFixtureUser(syntheticUser);
+  const rawToken = String(rawTokenInput ?? '').trim();
+  if (!RAW_MCP_PAT_PATTERN.test(rawToken)) {
+    throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_TOKEN_CLEANUP_TOKEN_INVALID');
+  }
+  const tokenHash = createHash('sha256').update(rawToken, 'utf8').digest('hex');
+
+  let transactionStarted = false;
+  try {
+    await client.query('BEGIN');
+    transactionStarted = true;
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext(
+         'mcp-account-lifecycle:' || public.derive_account_lifecycle_scope_key($1)
+       ))`,
+      [userId],
+    );
+    await client.query(
+      `INSERT INTO mcp_deleted_account_markers (scope_key, deleted_at)
+       SELECT scope_key, deleted_at
+       FROM mcp_deleted_account_markers
+       WHERE scope_key = public.derive_account_lifecycle_scope_key($1)`,
+      [userId],
+    );
+    await client.query(
+      'SELECT pg_advisory_xact_lock(hashtext($1))',
+      [`mcp-token:${userId}`],
+    );
+
+    const exactToken = await client.query(
+      `SELECT id, user_id, revoked_at
+       FROM mcp_access_tokens
+       WHERE token_hash = $1 AND user_id = $2
+       FOR UPDATE`,
+      [tokenHash, userId],
+    );
+    const target = exactToken.rows[0];
+    if (exactToken.rows.length !== 1 || String(target?.user_id ?? '') !== userId) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_TOKEN_CLEANUP_TARGET_NOT_OWNED');
+    }
+
+    const revocation = await client.query(
+      `UPDATE mcp_access_tokens
+       SET revoked_at = COALESCE(revoked_at, NOW())
+       WHERE id = $1 AND user_id = $2 AND token_hash = $3
+       RETURNING id`,
+      [String(target.id), userId, tokenHash],
+    );
+    if (revocation.rows.length !== 1) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_TOKEN_CLEANUP_UPDATE_MISSED');
+    }
+
+    const verification = await client.query(
+      `SELECT COUNT(*)::integer AS remaining_active
+       FROM mcp_access_tokens
+       WHERE token_hash = $1
+         AND user_id = $2
+         AND revoked_at IS NULL
+         AND expires_at > NOW()`,
+      [tokenHash, userId],
+    );
+    const remainingActive = Number(verification.rows[0]?.remaining_active);
+    if (remainingActive !== 0) {
+      throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_TOKEN_CLEANUP_VERIFICATION_FAILED');
+    }
+
+    await client.query('COMMIT');
+    return {
+      revoked: target.revoked_at == null,
+      remainingActive,
+    };
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK').catch(() => undefined);
+    if (error instanceof Error && error.name === 'AuthenticatedOverlayFixtureError') throw error;
+    throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_TOKEN_CLEANUP_DATABASE_FAILED', error);
+  }
+}
+
 /**
  * @param {{
  *   batchId: string,
@@ -505,6 +592,57 @@ export async function deleteExactAuthenticatedOverlayImport({
   } catch (error) {
     if (error instanceof Error && error.name === 'AuthenticatedOverlayFixtureError') throw error;
     throw authenticatedOverlayFixtureError('SYNTHETIC_CLEANUP_FAILED', error);
+  }
+}
+
+/**
+ * @param {{
+ *   rawToken: string,
+ *   emailAddress?: string,
+ *   secretKey?: string,
+ *   databaseUrl?: string,
+ * }} options
+ */
+export async function revokeExactAuthenticatedOverlayMcpToken({
+  rawToken,
+  emailAddress = process.env.E2E_CLERK_USER_EMAIL,
+  secretKey = process.env.CLERK_SECRET_KEY,
+  databaseUrl = process.env.DATABASE_URL,
+}) {
+  try {
+    const email = normalizeSyntheticEmail(emailAddress);
+    const clerkClient = createClerkClient({
+      secretKey: requireValue(secretKey, 'CLERK_SECRET_KEY'),
+    });
+    const user = await findExistingAuthenticatedOverlaySyntheticUser({
+      clerkClient,
+      emailAddress: email,
+    });
+    const pool = new Pool({
+      connectionString: requireValue(databaseUrl, 'DATABASE_URL'),
+      max: 1,
+      connectionTimeoutMillis: MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS,
+      query_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS,
+      statement_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS,
+      lock_timeout: MCP_CLEANUP_DB_LOCK_TIMEOUT_MS,
+    });
+    try {
+      const client = await pool.connect();
+      try {
+        return await revokeExactAuthenticatedOverlayMcpTokenWithClient(
+          client,
+          user,
+          { rawToken },
+        );
+      } finally {
+        client.release();
+      }
+    } finally {
+      await pool.end();
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AuthenticatedOverlayFixtureError') throw error;
+    throw authenticatedOverlayFixtureError('SYNTHETIC_MCP_TOKEN_CLEANUP_FAILED', error);
   }
 }
 
@@ -567,7 +705,6 @@ export async function inspectPendingAuthenticatedOverlayImport({
     }),
   );
 }
-
 export async function seedAuthenticatedOverlayFixtureWithClient(
   client,
   syntheticUser,

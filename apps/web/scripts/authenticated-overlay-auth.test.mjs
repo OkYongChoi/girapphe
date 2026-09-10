@@ -70,13 +70,159 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
     source,
     /process\.env\.E2E_CLERK_AUTH_MODE !== ['"]testing-token['"]/,
   );
+  assert.ok(source.includes(
+    'const RAW_PAT_SHAPE = /^girapphe_mcp_[A-Za-z0-9_-]{43}$/u;',
+  ));
+  const testStartedAt = source.indexOf('const testStartedAt = Date.now()');
+  const originalEvidenceCapture = source.indexOf(
+    'originalEvidenceError = error',
+    testStartedAt,
+  );
+  const cleanupFinally = source.indexOf('} finally {', originalEvidenceCapture);
+  const cleanupReserve = source.indexOf('testInfo.setTimeout(Math.max(', cleanupFinally);
+  const firstCleanupOperation = source.indexOf(
+    'await hidePatSurface(page, initialRedactionDeadlineMs)',
+    cleanupReserve,
+  );
+  const immediateEvidence = source.indexOf('rawSurfaceAbsentImmediatelyAfterRevoke = true');
+  const firstReloadCleanup = source.indexOf(
+    'await revokeExactConnectionAfterReload(page, connectionLabel)',
+    immediateEvidence,
+  );
+  const secondReloadCleanup = source.indexOf(
+    'await revokeExactConnectionAfterReload(page, connectionLabel)',
+    firstReloadCleanup + 1,
+  );
+  const databaseFallback = source.indexOf(
+    'await revokeExactAuthenticatedOverlayMcpToken({ rawToken })',
+    secondReloadCleanup,
+  );
+  const cleanupFailureResurface = source.indexOf(
+    'if (cleanupError) throw cleanupError',
+    databaseFallback,
+  );
+  const originalEvidenceResurface = source.indexOf(
+    'if (originalEvidenceFailed) throw originalEvidenceError',
+    cleanupFailureResurface,
+  );
+  const cleanupEvidenceFailureResurface = source.indexOf(
+    'if (cleanupEvidenceError) throw cleanupEvidenceError',
+    originalEvidenceResurface,
+  );
+  assert.ok(
+    testStartedAt >= 0
+      && testStartedAt < originalEvidenceCapture
+      && originalEvidenceCapture < cleanupFinally
+      && cleanupFinally < cleanupReserve
+      && cleanupReserve < firstCleanupOperation
+      && firstCleanupOperation < immediateEvidence
+      && immediateEvidence < firstReloadCleanup
+      && firstReloadCleanup < secondReloadCleanup
+      && secondReloadCleanup < databaseFallback
+      && databaseFallback < cleanupFailureResurface
+      && cleanupFailureResurface < originalEvidenceResurface
+      && originalEvidenceResurface < cleanupEvidenceFailureResurface,
+    'cleanup must reserve time before bounded UI retries, exact-token database fallback, and the original evidence rethrow',
+  );
   assert.match(
-    source,
-    /await page\.reload\(\{ waitUntil: ['"]domcontentloaded['"] \}\);[\s\S]{0,400}await expect\(reloadedTokenRow\.getByText\(['"]Revoked['"], \{ exact: true \}\)\)\.toBeVisible\(\);[\s\S]{0,80}revokedAfterReload = true/,
+    source.slice(testStartedAt, cleanupFinally),
+    /} catch \(error\) \{\s+originalEvidenceFailed = true;\s+originalEvidenceError = error;/,
+  );
+  assert.match(
+    source.slice(cleanupFinally, firstCleanupOperation),
+    /Date\.now\(\) - testStartedAt[\s\S]*elapsedBeforeCleanupMs \+ MCP_CLEANUP_RESERVE_MS/,
+  );
+  const cleanupReserveValue = source.match(
+    /const MCP_CLEANUP_RESERVE_MS = ([\d_]+);/,
+  );
+  const cleanupAttemptValue = source.match(
+    /const MCP_CLEANUP_ATTEMPT_MS = ([\d_]+);/,
+  );
+  assert.ok(cleanupReserveValue && cleanupAttemptValue);
+  assert.ok(
+    Number(cleanupReserveValue[1].replaceAll('_', ''))
+      > Number(cleanupAttemptValue[1].replaceAll('_', '')) * 4,
+    'the cleanup reserve must outlast initial redaction, immediate revoke, and two reload attempts',
+  );
+  assert.doesNotMatch(
+    source.slice(firstReloadCleanup, secondReloadCleanup),
+    /if \(rawToken\.length/,
+  );
+  assert.match(
+    source.slice(secondReloadCleanup, databaseFallback),
+    /reloadCleanupErrors\.length === 2 && rawTokenHasExpectedShape/,
+  );
+  assert.match(
+    source.slice(databaseFallback, originalEvidenceResurface),
+    /databaseCleanup\.remainingActive !== 0/,
+  );
+
+  const hideEvaluation = source.indexOf('const hide = () => page.evaluate');
+  const boundedHide = source.indexOf(
+    "withCleanupOperationTimeout(hide, deadlineMs, 'MCP_CLEANUP_REDACTION_TIMEOUT')",
+    hideEvaluation,
+  );
+  const clearEvaluation = source.indexOf('const clear = () => page.evaluate');
+  const boundedClear = source.indexOf(
+    "withCleanupOperationTimeout(clear, deadlineMs, 'MCP_CLEANUP_CLIPBOARD_TIMEOUT')",
+    clearEvaluation,
+  );
+  assert.ok(
+    hideEvaluation >= 0
+      && hideEvaluation < boundedHide
+      && clearEvaluation >= 0
+      && clearEvaluation < boundedClear,
+    'cleanup page evaluations must have short explicit deadlines',
+  );
+
+  const reloadHelper = source.slice(
+    source.indexOf('async function revokeExactConnectionAfterReload'),
+    source.indexOf("test('switches between ChatGPT and Claude setup"),
+  );
+  assert.match(
+    reloadHelper,
+    /page\.reload\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    reloadHelper,
+    /\.waitFor\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    reloadHelper,
+    /\.click\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    reloadHelper,
+    /\.to(?:HaveCount|BeVisible)\([^)]*[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    reloadHelper,
+    /page\.reload\(\{[\s\S]*?tokenRow\.getByText\(['"]Revoked['"], \{ exact: true \}\)[\s\S]*?\.toBeVisible\(/,
   );
   assert.doesNotMatch(
     source,
     /revokedAfterReload = await reloadedTokenRow[\s\S]{0,120}\.isVisible\(\)/,
+  );
+
+  const immediateCleanup = source.slice(
+    source.indexOf('const immediateCleanupDeadlineMs', cleanupFinally),
+    firstReloadCleanup,
+  );
+  assert.match(
+    immediateCleanup,
+    /\.waitFor\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    immediateCleanup,
+    /\.click\(\{[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    immediateCleanup,
+    /\.toHaveCount\([^)]*[\s\S]*?timeout: cleanupTimeout\(/,
+  );
+  assert.match(
+    immediateCleanup,
+    /\.toBeVisible\(\{[\s\S]*?timeout: cleanupTimeout\(/,
   );
 });
 

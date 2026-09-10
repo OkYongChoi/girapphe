@@ -97,8 +97,16 @@ The authenticated Settings preference test uses the dedicated synthetic owner
 and does not create or revoke an MCP token. The separate provider-setup test
 permits PAT mutation only for the marker-validated testing-token Preview
 fixture, redacts the one-time secret immediately after capture, and clears the
-clipboard before recording evidence. Success screenshots contain only that
-fixture's account and token metadata, never a raw secret.
+clipboard before recording evidence. If both exact-row UI cleanup attempts
+fail, the fixture resolves that same marked owner, locks and revokes only the
+token identified by the captured secret's SHA-256 hash, verifies that no active
+match remains, and then rethrows the original test-body evidence failure (or,
+when the body passed, the first UI evidence failure). The test grants that
+cleanup a fresh reserve before its first cleanup await, bounds each UI
+attempt and database connection/query/lock, and therefore reaches the database
+fallback before the overall test deadline even when the UI remains stuck.
+Success screenshots contain only that fixture's account and token metadata,
+never a raw secret.
 
 ## Rollout
 

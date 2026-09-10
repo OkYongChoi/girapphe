@@ -7,7 +7,40 @@ import {
 } from '../scripts/authenticated-overlay-auth.mjs';
 
 const RAW_PAT_PATTERN = /girapphe_mcp_[A-Za-z0-9_-]{20,}/u;
-const RAW_PAT_SHAPE = /^girapphe_mcp_[A-Za-z0-9_-]{20,}$/u;
+const RAW_PAT_SHAPE = /^girapphe_mcp_[A-Za-z0-9_-]{43}$/u;
+const MCP_CLEANUP_RESERVE_MS = 180_000;
+const MCP_CLEANUP_ATTEMPT_MS = 12_000;
+const MCP_CLEANUP_OPERATION_MS = 5_000;
+const MCP_CLEANUP_NAVIGATION_MS = 8_000;
+
+function cleanupTimeout(
+  deadlineMs: number,
+  maximumMs: number,
+  timeoutCode: string,
+): number {
+  const remainingMs = deadlineMs - Date.now();
+  if (remainingMs <= 0) throw new Error(timeoutCode);
+  return Math.max(1, Math.min(maximumMs, remainingMs));
+}
+
+async function withCleanupOperationTimeout<T>(
+  operation: () => Promise<T>,
+  deadlineMs: number,
+  timeoutCode: string,
+): Promise<T> {
+  const timeoutMs = cleanupTimeout(deadlineMs, MCP_CLEANUP_OPERATION_MS, timeoutCode);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutCode)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 async function captureAndHideOneTimePat(page: Page): Promise<string> {
   const rawTokenHandle = await page.waitForFunction(() => {
@@ -32,8 +65,8 @@ async function captureAndHideOneTimePat(page: Page): Promise<string> {
   }
 }
 
-async function hidePatSurface(page: Page): Promise<void> {
-  await page.evaluate(() => {
+async function hidePatSurface(page: Page, deadlineMs?: number): Promise<void> {
+  const hide = () => page.evaluate(() => {
     const statuses = Array.from(
       document.querySelectorAll<HTMLElement>('#ai-connections [role="status"]'),
     ).filter((candidate) => candidate.querySelector('code'));
@@ -45,13 +78,93 @@ async function hidePatSurface(page: Page): Promise<void> {
       status.setAttribute('aria-hidden', 'true');
     }
   });
+  if (deadlineMs === undefined) {
+    await hide();
+    return;
+  }
+  await withCleanupOperationTimeout(hide, deadlineMs, 'MCP_CLEANUP_REDACTION_TIMEOUT');
 }
 
-async function clearClipboard(page: Page): Promise<void> {
-  await page.evaluate(() => navigator.clipboard.writeText(''));
+async function clearClipboard(page: Page, deadlineMs?: number): Promise<void> {
+  const clear = () => page.evaluate(() => navigator.clipboard.writeText(''));
+  if (deadlineMs === undefined) {
+    await clear();
+    return;
+  }
+  await withCleanupOperationTimeout(clear, deadlineMs, 'MCP_CLEANUP_CLIPBOARD_TIMEOUT');
+}
+
+async function revokeExactConnectionAfterReload(
+  page: Page,
+  connectionLabel: string,
+): Promise<boolean> {
+  const deadlineMs = Date.now() + MCP_CLEANUP_ATTEMPT_MS;
+  page.removeAllListeners('dialog');
+  await hidePatSurface(page, deadlineMs);
+  await clearClipboard(page, deadlineMs);
+  await page.reload({
+    waitUntil: 'domcontentloaded',
+    timeout: cleanupTimeout(
+      deadlineMs,
+      MCP_CLEANUP_NAVIGATION_MS,
+      'MCP_CLEANUP_RELOAD_TIMEOUT',
+    ),
+  });
+
+  const tokenRow = page.getByRole('listitem').filter({
+    has: page.getByText(connectionLabel, { exact: true }),
+  });
+  const rowVisible = await tokenRow.first().waitFor({
+    state: 'visible',
+    timeout: cleanupTimeout(
+      deadlineMs,
+      MCP_CLEANUP_OPERATION_MS,
+      'MCP_CLEANUP_ROW_WAIT_TIMEOUT',
+    ),
+  }).then(() => true, () => false);
+  if (!rowVisible) return false;
+  await expect(
+    tokenRow,
+    'the exact synthetic PAT label identifies at most one row',
+  ).toHaveCount(1, {
+    timeout: cleanupTimeout(
+      deadlineMs,
+      MCP_CLEANUP_OPERATION_MS,
+      'MCP_CLEANUP_ROW_COUNT_TIMEOUT',
+    ),
+  });
+
+  const revokeButton = tokenRow.getByRole('button', { name: 'Revoke' });
+  const revokeButtonVisible = await revokeButton.waitFor({
+    state: 'visible',
+    timeout: cleanupTimeout(
+      deadlineMs,
+      MCP_CLEANUP_OPERATION_MS,
+      'MCP_CLEANUP_REVOKE_WAIT_TIMEOUT',
+    ),
+  }).then(() => true, () => false);
+  if (revokeButtonVisible) {
+    page.once('dialog', (dialog) => dialog.accept());
+    await revokeButton.click({
+      timeout: cleanupTimeout(
+        deadlineMs,
+        MCP_CLEANUP_OPERATION_MS,
+        'MCP_CLEANUP_REVOKE_CLICK_TIMEOUT',
+      ),
+    });
+  }
+  await expect(tokenRow.getByText('Revoked', { exact: true })).toBeVisible({
+    timeout: cleanupTimeout(
+      deadlineMs,
+      MCP_CLEANUP_OPERATION_MS,
+      'MCP_CLEANUP_REVOKED_EXPECT_TIMEOUT',
+    ),
+  });
+  return true;
 }
 
 test('switches between ChatGPT and Claude setup without exposing a PAT', async ({ context, page }, testInfo) => {
+  const testStartedAt = Date.now();
   const authMode = resolveAuthenticatedOverlayAuthMode();
   test.skip(
     authMode !== AUTHENTICATED_OVERLAY_AUTH_MODES.testingToken,
@@ -94,6 +207,8 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   let revokedAfterReload = false;
   let rawSurfaceAbsentImmediatelyAfterRevoke = false;
   let rawSurfaceAbsentAfterReload = false;
+  let originalEvidenceFailed = false;
+  let originalEvidenceError: unknown = null;
 
   try {
     await page.getByLabel('Connection label').fill(connectionLabel);
@@ -152,16 +267,28 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
     renderedGuideOmitsCapturedPat = rawToken.length > 0 && !renderedText.includes(rawToken);
     renderedGuideOmitsAnyRawPat = !RAW_PAT_PATTERN.test(renderedText);
     overflowsViewport = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+  } catch (error) {
+    originalEvidenceFailed = true;
+    originalEvidenceError = error;
   } finally {
+    const elapsedBeforeCleanupMs = Math.max(0, Date.now() - testStartedAt);
+    testInfo.setTimeout(Math.max(
+      testInfo.timeout,
+      elapsedBeforeCleanupMs + MCP_CLEANUP_RESERVE_MS,
+    ));
+
     let cleanupError: unknown = null;
+    let cleanupEvidenceError: unknown = null;
+    const initialRedactionDeadlineMs = Date.now() + MCP_CLEANUP_ATTEMPT_MS;
     try {
-      await hidePatSurface(page);
-      await clearClipboard(page);
+      await hidePatSurface(page, initialRedactionDeadlineMs);
+      await clearClipboard(page, initialRedactionDeadlineMs);
     } catch (error) {
       cleanupError = error;
     }
 
     try {
+      const immediateCleanupDeadlineMs = Date.now() + MCP_CLEANUP_ATTEMPT_MS;
       const capturedPatRequiresRevocation = rawToken.length > 0;
       const tokenRow = page.getByRole('listitem').filter({
         has: page.getByText(connectionLabel, { exact: true }),
@@ -169,43 +296,117 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
       const revokeButton = tokenRow.getByRole('button', { name: 'Revoke' });
       let revokeButtonVisible = false;
       try {
-        await revokeButton.waitFor({ state: 'visible', timeout: 5_000 });
+        await revokeButton.waitFor({
+          state: 'visible',
+          timeout: cleanupTimeout(
+            immediateCleanupDeadlineMs,
+            MCP_CLEANUP_OPERATION_MS,
+            'MCP_CLEANUP_IMMEDIATE_REVOKE_WAIT_TIMEOUT',
+          ),
+        });
         revokeButtonVisible = true;
       } catch (error) {
         if (capturedPatRequiresRevocation) throw error;
       }
       if (revokeButtonVisible) {
         const rawTokenCode = page.locator('#ai-connections [role="status"] code');
-        await expect(rawTokenCode).toHaveCount(1);
+        await expect(rawTokenCode).toHaveCount(1, {
+          timeout: cleanupTimeout(
+            immediateCleanupDeadlineMs,
+            MCP_CLEANUP_OPERATION_MS,
+            'MCP_CLEANUP_IMMEDIATE_RAW_EXPECT_TIMEOUT',
+          ),
+        });
         page.once('dialog', (dialog) => dialog.accept());
-        await revokeButton.click();
-        await expect(tokenRow.getByText('Revoked', { exact: true })).toBeVisible();
-        await expect(rawTokenCode).toHaveCount(0);
+        await revokeButton.click({
+          timeout: cleanupTimeout(
+            immediateCleanupDeadlineMs,
+            MCP_CLEANUP_OPERATION_MS,
+            'MCP_CLEANUP_IMMEDIATE_REVOKE_CLICK_TIMEOUT',
+          ),
+        });
+        await expect(tokenRow.getByText('Revoked', { exact: true })).toBeVisible({
+          timeout: cleanupTimeout(
+            immediateCleanupDeadlineMs,
+            MCP_CLEANUP_OPERATION_MS,
+            'MCP_CLEANUP_IMMEDIATE_REVOKED_EXPECT_TIMEOUT',
+          ),
+        });
+        await expect(rawTokenCode).toHaveCount(0, {
+          timeout: cleanupTimeout(
+            immediateCleanupDeadlineMs,
+            MCP_CLEANUP_OPERATION_MS,
+            'MCP_CLEANUP_IMMEDIATE_RAW_CLEAR_TIMEOUT',
+          ),
+        });
         rawSurfaceAbsentImmediatelyAfterRevoke = true;
       }
     } catch (error) {
-      cleanupError ??= error;
+      if (rawToken.length > 0) cleanupEvidenceError = error;
+    }
+
+    let exactConnectionObserved = false;
+    const reloadCleanupErrors: unknown[] = [];
+    try {
+      const observed = await revokeExactConnectionAfterReload(page, connectionLabel);
+      exactConnectionObserved = observed;
+      if (!observed) {
+        throw new Error('The captured synthetic PAT row was unavailable for exact cleanup.');
+      }
+    } catch (error) {
+      reloadCleanupErrors.push(error);
+      cleanupEvidenceError ??= error;
     }
 
     try {
-      await hidePatSurface(page);
-      await clearClipboard(page);
-      await page.reload({ waitUntil: 'domcontentloaded' });
-
-      const reloadedTokenRow = page.getByRole('listitem').filter({
-        has: page.getByText(connectionLabel, { exact: true }),
-      });
-      await expect(reloadedTokenRow.getByText('Revoked', { exact: true })).toBeVisible();
-      revokedAfterReload = true;
-      rawSurfaceAbsentAfterReload = await page.locator(
-        '#ai-connections [role="status"] code',
-      ).count() === 0;
+      const observed = await revokeExactConnectionAfterReload(page, connectionLabel);
+      exactConnectionObserved = observed || exactConnectionObserved;
+      if (!observed) {
+        throw new Error('The captured synthetic PAT row was unavailable for exact cleanup.');
+      }
     } catch (error) {
-      cleanupError ??= error;
+      reloadCleanupErrors.push(error);
+      cleanupEvidenceError ??= error;
     }
 
-    rawToken = '';
+    if (reloadCleanupErrors.length === 2 && rawTokenHasExpectedShape) {
+      try {
+        const { revokeExactAuthenticatedOverlayMcpToken } = await import(
+          '../scripts/authenticated-overlay-fixture.mjs'
+        );
+        const databaseCleanup = await revokeExactAuthenticatedOverlayMcpToken({ rawToken });
+        if (databaseCleanup.remainingActive !== 0) {
+          throw new Error('Synthetic PAT database cleanup left an active credential.');
+        }
+      } catch (error) {
+        cleanupError ??= error;
+      }
+    }
+
+    revokedAfterReload = exactConnectionObserved;
+
+    const finalRedactionDeadlineMs = Date.now() + MCP_CLEANUP_ATTEMPT_MS;
+    try {
+      await hidePatSurface(page, finalRedactionDeadlineMs);
+      await clearClipboard(page, finalRedactionDeadlineMs);
+      await expect(page.locator(
+        '#ai-connections [role="status"] code',
+      )).toHaveCount(0, {
+        timeout: cleanupTimeout(
+          finalRedactionDeadlineMs,
+          MCP_CLEANUP_OPERATION_MS,
+          'MCP_CLEANUP_FINAL_RAW_EXPECT_TIMEOUT',
+        ),
+      });
+      rawSurfaceAbsentAfterReload = true;
+    } catch (error) {
+      cleanupError ??= error;
+    } finally {
+      rawToken = '';
+    }
     if (cleanupError) throw cleanupError;
+    if (originalEvidenceFailed) throw originalEvidenceError;
+    if (cleanupEvidenceError) throw cleanupEvidenceError;
   }
 
   expect(rawTokenHasExpectedShape).toBe(true);

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
 import test from 'node:test';
 import {
   AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
@@ -11,6 +12,7 @@ import {
   fixtureIdsForUser,
   normalizeSyntheticEmail,
   readAuthenticatedOverlayPublishedStateWithClient,
+  revokeExactAuthenticatedOverlayMcpTokenWithClient,
   seedAuthenticatedOverlayFixtureWithClient,
 } from './authenticated-overlay-fixture.mjs';
 
@@ -22,6 +24,28 @@ const SYNTHETIC_USER = {
 const SYNTHETIC_BATCH_ID = '123e4567-e89b-42d3-a456-426614174000';
 const SYNTHETIC_IMPORT_SESSION_ID = '223e4567-e89b-42d3-a456-426614174000';
 const SYNTHETIC_IMPORT_MARKER = 'E2E_SELECTED_QUESTION_A_0123456789abcdef0123456789abcdef';
+const SYNTHETIC_RAW_PAT = `girapphe_mcp_${'A'.repeat(43)}`;
+const SYNTHETIC_PAT_HASH = createHash('sha256').update(SYNTHETIC_RAW_PAT).digest('hex');
+
+test('exact MCP token fallback bounds its database connection, statements, and locks', async () => {
+  const fixtureUrl = new URL('./authenticated-overlay-fixture.mjs', import.meta.url);
+  const source = await fs.readFile(fixtureUrl, 'utf8');
+  const fallbackStart = source.indexOf(
+    'export async function revokeExactAuthenticatedOverlayMcpToken({',
+  );
+  const poolStart = source.indexOf('const pool = new Pool({', fallbackStart);
+  const poolEnd = source.indexOf('});', poolStart);
+  const poolConfiguration = source.slice(poolStart, poolEnd);
+
+  assert.ok(fallbackStart >= 0 && fallbackStart < poolStart && poolStart < poolEnd);
+  assert.match(
+    poolConfiguration,
+    /connectionTimeoutMillis: MCP_CLEANUP_DB_CONNECT_TIMEOUT_MS/,
+  );
+  assert.match(poolConfiguration, /query_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS/);
+  assert.match(poolConfiguration, /statement_timeout: MCP_CLEANUP_DB_QUERY_TIMEOUT_MS/);
+  assert.match(poolConfiguration, /lock_timeout: MCP_CLEANUP_DB_LOCK_TIMEOUT_MS/);
+});
 
 function eventSubjectHash(subjectId) {
   return createHash('sha256')
@@ -409,6 +433,133 @@ test('exact import fallback rolls back when exact event cleanup cannot be verifi
       { batchId: SYNTHETIC_BATCH_ID, marker: SYNTHETIC_IMPORT_MARKER },
     ),
     /SYNTHETIC_CLEANUP_VERIFICATION_FAILED/,
+  );
+  assert.equal(calls.some((call) => call.text === 'COMMIT'), false);
+  assert.equal(calls.at(-1)?.text, 'ROLLBACK');
+});
+
+test('exact MCP token fallback is hash, owner, and lifecycle-lock scoped', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('SELECT id, user_id, revoked_at')) {
+        return { rows: [{ id: 'token_exact', user_id: SYNTHETIC_USER.id, revoked_at: null }] };
+      }
+      if (text.trimStart().startsWith('UPDATE mcp_access_tokens')) {
+        return { rows: [{ id: 'token_exact' }] };
+      }
+      if (text.includes('AS remaining_active')) {
+        return { rows: [{ remaining_active: 0 }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  assert.deepEqual(
+    await revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      client,
+      SYNTHETIC_USER,
+      { rawToken: SYNTHETIC_RAW_PAT },
+    ),
+    { revoked: true, remainingActive: 0 },
+  );
+
+  const accountLock = calls.findIndex((call) => call.text.includes("'mcp-account-lifecycle:'"));
+  const activeAccountGuard = calls.findIndex((call) => (
+    call.text.startsWith('INSERT INTO mcp_deleted_account_markers')
+  ));
+  const tokenLock = calls.findIndex((call) => (
+    call.values[0] === `mcp-token:${SYNTHETIC_USER.id}`
+  ));
+  const targetLookup = calls.findIndex((call) => call.text.includes('SELECT id, user_id, revoked_at'));
+  const update = calls.find((call) => call.text.trimStart().startsWith('UPDATE mcp_access_tokens'));
+  assert.ok(accountLock >= 0 && accountLock < activeAccountGuard);
+  assert.ok(activeAccountGuard < tokenLock && tokenLock < targetLookup);
+  assert.deepEqual(calls[targetLookup].values, [SYNTHETIC_PAT_HASH, SYNTHETIC_USER.id]);
+  assert.match(calls[targetLookup].text, /WHERE token_hash = \$1 AND user_id = \$2[\s\S]*FOR UPDATE/);
+  assert.deepEqual(update?.values, ['token_exact', SYNTHETIC_USER.id, SYNTHETIC_PAT_HASH]);
+  assert.match(update?.text ?? '', /id = \$1 AND user_id = \$2 AND token_hash = \$3/);
+  assert.equal(calls.some((call) => call.values.includes(SYNTHETIC_RAW_PAT)), false);
+  assert.equal(calls.at(-1)?.text, 'COMMIT');
+});
+
+test('exact MCP token fallback refuses invalid identity, token shape, and owner mismatch', async () => {
+  const invalidCalls = [];
+  const invalidClient = {
+    async query(text, values = []) {
+      invalidCalls.push({ text, values });
+      return { rows: [] };
+    },
+  };
+  await assert.rejects(
+    () => revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      invalidClient,
+      { id: 'user_real', publicMetadata: {} },
+      { rawToken: SYNTHETIC_RAW_PAT },
+    ),
+    /dedicated authenticated overlay synthetic user/,
+  );
+  await assert.rejects(
+    () => revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      invalidClient,
+      SYNTHETIC_USER,
+      { rawToken: 'not-a-token' },
+    ),
+    /SYNTHETIC_MCP_TOKEN_CLEANUP_TOKEN_INVALID/,
+  );
+  assert.deepEqual(invalidCalls, []);
+
+  const mismatchCalls = [];
+  const mismatchClient = {
+    async query(text, values = []) {
+      mismatchCalls.push({ text, values });
+      if (text.includes('SELECT id, user_id, revoked_at')) {
+        return { rows: [{ id: 'token_foreign', user_id: 'user_other', revoked_at: null }] };
+      }
+      return { rows: [] };
+    },
+  };
+  await assert.rejects(
+    () => revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      mismatchClient,
+      SYNTHETIC_USER,
+      { rawToken: SYNTHETIC_RAW_PAT },
+    ),
+    /SYNTHETIC_MCP_TOKEN_CLEANUP_TARGET_NOT_OWNED/,
+  );
+  assert.equal(
+    mismatchCalls.some((call) => call.text.trimStart().startsWith('UPDATE mcp_access_tokens')),
+    false,
+  );
+  assert.equal(mismatchCalls.at(-1)?.text, 'ROLLBACK');
+});
+
+test('exact MCP token fallback rolls back if zero-active verification fails', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('SELECT id, user_id, revoked_at')) {
+        return { rows: [{ id: 'token_exact', user_id: SYNTHETIC_USER.id, revoked_at: null }] };
+      }
+      if (text.trimStart().startsWith('UPDATE mcp_access_tokens')) {
+        return { rows: [{ id: 'token_exact' }] };
+      }
+      if (text.includes('AS remaining_active')) {
+        return { rows: [{ remaining_active: 1 }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  await assert.rejects(
+    () => revokeExactAuthenticatedOverlayMcpTokenWithClient(
+      client,
+      SYNTHETIC_USER,
+      { rawToken: SYNTHETIC_RAW_PAT },
+    ),
+    /SYNTHETIC_MCP_TOKEN_CLEANUP_VERIFICATION_FAILED/,
   );
   assert.equal(calls.some((call) => call.text === 'COMMIT'), false);
   assert.equal(calls.at(-1)?.text, 'ROLLBACK');
