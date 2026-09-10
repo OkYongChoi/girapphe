@@ -888,8 +888,33 @@ test('preview evidence checks out the open same-repository PR head', async () =>
     workflow.indexOf('  production:'),
   );
   assert.match(previewJob, /E2E_REQUIRE_MCP_PAT_CLOSEOUT: 'true'/);
+  assert.match(previewJob, /E2E_REQUIRE_RECALL_CLOSEOUT: 'true'/);
   const productionJob = workflow.slice(workflow.indexOf('  production:'));
   assert.doesNotMatch(productionJob, /E2E_REQUIRE_MCP_PAT_CLOSEOUT/);
+  assert.doesNotMatch(productionJob, /E2E_REQUIRE_RECALL_CLOSEOUT/);
+});
+
+test('Recall evidence reads deployed rollout state and persists only after exact cleanup', async () => {
+  const sourceUrl = new URL(
+    '../e2e-authenticated/authenticated-recall.spec.ts',
+    import.meta.url,
+  );
+  const source = await fs.readFile(sourceUrl, 'utf8');
+  const metricsCapture = source.indexOf('metricsBeforeCleanup = {');
+  const cleanup = source.indexOf(
+    'cleanupCounts = await cleanupAuthenticatedRecallFixtureWithClient',
+  );
+  const cleanupAssertion = source.indexOf('expect(cleanupCounts).toEqual({');
+  const artifactWrite = source.indexOf('writeFileSync(metricsPath');
+
+  assert.ok(metricsCapture >= 0 && metricsCapture < cleanup);
+  assert.ok(cleanup < cleanupAssertion && cleanupAssertion < artifactWrite);
+  assert.match(source, /data-recall-rollout-mode/);
+  assert.match(source, /mode: 'allowlist'/);
+  assert.match(source, /exactSingleAllowedOwner: true/);
+  assert.match(source, /distinctCandidateDenied: true/);
+  assert.match(source, /const metrics = \{ \.\.\.metricsBeforeCleanup, cleanup: cleanupCounts \}/);
+  assert.doesNotMatch(source, /syntheticOwnerAllowlisted: true/);
 });
 
 test('deployment workflow publishes the served Git revision for Preview and production', async () => {

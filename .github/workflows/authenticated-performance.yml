@@ -171,7 +171,7 @@ jobs:
           PLAYWRIGHT_RUNS: '3'
           E2E_THINKING_HISTORY_ENABLED: 'true'
           E2E_REQUIRE_MCP_PAT_CLOSEOUT: 'true'
-          E2E_RECALL_ENABLED: 'true'
+          E2E_REQUIRE_RECALL_CLOSEOUT: 'true'
         run: pnpm browser:authenticated-overlay
 
       - name: Add measurement summary

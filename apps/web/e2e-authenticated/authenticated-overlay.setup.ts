@@ -36,7 +36,7 @@ setup('prepare Clerk testing token and owner-scoped fixture', async () => {
     }),
   });
   syntheticClerkUserId = result.user.id;
-  const recallFixture = process.env.E2E_RECALL_ENABLED === 'true'
+  const recallFixture = process.env.E2E_REQUIRE_RECALL_CLOSEOUT === 'true'
     ? { itemId: fixtureIdsForUser(result.user.id).recall.itemId }
     : null;
   await fs.mkdir(path.dirname(fixtureFile), { recursive: true });

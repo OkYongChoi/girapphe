@@ -48,6 +48,17 @@ type TouchTargetMeasurement = {
   height: number;
 };
 
+type RecallCleanupCounts = {
+  items: number;
+  revisions: number;
+  batches: number;
+  drafts: number;
+  sources: number;
+  evidence: number;
+  schedules: number;
+  attempts: number;
+};
+
 function readHeader(headers: Record<string, string>, name: string): string {
   const expected = name.toLowerCase();
   return Object.entries(headers).find(([key]) => key.toLowerCase() === expected)?.[1] ?? '';
@@ -133,7 +144,7 @@ function readFixtureMetadata(): RecallFixtureMetadata {
 }
 
 test.skip(
-  process.env.E2E_RECALL_ENABLED !== 'true',
+  process.env.E2E_REQUIRE_RECALL_CLOSEOUT !== 'true',
   'Recall rendered evidence is enabled only for the allowlisted Preview synthetic owner.',
 );
 
@@ -155,6 +166,20 @@ test('keeps approved Recall content private until reveal and persists one comple
   if (!databaseUrl) throw new Error('DATABASE_URL is required for authenticated Recall evidence.');
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });
   const client = await pool.connect();
+  const preRevealScreenshot = resolve(
+    evidenceDirectory,
+    `${testInfo.project.name}-pre-reveal.png`,
+  );
+  const postRevealScreenshot = resolve(
+    evidenceDirectory,
+    `${testInfo.project.name}-post-reveal.png`,
+  );
+  const completionScreenshot = resolve(
+    evidenceDirectory,
+    `${testInfo.project.name}-completed.png`,
+  );
+  let metricsBeforeCleanup: Record<string, unknown> | null = null;
+  let cleanupCounts: RecallCleanupCounts | null = null;
 
   try {
     const seededFixture = await resetAuthenticatedRecallFixtureWithClient(
@@ -229,6 +254,22 @@ test('keeps approved Recall content private until reveal and persists one comple
     expect(routeResponse?.status()).toBe(200);
     const routeHtmlBytes = Buffer.byteLength(await routeResponse!.body());
     await expect(page.getByRole('heading', { name: 'Recall Review', level: 1 })).toBeVisible();
+    const rolloutMarker = page.locator('[data-recall-runtime-rollout="true"]');
+    await expect(rolloutMarker).toHaveCount(1);
+    const rollout = {
+      mode: await rolloutMarker.getAttribute('data-recall-rollout-mode'),
+      enabled: await rolloutMarker.getAttribute('data-recall-rollout-enabled') === 'true',
+      exactSingleAllowedOwner:
+        await rolloutMarker.getAttribute('data-recall-rollout-exact-single-owner') === 'true',
+      distinctCandidateDenied:
+        await rolloutMarker.getAttribute('data-recall-rollout-distinct-candidate-denied') === 'true',
+    };
+    expect(rollout).toEqual({
+      mode: 'allowlist',
+      enabled: true,
+      exactSingleAllowedOwner: true,
+      distinctCandidateDenied: true,
+    });
     const routeReadyMs = Math.round((performance.now() - routeStartedAt) * 10) / 10;
     await page.waitForLoadState('load');
     await page.waitForTimeout(250);
@@ -350,10 +391,6 @@ test('keeps approved Recall content private until reveal and persists one comple
     const preRevealAnswerHidden = !(await page.content())
       .includes(AUTHENTICATED_RECALL_FIXTURE.definition);
     expect(preRevealAnswerHidden).toBe(true);
-    const preRevealScreenshot = resolve(
-      evidenceDirectory,
-      `${testInfo.project.name}-pre-reveal.png`,
-    );
     mkdirSync(evidenceDirectory, { recursive: true });
     await page.screenshot({ path: preRevealScreenshot, fullPage: true });
 
@@ -380,10 +417,6 @@ test('keeps approved Recall content private until reveal and persists one comple
     ] as const) {
       touchTargetMeasurements.push(await measureMinimumTouchTarget(locator, label));
     }
-    const postRevealScreenshot = resolve(
-      evidenceDirectory,
-      `${testInfo.project.name}-post-reveal.png`,
-    );
     await page.screenshot({ path: postRevealScreenshot, fullPage: true });
 
     await performAction(
@@ -434,10 +467,6 @@ test('keeps approved Recall content private until reveal and persists one comple
     );
     expect(localDraftAbsentFromActions).toBe(true);
 
-    const completionScreenshot = resolve(
-      evidenceDirectory,
-      `${testInfo.project.name}-completed.png`,
-    );
     await page.screenshot({ path: completionScreenshot, fullPage: true });
     const arabicResponse = await page.goto('/ar/recall', { waitUntil: 'domcontentloaded' });
     expect(arabicResponse?.status()).toBe(200);
@@ -452,11 +481,13 @@ test('keeps approved Recall content private until reveal and persists one comple
     const transferredValues = actionMetrics
       .map((metric) => metric.transferredBytesAtSettledUi)
       .filter((value): value is number => value !== null);
-    const metrics = {
+    metricsBeforeCleanup = {
       schemaVersion: 1,
+      evidenceKind: 'manual_recall_closeout',
+      artifactName: `${testInfo.project.name}.json`,
       route: '/en/recall',
       project: testInfo.project.name,
-      syntheticOwnerAllowlisted: true,
+      rollout,
       rendered: {
         privateQuestionVisible: true,
         preRevealAnswerHidden,
@@ -504,25 +535,43 @@ test('keeps approved Recall content private until reveal and persists one comple
         `${testInfo.project.name}-completed.png`,
       ],
     };
-    const metricsPath = resolve(evidenceDirectory, `${testInfo.project.name}.json`);
-    writeFileSync(metricsPath, `${JSON.stringify(metrics, null, 2)}\n`);
-    for (const [name, filePath] of [
-      ['authenticated-recall-pre-reveal', preRevealScreenshot],
-      ['authenticated-recall-post-reveal', postRevealScreenshot],
-      ['authenticated-recall-completed', completionScreenshot],
-      ['authenticated-recall-metrics', metricsPath],
-    ] as const) {
-      await testInfo.attach(name, {
-        path: filePath,
-        contentType: filePath.endsWith('.json') ? 'application/json' : 'image/png',
-      });
-    }
   } finally {
     try {
-      await cleanupAuthenticatedRecallFixtureWithClient(client, fixtureMetadata.userId);
+      cleanupCounts = await cleanupAuthenticatedRecallFixtureWithClient(
+        client,
+        fixtureMetadata.userId,
+      ) as RecallCleanupCounts;
     } finally {
       client.release();
       await pool.end();
     }
+  }
+
+  if (!metricsBeforeCleanup || !cleanupCounts) {
+    throw new Error('Authenticated Recall evidence did not complete exact fixture cleanup.');
+  }
+  expect(cleanupCounts).toEqual({
+    items: 0,
+    revisions: 0,
+    batches: 0,
+    drafts: 0,
+    sources: 0,
+    evidence: 0,
+    schedules: 0,
+    attempts: 0,
+  });
+  const metrics = { ...metricsBeforeCleanup, cleanup: cleanupCounts };
+  const metricsPath = resolve(evidenceDirectory, `${testInfo.project.name}.json`);
+  writeFileSync(metricsPath, `${JSON.stringify(metrics, null, 2)}\n`);
+  for (const [name, filePath] of [
+    ['authenticated-recall-pre-reveal', preRevealScreenshot],
+    ['authenticated-recall-post-reveal', postRevealScreenshot],
+    ['authenticated-recall-completed', completionScreenshot],
+    ['authenticated-recall-metrics', metricsPath],
+  ] as const) {
+    await testInfo.attach(name, {
+      path: filePath,
+      contentType: filePath.endsWith('.json') ? 'application/json' : 'image/png',
+    });
   }
 });

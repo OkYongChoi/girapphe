@@ -217,13 +217,19 @@ candidates ready.
 Preview evidence also exercises Manual Recall Review for the same dedicated
 synthetic owner. Each desktop and mobile run creates or resets one deterministic,
 eligible typed item and one due D+1 schedule for only that owner/item pair. The
-browser proves the approved bundle is absent before reveal,
+browser reads the deployed route's safe rollout booleans and requires
+`allowlist` mode, the current owner enabled as the only allowlist token, and a
+distinct candidate denied. It then proves the approved bundle is absent before reveal,
 the local recall draft is absent from all four Server Action requests, the
 approved bundle appears after reveal, and completion persists a matching D+7
 schedule and completed attempt. Per-stage status, response-header timing,
 decoded/transfer bytes, browser errors, and pre-reveal/post-reveal/completion
 screenshots are included in the artifact summary. A `finally` cleanup removes
-only the deterministic Recall IDs owned by that synthetic account.
+only the deterministic Recall IDs owned by that synthetic account. The JSON is
+written only after cleanup returns zero for every exact fixture table. The
+fail-closed summarizer accepts exactly the project-matched desktop and mobile
+files and rejects wrong schemas, filenames, routes, projects, missing gates,
+and unknown top-level or nested fields.
 
 Runtime inputs are injected temporarily; do not copy their values into tracked
 files:
@@ -238,8 +244,10 @@ E2E_CLERK_AUTH_MODE
 PLAYWRIGHT_RUNS
 ```
 
-`E2E_RECALL_ENABLED=true` is a workflow-owned Preview gate, not a value to put
-in a production environment. `wrangler.jsonc` keeps production Recall
+`E2E_REQUIRE_RECALL_CLOSEOUT=true` is a workflow-owned Preview evidence
+requirement, not a value to put in a production environment. It enables the
+synthetic fixture and makes the summarizer reject missing, malformed, or
+incomplete desktop/mobile Recall artifacts. `wrangler.jsonc` keeps production Recall
 enrollment off and Preview in `allowlist` mode. Before the Preview Worker is
 uploaded, the deployment workflow validates the marker-named Clerk account and
 injects only that synthetic user ID as `RECALL_RUNTIME_USER_IDS`; it never opens

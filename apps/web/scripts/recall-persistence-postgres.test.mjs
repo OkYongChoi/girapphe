@@ -2617,3 +2617,330 @@ test('knowledge revision and Trash cleanup remove stale Recall state and permit 
     surfaceCleanupFailures(bodyCompleted, cleanupFailures);
   }
 });
+
+test('batch discard without an active attempt and import deletion clean only schedules that lose qualifying provenance', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const importedRecall = await import('../src/lib/recall-persistence.ts');
+  const recall = importedRecall.default ?? importedRecall;
+  const importedAttempts = await import('../src/lib/recall-attempts.ts');
+  const attempts = importedAttempts.default ?? importedAttempts;
+  const importedKnowledge = await import('../src/lib/knowledge-ingestion.ts');
+  const knowledge = importedKnowledge.default ?? importedKnowledge;
+  const pool = new Pool({ connectionString: databaseUrl, max: 4 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
+  const fixturePrefix = `live-recall-provenance-${crypto.randomUUID()}`;
+  const userId = `${fixturePrefix}-owner`;
+  const itemIds = {
+    discarded: `${fixturePrefix}-discarded-item`,
+    deleted: `${fixturePrefix}-deleted-item`,
+    alternate: `${fixturePrefix}-alternate-item`,
+  };
+  const batchIds = {
+    discarded: `${fixturePrefix}-discarded-batch`,
+    deleted: `${fixturePrefix}-deleted-batch`,
+    alternate: `${fixturePrefix}-alternate-batch`,
+  };
+  const draftIds = {
+    discarded: `${fixturePrefix}-discarded-draft`,
+    pending: `${fixturePrefix}-pending-draft`,
+    deleted: `${fixturePrefix}-deleted-draft`,
+    deletedAlternate: `${fixturePrefix}-deleted-alternate-draft`,
+    alternate: `${fixturePrefix}-alternate-draft`,
+  };
+  const sourceIds = {
+    discarded: `${fixturePrefix}-discarded-source`,
+    deleted: `${fixturePrefix}-deleted-source`,
+    deletedAlternate: `${fixturePrefix}-deleted-alternate-source`,
+    alternate: `${fixturePrefix}-alternate-source`,
+  };
+  const allItemIds = Object.values(itemIds);
+  const allBatchIds = Object.values(batchIds);
+  const allDraftIds = Object.values(draftIds);
+  const allSourceIds = Object.values(sourceIds);
+  const now = Date.now();
+  const enrolledAt = new Date(now - 25 * 60 * 60 * 1_000).toISOString();
+  const firstDueAt = new Date(now - 30 * 60 * 1_000).toISOString();
+  let bodyCompleted = false;
+
+  const runKnowledgeTransaction = async (buildQueries, options = {}) => {
+    const client = await pool.connect();
+    const isolationLevel = options.isolationLevel === 'Serializable'
+      ? 'SERIALIZABLE'
+      : 'READ COMMITTED';
+    try {
+      await client.query(`BEGIN ISOLATION LEVEL ${isolationLevel}`);
+      let queryChain = Promise.resolve();
+      const queries = buildQueries({
+        query: (text, params = []) => {
+          const result = queryChain.then(async () => (await client.query(text, params)).rows);
+          queryChain = result.then(() => undefined);
+          return result;
+        },
+      });
+      const results = await Promise.all(queries);
+      await client.query('COMMIT');
+      return results;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+  knowledge.setKnowledgeTransactionSqlForTesting({
+    query: async (text, params = []) => (await pool.query(text, params)).rows,
+    transaction: runKnowledgeTransaction,
+  });
+
+  try {
+    for (const [index, itemId] of allItemIds.entries()) {
+      await pool.query(
+        `INSERT INTO user_knowledge_items (
+           id, user_id, title, summary, content, topic, tags, knowledge_type,
+           central_question, structured_content, bundle_schema_version, version
+         ) VALUES (
+           $1, $2, $3, '', '', 'recall-live', '[]'::jsonb, 'concept',
+           'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1, 1
+         )`,
+        [itemId, userId, `Recall provenance fixture ${index + 1}`],
+      );
+      await pool.query(
+        `INSERT INTO knowledge_item_revisions
+           (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+         VALUES ($1, $2, $3, 1, '{}'::jsonb, 'confirmed')`,
+        [`${fixturePrefix}-revision-${index + 1}`, userId, itemId],
+      );
+    }
+
+    await pool.query(
+      `INSERT INTO knowledge_ingestion_batches (
+         id, user_id, source_type, provider, scope, request_id, status, committed_at
+       ) VALUES
+         ($1, $4, 'conversation', 'chatgpt', 'current_conversation', $5, 'partial', NOW()),
+         ($2, $4, 'conversation', 'chatgpt', 'current_conversation', $6, 'approved', NOW()),
+         ($3, $4, 'conversation', 'claude', 'current_conversation', $7, 'approved', NOW())`,
+      [
+        batchIds.discarded,
+        batchIds.deleted,
+        batchIds.alternate,
+        userId,
+        `${fixturePrefix}-discarded-request`,
+        `${fixturePrefix}-deleted-request`,
+        `${fixturePrefix}-alternate-request`,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_card_drafts (
+         id, batch_id, user_id, client_card_id, title, knowledge_type,
+         central_question, structured_content, bundle_schema_version,
+         status, knowledge_item_id, approved_at
+       ) VALUES
+         ($1, $6, $9, $10, 'Discarded source', 'concept', 'Question?', '{"type":"concept"}'::jsonb, 1, 'approved', $13, NOW()),
+         ($2, $6, $9, $11, 'Pending source', 'concept', 'Question?', '{"type":"concept"}'::jsonb, 1, 'pending', NULL, NULL),
+         ($3, $7, $9, $12, 'Deleted source', 'concept', 'Question?', '{"type":"concept"}'::jsonb, 1, 'approved', $14, NOW()),
+         ($4, $7, $9, $15, 'Deleted duplicate source', 'concept', 'Question?', '{"type":"concept"}'::jsonb, 1, 'approved', $16, NOW()),
+         ($5, $8, $9, $17, 'Alternate retained source', 'concept', 'Question?', '{"type":"concept"}'::jsonb, 1, 'approved', $16, NOW())`,
+      [
+        draftIds.discarded,
+        draftIds.pending,
+        draftIds.deleted,
+        draftIds.deletedAlternate,
+        draftIds.alternate,
+        batchIds.discarded,
+        batchIds.deleted,
+        batchIds.alternate,
+        userId,
+        `${fixturePrefix}-discarded-card`,
+        `${fixturePrefix}-pending-card`,
+        `${fixturePrefix}-deleted-card`,
+        itemIds.discarded,
+        itemIds.deleted,
+        `${fixturePrefix}-deleted-alternate-card`,
+        itemIds.alternate,
+        `${fixturePrefix}-alternate-card`,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_card_sources (
+         id, user_id, knowledge_item_id, batch_id, draft_id, source_type,
+         provider, conversation_ref, supported_item_version, confirmed_at
+       ) VALUES
+         ($1, $9, $13, $10, $5, 'conversation', 'chatgpt', $14, 1, NOW()),
+         ($2, $9, $15, $11, $6, 'conversation', 'chatgpt', $16, 1, NOW()),
+         ($3, $9, $17, $11, $7, 'conversation', 'chatgpt', $18, 1, NOW()),
+         ($4, $9, $17, $12, $8, 'conversation', 'claude', $19, 1, NOW())`,
+      [
+        sourceIds.discarded,
+        sourceIds.deleted,
+        sourceIds.deletedAlternate,
+        sourceIds.alternate,
+        draftIds.discarded,
+        draftIds.deleted,
+        draftIds.deletedAlternate,
+        draftIds.alternate,
+        userId,
+        batchIds.discarded,
+        batchIds.deleted,
+        batchIds.alternate,
+        itemIds.discarded,
+        `${fixturePrefix}-discarded-conversation`,
+        itemIds.deleted,
+        `${fixturePrefix}-deleted-conversation`,
+        itemIds.alternate,
+        `${fixturePrefix}-deleted-alternate-conversation`,
+        `${fixturePrefix}-alternate-conversation`,
+      ],
+    );
+
+    for (const itemId of Object.values(itemIds)) {
+      const enrollment = await recall.enrollApprovedRecallScheduleForUser(
+        userId,
+        itemId,
+        1,
+        enrolledAt,
+        firstDueAt,
+      );
+      assert.equal(enrollment.kind, 'enrolled');
+    }
+    await pool.query(
+      `UPDATE user_private_card_states
+       SET status = 'saved', knowledge_state = 'unknown', progress_state = 'learning',
+         last_seen = NOW()
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemIds.deleted],
+    );
+    const attemptResults = {};
+    for (const [name, itemId] of Object.entries(itemIds)) {
+      if (name === 'discarded') continue;
+      const attempt = await attempts.startOrResumeRecallAttemptForUser(userId, itemId);
+      assert.equal(attempt.kind, 'started');
+      assert.ok(attempt.attempt);
+      attemptResults[name] = attempt.attempt;
+    }
+
+    await knowledge.discardKnowledgeDraftBatchForUser(userId, batchIds.discarded);
+    assert.deepEqual((await pool.query(
+      `SELECT status FROM knowledge_ingestion_batches WHERE id = $1 AND user_id = $2`,
+      [batchIds.discarded, userId],
+    )).rows, [{ status: 'discarded' }]);
+    assert.deepEqual((await pool.query(
+      `SELECT id, status FROM knowledge_card_drafts
+       WHERE batch_id = $1 AND user_id = $2 ORDER BY id`,
+      [batchIds.discarded, userId],
+    )).rows, [
+      { id: draftIds.discarded, status: 'approved' },
+      { id: draftIds.pending, status: 'rejected' },
+    ].sort((left, right) => left.id.localeCompare(right.id)));
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count FROM user_knowledge_items
+       WHERE id = $1 AND user_id = $2`,
+      [itemIds.discarded, userId],
+    )).rows[0]?.count, 1);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count FROM user_private_card_states
+       WHERE knowledge_item_id = $1 AND user_id = $2`,
+      [itemIds.discarded, userId],
+    )).rows[0]?.count, 0);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count FROM recall_attempts
+       WHERE knowledge_item_id = $1 AND user_id = $2`,
+      [itemIds.discarded, userId],
+    )).rows[0]?.count, 0);
+
+    assert.deepEqual(await knowledge.deleteKnowledgeImportBatchForUser(
+      userId,
+      batchIds.deleted,
+    ), { deleted: true, approvedKnowledgePreserved: 2 });
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count FROM user_knowledge_items
+       WHERE id = ANY($1::text[]) AND user_id = $2`,
+      [[itemIds.deleted, itemIds.alternate], userId],
+    )).rows[0]?.count, 2);
+    assert.deepEqual((await pool.query(
+      `SELECT batch_id, draft_id FROM knowledge_card_sources
+       WHERE id = $1 AND user_id = $2`,
+      [sourceIds.deleted, userId],
+    )).rows, [{ batch_id: null, draft_id: null }]);
+    assert.deepEqual((await pool.query(
+      `SELECT status, knowledge_state, progress_state,
+         recall_enrolled_at, recall_item_version, recall_schedule_state,
+         recall_schedule_version
+       FROM user_private_card_states
+       WHERE knowledge_item_id = $1 AND user_id = $2`,
+      [itemIds.deleted, userId],
+    )).rows, [{
+      status: 'saved',
+      knowledge_state: 'unknown',
+      progress_state: 'learning',
+      recall_enrolled_at: null,
+      recall_item_version: null,
+      recall_schedule_state: null,
+      recall_schedule_version: null,
+    }]);
+    assert.deepEqual((await pool.query(
+      `SELECT lifecycle_state, invalidation_reason FROM recall_attempts
+       WHERE id = $1 AND user_id = $2`,
+      [attemptResults.deleted.id, userId],
+    )).rows, [{ lifecycle_state: 'invalidated', invalidation_reason: 'stale_context' }]);
+
+    const alternateSchedule = await recall.getRecallScheduleForUser(userId, itemIds.alternate);
+    assert.ok(alternateSchedule);
+    assert.equal(alternateSchedule.itemVersion, 1);
+    assert.deepEqual((await pool.query(
+      `SELECT lifecycle_state, invalidation_reason FROM recall_attempts
+       WHERE id = $1 AND user_id = $2`,
+      [attemptResults.alternate.id, userId],
+    )).rows, [{ lifecycle_state: 'prepared', invalidation_reason: null }]);
+    assert.deepEqual((await pool.query(
+      `SELECT batch_id, draft_id FROM knowledge_card_sources
+       WHERE id = $1 AND user_id = $2`,
+      [sourceIds.alternate, userId],
+    )).rows, [{ batch_id: batchIds.alternate, draft_id: draftIds.alternate }]);
+    assert.deepEqual(await knowledge.deleteKnowledgeImportBatchForUser(
+      userId,
+      batchIds.deleted,
+    ), { deleted: false, approvedKnowledgePreserved: 0 });
+    assert.ok(await recall.getRecallScheduleForUser(userId, itemIds.alternate));
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    knowledge.setKnowledgeTransactionSqlForTesting(null);
+    repositoryAdapter.restore();
+    await collectCleanupFailure(cleanupFailures, 'delete provenance cleanup knowledge items', () => (
+      pool.query(
+        `DELETE FROM user_knowledge_items WHERE id = ANY($1::text[]) AND user_id = $2`,
+        [allItemIds, userId],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete provenance cleanup ingestion batches', () => (
+      pool.query(
+        `DELETE FROM knowledge_ingestion_batches WHERE id = ANY($1::text[]) AND user_id = $2`,
+        [allBatchIds, userId],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify provenance cleanup fixture removal', async () => {
+      const remaining = (await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::integer FROM user_knowledge_items WHERE id = ANY($1::text[])) AS items,
+           (SELECT COUNT(*)::integer FROM knowledge_ingestion_batches WHERE id = ANY($2::text[])) AS batches,
+           (SELECT COUNT(*)::integer FROM knowledge_card_drafts WHERE id = ANY($3::text[])) AS drafts,
+           (SELECT COUNT(*)::integer FROM knowledge_card_sources WHERE id = ANY($4::text[])) AS sources,
+           (SELECT COUNT(*)::integer FROM user_private_card_states WHERE knowledge_item_id = ANY($1::text[])) AS states,
+           (SELECT COUNT(*)::integer FROM recall_attempts WHERE knowledge_item_id = ANY($1::text[])) AS attempts`,
+        [allItemIds, allBatchIds, allDraftIds, allSourceIds],
+      )).rows[0];
+      assert.deepEqual(remaining, {
+        items: 0,
+        batches: 0,
+        drafts: 0,
+        sources: 0,
+        states: 0,
+        attempts: 0,
+      });
+    });
+    await collectCleanupFailure(cleanupFailures, 'close provenance cleanup database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});

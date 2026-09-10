@@ -24,6 +24,7 @@ import {
 import { sanitizeKnowledgeTags } from '@/lib/knowledge-tag-normalization';
 import {
   buildRecallLifecycleLockQuery,
+  buildRecallProvenanceBatchCleanupQuery,
   buildStaleRecallEnrollmentCleanupQuery,
 } from '@/lib/recall-lifecycle-cleanup';
 
@@ -4718,10 +4719,12 @@ export async function discardKnowledgeDraftBatchForUser(userId: string, batchId:
   }
   await ensureKnowledgeIngestionSchema();
   const sql = getTransactionSql();
+  const recallCleanup = buildRecallProvenanceBatchCleanupQuery(userId, batchId, 'discard');
   await sql.transaction((tx) => [
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
     tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-ingestion:${userId}`]),
+    tx.query(recallCleanup.text, recallCleanup.params),
     tx.query(
       `WITH discarded AS (
          UPDATE knowledge_ingestion_batches SET status = 'discarded', discarded_at = NOW(), updated_at = NOW()
@@ -4782,11 +4785,13 @@ export async function deleteKnowledgeImportBatchForUser(
   await ensureKnowledgeIngestionSchema();
   const sql = getTransactionSql();
   const batchSubjectHash = knowledgeProductEventSubjectHash(userId, batchId);
+  const recallCleanup = buildRecallProvenanceBatchCleanupQuery(userId, batchId, 'delete');
   const resultSets = await sql.transaction((tx) => [
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
     tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-ingestion:${userId}`]),
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-import:${userId}:${batchId}`]),
+    tx.query(recallCleanup.text, recallCleanup.params),
     tx.query(
       `WITH owned_batch AS MATERIALIZED (
          SELECT id, scope, provider, request_id FROM knowledge_ingestion_batches
@@ -4855,7 +4860,10 @@ export async function deleteKnowledgeImportBatchForUser(
       [batchId, userId, batchSubjectHash],
     ),
   ], { isolationLevel: 'ReadCommitted' });
-  const row = (resultSets[4] as Array<{ deleted: boolean; approved_knowledge_preserved: number }>)[0];
+  const row = (resultSets.at(-1) as Array<{
+    deleted: boolean;
+    approved_knowledge_preserved: number;
+  }> | undefined)?.[0];
   return {
     deleted: row?.deleted === true,
     approvedKnowledgePreserved: Number(row?.approved_knowledge_preserved ?? 0),

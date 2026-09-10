@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   isRecallRuntimeEnrollmentEnabledForUser,
+  recallRuntimeEnrollmentDecision,
   recallRuntimeRolloutMode,
 } from './recall-runtime-rollout';
 
@@ -43,6 +44,67 @@ test('Recall allowlist uses exact bounded user-id tokens', () => {
     ...environment,
     RECALL_RUNTIME_USER_IDS: moreThanLimit,
   }), false);
+});
+
+test('Recall enrollment decision exposes only safe exact-rollout booleans', () => {
+  assert.deepEqual(recallRuntimeEnrollmentDecision('user_one', {
+    NODE_ENV: 'production',
+    RECALL_RUNTIME_ROLLOUT: 'allowlist',
+    RECALL_RUNTIME_USER_IDS: 'user_one',
+  }), {
+    mode: 'allowlist',
+    enabled: true,
+    exactSingleAllowedOwner: true,
+    distinctCandidateDenied: true,
+  });
+
+  for (const RECALL_RUNTIME_USER_IDS of ['user_one,user_two', 'user_one,user_one']) {
+    assert.deepEqual(recallRuntimeEnrollmentDecision('user_one', {
+      NODE_ENV: 'production',
+      RECALL_RUNTIME_ROLLOUT: 'allowlist',
+      RECALL_RUNTIME_USER_IDS,
+    }), {
+      mode: 'allowlist',
+      enabled: true,
+      exactSingleAllowedOwner: false,
+      distinctCandidateDenied: true,
+    });
+  }
+
+  assert.deepEqual(recallRuntimeEnrollmentDecision('user_one', {
+    NODE_ENV: 'production',
+    RECALL_RUNTIME_ROLLOUT: 'all',
+  }), {
+    mode: 'all',
+    enabled: true,
+    exactSingleAllowedOwner: false,
+    distinctCandidateDenied: false,
+  });
+  assert.deepEqual(recallRuntimeEnrollmentDecision('user_one', {
+    NODE_ENV: 'production',
+    RECALL_RUNTIME_ROLLOUT: 'off',
+  }), {
+    mode: 'off',
+    enabled: false,
+    exactSingleAllowedOwner: false,
+    distinctCandidateDenied: true,
+  });
+});
+
+test('Recall route renders only safe rollout decision attributes', () => {
+  const source = readFileSync(new URL('../app/recall/page.tsx', import.meta.url), 'utf8');
+  assert.match(source, /recallRuntimeEnrollmentDecision\(user\.id\)/u);
+  assert.match(source, /data-recall-rollout-mode=\{rollout\.mode\}/u);
+  assert.match(source, /data-recall-rollout-enabled=\{String\(rollout\.enabled\)\}/u);
+  assert.match(
+    source,
+    /data-recall-rollout-exact-single-owner=\{String\(rollout\.exactSingleAllowedOwner\)\}/u,
+  );
+  assert.match(
+    source,
+    /data-recall-rollout-distinct-candidate-denied=\{String\(rollout\.distinctCandidateDenied\)\}/u,
+  );
+  assert.doesNotMatch(source, /RECALL_RUNTIME_USER_IDS/u);
 });
 
 test('checked-in Worker environments keep production off and Preview synthetic-owner allowlisted', () => {
@@ -90,6 +152,6 @@ test('checked-in Worker environments keep production off and Preview synthetic-o
     evidenceWorkflow.indexOf('  production:'),
   );
   const productionEvidence = evidenceWorkflow.slice(evidenceWorkflow.indexOf('  production:'));
-  assert.match(previewEvidence, /E2E_RECALL_ENABLED: 'true'/u);
-  assert.doesNotMatch(productionEvidence, /E2E_RECALL_ENABLED/u);
+  assert.match(previewEvidence, /E2E_REQUIRE_RECALL_CLOSEOUT: 'true'/u);
+  assert.doesNotMatch(productionEvidence, /E2E_REQUIRE_RECALL_CLOSEOUT/u);
 });
