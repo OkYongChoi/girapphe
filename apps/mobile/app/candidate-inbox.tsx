@@ -19,6 +19,7 @@ import {
   buildCandidateWebReviewUrl,
   candidateQuickActionRequiresDetailedReview,
   classifyCandidateBatchScope,
+  createCandidateBatchSelectionGuard,
   createCandidateInboxRequestGuard,
   removePendingCandidate,
   resolveCandidateQuickAction,
@@ -104,8 +105,8 @@ function CandidateInboxContent() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [requestGuard] = useState(createCandidateInboxRequestGuard);
+  const [selectionGuard] = useState(createCandidateBatchSelectionGuard);
   const pendingMutations = useRef(new Set<string>());
-  const selectedBatchId = useRef<string | null>(null);
 
   const scopeCopy = SCOPE_COPY[locale];
   const scopeLabels: Record<CandidateBatchScopeKind, string> = {
@@ -115,7 +116,7 @@ function CandidateInboxContent() {
   };
   const loadBatch = useCallback(async (batch: MobileCandidateBatch): Promise<MobileCandidateDraft[] | null> => {
     const request = requestGuard.begin();
-    selectedBatchId.current = batch.id;
+    selectionGuard.select(batch.id);
     setSelectedBatch(batch);
     setDrafts([]);
     setLoading(true);
@@ -123,7 +124,7 @@ function CandidateInboxContent() {
     try {
       const result = await mobileApi.candidateBatch(batch.id);
       if (!requestGuard.isLatest(request)) return null;
-      selectedBatchId.current = result.batch.id;
+      selectionGuard.select(result.batch.id);
       setSelectedBatch(result.batch);
       setDrafts(result.drafts);
       return result.drafts;
@@ -135,7 +136,7 @@ function CandidateInboxContent() {
     } finally {
       if (requestGuard.isLatest(request)) setLoading(false);
     }
-  }, [requestGuard, t]);
+  }, [requestGuard, selectionGuard, t]);
 
   const load = useCallback(async (): Promise<MobileCandidateDraft[] | null> => {
     const request = requestGuard.begin();
@@ -146,10 +147,10 @@ function CandidateInboxContent() {
       const next = (await mobileApi.candidateInbox()).batches;
       if (!requestGuard.isLatest(request)) return null;
       setBatches(next);
-      const nextBatch = selectCandidateBatch(next, selectedBatchId.current);
+      const nextBatch = selectCandidateBatch(next, selectionGuard.selected());
       if (nextBatch) return await loadBatch(nextBatch);
       else {
-        selectedBatchId.current = null;
+        selectionGuard.select(null);
         setSelectedBatch(null);
         setLoading(false);
         return [];
@@ -161,9 +162,12 @@ function CandidateInboxContent() {
       }
       return null;
     }
-  }, [loadBatch, requestGuard, t]);
+  }, [loadBatch, requestGuard, selectionGuard, t]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    return () => requestGuard.invalidate();
+  }, [load, requestGuard]));
 
   const resolve = (draft: MobileCandidateDraft, action: 'approve-candidate' | 'ignore-candidate') => {
     if (candidateQuickActionRequiresDetailedReview(draft, action)) {
@@ -178,6 +182,7 @@ function CandidateInboxContent() {
         { text: t('common.cancel'), style: 'cancel' },
         { text: destructive ? copy.ignore : copy.save, style: destructive ? 'destructive' : 'default', onPress: () => {
           if (pendingMutations.current.has(draft.id)) return;
+          const mutationSelection = selectionGuard.capture();
           pendingMutations.current.add(draft.id);
           setMutatingIds((current) => addPendingCandidate(current, draft.id));
           setError(null);
@@ -197,27 +202,32 @@ function CandidateInboxContent() {
           })
             .then(async (outcome) => {
               if (outcome.status === 'detailed-review-required') {
-                if (selectedBatchId.current === draft.batch_id) {
+                if (selectionGuard.selected() === draft.batch_id) {
                   setError(CAUSAL_REVIEW_COPY[locale]);
                 }
                 return;
               }
               if (outcome.status === 'stale') {
-                if (selectedBatchId.current === draft.batch_id && outcome.reloadSucceeded) {
+                if (selectionGuard.selected() === draft.batch_id && outcome.reloadSucceeded) {
                   setError(STALE_REVIEW_COPY[locale]);
                 }
                 return;
               }
               const result = outcome.result;
               await load();
-              if (!destructive && (result.skippedEdges ?? 0) > 0) {
+              if (
+                !destructive
+                && (result.skippedEdges ?? 0) > 0
+                && mutationSelection.batchId === draft.batch_id
+                && selectionGuard.isCurrent(mutationSelection)
+              ) {
                 setNotice(interpolate(copy.edgesSkipped, {
                   count: formatNumber(result.skippedEdges ?? 0),
                 }));
               }
             })
             .catch((reason) => {
-              if (selectedBatchId.current === draft.batch_id) {
+              if (selectionGuard.selected() === draft.batch_id) {
                 setError(reason instanceof MobileApiRequestError
                   ? reason.code === 'CANDIDATE_DEPENDENCY_PENDING'
                     ? copy.pendingDependency

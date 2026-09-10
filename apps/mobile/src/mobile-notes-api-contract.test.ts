@@ -47,6 +47,13 @@ test('my notes lifecycle controls meet the native accessibility contract', () =>
   assert.ok((mobileNotesSource.match(/styles\.actionButton/g) ?? []).length >= 7);
 });
 
+test('My Notes invalidates its active list request on blur', () => {
+  assert.match(
+    mobileNotesSource,
+    /useFocusEffect\(useCallback\(\(\) => \{\s*void load\(\);\s*return \(\) => viewRequestGuard\.current\.invalidate\(\);\s*\}, \[load\]\)\)/,
+  );
+});
+
 test('native note tags are owner-scoped, controlled, and included on create or update', () => {
   assert.match(
     mobileNotesSource,

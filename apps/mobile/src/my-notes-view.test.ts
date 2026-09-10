@@ -210,6 +210,16 @@ test('view request guard rejects responses from a previously selected lifecycle 
   assert.equal(guard.selected(), 'trash');
 });
 
+test('view request guard invalidates the active response when My Notes blurs', () => {
+  const guard = createMyNotesViewRequestGuard();
+  const request = guard.begin();
+
+  guard.invalidate();
+
+  assert.equal(guard.isCurrent('active', request), false);
+  assert.equal(guard.selected(), 'active');
+});
+
 test('pending action guard rejects rapid duplicate and cross-note mutations', () => {
   const guard = createMyNotesPendingActionGuard();
 

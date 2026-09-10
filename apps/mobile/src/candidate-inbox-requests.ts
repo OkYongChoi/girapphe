@@ -1,6 +1,19 @@
 export type CandidateInboxRequestGuard = Readonly<{
   begin: () => number;
+  invalidate: () => void;
   isLatest: (request: number) => boolean;
+}>;
+
+export type CandidateBatchSelection = Readonly<{
+  batchId: string | null;
+  revision: number;
+}>;
+
+export type CandidateBatchSelectionGuard = Readonly<{
+  capture: () => CandidateBatchSelection;
+  isCurrent: (selection: CandidateBatchSelection) => boolean;
+  select: (batchId: string | null) => void;
+  selected: () => string | null;
 }>;
 
 export type CandidateQuickAction = 'approve-candidate' | 'ignore-candidate';
@@ -67,8 +80,35 @@ export function createCandidateInboxRequestGuard(): CandidateInboxRequestGuard {
       latestRequest += 1;
       return latestRequest;
     },
+    invalidate() {
+      latestRequest += 1;
+    },
     isLatest(request) {
       return request === latestRequest;
+    },
+  };
+}
+
+export function createCandidateBatchSelectionGuard(
+  initialBatchId: string | null = null,
+): CandidateBatchSelectionGuard {
+  let batchId = initialBatchId;
+  let revision = 0;
+
+  return {
+    capture() {
+      return { batchId, revision };
+    },
+    isCurrent(selection) {
+      return selection.batchId === batchId && selection.revision === revision;
+    },
+    select(nextBatchId) {
+      if (nextBatchId === batchId) return;
+      batchId = nextBatchId;
+      revision += 1;
+    },
+    selected() {
+      return batchId;
     },
   };
 }

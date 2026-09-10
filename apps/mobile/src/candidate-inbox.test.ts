@@ -8,6 +8,7 @@ import {
   buildCandidateWebReviewUrl,
   candidateQuickActionRequiresDetailedReview,
   classifyCandidateBatchScope,
+  createCandidateBatchSelectionGuard,
   createCandidateInboxRequestGuard,
   removePendingCandidate,
   resolveCandidateQuickAction,
@@ -45,6 +46,27 @@ test('a stale initial inbox response cannot auto-select over the latest explicit
   await initialLoad;
 
   assert.equal(selectedBatch, 'explicit-batch');
+});
+
+test('candidate request invalidation rejects a response that settles after blur', () => {
+  const requestGuard = createCandidateInboxRequestGuard();
+  const request = requestGuard.begin();
+
+  requestGuard.invalidate();
+
+  assert.equal(requestGuard.isLatest(request), false);
+});
+
+test('a candidate mutation notice belongs only to the captured batch selection revision', () => {
+  const selectionGuard = createCandidateBatchSelectionGuard('batch-a');
+  const batchASelection = selectionGuard.capture();
+
+  assert.equal(selectionGuard.isCurrent(batchASelection), true);
+  selectionGuard.select('batch-b');
+  assert.equal(selectionGuard.isCurrent(batchASelection), false);
+
+  selectionGuard.select('batch-a');
+  assert.equal(selectionGuard.isCurrent(batchASelection), false);
 });
 
 test('the last completed overlapping mutation owns the final guarded refresh', async () => {
@@ -178,13 +200,14 @@ test('candidate inbox guards the list response before automatic batch selection'
   const candidateInbox = readFileSync(join(sourceDir, '../app/candidate-inbox.tsx'), 'utf8');
 
   assert.match(candidateInbox, /const \[requestGuard\] = useState\(createCandidateInboxRequestGuard\)/);
+  assert.match(candidateInbox, /return \(\) => requestGuard\.invalidate\(\)/);
   assert.match(
     candidateInbox,
-    /const load = useCallback\(async \(\): Promise<MobileCandidateDraft\[\] \| null> => \{\s*const request = requestGuard\.begin\(\);\s*setDrafts\(\[\]\);[\s\S]*?const next = \(await mobileApi\.candidateInbox\(\)\)\.batches;\s*if \(!requestGuard\.isLatest\(request\)\) return null;\s*setBatches\(next\);\s*const nextBatch = selectCandidateBatch\(next, selectedBatchId\.current\);\s*if \(nextBatch\) return await loadBatch\(nextBatch\);/,
+    /const load = useCallback\(async \(\): Promise<MobileCandidateDraft\[\] \| null> => \{\s*const request = requestGuard\.begin\(\);\s*setDrafts\(\[\]\);[\s\S]*?const next = \(await mobileApi\.candidateInbox\(\)\)\.batches;\s*if \(!requestGuard\.isLatest\(request\)\) return null;\s*setBatches\(next\);\s*const nextBatch = selectCandidateBatch\(next, selectionGuard\.selected\(\)\);\s*if \(nextBatch\) return await loadBatch\(nextBatch\);/,
   );
   assert.match(
     candidateInbox,
-    /const result = await mobileApi\.candidateBatch\(batch\.id\);\s*if \(!requestGuard\.isLatest\(request\)\) return null;\s*selectedBatchId\.current = result\.batch\.id;\s*setSelectedBatch\(result\.batch\);\s*setDrafts\(result\.drafts\);\s*return result\.drafts;/,
+    /const result = await mobileApi\.candidateBatch\(batch\.id\);\s*if \(!requestGuard\.isLatest\(request\)\) return null;\s*selectionGuard\.select\(result\.batch\.id\);\s*setSelectedBatch\(result\.batch\);\s*setDrafts\(result\.drafts\);\s*return result\.drafts;/,
   );
   assert.match(
     candidateInbox,
@@ -196,7 +219,7 @@ test('candidate inbox guards the list response before automatic batch selection'
   );
   assert.match(
     candidateInbox,
-    /resolveCandidateQuickAction\(\{[\s\S]*?draftVersion: draft\.version,[\s\S]*?reloadLatest: load,[\s\S]*?\.then\(async \(outcome\) => \{[\s\S]*?const result = outcome\.result;\s*await load\(\);[\s\S]*?result\.skippedEdges/,
+    /const mutationSelection = selectionGuard\.capture\(\);[\s\S]*?resolveCandidateQuickAction\(\{[\s\S]*?draftVersion: draft\.version,[\s\S]*?reloadLatest: load,[\s\S]*?\.then\(async \(outcome\) => \{[\s\S]*?const result = outcome\.result;\s*await load\(\);[\s\S]*?mutationSelection\.batchId === draft\.batch_id[\s\S]*?selectionGuard\.isCurrent\(mutationSelection\)[\s\S]*?setNotice/,
   );
   assert.match(candidateInbox, /reason instanceof MobileApiRequestError[\s\S]*?CANDIDATE_DEPENDENCY_PENDING[\s\S]*?copy\.pendingDependency/);
   assert.match(candidateInbox, /reason\.code === 'CAUSAL_REVIEW_REQUIRED'[\s\S]*?CAUSAL_REVIEW_COPY\[locale\]/);

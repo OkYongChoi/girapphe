@@ -128,7 +128,10 @@ function TopicScreenContent() {
     }
   }, [t, topic]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    return () => { loadRequest.current += 1; };
+  }, [load]));
 
   const itemLabels = useMemo(() => new Map(hub?.items.map((item) => [item.id, item.title]) ?? []), [hub]);
   const openQuestions = hub?.items.filter((item) => item.structured_content?.type === 'question' && item.structured_content.status === 'open') ?? [];

@@ -45,6 +45,7 @@ export type MyNotesViewCapabilities = {
 
 export type MyNotesViewRequestGuard = {
   begin: () => number;
+  invalidate: () => void;
   isCurrent: (view: MyNotesView, request: number) => boolean;
   isSelected: (view: MyNotesView) => boolean;
   select: (view: MyNotesView) => void;
@@ -271,6 +272,9 @@ export function createMyNotesViewRequestGuard(
     begin() {
       latestRequest += 1;
       return latestRequest;
+    },
+    invalidate() {
+      latestRequest += 1;
     },
     isCurrent(view, request) {
       return selectedView === view && latestRequest === request;

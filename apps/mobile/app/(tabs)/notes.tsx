@@ -185,7 +185,10 @@ function NotesContent() {
     }
   }, [t, view]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    return () => viewRequestGuard.current.invalidate();
+  }, [load]));
 
   const parsedDraftRoute = parsePublicConceptDraftRoute(draftParams);
   const draftKey = parsedDraftRoute?.draftKey ?? '';

@@ -56,4 +56,8 @@ test('empty topic routes clear loading and cannot restore a stale private hub', 
   );
   assert.match(topicScreen, /if \(request === loadRequest\.current\) setHub\(nextHub\)/);
   assert.match(topicScreen, /if \(request === loadRequest\.current\) setLoading\(false\)/);
+  assert.match(
+    topicScreen,
+    /useFocusEffect\(useCallback\(\(\) => \{\s*void load\(\);\s*return \(\) => \{ loadRequest\.current \+= 1; \};\s*\}, \[load\]\)\)/,
+  );
 });
