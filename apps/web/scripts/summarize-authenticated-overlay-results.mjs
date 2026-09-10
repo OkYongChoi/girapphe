@@ -144,6 +144,22 @@ export function buildAuthenticatedMcpProviderSummary(metrics) {
   };
 }
 
+export function assertRequiredMcpPatCloseoutEvidence(metrics, summary) {
+  const normalArtifacts = metrics.filter((metric) => metric.createdOneTimePat === true);
+  const routeFaultArtifacts = metrics.filter((metric) => metric.databaseFallbackRan === true);
+  if (
+    normalArtifacts.length !== 1
+    || routeFaultArtifacts.length !== 1
+    || summary?.patMutationRuns !== 2
+    || summary.normalUiRevocationPassed !== true
+    || summary.routeFaultFallbackPassed !== true
+  ) {
+    throw new Error(
+      'Required Preview MCP PAT closeout evidence is incomplete: expected one successful UI-revocation artifact and one successful route-fault fallback artifact.',
+    );
+  }
+}
+
 export function renderAuthenticatedMcpProviderSummary(summary) {
   if (!summary) {
     return [
@@ -247,6 +263,9 @@ export function renderAuthenticatedOverlaySummary(
 
 export async function summarizeAuthenticatedOverlayResults(
   resultsDirectory = path.resolve('test-results/authenticated-overlay-performance'),
+  {
+    requireMcpPatCloseout = process.env.E2E_REQUIRE_MCP_PAT_CLOSEOUT === 'true',
+  } = {},
 ) {
   const metricsDirectory = path.join(resultsDirectory, 'metrics');
   let names = [];
@@ -311,6 +330,9 @@ export async function summarizeAuthenticatedOverlayResults(
     && mcpProviderMetrics.length === 0
   ) {
     throw new Error(`No authenticated evidence metrics found at ${resultsDirectory}.`);
+  }
+  if (requireMcpPatCloseout) {
+    assertRequiredMcpPatCloseoutEvidence(mcpProviderMetrics, mcpProvider);
   }
   const summary = {
     ...buildAuthenticatedOverlaySummary(metrics),

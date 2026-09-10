@@ -529,6 +529,13 @@ test('preview evidence checks out the open same-repository PR head', async () =>
   assert.match(workflow, /ref: \$\{\{ needs\.validate\.outputs\.preview_head_sha \}\}/);
   assert.match(workflow, /VERIFY_EXPECTED_REVISION: \$\{\{ needs\.validate\.outputs\.preview_head_sha \}\}/);
   assert.match(workflow, /node apps\/web\/scripts\/verify-deployment-revision\.mjs/);
+  const previewJob = workflow.slice(
+    workflow.indexOf('  preview:'),
+    workflow.indexOf('  production:'),
+  );
+  assert.match(previewJob, /E2E_REQUIRE_MCP_PAT_CLOSEOUT: 'true'/);
+  const productionJob = workflow.slice(workflow.indexOf('  production:'));
+  assert.doesNotMatch(productionJob, /E2E_REQUIRE_MCP_PAT_CLOSEOUT/);
 });
 
 test('deployment workflow publishes the served Git revision for Preview and production', async () => {
