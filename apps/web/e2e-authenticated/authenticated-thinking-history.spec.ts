@@ -212,7 +212,10 @@ async function clickAndAcceptConfirm(
       return;
     }
     await expect(control).toBeEnabled({ timeout: 5_000 });
-    await control.tap({ position: mobileTapPosition, timeout: 5_000 });
+    // The stable center/hit-target poll above already proves this rendered
+    // control owns the pointer coordinate. Do not let a second actionability
+    // scroll move it under mobile sticky chrome before the real tap.
+    await control.tap({ position: mobileTapPosition, force: true, timeout: 5_000 });
   };
   const [dialogResult, activationResult] = await Promise.allSettled([
     confirmHandled,

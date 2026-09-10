@@ -139,7 +139,7 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,1200}scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)[\s\S]{0,1000}document\.elementFromPoint\(point\.x, point\.y\)[\s\S]{0,700}the confirmation control is the stable centered pointer target/);
   assert.match(source, /const confirmHandled = page\.waitForEvent\("dialog", \{ timeout: 5_000 \}\)[\s\S]{0,300}dialog\.accept\(\)[\s\S]{0,100}dialog\.dismiss\(\)/);
   assert.match(source, /const mobileTapPosition = hasTouch[\s\S]{0,180}x: element\.clientWidth \/ 2,[\s\S]{0,80}y: element\.clientHeight \/ 2/);
-  assert.match(source, /const activateControl = async \(\) => \{[\s\S]{0,180}if \(!mobileTapPosition\)[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,300}expect\(control\)\.toBeEnabled[\s\S]{0,180}control\.tap\(\{ position: mobileTapPosition, timeout: 5_000 \}\)/);
+  assert.match(source, /const activateControl = async \(\) => \{[\s\S]{0,180}if \(!mobileTapPosition\)[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,300}expect\(control\)\.toBeEnabled[\s\S]{0,420}control\.tap\(\{ position: mobileTapPosition, force: true, timeout: 5_000 \}\)/);
   assert.match(source, /function safeEvidenceErrorSummary\([\s\S]{0,700}\^\(REVIEW_\[A-Z0-9_\]\+\)[\s\S]{0,500}safeErrorSummary\(error\)/);
   assert.match(source, /let evidenceStage = "import_submission"[\s\S]{0,7000}evidenceStage = "review_link"[\s\S]{0,7000}\$\{evidenceStage\}:\$\{safeEvidenceErrorSummary\(evidenceError\)\}/);
   assert.match(source, /Promise\.allSettled\(\[[\s\S]{0,120}confirmHandled,[\s\S]{0,80}activateControl\(\)[\s\S]{0,700}UNEXPECTED_DIALOG_TYPE/);
