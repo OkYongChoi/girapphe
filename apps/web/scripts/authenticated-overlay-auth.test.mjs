@@ -132,7 +132,9 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.doesNotMatch(source, /link\.tap|page\.touchscreen\.tap|page\.mouse\.click/);
   assert.doesNotMatch(source, /click\(\{ force: true \}\)/);
   assert.match(source, /async function gotoOwnerKnowledgeData\([\s\S]{0,1200}attempt <= 2[\s\S]{0,500}\/account\/delete#knowledge-data[\s\S]{0,700}OWNER_DATA_CONTROLS_UNAVAILABLE/);
-  assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,700}waitForEvent\("dialog", \{ timeout: 5_000 \}\)[\s\S]{0,300}dialog\.accept\(\)[\s\S]{0,100}dialog\.dismiss\(\)[\s\S]{0,300}Promise\.allSettled\(\[[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,350}UNEXPECTED_DIALOG_TYPE/);
+  assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,500}html \{ scroll-behavior: auto !important; \}/);
+  assert.match(source, /async function clickAndAcceptConfirm\([\s\S]{0,1200}scrollIntoView\(\{ behavior: "instant", block: "center", inline: "nearest" \}\)[\s\S]{0,1000}document\.elementFromPoint\(point\.x, point\.y\)[\s\S]{0,700}the confirmation control is the stable centered pointer target/);
+  assert.match(source, /const confirmHandled = page\.waitForEvent\("dialog", \{ timeout: 5_000 \}\)[\s\S]{0,300}dialog\.accept\(\)[\s\S]{0,100}dialog\.dismiss\(\)[\s\S]{0,300}Promise\.allSettled\(\[[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,500}UNEXPECTED_DIALOG_TYPE/);
   assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await clickAndAcceptConfirm\([\s\S]{0,220}deleteImportCopy[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
   assert.doesNotMatch(source, /page\.once\("dialog"/);
   const submissionClick = source.indexOf('await page.getByRole("button", { name: /Create 2 review candidates/i }).click()');

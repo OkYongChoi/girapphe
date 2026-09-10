@@ -160,6 +160,34 @@ async function waitForImportSubmissionEventCount(
 }
 
 async function clickAndAcceptConfirm(page: Page, control: Locator): Promise<void> {
+  const smoothScrollOverride = await page.addStyleTag({
+    content: "html { scroll-behavior: auto !important; }",
+  });
+  await expect.poll(async () => control.evaluate(async (element) => {
+    element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
+    await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+    const firstBounds = element.getBoundingClientRect();
+    await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+    const bounds = element.getBoundingClientRect();
+    const point = {
+      x: bounds.left + bounds.width / 2,
+      y: bounds.top + bounds.height / 2,
+    };
+    const hitTarget = document.elementFromPoint(point.x, point.y);
+    return Math.abs(firstBounds.left - bounds.left) < 0.5
+      && Math.abs(firstBounds.top - bounds.top) < 0.5
+      && Math.abs(firstBounds.width - bounds.width) < 0.5
+      && Math.abs(firstBounds.height - bounds.height) < 0.5
+      && bounds.width > 0
+      && bounds.height > 0
+      && hitTarget !== null
+      && (hitTarget === element || element.contains(hitTarget));
+  }), {
+    message: "the confirmation control is the stable centered pointer target",
+    timeout: 10_000,
+    intervals: [100, 250, 500],
+  }).toBe(true);
+
   let dialogType: string | null = null;
   const confirmHandled = page.waitForEvent("dialog", { timeout: 5_000 })
     .then(async (dialog) => {
@@ -171,6 +199,9 @@ async function clickAndAcceptConfirm(page: Page, control: Locator): Promise<void
     confirmHandled,
     control.click({ timeout: 5_000 }),
   ]);
+  await smoothScrollOverride.evaluate((element) => {
+    element.parentNode?.removeChild(element);
+  }).catch(() => undefined);
   if (clickResult.status === "rejected" && dialogResult.status === "rejected") {
     throw clickResult.reason;
   }
