@@ -194,10 +194,11 @@ test('migration 0025 indexes serve the production new and review queries on live
     assert.match(indexDefinitions[APPROVED_DRAFT_INDEX], /USING btree \(user_id, knowledge_item_id\)[\s\S]*status = 'approved'/i);
     assert.match(indexDefinitions[APPROVED_DRAFT_INDEX], /approved_at IS NOT NULL/i);
 
-    // The marker values cannot match a real account or item and therefore
-    // keep ANALYZE read-only while exercising the production query builder.
+    // The owner marker cannot match a real account. Mirror the production
+    // initial cursor so the plan exercises the owner-first seek instead of
+    // proving only that the primary key can stop above the UUID keyspace.
     const probeOwner = `mobile-plan-${crypto.randomUUID()}`;
-    const probeItem = `mobile-plan-${crypto.randomUUID()}`;
+    const probeItem = '';
     const newQuery = buildEligiblePrivatePracticeQuery(probeOwner, 'new', {
       afterKnowledgeItemId: probeItem,
       limitOne: true,
