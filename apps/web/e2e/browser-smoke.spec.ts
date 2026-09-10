@@ -359,6 +359,10 @@ test.describe('browser smoke', () => {
     }
 
     await page.goto('/grid');
+    const siteHeader = page.getByRole('navigation', { name: 'Site header' });
+    await expect.poll(() => siteHeader.evaluate((element) => getComputedStyle(element).position), {
+      message: 'the site header stays sticky on desktop',
+    }).toBe('sticky');
     const homeLink = page.getByRole('link', { name: 'Girapphe — go to home' });
     const brandWordmark = page.getByTestId('brand-wordmark');
     await expect(homeLink.locator('svg')).toBeVisible();
@@ -391,17 +395,9 @@ test.describe('browser smoke', () => {
         expect(box?.width ?? 0, 'site header touch target width').toBeGreaterThanOrEqual(44);
         expect(box?.height ?? 0, 'site header touch target height').toBeGreaterThanOrEqual(44);
       }
-      const mobileHeaderClearance = await page.getByRole('navigation', { name: 'Site header' })
-        .evaluate((element) => ({
-          headerHeight: element.getBoundingClientRect().height,
-          scrollPaddingTop: Number.parseFloat(
-            getComputedStyle(document.documentElement).scrollPaddingTop,
-          ),
-        }));
-      expect(
-        mobileHeaderClearance.scrollPaddingTop,
-        'block-start targets clear the full sticky mobile header',
-      ).toBeGreaterThanOrEqual(mobileHeaderClearance.headerHeight);
+      await expect.poll(() => siteHeader.evaluate((element) => getComputedStyle(element).position), {
+        message: 'the two-row mobile header leaves content taps unobstructed',
+      }).toBe('static');
       await expect.poll(async () => {
         const box = await conceptsTab.boundingBox();
         return Boolean(box && box.x >= 0 && box.x + box.width <= 390);

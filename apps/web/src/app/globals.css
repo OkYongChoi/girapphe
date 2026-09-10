@@ -18,9 +18,14 @@ body {
 
 html {
   scroll-behavior: smooth;
-  /* The two-row sticky header exceeds the old 5rem allowance. Keep
-     block-start targets fully below it at every viewport size. */
-  scroll-padding-top: 9rem;
+  scroll-padding-top: 1rem;
+}
+
+@media (min-width: 768px) {
+  html {
+    /* The two-row header is sticky from the desktop breakpoint onward. */
+    scroll-padding-top: 9rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
