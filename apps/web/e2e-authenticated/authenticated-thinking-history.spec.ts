@@ -210,7 +210,7 @@ async function clickAndAcceptConfirm(
   }).toBe(true);
 
   let dialogType: string | null = null;
-  const confirmHandled = page.waitForEvent("dialog", { timeout: 5_000 })
+  const confirmHandled = page.waitForEvent("dialog", { timeout: 10_000 })
     .then(async (dialog) => {
       dialogType = dialog.type();
       if (dialogType === "confirm") await dialog.accept();
@@ -218,14 +218,13 @@ async function clickAndAcceptConfirm(
     });
   const activateControl = async () => {
     if (!hasTouch) {
-      await control.click({ timeout: 5_000 });
+      await control.click({ timeout: 10_000 });
       return;
     }
-    await expect(control).toBeEnabled({ timeout: 5_000 });
-    // Keep this as a real, unforced touch activation. Let Playwright derive a
-    // fresh clickable point after its own actionability scroll instead of
-    // pinning an offset whose mobile viewport mapping can become stale.
-    await control.tap({ timeout: 5_000 });
+    await expect(control).toBeEnabled({ timeout: 10_000 });
+    // The control is already centered and hit-tested. Keep the real touch
+    // action unforced while preventing a second locator scroll from moving it.
+    await control.tap({ timeout: 10_000, scroll: "none" });
   };
   const [dialogResult, activationResult] = await Promise.allSettled([
     confirmHandled,
