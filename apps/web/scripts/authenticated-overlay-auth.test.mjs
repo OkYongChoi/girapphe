@@ -122,9 +122,10 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /const firstBounds = element\.getBoundingClientRect\(\)[\s\S]{0,220}const bounds = element\.getBoundingClientRect\(\)[\s\S]{0,500}const boundsAreStable/);
   assert.match(source, /document\.elementFromPoint\(point\.x, point\.y\)/);
   assert.match(source, /const mobileTapPosition = hasTouch[\s\S]{0,180}x: element\.clientWidth \/ 2,[\s\S]{0,80}y: element\.clientHeight \/ 2/);
-  assert.match(source, /if \(trial\)[\s\S]{0,120}if \(mobileTapPosition\)[\s\S]{0,140}link\.tap\(\{ position: mobileTapPosition, trial: true, timeout: 10_000 \}\)[\s\S]{0,140}link\.click\(\{ trial: true, timeout: 10_000 \}\)/);
-  assert.match(source, /if \(mobileTapPosition\)[\s\S]{0,120}link\.tap\(\{ position: mobileTapPosition, timeout: 10_000 \}\)[\s\S]{0,180}link\.focus\(\)[\s\S]{0,120}expect\(link\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
-  assert.match(source, /await activate\(true\)[\s\S]{0,1800}page\.on\("request", onRequest\)[\s\S]{0,300}await activate\(false\)/);
+  assert.match(source, /if \(!mobileTapPosition\)[\s\S]{0,180}link\.click\(\{ trial: true, timeout: 10_000 \}\)[\s\S]{0,180}REVIEW_LOCATOR_NOT_ACTIONABLE/);
+  assert.match(source, /if \(mobileTapPosition\)[\s\S]{0,420}link\.tap\(\{[\s\S]{0,120}position: mobileTapPosition,[\s\S]{0,80}force: true,[\s\S]{0,80}timeout: 10_000,[\s\S]{0,120}\}\)[\s\S]{0,180}link\.focus\(\)[\s\S]{0,120}expect\(link\)\.toBeFocused\(\)[\s\S]{0,120}page\.keyboard\.press\("Enter"\)/);
+  assert.doesNotMatch(source, /link\.tap\(\{[^}]*trial: true/);
+  assert.match(source, /page\.on\("request", onRequest\)[\s\S]{0,500}await activate\(\)/);
   assert.match(source, /REVIEW_ACTIVATION_NO_REQUEST/);
   assert.match(source, /REVIEW_DESTINATION_HTTP_ERROR/);
   assert.match(source, /REVIEW_TARGET_REQUEST_NO_RESPONSE/);
@@ -139,7 +140,8 @@ test('Thinking History import-event evidence waits for commit visibility and cle
   assert.match(source, /const confirmHandled = page\.waitForEvent\("dialog", \{ timeout: 5_000 \}\)[\s\S]{0,300}dialog\.accept\(\)[\s\S]{0,100}dialog\.dismiss\(\)/);
   assert.match(source, /const mobileTapPosition = hasTouch[\s\S]{0,180}x: element\.clientWidth \/ 2,[\s\S]{0,80}y: element\.clientHeight \/ 2/);
   assert.match(source, /const activateControl = async \(\) => \{[\s\S]{0,180}if \(!mobileTapPosition\)[\s\S]{0,120}control\.click\(\{ timeout: 5_000 \}\)[\s\S]{0,300}expect\(control\)\.toBeEnabled[\s\S]{0,180}control\.tap\(\{ position: mobileTapPosition, timeout: 5_000 \}\)/);
-  assert.match(source, /let evidenceStage = "import_submission"[\s\S]{0,7000}evidenceStage = "review_link"[\s\S]{0,7000}\$\{evidenceStage\}:\$\{safeErrorSummary\(evidenceError\)\}/);
+  assert.match(source, /function safeEvidenceErrorSummary\([\s\S]{0,700}\^\(REVIEW_\[A-Z0-9_\]\+\)[\s\S]{0,500}safeErrorSummary\(error\)/);
+  assert.match(source, /let evidenceStage = "import_submission"[\s\S]{0,7000}evidenceStage = "review_link"[\s\S]{0,7000}\$\{evidenceStage\}:\$\{safeEvidenceErrorSummary\(evidenceError\)\}/);
   assert.match(source, /Promise\.allSettled\(\[[\s\S]{0,120}confirmHandled,[\s\S]{0,80}activateControl\(\)[\s\S]{0,700}UNEXPECTED_DIALOG_TYPE/);
   assert.match(source, /async function deleteSubmittedImportThroughOwnerUi\([\s\S]{0,1600}await clickAndAcceptConfirm\([\s\S]{0,220}deleteImportCopy[\s\S]{0,220}await waitForImportSubmissionEventCount\(page, 0\)/);
   assert.doesNotMatch(source, /page\.once\("dialog"/);

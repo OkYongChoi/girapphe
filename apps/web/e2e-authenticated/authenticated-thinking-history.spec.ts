@@ -280,6 +280,15 @@ function safeErrorSummary(error: unknown): string {
   return `${name}:${failureFingerprint(error)}`;
 }
 
+function safeEvidenceErrorSummary(error: unknown): string {
+  const errorCode = error instanceof Error
+    ? /^(REVIEW_[A-Z0-9_]+)(?::(?:[0-9]{3}|[0-9a-f]{12}))?$/.exec(error.message)?.[1]
+    : undefined;
+  return errorCode
+    ? `${errorCode}:${safeErrorSummary(error)}`
+    : safeErrorSummary(error);
+}
+
 function installBrowserErrorGuards(page: Page): BrowserErrorDigest[] {
   const errors: BrowserErrorDigest[] = [];
   page.on("console", (message) => {
@@ -383,28 +392,30 @@ async function activateExactReviewLink(
     }))
     : undefined;
 
-  const activate = async (trial: boolean) => {
-    if (trial) {
-      if (mobileTapPosition) {
-        await link.tap({ position: mobileTapPosition, trial: true, timeout: 10_000 });
-      } else {
-        await link.click({ trial: true, timeout: 10_000 });
-      }
-      return;
+  if (!mobileTapPosition) {
+    try {
+      await link.click({ trial: true, timeout: 10_000 });
+    } catch (error) {
+      throw new Error(`REVIEW_LOCATOR_NOT_ACTIONABLE:${failureFingerprint(error)}`);
     }
+  }
+
+  const activate = async () => {
     if (mobileTapPosition) {
-      await link.tap({ position: mobileTapPosition, timeout: 10_000 });
+      // The immediately preceding geometry and hit-target poll proves that this
+      // rendered anchor owns its stable center. Avoid a second Playwright
+      // actionability scroll that can move it behind mobile sticky chrome.
+      await link.tap({
+        position: mobileTapPosition,
+        force: true,
+        timeout: 10_000,
+      });
       return;
     }
     await link.focus();
     await expect(link).toBeFocused();
     await page.keyboard.press("Enter");
   };
-  try {
-    await activate(true);
-  } catch (error) {
-    throw new Error(`REVIEW_LOCATOR_NOT_ACTIONABLE:${failureFingerprint(error)}`);
-  }
 
   const observation: ReviewNavigationObservation = {
     requestSeen: false,
@@ -436,7 +447,7 @@ async function activateExactReviewLink(
 
   let activationError: unknown;
   try {
-    await activate(false);
+    await activate();
   } catch (error) {
     activationError = error;
   }
@@ -958,7 +969,7 @@ test("proves selected import, private evidence, portable context, dismissal, and
   }
   if (evidenceError || uiCleanupError) {
     const evidenceStatus = evidenceError
-      ? `${evidenceStage}:${safeErrorSummary(evidenceError)}`
+      ? `${evidenceStage}:${safeEvidenceErrorSummary(evidenceError)}`
       : "passed";
     const cleanupStatus = uiCleanupError ? safeErrorSummary(uiCleanupError) : "passed";
     const fallbackStatus = databaseFallbackError
