@@ -47,7 +47,7 @@ export default defineConfig({
     {
       name: 'authenticated-mobile',
       testMatch:
-        /authenticated-(?:overlay-performance|settings|thinking-history|mcp-provider-setup|my-notes-tags)\.spec\.ts/,
+        /authenticated-(?:overlay-performance|settings|thinking-history|mcp-provider-setup|my-notes-tags|mobile-api)\.spec\.ts/,
       use: {
         ...devices['Pixel 7'],
         storageState: 'playwright/.clerk/authenticated-overlay-user.json',

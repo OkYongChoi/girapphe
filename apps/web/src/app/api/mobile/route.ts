@@ -85,16 +85,19 @@ async function isMobileAdmin() {
 }
 
 function unauthorized() {
-  return NextResponse.json({ error: 'Sign in is required.', code: 'AUTH_REQUIRED' }, { status: 401 });
+  return privateJson({ error: 'Sign in is required.', code: 'AUTH_REQUIRED' }, { status: 401 });
 }
 
 function invalid(message: string, code = 'INVALID_REQUEST') {
-  return NextResponse.json({ error: message, code }, { status: 400 });
+  return privateJson({ error: message, code }, { status: 400 });
 }
 
-function privateJson(body: unknown) {
+function privateJson(body: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set('Cache-Control', 'private, no-store');
   return NextResponse.json(body, {
-    headers: { 'Cache-Control': 'private, no-store' },
+    ...init,
+    headers,
   });
 }
 
@@ -181,12 +184,12 @@ function toFormData(values: Record<string, string>) {
 
 function mutationResponse(result: { success?: boolean; error?: string }) {
   if (result.success === false) {
-    return NextResponse.json(
+    return privateJson(
       { error: result.error === 'guest_card_not_available' ? 'This card is not available.' : 'The change could not be saved.' },
       { status: result.error === 'guest_card_not_available' ? 400 : 500 },
     );
   }
-  return NextResponse.json(result);
+  return privateJson(result);
 }
 
 export async function GET(request: NextRequest) {
@@ -205,13 +208,13 @@ export async function GET(request: NextRequest) {
 
   switch (resource) {
     case 'admin-nodes':
-      if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
+      if (!await isMobileAdmin()) return privateJson({ error: 'Administrator access is required.' }, { status: 403 });
       return privateJson({ nodes: await getAdminNodes() });
     case 'admin-edges':
-      if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
+      if (!await isMobileAdmin()) return privateJson({ error: 'Administrator access is required.' }, { status: 403 });
       return privateJson({ edges: await getAdminEdges(), nodes: await getAdminNodes() });
     case 'admin-users':
-      if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
+      if (!await isMobileAdmin()) return privateJson({ error: 'Administrator access is required.' }, { status: 403 });
       return privateJson({ users: await getAdminUsers() });
     case 'notes': {
       const view = request.nextUrl.searchParams.get('view');
@@ -240,7 +243,7 @@ export async function GET(request: NextRequest) {
       const batchId = request.nextUrl.searchParams.get('batchId')?.trim() ?? '';
       if (!batchId || batchId.length > 240 || !/^[A-Za-z0-9._:-]+$/.test(batchId)) return invalid('A valid batch id is required.', 'INVALID_BATCH');
       const result = await getKnowledgeDraftBatch(batchId);
-      if (!result) return NextResponse.json({ error: 'The candidate batch was not found.', code: 'BATCH_NOT_FOUND' }, { status: 404 });
+      if (!result) return privateJson({ error: 'The candidate batch was not found.', code: 'BATCH_NOT_FOUND' }, { status: 404 });
       const pending = result.drafts.filter((draft) => draft.status === 'pending');
       const duplicateSuggestions = await getKnowledgeDuplicateSuggestionsForDraftsForUser(mobileUser.id, pending);
       return privateJson({
@@ -341,7 +344,7 @@ export async function POST(request: NextRequest) {
 
   const parsedBody = await readBody(request);
   if (!parsedBody.ok) {
-    return NextResponse.json(
+    return privateJson(
       { error: parsedBody.reason === 'too_large' ? 'The request body is too large.' : 'A small JSON object is required.' },
       { status: parsedBody.reason === 'too_large' ? 413 : 400 },
     );
@@ -353,24 +356,24 @@ export async function POST(request: NextRequest) {
   if (!action) return invalid('An action is required.');
 
   if (action.startsWith('admin-')) {
-    if (!await isMobileAdmin()) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
+    if (!await isMobileAdmin()) return privateJson({ error: 'Administrator access is required.' }, { status: 403 });
     if (action === 'admin-delete-node') {
       const id = stringField(body.id, 100); if (!id) return invalid('A node id is required.');
-      await deleteAdminNode(id); return NextResponse.json({ success: true });
+      await deleteAdminNode(id); return privateJson({ success: true });
     }
     if (action === 'admin-delete-edge') {
       const id = body.id; if (!Number.isInteger(id) || (id as number) < 1) return invalid('A valid edge id is required.');
-      await deleteAdminEdge(id as number); return NextResponse.json({ success: true });
+      await deleteAdminEdge(id as number); return privateJson({ success: true });
     }
     if (action === 'admin-create-node') {
       const id = stringField(body.id, 100); const label = stringField(body.label, 200); const domain = stringField(body.domain, 50); const type = stringField(body.type, 50);
       if (!id || !label || !domain || !type || typeof body.level !== 'number' || typeof body.difficulty !== 'number') return invalid('Complete node fields are required.');
-      await createAdminNode({ id, label, domain, type, level: body.level, difficulty: body.difficulty }); return NextResponse.json({ success: true }, { status: 201 });
+      await createAdminNode({ id, label, domain, type, level: body.level, difficulty: body.difficulty }); return privateJson({ success: true }, { status: 201 });
     }
     if (action === 'admin-create-edge') {
       const source = stringField(body.source, 100); const target = stringField(body.target, 100); const type = stringField(body.type, 50);
       if (!source || !target || !type || typeof body.weight !== 'number') return invalid('Complete edge fields are required.');
-      await createAdminEdge({ source, target, type, weight: body.weight }); return NextResponse.json({ success: true }, { status: 201 });
+      await createAdminEdge({ source, target, type, weight: body.weight }); return privateJson({ success: true }, { status: 201 });
     }
     return invalid('Unknown administrator action.');
   }
@@ -397,7 +400,7 @@ export async function POST(request: NextRequest) {
     if (!batchId || !draftId || typeof draftVersion !== 'number' || !Number.isSafeInteger(draftVersion) || draftVersion <= 0) return invalid('A valid candidate and version are required.');
     const context = await getKnowledgeDraftResolutionContext(draftId);
     if (!context || context.draft.batch_id !== batchId || context.draft.status !== 'pending') {
-      return NextResponse.json({ error: 'The candidate is no longer pending.', code: 'CANDIDATE_STALE' }, { status: 409 });
+      return privateJson({ error: 'The candidate is no longer pending.', code: 'CANDIDATE_STALE' }, { status: 409 });
     }
     const preflight = classifyMobileCandidateMutationPreflight({
       action,
@@ -406,7 +409,7 @@ export async function POST(request: NextRequest) {
       capabilities,
     });
     if (preflight === 'stale') {
-      return NextResponse.json({ error: 'The candidate changed before review.', code: 'CANDIDATE_STALE' }, { status: 409 });
+      return privateJson({ error: 'The candidate changed before review.', code: 'CANDIDATE_STALE' }, { status: 409 });
     }
     const candidateForm = toFormData({
       batch_id: batchId,
@@ -416,8 +419,8 @@ export async function POST(request: NextRequest) {
     if (action === 'ignore-candidate') {
       const result = await ignoreKnowledgeDraft(candidateForm);
       return result.resolved
-        ? NextResponse.json(result)
-        : NextResponse.json({
+        ? privateJson(result)
+        : privateJson({
           ...result,
           error: 'The candidate changed before it was ignored.',
           code: 'CANDIDATE_STALE',
@@ -425,13 +428,13 @@ export async function POST(request: NextRequest) {
     }
     const draft = context.draft;
     if (preflight === 'knowledge-capability-required') {
-      return NextResponse.json({
+      return privateJson({
         error: 'Update the app before approving knowledge features that are unavailable in this version.',
         code: 'KNOWLEDGE_CAPABILITY_REQUIRED',
       }, { status: 409 });
     }
     if (preflight === 'causal-review-required') {
-      return NextResponse.json({
+      return privateJson({
         error: 'Review causal relationship targets, directions, and evidence in the detailed web review before approval.',
         code: 'CAUSAL_REVIEW_REQUIRED',
       }, { status: 409 });
@@ -456,15 +459,15 @@ export async function POST(request: NextRequest) {
       }
     }
     const result = await resolveKnowledgeDraft(candidateForm);
-    if (result.resolved) return NextResponse.json(result);
+    if (result.resolved) return privateJson(result);
     if (result.pendingDependency) {
-      return NextResponse.json({
+      return privateJson({
         ...result,
         error: 'A related candidate must be approved first.',
         code: 'CANDIDATE_DEPENDENCY_PENDING',
       }, { status: 409 });
     }
-    return NextResponse.json({
+    return privateJson({
       ...result,
       error: 'The candidate changed before it was saved.',
       code: 'CANDIDATE_STALE',
@@ -486,7 +489,7 @@ export async function POST(request: NextRequest) {
     await createKnowledgeItem(toFormData({ title, summary, content, topic, tags: tags.join(','), request_id: requestId,
       knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
       bundle_schema_version: bundle.knowledgeType ? '1' : '' }));
-    return NextResponse.json({ success: true }, { status: 201 });
+    return privateJson({ success: true }, { status: 201 });
   }
 
   if (!id) return invalid('A note id is required.');
@@ -508,12 +511,12 @@ export async function POST(request: NextRequest) {
       return invalid('A valid note version is required.', 'INVALID_NOTE_VERSION');
     }
     if (!resolvedVersion.ok) {
-      return NextResponse.json({ error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
+      return privateJson({ error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
     }
     if (!capabilities.expression || !capabilities.eventChronology) {
       const currentItem = (await getUserKnowledgeItems()).find((item) => item.id === id);
       if (mobileKnowledgeEditRequiresCapability(currentItem, capabilities)) {
-        return NextResponse.json({
+        return privateJson({
           error: 'Update the app before editing this structured note.',
           code: 'KNOWLEDGE_CAPABILITY_REQUIRED',
         }, { status: 409 });
@@ -524,16 +527,16 @@ export async function POST(request: NextRequest) {
       knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
       bundle_schema_version: bundle.knowledgeType ? '1' : '' }));
     if (!result.updated && 'stale' in result) {
-      return NextResponse.json({ ...result, error: 'The note changed before this edit was saved.', code: 'NOTE_STALE' }, { status: 409 });
+      return privateJson({ ...result, error: 'The note changed before this edit was saved.', code: 'NOTE_STALE' }, { status: 409 });
     }
     if (!result.updated) {
-      return NextResponse.json({ ...result, error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
+      return privateJson({ ...result, error: 'The note was not found.', code: 'NOTE_NOT_FOUND' }, { status: 404 });
     }
-    return NextResponse.json({ success: true, version: result.version });
+    return privateJson({ success: true, version: result.version });
   }
   if (action === 'delete-note') {
     await deleteKnowledgeItem(toFormData({ id }));
-    return NextResponse.json({ success: true });
+    return privateJson({ success: true });
   }
   if (action === 'archive-note' || action === 'restore-archived-note') {
     const version = body.version;
@@ -544,16 +547,16 @@ export async function POST(request: NextRequest) {
       ? await archiveKnowledgeItem(toFormData({ id, version: String(version) }))
       : await restoreArchivedKnowledgeItem(toFormData({ id, version: String(version) }));
     if (result.stale || result.version === null) {
-      return NextResponse.json(
+      return privateJson(
         { ...result, error: 'The note changed before its archive state was updated.', code: 'NOTE_STALE' },
         { status: 409 },
       );
     }
-    return NextResponse.json({ success: true, archived: result.archived, version: result.version });
+    return privateJson({ success: true, archived: result.archived, version: result.version });
   }
   if (action === 'restore-note') {
     await restoreKnowledgeItem(toFormData({ id }));
-    return NextResponse.json({ success: true });
+    return privateJson({ success: true });
   }
 
   return invalid('Unknown mobile action.', 'UNKNOWN_MOBILE_ACTION');

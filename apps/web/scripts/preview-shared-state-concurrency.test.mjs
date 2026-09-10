@@ -52,6 +52,7 @@ test('preview jobs serialize shared database and Worker-settings mutations', asy
 
   const orderedStatefulCommands = [
     /pnpm db:prepare:preview/,
+    /scripts\/mobile-practice-index-postgres\.test\.mjs/,
     /scripts\/recall-persistence-postgres\.test\.mjs/,
     /scripts\/knowledge-supersession-tombstone-postgres\.test\.mjs/,
     /scripts\/knowledge-resolution-postgres\.test\.mjs/,
@@ -75,6 +76,20 @@ test('preview jobs serialize shared database and Worker-settings mutations', asy
       );
     }
   }
+
+  const mobilePlanStep = stepWithRun(
+    previewJob,
+    /scripts\/mobile-practice-index-postgres\.test\.mjs/,
+  ).step;
+  assert.equal(
+    mobilePlanStep.env.EXPECTED_NEON_PREVIEW_BRANCH_ID,
+    '${{ vars.NEON_PREVIEW_BRANCH_ID }}',
+  );
+  assert.equal(
+    mobilePlanStep.env.EXPECTED_HEAD_SHA,
+    '${{ github.event.pull_request.head.sha }}',
+  );
+  assert.equal(mobilePlanStep.env.NODE_OPTIONS, '--conditions=react-server');
 
   const deployMutationStep = stepWithRun(
     previewJob,

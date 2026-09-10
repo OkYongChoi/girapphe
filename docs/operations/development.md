@@ -85,9 +85,21 @@ Mobile Practice private keyset reads depend on migration
 `0025_mobile_practice_owner_cursor.sql`, which adds the owner-first
 `(user_id, id)` seek index plus the approved-draft item/owner lookup index. The
 protected `main` workflow runs checked-in Drizzle
-migrations before activating the production Worker. To validate the index or
-query plan manually, use an isolated Neon branch and a direct, non-pooler
-connection for the migration, then capture `EXPLAIN` evidence there. Local
+migrations before activating the production Worker. The protected Preview job
+uses repository variable `NEON_PREVIEW_BRANCH_ID` to prove that the direct,
+non-pooler `DATABASE_URL_PREVIEW` points to the intended isolated branch, then
+captures sanitized `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` evidence for both
+new and review modes through the same production query builder. It verifies
+both exact 0025 index definitions and fails unless the latency-critical
+owner-cursor index appears in each plan. PostgreSQL may correctly prefer a
+sequential scan for the approved-draft predicate while that table is small; its
+partial index remains definition-gated for growth. A failed plan assertion
+still leaves the sanitized artifact for diagnosis. To reproduce that gate
+manually, set
+`LIVE_POSTGRES_TEST_DATABASE_URL`, `EXPECTED_NEON_PREVIEW_BRANCH_ID`, and a
+40-character `EXPECTED_HEAD_SHA`, then run
+`pnpm exec tsx --test scripts/mobile-practice-index-postgres.test.mjs` from
+`apps/web`. Local
 `harness:deploy` validates code, the Worker build, and size only; it does not
 execute migrations or prove a live Postgres query plan.
 
@@ -187,9 +199,19 @@ item surface instead of being serialized a second time for graph activation.
 The suite also requires HTTP 200, exactly one no-argument overlay request, at
 least two final fixture-filtered private canvas nodes, at least one final private
 canvas edge, and zero console/page errors.
+On testing-token Preview runs, the Pixel 7 project also performs one deployed
+mobile API journey covering private Notes lifecycle, Topics and Topic Hub,
+anonymous Ranking, private new/review Practice, and Candidate approve, ignore,
+and stale-version responses. Every authenticated response must be
+`private, no-store`. The fixture adds only marker-owned rows for the dedicated
+synthetic account, removes the exact batch, items, event hashes, private
+mastery, and ranking row, and writes only counts and booleans to the Mobile API
+summary section. Body failures and cleanup failures are preserved separately;
+the command still attempts to write the sanitized summary and returns the
+original Playwright failure status.
 Before Graph is clicked, the suite waits for the page load event plus a
 three-second idle observation and fails on any Server Action request.
-After the desktop and mobile read-only checks finish, a dependency-final
+After the desktop and mobile evidence projects finish, a dependency-final
 desktop regression signs out the synthetic browser session exactly once. It
 requires the localized home page to show signed-out navigation immediately and
 the private mobile API to return `401`; keep it last because it revokes the
@@ -209,7 +231,10 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    revision. Desktop and mobile each run three times against that PR's Preview
    Worker, preview Clerk instance, and preview database. The validated Preview
    synthetic owner's prior MCP token rows are reset before the provider test;
-   each created evidence PAT is revoked before its screenshot.
+   each created evidence PAT is revoked before its screenshot. The mobile API
+   mutation journey is testing-token Preview-only and its summary is deployed
+   browser evidence, not physical-device, accessibility, signed-binary, or
+   store-release evidence.
 3. Review the uploaded summary before changing performance code. Separate
    Clerk, Worker-to-Neon, private-graph, and link-target time if the result is
    slow.

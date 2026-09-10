@@ -300,11 +300,11 @@ function privatePracticeModePredicate(mode: PrivatePracticeMode): string {
        )`;
 }
 
-async function queryEligiblePrivatePracticeCards(
+export function buildEligiblePrivatePracticeQuery(
   userId: string,
   mode: PrivatePracticeMode,
   options?: { afterKnowledgeItemId?: string; limitOne?: boolean },
-): Promise<PrivatePracticeCard[]> {
+): { text: string; params: string[] } {
   const modePredicate = privatePracticeModePredicate(mode);
   const cursorPredicate = options?.afterKnowledgeItemId === undefined
     ? ''
@@ -313,7 +313,8 @@ async function queryEligiblePrivatePracticeCards(
   const params = options?.afterKnowledgeItemId === undefined
     ? [userId]
     : [userId, options.afterKnowledgeItemId];
-  const result = await db.query<PrivatePracticeCardRow>(`
+  return {
+    text: `
     SELECT
       i.id AS knowledge_item_id,
       i.title,
@@ -347,7 +348,18 @@ async function queryEligiblePrivatePracticeCards(
       ${modePredicate}
     ORDER BY i.id ASC
     ${limit}
-  `, params);
+  `,
+    params,
+  };
+}
+
+async function queryEligiblePrivatePracticeCards(
+  userId: string,
+  mode: PrivatePracticeMode,
+  options?: { afterKnowledgeItemId?: string; limitOne?: boolean },
+): Promise<PrivatePracticeCard[]> {
+  const query = buildEligiblePrivatePracticeQuery(userId, mode, options);
+  const result = await db.query<PrivatePracticeCardRow>(query.text, query.params);
 
   return result.rows
     .filter((row) => isEligiblePrivatePracticeRecord(row, userId))

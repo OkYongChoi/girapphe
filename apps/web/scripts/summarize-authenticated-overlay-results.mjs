@@ -81,6 +81,37 @@ export function buildAuthenticatedThinkingHistorySummary(metrics) {
   return { projects, runs: metrics };
 }
 
+const MOBILE_API_GATES = [
+  'noteLifecycle',
+  'topicsAndHub',
+  'rankingAnonymous',
+  'practiceNewAndReview',
+  'candidateApproveIgnoreAndStale',
+  'cleanup',
+];
+
+export function buildAuthenticatedMobileApiSummary(metrics) {
+  const byProject = Map.groupBy(metrics, (metric) => metric.project);
+  const projects = Object.fromEntries([...byProject.entries()].map(([project, rows]) => [
+    project,
+    {
+      runs: rows.length,
+      privateNoStoreReadsMinimum: Math.min(...rows.map((row) => row.privateNoStoreReads)),
+      gates: Object.fromEntries(MOBILE_API_GATES.map((gate) => [
+        gate,
+        rows.every((row) => row[gate] === true),
+      ])),
+      closeoutPassed: rows.every((row) => (
+        row.schemaVersion === 1
+        && Number.isSafeInteger(row.privateNoStoreReads)
+        && row.privateNoStoreReads > 0
+        && MOBILE_API_GATES.every((gate) => row[gate] === true)
+      )),
+    },
+  ]));
+  return { projects, runs: metrics };
+}
+
 export function renderAuthenticatedThinkingHistorySummary(summary) {
   if (!summary) {
     return [
@@ -105,36 +136,67 @@ export function renderAuthenticatedThinkingHistorySummary(summary) {
   ].join('\n');
 }
 
-export function renderAuthenticatedOverlaySummary(summary, thinkingHistory = null) {
-  const overlay = [
-  '# Authenticated overlay performance',
-  '',
-  '| Project | Runs | Click to canvas median / worst | Overlay headers median / worst | Decoded by canvas median / worst | Transfer by canvas median / worst |',
-  '| --- | ---: | ---: | ---: | ---: | ---: |',
-  ...Object.entries(summary.projects).map(([project, value]) => {
+export function renderAuthenticatedMobileApiSummary(summary) {
+  if (!summary) {
+    return [
+      '## Mobile API deployed path',
+      '',
+      'Not enabled for this run. Physical-device and store evidence remain separately gated.',
+      '',
+    ].join('\n');
+  }
+
+  return [
+    '## Mobile API deployed path',
+    '',
+    '| Project | Runs | Private no-store reads minimum | Notes | Topics / hub | Anonymous ranking | Practice new / review | Candidate approve / ignore / stale | Exact cleanup | Closeout |',
+    '| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |',
+    ...Object.entries(summary.projects).map(([project, value]) => (
+      `| ${project} | ${value.runs} | ${value.privateNoStoreReadsMinimum} | ${value.gates.noteLifecycle ? 'passed' : 'failed'} | ${value.gates.topicsAndHub ? 'passed' : 'failed'} | ${value.gates.rankingAnonymous ? 'passed' : 'failed'} | ${value.gates.practiceNewAndReview ? 'passed' : 'failed'} | ${value.gates.candidateApproveIgnoreAndStale ? 'passed' : 'failed'} | ${value.gates.cleanup ? 'passed' : 'failed'} | ${value.closeoutPassed ? 'passed' : 'failed'} |`
+    )),
+    '',
+    'Synthetic owner-scoped Preview API evidence with sanitized counts and booleans only. It is not physical-device, accessibility, signed-binary, or store-release evidence.',
+    '',
+  ].join('\n');
+}
+
+export function renderAuthenticatedOverlaySummary(summary, thinkingHistory = null, mobileApi = null) {
+  const projectEntries = Object.entries(summary.projects);
+  const overlay = projectEntries.length === 0
+    ? [
+      '# Authenticated overlay performance',
+      '',
+      'No overlay metrics completed for this run.',
+      '',
+    ].join('\n')
+    : [
+      '# Authenticated overlay performance',
+      '',
+      '| Project | Runs | Click to canvas median / worst | Overlay headers median / worst | Decoded by canvas median / worst | Transfer by canvas median / worst |',
+      '| --- | ---: | ---: | ---: | ---: | ---: |',
+      ...projectEntries.map(([project, value]) => {
     const transfer = value.overlayTransferredBytesAtCanvas
       ? `${formatBytes(value.overlayTransferredBytesAtCanvas.median)} / ${formatBytes(value.overlayTransferredBytesAtCanvas.worst)}`
       : 'n/a';
     return `| ${project} | ${value.runs} | ${value.clickToCanvasMs.median} ms / ${value.clickToCanvasMs.worst} ms | ${value.overlayResponseHeadersMs.median} ms / ${value.overlayResponseHeadersMs.worst} ms | ${formatBytes(value.overlayDecodedBytesAtCanvas.median)} / ${formatBytes(value.overlayDecodedBytesAtCanvas.worst)} | ${transfer} |`;
-  }),
-  '',
-  'Synthetic Playwright measurements. Overlay timing ends at response headers, and byte counts include data received through canvas display so streaming RSC responses do not block the evidence run. These are not production user telemetry.',
-  '',
-  ].join('\n');
-  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}`;
+      }),
+      '',
+      'Synthetic Playwright measurements. Overlay timing ends at response headers, and byte counts include data received through canvas display so streaming RSC responses do not block the evidence run. These are not production user telemetry.',
+      '',
+    ].join('\n');
+  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}\n${renderAuthenticatedMobileApiSummary(mobileApi)}`;
 }
 
 export async function summarizeAuthenticatedOverlayResults(
   resultsDirectory = path.resolve('test-results/authenticated-overlay-performance'),
 ) {
   const metricsDirectory = path.join(resultsDirectory, 'metrics');
-  let names;
+  let names = [];
   try {
     names = (await fs.readdir(metricsDirectory)).filter((name) => name.endsWith('.json')).sort();
-  } catch {
-    throw new Error(`No authenticated overlay metrics found at ${metricsDirectory}.`);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
   }
-  if (names.length === 0) throw new Error(`No authenticated overlay metrics found at ${metricsDirectory}.`);
 
   const metrics = await Promise.all(names.map(async (name) => (
     JSON.parse(await fs.readFile(path.join(metricsDirectory, name), 'utf8'))
@@ -154,11 +216,30 @@ export async function summarizeAuthenticatedOverlayResults(
   const thinkingHistory = thinkingHistoryMetrics.length > 0
     ? buildAuthenticatedThinkingHistorySummary(thinkingHistoryMetrics)
     : null;
+  const mobileApiDirectory = path.join(resultsDirectory, 'mobile-api');
+  let mobileApiNames = [];
+  try {
+    mobileApiNames = (await fs.readdir(mobileApiDirectory))
+      .filter((name) => name.endsWith('.json'))
+      .sort();
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  const mobileApiMetrics = await Promise.all(mobileApiNames.map(async (name) => (
+    JSON.parse(await fs.readFile(path.join(mobileApiDirectory, name), 'utf8'))
+  )));
+  const mobileApi = mobileApiMetrics.length > 0
+    ? buildAuthenticatedMobileApiSummary(mobileApiMetrics)
+    : null;
+  if (metrics.length === 0 && thinkingHistoryMetrics.length === 0 && mobileApiMetrics.length === 0) {
+    throw new Error(`No authenticated evidence metrics found at ${resultsDirectory}.`);
+  }
   const summary = {
     ...buildAuthenticatedOverlaySummary(metrics),
     thinkingHistory,
+    mobileApi,
   };
-  const markdown = renderAuthenticatedOverlaySummary(summary, thinkingHistory);
+  const markdown = renderAuthenticatedOverlaySummary(summary, thinkingHistory, mobileApi);
 
   await fs.mkdir(resultsDirectory, { recursive: true });
   await Promise.all([
