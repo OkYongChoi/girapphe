@@ -18,7 +18,9 @@ body {
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 5rem;
+  /* The two-row sticky header exceeds the old 5rem allowance. Keep
+     block-start targets fully below it at every viewport size. */
+  scroll-padding-top: 9rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
