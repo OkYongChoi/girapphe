@@ -44,6 +44,18 @@ test('topic page uses the already-decoded Next.js route parameter exactly once',
   assert.match(topicPage, /getTopicKnowledgeHubForUser\(user\.id, topicParam\)/);
 });
 
+test('topic page sticky navigation follows the responsive site-header offset', () => {
+  const sourceDir = dirname(fileURLToPath(import.meta.url));
+  const topicPage = readFileSync(join(sourceDir, '../app/topics/[topic]/page.tsx'), 'utf8');
+
+  assert.match(topicPage, /className="sticky top-0[^\"]*md:top-\[7\.2rem\]"/);
+  assert.ok(
+    (topicPage.match(/scroll-mt-20[^\"]*md:scroll-mt-44/g) ?? []).length >= 9,
+    'topic anchors must clear the mobile subnav and both desktop sticky bars',
+  );
+  assert.doesNotMatch(topicPage, /className="sticky top-\[7\.2rem\]/);
+});
+
 test('an empty topic hub reports the current request time instead of the Unix epoch', async () => {
   const beforeRequest = Date.now();
   const hub = await getTopicKnowledgeHubForUser(

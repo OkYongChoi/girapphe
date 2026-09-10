@@ -4,6 +4,14 @@ Girapphe keeps imported AI material inside the existing private knowledge
 review boundary. It does not persist an uploaded provider archive or a raw
 conversation transcript.
 
+Leaving the local preview before confirmation creates no import job. The first
+release has no background model work. After confirmation, ignoring a candidate
+or discarding a batch marks its remaining candidates rejected and removes them
+from active review, but their owner-scoped structured content remains in the
+import record and full export until the user explicitly deletes that import.
+Approved knowledge is deleted separately so import cleanup cannot silently
+remove work the user already approved.
+
 ## Export
 
 `GET /api/knowledge/export?scope=all` requires the current Clerk account and returns a
@@ -23,15 +31,21 @@ paywalled.
 `/account/delete` distinguishes three destructive actions:
 
 - **Delete import job** is immediate and has no recovery window. It deletes the
-  job, pending candidates, and the job's metric events. Approved knowledge is
-  preserved and detached from the deleted job; its hashed source provenance
-  remains.
+  job, pending and ignored candidates, and the job's metric events. Approved
+  knowledge is preserved and detached from the deleted job; its source and
+  evidence provenance remains without transcript text. Selected-export source
+  fingerprints are hashed.
 - **Delete approved knowledge** uses My Notes and its visible 14-day Trash
   recovery window.
 - **Delete account** is immediate and irreversible after Clerk
   reverification. It removes import jobs, drafts, approved private knowledge,
   revisions, evidence, relationships, intelligence feedback, reuse activity,
   learning state, credentials, and the authentication account.
+
+The authenticated account-data UI and confirmation panel use the active locale
+for these boundaries. The literal destructive confirmation token remains
+`DELETE` in every locale so the server and client share one unambiguous
+contract.
 
 ## Rollout and rollback
 

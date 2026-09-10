@@ -18,7 +18,14 @@ body {
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 5rem;
+  scroll-padding-top: 1rem;
+}
+
+@media (min-width: 768px) {
+  html {
+    /* The two-row header is sticky from the desktop breakpoint onward. */
+    scroll-padding-top: 9rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

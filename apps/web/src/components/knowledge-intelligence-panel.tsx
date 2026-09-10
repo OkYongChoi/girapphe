@@ -216,7 +216,7 @@ export default function KnowledgeIntelligencePanel({
               <span aria-hidden="true" className="thinking-marker">
                 {String(index + 1).padStart(2, '0')}
               </span>
-              <article className="thinking-card">
+              <article className="thinking-card" data-signal-id={signal.id}>
                 <div className="thinking-card-copy">
                   <div className="thinking-chip-row">
                     <span className="thinking-signal-label" data-type={signal.type}>{t(`insights.type.${signal.type}`)}</span>

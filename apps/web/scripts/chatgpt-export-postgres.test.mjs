@@ -364,6 +364,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
   const capacityUserId = `live-selected-export-capacity-${fixtureId}`;
   const crossScopeUserId = `live-selected-export-cross-scope-${fixtureId}`;
   const telemetryUserId = `live-selected-export-telemetry-${fixtureId}`;
+  const telemetryExpandedUserId = `live-selected-export-telemetry-expanded-${fixtureId}`;
   const telemetryCompletionFirstUserId = `live-selected-export-telemetry-first-${fixtureId}`;
   const telemetryDeletionFirstUserId = `live-selected-export-deletion-first-${fixtureId}`;
   const telemetryQuotaUserId = `live-selected-export-telemetry-quota-${fixtureId}`;
@@ -387,6 +388,7 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
   const fixtureUserIds = [
     userId, otherUserId, legacyUserId, legacyIgnoredUserId, legacyExpandedUserId,
     legacyCollisionUserId, capacityUserId, crossScopeUserId, telemetryUserId,
+    telemetryExpandedUserId,
     telemetryCompletionFirstUserId, telemetryDeletionFirstUserId, telemetryQuotaUserId,
     mixedOldDeleteUserId, mixedOldCompletionUserId,
     eventGuardUserId, mixedOldBatchGuardUserId, mixedOldDeletionGuardUserId,
@@ -1026,6 +1028,23 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     const firstBatch = await getKnowledgeDraftBatchForUser(userId, first.batchId);
     const firstDraft = firstBatch?.drafts[0];
     assert.ok(firstDraft);
+    assert.deepEqual((await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM user_knowledge_items WHERE user_id = $1) AS canonical_knowledge,
+         (SELECT COUNT(*)::integer FROM user_graph_nodes WHERE user_id = $1) AS private_graph_nodes,
+         (SELECT COUNT(*)::integer FROM user_graph_edges WHERE user_id = $1) AS private_graph_edges,
+         (SELECT COUNT(*)::integer FROM user_private_card_states WHERE user_id = $1) AS private_mastery,
+         (SELECT COUNT(*)::integer FROM user_knowledge_states WHERE user_id = $1) AS public_mastery,
+         (SELECT COUNT(*)::integer FROM user_card_states WHERE user_id = $1) AS ranking_inputs`,
+      [userId],
+    )).rows[0], {
+      canonical_knowledge: 0,
+      private_graph_nodes: 0,
+      private_graph_edges: 0,
+      private_mastery: 0,
+      public_mastery: 0,
+      ranking_inputs: 0,
+    }, 'a pending selected export must not change canonical knowledge, graph, mastery, or ranking state');
     const resolution = await resolveKnowledgeDraftForUser(userId, {
       batchId: first.batchId,
       draftId: firstDraft.id,
@@ -1475,11 +1494,6 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       'Can duplicate-only import telemetry stay attached to one deletable job?',
     );
     await recordKnowledgeProductEventsForUser(telemetryUserId, [{
-      eventName: 'conversation_import_started', eventVersion: 1, subjectId: telemetrySessionId,
-    }, {
-      eventName: 'conversation_import_parsed', eventVersion: 1,
-      subjectId: telemetrySessionId, selectionCount: 7,
-    }, {
       eventName: 'knowledge_context_created', eventVersion: 1,
       subjectId: telemetrySessionId, selectionCount: 1,
     }]);
@@ -1488,20 +1502,39 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       importSessionId: telemetrySessionId, selections: [telemetrySelection],
     });
     assert.equal(telemetryCreated.created, true);
-    await recordChatGptExportCompletionTelemetry(telemetryUserId, {
+    await assert.doesNotReject(() => recordChatGptExportCompletionTelemetry(telemetryUserId, {
       importSessionId: telemetrySessionId,
-      selectionCount: 2,
+      parsedExchangeCount: 7,
+      selectionCount: 1,
       result: telemetryCreated,
+    }, {
+      deletePreConfirmationEvents: async () => 0,
+      finalizeEvents: async () => { throw new Error('simulated post-commit telemetry failure'); },
+    }));
+    const telemetryRetry = await createChatGptExportDraftBatchForUser(telemetryUserId, {
+      source: 'chatgpt_export', consent: true,
+      importSessionId: telemetrySessionId, selections: [telemetrySelection],
     });
+    assert.deepEqual({
+      batchId: telemetryRetry.batchId,
+      created: telemetryRetry.created,
+      draftCount: telemetryRetry.draftCount,
+    }, {
+      batchId: telemetryCreated.batchId,
+      created: false,
+      draftCount: 1,
+    });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await recordChatGptExportCompletionTelemetry(telemetryUserId, {
+        importSessionId: telemetrySessionId,
+        parsedExchangeCount: 7,
+        selectionCount: 1,
+        result: telemetryRetry,
+      });
+    }
 
     const duplicateTelemetrySessionId = crypto.randomUUID();
     await recordKnowledgeProductEventsForUser(telemetryUserId, [{
-      eventName: 'conversation_import_started', eventVersion: 1,
-      subjectId: duplicateTelemetrySessionId,
-    }, {
-      eventName: 'conversation_import_parsed', eventVersion: 1,
-      subjectId: duplicateTelemetrySessionId, selectionCount: 9,
-    }, {
       eventName: 'knowledge_context_created', eventVersion: 1,
       subjectId: duplicateTelemetrySessionId, selectionCount: 1,
     }]);
@@ -1522,6 +1555,13 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
     });
     await recordChatGptExportCompletionTelemetry(telemetryUserId, {
       importSessionId: duplicateTelemetrySessionId,
+      parsedExchangeCount: 9,
+      selectionCount: 1,
+      result: duplicateTelemetryResult,
+    });
+    await recordChatGptExportCompletionTelemetry(telemetryUserId, {
+      importSessionId: duplicateTelemetrySessionId,
+      parsedExchangeCount: 9,
       selectionCount: 1,
       result: duplicateTelemetryResult,
     });
@@ -1569,6 +1609,82 @@ test('PostgreSQL keeps selected-export identity durable after import deletion an
       'SELECT COUNT(*)::integer AS count FROM knowledge_product_events WHERE user_id = $1',
       [telemetryUserId],
     )).rows[0].count, 2);
+
+    const expandedTelemetrySessionId = crypto.randomUUID();
+    const expandedTelemetryFirst = await create(
+      telemetryExpandedUserId,
+      [selectedA],
+      expandedTelemetrySessionId,
+    );
+    const expandedTelemetrySecond = await create(
+      telemetryExpandedUserId,
+      [selectedA, selectedB],
+      expandedTelemetrySessionId,
+    );
+    assert.equal(expandedTelemetryFirst.created, true);
+    assert.equal(expandedTelemetrySecond.created, true);
+    assert.notEqual(expandedTelemetryFirst.batchId, expandedTelemetrySecond.batchId);
+    for (const [result, parsedExchangeCount, selectionCount] of [
+      [expandedTelemetryFirst, 1, 1],
+      [expandedTelemetrySecond, 2, 2],
+    ]) {
+      assert.equal(await finalizeChatGptExportCompletionEventsForUser(
+        telemetryExpandedUserId,
+        {
+          importSessionId: expandedTelemetrySessionId,
+          batchId: result.batchId,
+          parsedExchangeCount,
+          selectionCount,
+          created: result.created,
+          draftCount: result.draftCount,
+        },
+        { memoryBatchExists: () => true },
+      ), 4);
+    }
+    assert.equal(await finalizeChatGptExportCompletionEventsForUser(
+      telemetryExpandedUserId,
+      {
+        importSessionId: expandedTelemetrySessionId,
+        batchId: expandedTelemetrySecond.batchId,
+        parsedExchangeCount: 2,
+        selectionCount: 2,
+        created: false,
+        draftCount: expandedTelemetrySecond.draftCount,
+      },
+      { memoryBatchExists: () => true },
+    ), 0);
+    const expandedTelemetryGroups = (await pool.query(
+      `SELECT subject_id, COUNT(*)::integer AS count
+       FROM knowledge_product_events
+       WHERE user_id = $1
+       GROUP BY subject_id
+       ORDER BY subject_id`,
+      [telemetryExpandedUserId],
+    )).rows;
+    assert.deepEqual(expandedTelemetryGroups.map((row) => row.count), [4, 4]);
+    assert.equal(new Set(expandedTelemetryGroups.map((row) => row.subject_id)).size, 2);
+    assert.deepEqual(
+      await deleteKnowledgeImportBatchForUser(
+        telemetryExpandedUserId,
+        expandedTelemetryFirst.batchId,
+      ),
+      { deleted: true, approvedKnowledgePreserved: 0 },
+    );
+    assert.equal((await pool.query(
+      'SELECT COUNT(*)::integer AS count FROM knowledge_product_events WHERE user_id = $1',
+      [telemetryExpandedUserId],
+    )).rows[0].count, 4);
+    assert.deepEqual(
+      await deleteKnowledgeImportBatchForUser(
+        telemetryExpandedUserId,
+        expandedTelemetrySecond.batchId,
+      ),
+      { deleted: true, approvedKnowledgePreserved: 0 },
+    );
+    assert.equal((await pool.query(
+      'SELECT COUNT(*)::integer AS count FROM knowledge_product_events WHERE user_id = $1',
+      [telemetryExpandedUserId],
+    )).rows[0].count, 0);
 
     const exerciseTelemetryDeletionOrder = async (raceUserId, completionFirst) => {
       const raceSessionId = crypto.randomUUID();

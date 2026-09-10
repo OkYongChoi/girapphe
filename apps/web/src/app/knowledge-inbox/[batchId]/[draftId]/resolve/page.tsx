@@ -46,8 +46,8 @@ export default async function CandidateResolutionPage({ params, searchParams }: 
   return (
     <main id="main-content" className="min-h-screen bg-slate-50">
       <Navbar />
-      <section className="mx-auto w-full max-w-6xl p-4 pb-16 md:p-8">
-        <nav aria-label={t('inbox.title')} className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-600">
+      <section className="mx-auto w-full min-w-0 max-w-6xl p-4 pb-16 md:p-8">
+        <nav aria-label={t('inbox.title')} className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-semibold text-slate-600">
           <LocalizedLink href="/knowledge-inbox" className="text-blue-700 hover:underline">{t('inbox.title')}</LocalizedLink>
           <span aria-hidden="true">/</span>
           <LocalizedLink href={`/knowledge-inbox/${encodeURIComponent(batchId)}`} className="text-blue-700 hover:underline">{t('inbox.currentImport')}</LocalizedLink>
@@ -55,23 +55,23 @@ export default async function CandidateResolutionPage({ params, searchParams }: 
           <span aria-current="page">{t('inbox.reviewTitle')}</span>
         </nav>
 
-        <header className="mt-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
-          <div className="flex flex-wrap items-start justify-between gap-5">
-            <div className="max-w-3xl">
+        <header className="mt-5 min-w-0 max-w-full rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-5">
+            <div className="min-w-0 max-w-3xl">
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">{t('inbox.currentImport')}</p>
               <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950"><KnowledgeText text={context.draft.title} allowCodeCopy={false} /></h1>
               <p className="mt-3 text-sm leading-relaxed text-slate-600">{t('inbox.reviewSubtitle')}</p>
             </div>
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-end text-xs text-slate-600">
+            <div className="min-w-0 max-w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-end text-xs text-slate-600">
               <p className="font-bold capitalize text-blue-800">{provider}</p>
-              <p className="mt-1 font-mono">{t('inbox.isolated')} {batchId}</p>
-              {sourceReference ? <p className="mt-1 max-w-xs truncate">{t('inbox.sourceReference', { reference: sourceReference })}</p> : null}
+              <p className="mt-1 break-all font-mono">{t('inbox.isolated')} {batchId}</p>
+              {sourceReference ? <p className="mt-1 max-w-xs break-all">{t('inbox.sourceReference', { reference: sourceReference })}</p> : null}
               {sourceUrl.startsWith('https://') ? <a href={sourceUrl} target="_blank" rel="noreferrer noopener" className="mt-2 inline-flex font-bold text-blue-700 hover:underline">{t('topic.hub.openSource')} ↗</a> : null}
             </div>
           </div>
         </header>
 
-        <div className="mt-6">
+        <div className="mt-6 min-w-0 max-w-full">
           <DraftResolutionPanel
             batchId={batchId}
             draft={context.draft}

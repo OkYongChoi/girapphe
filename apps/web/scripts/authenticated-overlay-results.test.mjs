@@ -58,9 +58,29 @@ test('authenticated summary reports private Thinking History evidence separately
       project: 'authenticated-desktop',
       syntheticPrivateEvidenceCount: 2,
       messageAsset: { requests: 1, status: 200, bytes: 2_048 },
-      contextApiStatuses: [204, 200],
+      signalOperations: ['viewed', 'evidence_opened', 'dismissed'],
+      contextFormats: ['json', 'json', 'yaml', 'yaml', 'markdown', 'markdown'],
+      contextApiStatuses: [200, 200, 200, 200, 200, 200],
       contextRequestsBeforeIntent: 0,
       contextBytes: 4_096,
+      importEvidence: {
+        selectedCount: 2,
+        preConsentPostCount: 0,
+        preConsentImportEventRows: 0,
+        preSubmitImportEventRows: 0,
+        postConsentImportEventNames: [
+          'conversation_import_candidates_ready',
+          'conversation_import_confirmed',
+          'conversation_import_parsed',
+          'conversation_import_started',
+        ],
+        unselectedContentSent: false,
+        archiveFilenameSent: false,
+        pendingCandidatesBeforeReview: 2,
+        preApprovalPublishedStateUnchanged: true,
+        preApprovalActivationRows: 0,
+        batchDeleted: true,
+      },
       browserErrorCount: 0,
       durationMs: 750,
     },
@@ -68,9 +88,29 @@ test('authenticated summary reports private Thinking History evidence separately
       project: 'authenticated-mobile',
       syntheticPrivateEvidenceCount: 2,
       messageAsset: { requests: 1, status: 200, bytes: 2_048 },
-      contextApiStatuses: [204, 200],
+      signalOperations: ['viewed', 'evidence_opened', 'dismissed'],
+      contextFormats: ['json', 'json', 'yaml', 'yaml', 'markdown', 'markdown'],
+      contextApiStatuses: [200, 200, 200, 200, 200, 200],
       contextRequestsBeforeIntent: 0,
       contextBytes: 4_096,
+      importEvidence: {
+        selectedCount: 2,
+        preConsentPostCount: 0,
+        preConsentImportEventRows: 0,
+        preSubmitImportEventRows: 0,
+        postConsentImportEventNames: [
+          'conversation_import_candidates_ready',
+          'conversation_import_confirmed',
+          'conversation_import_parsed',
+          'conversation_import_started',
+        ],
+        unselectedContentSent: false,
+        archiveFilenameSent: false,
+        pendingCandidatesBeforeReview: 2,
+        preApprovalPublishedStateUnchanged: true,
+        preApprovalActivationRows: 0,
+        batchDeleted: true,
+      },
       browserErrorCount: 0,
       durationMs: 900,
     },
@@ -78,10 +118,24 @@ test('authenticated summary reports private Thinking History evidence separately
 
   assert.equal(summary.projects['authenticated-desktop'].privateEvidenceMinimum, 2);
   assert.equal(summary.projects['authenticated-mobile'].contextRequestsBeforeIntentWorst, 0);
-  assert.deepEqual(summary.projects['authenticated-mobile'].contextFlows, ['204 -> 200']);
+  assert.deepEqual(summary.projects['authenticated-mobile'].contextFlows, [
+    '200 -> 200 -> 200 -> 200 -> 200 -> 200',
+  ]);
+  assert.deepEqual(summary.projects['authenticated-mobile'].signalOperations, [
+    'dismissed',
+    'evidence_opened',
+    'viewed',
+  ]);
+  assert.deepEqual(summary.projects['authenticated-mobile'].contextFormats, [
+    'json',
+    'markdown',
+    'yaml',
+  ]);
+  assert.equal(summary.projects['authenticated-mobile'].importCloseoutPassed, true);
   const markdown = renderAuthenticatedThinkingHistorySummary(summary);
   assert.match(markdown, /authenticated-desktop \| 1 \| 1 \/ 1; 200/);
-  assert.match(markdown, /204 -> 200/);
+  assert.match(markdown, /json, markdown, yaml/);
+  assert.match(markdown, /passed/);
   assert.match(markdown, /4 KiB \/ 4 KiB/);
   assert.match(markdown, /production user telemetry/i);
 
@@ -109,9 +163,29 @@ test('authenticated result loader merges private-path metrics into persisted sum
       project: 'authenticated-desktop',
       syntheticPrivateEvidenceCount: 2,
       messageAsset: { requests: 1, status: 200, bytes: 2_048 },
-      contextApiStatuses: [204, 200],
+      signalOperations: ['viewed', 'evidence_opened', 'dismissed'],
+      contextFormats: ['json', 'json', 'yaml', 'yaml', 'markdown', 'markdown'],
+      contextApiStatuses: [200, 200, 200, 200, 200, 200],
       contextRequestsBeforeIntent: 0,
       contextBytes: 4_096,
+      importEvidence: {
+        selectedCount: 2,
+        preConsentPostCount: 0,
+        preConsentImportEventRows: 0,
+        preSubmitImportEventRows: 0,
+        postConsentImportEventNames: [
+          'conversation_import_candidates_ready',
+          'conversation_import_confirmed',
+          'conversation_import_parsed',
+          'conversation_import_started',
+        ],
+        unselectedContentSent: false,
+        archiveFilenameSent: false,
+        pendingCandidatesBeforeReview: 2,
+        preApprovalPublishedStateUnchanged: true,
+        preApprovalActivationRows: 0,
+        batchDeleted: true,
+      },
       browserErrorCount: 0,
       durationMs: 750,
     })),
@@ -123,7 +197,7 @@ test('authenticated result loader merges private-path metrics into persisted sum
     0,
   );
   assert.match(markdown, /Thinking History private path/);
-  assert.match(markdown, /204 -> 200/);
+  assert.match(markdown, /json, markdown, yaml/);
   const persisted = JSON.parse(await fs.readFile(path.join(root, 'summary.json'), 'utf8'));
   assert.equal(persisted.thinkingHistory.runs.length, 1);
   assert.equal(await fs.readFile(path.join(root, 'summary.md'), 'utf8'), markdown);

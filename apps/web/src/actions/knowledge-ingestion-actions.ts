@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireCurrentUser } from '@/lib/auth';
 import {
+  chatGptExportImportInputSchema,
   createChatGptExportDraftBatchForUser,
   type ChatGptExportImportInput,
 } from '@/lib/chatgpt-export-import';
@@ -70,15 +71,18 @@ export async function getKnowledgeDraftBatch(batchId: string): Promise<{ batch: 
 
 export async function createChatGptExportDrafts(
   input: ChatGptExportImportInput,
+  telemetry: { parsedExchangeCount: number },
 ): Promise<{ batchId: string | null; draftCount: number; reviewPath: string }> {
   const user = await requireCurrentUser();
   if (!isAiThinkingHistoryEnabledForUser(user.id)) {
     throw new Error('AI thinking history import is not enabled for this account.');
   }
-  const result = await createChatGptExportDraftBatchForUser(user.id, input);
+  const parsedInput = chatGptExportImportInputSchema.parse(input);
+  const result = await createChatGptExportDraftBatchForUser(user.id, parsedInput);
   await recordChatGptExportCompletionTelemetry(user.id, {
-    importSessionId: input.importSessionId,
-    selectionCount: input.selections.length,
+    importSessionId: parsedInput.importSessionId,
+    parsedExchangeCount: telemetry?.parsedExchangeCount,
+    selectionCount: parsedInput.selections.length,
     result,
   });
   revalidateKnowledgeSurfaces(result.batchId ?? undefined);

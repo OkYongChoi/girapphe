@@ -203,9 +203,12 @@ test('preserves an unsaved create tag across an edit and rejects a stale second-
     });
     await createForm.locator('input[name="title"]').fill(createDraftTitle);
     const createPicker = page.getByTestId('new-tags-tag-picker');
-    await createPicker.locator('input[type="text"]').fill(createDraftTag);
-    await createPicker.locator('input[type="text"]').press('Enter');
-    await expect(createPicker.locator('input[type="hidden"][name="tags"]')).toHaveValue(createDraftTag);
+    const createTagValue = createPicker.locator('input[type="hidden"][name="tags"]');
+    await expect(createTagValue).toBeAttached();
+    const createTagInput = createPicker.locator('input[type="text"]');
+    await createTagInput.fill(createDraftTag);
+    await createTagInput.press('Enter');
+    await expect(createTagValue).toHaveValue(createDraftTag);
     await expect(page.getByRole('heading', { name: createDraftTitle, level: 3 })).toHaveCount(0);
 
     const currentForm = await openFixtureEditor(page);

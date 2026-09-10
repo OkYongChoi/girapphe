@@ -22,13 +22,13 @@ export default async function ChatGptExportImportPage() {
         </header>
         {enabled ? <ChatGptExportImporter loadingLabel={t('common.loading')} unavailableLabel={t('translation.unavailable')} /> : (
           <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 md:p-8">
-            <h2 className="text-xl font-black text-amber-950">Private beta is not enabled for this account.</h2>
+            <h2 className="text-xl font-black text-amber-950">{t('import.pausedTitle')}</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-amber-900">
-              New imports are paused by the account rollout control. Existing pending reviews, approved knowledge, context packs, export, and deletion remain available.
+              {t('import.pausedBody')}
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
-              <LocalizedLink href="/knowledge-inbox" className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">Open existing reviews</LocalizedLink>
-              <LocalizedLink href="/account/delete#knowledge-data" className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-bold text-amber-950">Data controls</LocalizedLink>
+              <LocalizedLink href="/knowledge-inbox" className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white">{t('import.openExistingReviews')}</LocalizedLink>
+              <LocalizedLink href="/account/delete#knowledge-data" className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-bold text-amber-950">{t('import.dataControls')}</LocalizedLink>
             </div>
           </section>
         )}

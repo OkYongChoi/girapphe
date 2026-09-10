@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+
 interface ConfirmDeleteButtonProps {
   label: string;
   confirmMessage: string;
@@ -13,9 +15,13 @@ export default function ConfirmDeleteButton({
   className,
   ariaLabel,
 }: ConfirmDeleteButtonProps) {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+
   return (
     <button
       type="submit"
+      disabled={!hydrated}
       aria-label={ariaLabel}
       className={className}
       onClick={(e) => {

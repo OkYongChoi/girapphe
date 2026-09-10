@@ -1,9 +1,19 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [
+    "scripts/export-card-content-asset.ts",
+    "scripts/export-clerk-localization-assets.ts"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", ".open-next/**"]
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        ".open-next/**",
+        "public/localization/card-content.json",
+        "public/localization/clerk/**"
+      ]
     },
     "dev": {
       "cache": false,

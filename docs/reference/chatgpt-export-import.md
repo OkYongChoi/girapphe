@@ -8,7 +8,12 @@ opened ChatGPT export.
 
 ## Supported input
 
-The first adapter accepts an extracted `conversations.json` file up to 20 MiB.
+The first adapter accepts exactly one extracted `conversations.json` file up to
+20 MiB. It does not open a provider ZIP and does not combine numbered or split
+conversation JSON files. Supporting another current export shape requires a
+new parser fixture from an export the user is authorized to inspect; the
+provider-neutral downstream contract alone is not evidence that the provider
+format is supported.
 It reads text-only user and assistant messages from at most 5,000 conversations
 and 100,000 mapping nodes. Images, attachments, tool output, system messages,
 hidden messages, incomplete turns, zip files, and unsupported export shapes are
@@ -31,16 +36,19 @@ release claims current compatibility.
 2. Girapphe shows local aggregate topic/date signals and reviewable Q&A turns.
 3. Nothing is selected by default. The user chooses at most 12 exchanges and
    confirms an explicit consent statement.
-4. Only the selected, bounded question, answer, title, opaque source IDs, and
-   date cross the authenticated Server Action boundary.
+4. Only after submission, the selected, bounded question, answer, title,
+   opaque source IDs, date, and content-free aggregate preview count cross the
+   authenticated Server Action boundary.
 5. The server hashes provider IDs and creates one `selected_export` batch of
    private pending `question` bundles through the existing ingestion service.
 6. The original archive, unselected messages, filename, credentials, and tool
    output are not persisted or sent to analytics.
 
 The first release performs no model call and makes no claim that a selected
-answer is a verified fact. It creates an editable answered-question candidate;
-the user must review, revise, merge/update, save as new, or ignore it.
+answer is a verified fact. The deterministic transformation runs inside the
+serialized ingestion transaction and creates editable answered-question
+candidates; there is no background extraction job or model timeout. The user
+must review, revise, merge/update, save as new, or ignore each candidate.
 
 ## Persistence contract
 
@@ -142,10 +150,15 @@ selected text. A later explicit import has a new session ID and is not blocked.
 Post-commit analytics remain best-effort and cannot turn a successfully
 persisted import into a failed response. Completion takes the shared
 account-to-ingestion-to-import lock order, verifies the exact owner/provider/
-selected-export batch, and performs started/parsed reassignment plus completion
-insertion in one transaction. Started/parsed reassignment happens even when the
-owner event quota has no room for new completion events, so every event already
-associated with the import remains deletable with the batch. Import-job deletion takes the same locks and
+selected-export batch, and performs legacy started/parsed reassignment plus
+current session-event insertion in one transaction. Legacy reassignment happens even
+when the owner event quota has no room for new completion events, so every event
+already associated with the import remains deletable with the batch. An initial
+creation and an exact canonical-request retry that resolves its live prepared
+candidates both converge on all four session events directly under that same
+batch subject in the locked transaction. If the first best-effort finalization
+fails after the batch commit, the retry's positive existing-draft count restores
+the missing `candidates_ready` event. Import-job deletion takes the same locks and
 purges that batch subject inside its deletion transaction. Completion therefore
 either precedes deletion and is purged, or follows deletion and writes nothing;
 it cannot recreate orphan telemetry for a deleted job. When ingestion resolves
@@ -153,15 +166,35 @@ either a created or duplicate-only import to a live batch ID that differs from
 the local session ID, the content-free started/parsed events are reassigned to
 the batch subject rather than deleted, preserving one deletable import funnel
 without storing either raw identifier.
+The browser does not send those started/parsed events while choosing a file,
+parsing, selecting candidates, or checking consent. The selected-content Server
+Action records them only after it validates the consented selection and creates
+or resolves the import. All four session-funnel event IDs are deterministic for
+one owner, local import session, resolved batch, and event name. A transport
+retry for that same canonical request fills any missing event and then inserts
+zero duplicates. A different, new import session that only maps to an already
+active source returns no prepared draft count, so it records no false
+`candidates_ready` event. An expanded selection that legitimately creates a
+second batch keeps its own independently deletable funnel.
 If deduplication resolves to a deleted-job tombstone or an approved source whose
 import job is already detached, the result explicitly has no persisted batch.
 Only started/parsed events for that local session are then removed and no
 confirmation event is written; unrelated events sharing the opaque session
 subject remain untouched.
-`conversation_import_candidates_ready` is emitted only when the ingestion
-transaction creates a batch, not for an idempotent retry. A failed or cancelled
-local parse creates no server record. Batch discard and account deletion use
-the existing ingestion lifecycle.
+`conversation_import_candidates_ready` is emitted when the ingestion
+transaction creates a batch or when the exact canonical-request retry resolves
+that batch's existing prepared candidates. A fresh duplicate-only session does
+not emit it. A failed or cancelled local parse or a user exit before confirmation
+creates no server record. After
+confirmation, ignoring a candidate marks it rejected, and discarding an import
+does the same for every remaining pending candidate. Those actions remove the
+candidates from active review but retain their owner-scoped structured content
+in the import record and full export until the user explicitly chooses
+**Delete import**. Import deletion removes the job, pending and ignored
+candidates, and job-scoped events immediately with no recovery window. Approved
+knowledge has its own lifecycle and is preserved with hashed provenance until
+the user deletes it separately. Account deletion uses the owner-wide ingestion
+lifecycle and removes both pending and approved data.
 
 ## Release boundary
 
@@ -184,7 +217,12 @@ Drizzle declares the supporting indexes, while the trigger definitions are
 authoritative in the migration and `schema.sql`. Repository tests prove
 parsing, fail-closed active-branch traversal, strict consent input, canonical
 selection hashing, owner-scoped overlapping-import deduplication, telemetry
-isolation, selected-export scope, and pending-only persistence. A release still
-needs a real authorized export fixture, live PostgreSQL concurrency evidence,
-and rendered desktop/mobile-width browser evidence. No provider credential,
-background sync, or store activation is involved.
+isolation, selected-export scope, and pending-only persistence. Preview
+PostgreSQL run `34305134986` passed the concurrency/deletion fixture for its
+exact deployed revision, and authenticated Preview run `34038249111` passed
+the earlier private evidence/Markdown reuse path. The expanded closeout still
+needs a current authorized export fixture, a new live run of the explicit
+pre-approval zero-state assertions, and a credentialed desktop/mobile browser
+run of import, review, source evidence, dismissal, three-format reuse, export,
+and deletion on the exact new commit. No provider credential, background sync,
+or store activation is involved.

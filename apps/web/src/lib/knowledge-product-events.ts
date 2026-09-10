@@ -10,10 +10,15 @@ import db from '@/lib/db';
 const MAX_EVENTS_PER_BATCH = 10;
 const MAX_EVENTS_PER_HOUR = 120;
 const MAX_EVENTS_PER_OWNER = 50_000;
-const PRE_CONFIRMATION_IMPORT_EVENTS = [
+const CHATGPT_EXPORT_SESSION_EVENT_DOMAIN = 'girapphe:chatgpt-export-session-event:v1';
+const IMPORT_START_PARSE_EVENTS = [
   'conversation_import_started',
   'conversation_import_parsed',
 ] as const;
+type ChatGptExportSessionEventName =
+  | (typeof IMPORT_START_PARSE_EVENTS)[number]
+  | 'conversation_import_confirmed'
+  | 'conversation_import_candidates_ready';
 
 type StoredKnowledgeProductEvent = KnowledgeProductEventInput & {
   id: string;
@@ -130,6 +135,17 @@ export async function recordKnowledgeProductEventForUser(userId: string, value: 
   return recordKnowledgeProductEventsForUser(userId, [value]);
 }
 
+function chatGptExportSessionEventId(
+  userId: string,
+  importSessionId: string,
+  batchId: string,
+  eventName: ChatGptExportSessionEventName,
+) {
+  return createHash('sha256')
+    .update(`${CHATGPT_EXPORT_SESSION_EVENT_DOMAIN}\u0000${userId}\u0000${importSessionId}\u0000${batchId}\u0000${eventName}`)
+    .digest('hex');
+}
+
 export async function deleteKnowledgeProductEventsForSubjectForUser(
   userId: string,
   subjectId: string,
@@ -157,7 +173,7 @@ export async function deletePreConfirmationImportEventsForSubjectForUser(
   }
   const subjectHash = knowledgeProductEventSubjectHash(userId, subjectId);
   if (!process.env.DATABASE_URL) {
-    return removeMemoryEventsForSubject(userId, subjectHash, PRE_CONFIRMATION_IMPORT_EVENTS);
+    return removeMemoryEventsForSubject(userId, subjectHash, IMPORT_START_PARSE_EVENTS);
   }
   const [result] = await db.accountTransaction<{ id: string }>(userId, [{
     text: `DELETE FROM knowledge_product_events
@@ -185,8 +201,8 @@ export async function reassignKnowledgeProductEventsSubjectForUser(
     let reassigned = 0;
     for (const event of memoryEvents.get(userId) ?? []) {
       if (event.subjectId !== fromSubjectHash
-        || !PRE_CONFIRMATION_IMPORT_EVENTS.includes(
-          event.eventName as (typeof PRE_CONFIRMATION_IMPORT_EVENTS)[number],
+        || !IMPORT_START_PARSE_EVENTS.includes(
+          event.eventName as (typeof IMPORT_START_PARSE_EVENTS)[number],
         )) continue;
       event.subjectId = toSubjectHash;
       reassigned += 1;
@@ -207,6 +223,7 @@ export async function reassignKnowledgeProductEventsSubjectForUser(
 type ChatGptExportCompletionEventInput = {
   importSessionId: string;
   batchId: string;
+  parsedExchangeCount?: number;
   selectionCount: number;
   created: boolean;
   draftCount: number;
@@ -225,20 +242,52 @@ export async function finalizeChatGptExportCompletionEventsForUser(
     || !completion.importSessionId
     || completion.importSessionId.length > 240
     || !completion.batchId
-    || completion.batchId.length > 240) {
+    || completion.batchId.length > 240
+    || !Number.isInteger(completion.selectionCount)
+    || completion.selectionCount < 1
+    || completion.selectionCount > 100_000
+    || (completion.parsedExchangeCount !== undefined
+      && (!Number.isInteger(completion.parsedExchangeCount)
+        || completion.parsedExchangeCount < completion.selectionCount
+        || completion.parsedExchangeCount > 100_000))) {
     throw new Error('Bounded owner import event subjects are required.');
   }
-  const events = [{
+  const eventValues = [
+    ...(completion.parsedExchangeCount === undefined ? [] : [{
+      eventName: 'conversation_import_started',
+      eventVersion: 1,
+      subjectId: completion.batchId,
+    }, {
+      eventName: 'conversation_import_parsed',
+      eventVersion: 1,
+      subjectId: completion.batchId,
+      selectionCount: completion.parsedExchangeCount,
+    }]), {
     eventName: 'conversation_import_confirmed',
     eventVersion: 1,
     subjectId: completion.batchId,
     selectionCount: completion.selectionCount,
-  }, ...(completion.created ? [{
+  // An exact canonical-request retry returns the existing batch's positive
+  // draft count. A new duplicate-only session returns zero, so this restores a
+  // failed first finalization without claiming that duplicate sources are new.
+  }, ...(completion.draftCount > 0 ? [{
     eventName: 'conversation_import_candidates_ready',
     eventVersion: 1,
     subjectId: completion.batchId,
     selectionCount: completion.draftCount,
-  }] : [])].map(parseKnowledgeProductEventInput);
+  }] : [])];
+  const events = eventValues.map((value) => {
+    const event = parseKnowledgeProductEventInput(value);
+    return {
+      ...event,
+      id: chatGptExportSessionEventId(
+        userId,
+        completion.importSessionId,
+        completion.batchId,
+        event.eventName as ChatGptExportSessionEventName,
+      ),
+    };
+  });
   const now = new Date();
   const sessionSubjectHash = knowledgeProductEventSubjectHash(userId, completion.importSessionId);
   const batchSubjectHash = knowledgeProductEventSubjectHash(userId, completion.batchId);
@@ -249,31 +298,32 @@ export async function finalizeChatGptExportCompletionEventsForUser(
       return removeMemoryEventsForSubject(
         userId,
         sessionSubjectHash,
-        PRE_CONFIRMATION_IMPORT_EVENTS,
+        IMPORT_START_PARSE_EVENTS,
       );
     }
     for (const event of existing) {
       if (event.subjectId !== sessionSubjectHash
-        || !PRE_CONFIRMATION_IMPORT_EVENTS.includes(
-          event.eventName as (typeof PRE_CONFIRMATION_IMPORT_EVENTS)[number],
+        || !IMPORT_START_PARSE_EVENTS.includes(
+          event.eventName as (typeof IMPORT_START_PARSE_EVENTS)[number],
         )) continue;
       event.subjectId = batchSubjectHash;
     }
+    const existingIds = new Set(existing.map((event) => event.id));
+    const missing = events.filter((event) => !existingIds.has(event.id));
     const hourAgo = now.getTime() - 60 * 60 * 1_000;
     const recentCount = existing.filter((event) => Date.parse(event.createdAt) >= hourAgo).length;
-    if (existing.length + events.length > MAX_EVENTS_PER_OWNER
-      || recentCount + events.length > MAX_EVENTS_PER_HOUR) {
+    if (existing.length + missing.length > MAX_EVENTS_PER_OWNER
+      || recentCount + missing.length > MAX_EVENTS_PER_HOUR) {
       throw new KnowledgeProductEventLimitError();
     }
-    existing.push(...events.map((event) => ({
+    existing.push(...missing.map((event) => ({
       ...event,
-      id: randomUUID(),
       userId,
       subjectId: batchSubjectHash,
       createdAt: now.toISOString(),
     })));
     memoryEvents.set(userId, existing);
-    return events.length;
+    return missing.length;
   }
 
   const params: unknown[] = [
@@ -283,20 +333,22 @@ export async function finalizeChatGptExportCompletionEventsForUser(
     batchSubjectHash,
   ];
   const rows = events.map((event, index) => {
-    const start = 5 + index * 6;
+    const start = 5 + index * 7;
     params.push(
-      randomUUID(),
+      event.id,
       event.eventName,
+      event.eventVersion,
       event.signalType ?? null,
       event.outcome ?? null,
       event.selectionCount ?? null,
-      event.eventVersion,
+      batchSubjectHash,
     );
-    return `($${start}::text, $1::text, $${start + 1}::text, $${start + 5}::integer, $4::text, $${start + 2}::text, $${start + 3}::text, $${start + 4}::integer)`;
+    return `($${start}::text, $1::text, $${start + 1}::text, $${start + 2}::integer, $${start + 6}::text, $${start + 3}::text, $${start + 4}::text, $${start + 5}::integer)`;
   });
   const resultSets = await db.accountTransaction<{
     batch_exists: boolean;
     quota_available: boolean;
+    missing_count: number;
     inserted_count: number;
     reassigned_count: number;
     cleared_count: number;
@@ -311,13 +363,22 @@ export async function finalizeChatGptExportCompletionEventsForUser(
       SELECT id FROM knowledge_ingestion_batches
       WHERE id = $2 AND user_id = $1 AND provider = 'chatgpt' AND scope = 'selected_export'
       FOR UPDATE
+    ), candidates
+      (id, user_id, event_name, event_version, subject_id, signal_type, outcome, selection_count)
+      AS (VALUES ${rows.join(', ')}),
+    missing AS MATERIALIZED (
+      SELECT candidate.* FROM candidates candidate
+      WHERE NOT EXISTS (
+        SELECT 1 FROM knowledge_product_events existing
+        WHERE existing.id = candidate.id
+      )
     ), eligible_batch AS MATERIALIZED (
       SELECT id FROM owned_batch
       WHERE (SELECT COUNT(*) FROM knowledge_product_events WHERE user_id = $1)
-          + ${events.length} <= ${MAX_EVENTS_PER_OWNER}
+          + (SELECT COUNT(*) FROM missing) <= ${MAX_EVENTS_PER_OWNER}
         AND (SELECT COUNT(*) FROM knowledge_product_events
              WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '1 hour')
-          + ${events.length} <= ${MAX_EVENTS_PER_HOUR}
+          + (SELECT COUNT(*) FROM missing) <= ${MAX_EVENTS_PER_HOUR}
     ), reassigned AS (
       UPDATE knowledge_product_events SET subject_id = $4
       WHERE user_id = $1 AND subject_id = $3 AND subject_id <> $4
@@ -333,14 +394,13 @@ export async function finalizeChatGptExportCompletionEventsForUser(
     ), inserted AS (
       INSERT INTO knowledge_product_events
         (id, user_id, event_name, event_version, subject_id, signal_type, outcome, selection_count)
-      SELECT candidate.*
-      FROM (VALUES ${rows.join(', ')}) AS candidate
-        (id, user_id, event_name, event_version, subject_id, signal_type, outcome, selection_count)
-      CROSS JOIN eligible_batch
+      SELECT missing.* FROM missing CROSS JOIN eligible_batch
+      ON CONFLICT (id) DO NOTHING
       RETURNING id
     )
     SELECT EXISTS (SELECT 1 FROM owned_batch) AS batch_exists,
       EXISTS (SELECT 1 FROM eligible_batch) AS quota_available,
+      (SELECT COUNT(*)::integer FROM missing) AS missing_count,
       (SELECT COUNT(*)::integer FROM inserted) AS inserted_count,
       (SELECT COUNT(*)::integer FROM reassigned) AS reassigned_count,
       (SELECT COUNT(*)::integer FROM cleared) AS cleared_count`,
@@ -348,6 +408,9 @@ export async function finalizeChatGptExportCompletionEventsForUser(
   }]);
   const row = resultSets[2].rows[0];
   if (row?.batch_exists && !row.quota_available) throw new KnowledgeProductEventLimitError();
+  if (row?.batch_exists && Number(row.inserted_count) !== Number(row.missing_count)) {
+    throw new Error('Consented import events could not be recorded idempotently.');
+  }
   return Number(row?.inserted_count ?? 0);
 }
 

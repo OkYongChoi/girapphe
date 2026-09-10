@@ -92,11 +92,13 @@ pnpm harness:browser
 
 The authenticated overlay suite is deliberately separate from `browser:smoke`,
 `harness:browser`, and normal CI. It creates or reuses one marker-named Clerk
-synthetic user, idempotently seeds two private nodes and their private edge, and
-adds a public-to-private link when a public graph node exists. It measures the
+synthetic user, idempotently seeds four private nodes and two independent
+private edges, and adds a public-to-private link when a public graph node
+exists. Two independent pairs let desktop and mobile dismiss one Thinking
+History signal each without making the projects order-dependent. It measures the
 Server Action that runs only after Graph is opened from `/grid`. Schema-only
 Preview databases may have no public graph rows; there the required fixture
-remains two private nodes and their private edge, and the reported public-link
+remains four private nodes and two private edges, and the reported public-link
 count is zero.
 
 The same opt-in authenticated run checks Settings on desktop and mobile. It
@@ -113,6 +115,16 @@ omitting the captured value, clear the clipboard, revoke the PAT, and reload
 before any durable success screenshot. This reset is intentionally destructive
 only for the marker-validated synthetic account; its exact owner predicate does
 not relax the application's token quotas or permit cleanup of a normal account.
+
+The Thinking History project begins from a fixture-verified zero import-event
+baseline. Local file parsing, candidate selection, and the consent checkbox must
+produce neither a same-origin POST nor a server event row. The selected-content
+submission then records started, parsed, confirmed, and candidates-ready once;
+the complete session funnel remains idempotent across submission retries. The
+memory and live-PostgreSQL regressions simulate a failed first best-effort
+finalization, require the exact canonical request retry to restore all four
+events, and separately prove that a new duplicate-only session cannot claim
+candidates ready.
 
 Runtime inputs are injected temporarily; do not copy their values into tracked
 files:
@@ -213,6 +225,12 @@ If Chromium is not installed locally yet, run:
 ```bash
 pnpm exec playwright install --with-deps chromium
 ```
+
+GitHub-hosted runners first use the same dependency-aware install. If an
+unrelated third-party APT index refresh fails, the workflows retry only the
+Playwright-managed Chromium download against the runner's preinstalled system
+dependencies; the subsequent browser test still fails closed if those
+dependencies are insufficient.
 
 Release handoff checklist:
 

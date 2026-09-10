@@ -24,7 +24,7 @@ export default async function Navbar({ user: initialUser, variant = 'default' }:
 
       <nav
         aria-label={t('nav.siteHeader')}
-        className={`sticky top-0 z-40 overflow-hidden border-b px-4 py-3 backdrop-blur ${isHome ? 'border-white/10 bg-slate-950/60 text-white shadow-[0_10px_40px_rgba(2,6,23,0.18)]' : 'border-slate-200 bg-white/95 text-slate-800'}`}
+        className={`z-40 overflow-hidden border-b px-4 py-3 backdrop-blur md:sticky md:top-0 ${isHome ? 'border-white/10 bg-slate-950/60 text-white shadow-[0_10px_40px_rgba(2,6,23,0.18)]' : 'border-slate-200 bg-white/95 text-slate-800'}`}
       >
         <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-3">
           <div className="flex min-w-0 items-center justify-between gap-2 min-[400px]:gap-3">

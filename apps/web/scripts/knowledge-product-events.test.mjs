@@ -30,6 +30,107 @@ test('event persistence stores only a hashed subject and aggregate dimensions', 
   assert.equal('content' in stored[0], false);
 });
 
+test('consented import submission atomically records one deletable funnel across full retries', async () => {
+  const userId = 'consented-import-event-owner';
+  const sessionId = 'consented-import-session-1';
+  const batchId = 'consented-import-batch-1';
+  events.clearMemoryKnowledgeProductEventsForTesting(userId);
+
+  assert.equal(await events.finalizeChatGptExportCompletionEventsForUser(userId, {
+    importSessionId: sessionId,
+    batchId,
+    parsedExchangeCount: 4,
+    selectionCount: 2,
+    created: true,
+    draftCount: 2,
+  }, {
+    memoryBatchExists: () => true,
+  }), 4);
+  assert.equal(await events.finalizeChatGptExportCompletionEventsForUser(userId, {
+    importSessionId: sessionId,
+    batchId,
+    parsedExchangeCount: 4,
+    selectionCount: 2,
+    created: false,
+    draftCount: 2,
+  }, {
+    memoryBatchExists: () => true,
+  }), 0, 'the full same-session Server Action retry is idempotent');
+
+  const stored = events.getMemoryKnowledgeProductEventsForTesting(userId);
+  assert.deepEqual(stored.map((event) => event.eventName).toSorted(), [
+    'conversation_import_candidates_ready',
+    'conversation_import_confirmed',
+    'conversation_import_parsed',
+    'conversation_import_started',
+  ]);
+  assert.equal(new Set(stored.map((event) => event.subjectId)).size, 1);
+  assert.equal(
+    stored.find((event) => event.eventName === 'conversation_import_parsed')?.selectionCount,
+    4,
+  );
+  assert.equal(events.getMemoryKnowledgeProductEventsForTesting(userId).length, 4);
+  assert.equal(await events.deleteKnowledgeProductEventsForSubjectForUser(userId, batchId), 4);
+});
+
+test('consented import submission cannot leave session events without a live batch', async () => {
+  const userId = 'deleted-consented-import-owner';
+  events.clearMemoryKnowledgeProductEventsForTesting(userId);
+
+  assert.equal(await events.finalizeChatGptExportCompletionEventsForUser(userId, {
+    importSessionId: 'deleted-consented-import-session',
+    batchId: 'deleted-consented-import-batch',
+    parsedExchangeCount: 3,
+    selectionCount: 2,
+    created: true,
+    draftCount: 2,
+  }, {
+    memoryBatchExists: () => false,
+  }), 0);
+  assert.deepEqual(events.getMemoryKnowledgeProductEventsForTesting(userId), []);
+});
+
+test('one local session keeps expanded-selection batches independently retryable and deletable', async () => {
+  const userId = 'expanded-consented-import-owner';
+  const sessionId = 'expanded-consented-import-session';
+  const firstBatchId = 'expanded-consented-import-batch-a';
+  const secondBatchId = 'expanded-consented-import-batch-b';
+  events.clearMemoryKnowledgeProductEventsForTesting(userId);
+
+  for (const [batchId, parsedExchangeCount, selectionCount] of [
+    [firstBatchId, 3, 1],
+    [secondBatchId, 4, 2],
+  ]) {
+    assert.equal(await events.finalizeChatGptExportCompletionEventsForUser(userId, {
+      importSessionId: sessionId,
+      batchId,
+      parsedExchangeCount,
+      selectionCount,
+      created: true,
+      draftCount: selectionCount,
+    }, {
+      memoryBatchExists: () => true,
+    }), 4);
+  }
+  assert.equal(await events.finalizeChatGptExportCompletionEventsForUser(userId, {
+    importSessionId: sessionId,
+    batchId: secondBatchId,
+    parsedExchangeCount: 4,
+    selectionCount: 2,
+    created: false,
+    draftCount: 2,
+  }, {
+    memoryBatchExists: () => true,
+  }), 0);
+
+  const stored = events.getMemoryKnowledgeProductEventsForTesting(userId);
+  assert.equal(stored.length, 8);
+  assert.equal(new Set(stored.map((event) => event.subjectId)).size, 2);
+  assert.equal(await events.deleteKnowledgeProductEventsForSubjectForUser(userId, firstBatchId), 4);
+  assert.equal(events.getMemoryKnowledgeProductEventsForTesting(userId).length, 4);
+  assert.equal(await events.deleteKnowledgeProductEventsForSubjectForUser(userId, secondBatchId), 4);
+});
+
 test('dismissed signal lookup is owner scoped', async () => {
   const owner = 'dismiss-owner';
   const other = 'dismiss-other';

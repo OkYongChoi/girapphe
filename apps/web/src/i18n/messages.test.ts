@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { SUPPORTED_LOCALES, type Locale } from '@stem-brain/shared';
+import { loadClerkLocalization } from './clerk';
 import { MESSAGE_CATALOGS, type MessageValue } from './messages';
 
 const SCRIPT_PATTERNS: Partial<Record<Locale, RegExp>> = {
@@ -38,6 +39,147 @@ test('server message loading stays locale-lazy', () => {
       `${catalog} must import only its locale extension`,
     );
   }
+});
+
+test('Clerk localization loading stays outside the server graph and maps every supported locale', async () => {
+  const clerkSource = readFileSync(new URL('./clerk.ts', import.meta.url), 'utf8');
+  const exporterSource = readFileSync(
+    new URL('../../../../scripts/export-clerk-localization-assets.ts', import.meta.url),
+    'utf8',
+  );
+  assert.doesNotMatch(clerkSource, /@clerk\/localizations\//u);
+
+  const expected = {
+    en: ['en-US', 'en-US'],
+    ja: ['ja-JP', 'ja-JP'],
+    'zh-CN': ['zh-CN', 'zh-CN'],
+    es: ['es-ES', 'es-ES'],
+    ar: ['ar-SA', 'ar-SA'],
+    hi: ['hi-IN', 'hi-IN'],
+  } satisfies Record<Locale, [modulePath: string, resolvedLocale: string]>;
+
+  for (const locale of SUPPORTED_LOCALES) {
+    const [modulePath, resolvedLocale] = expected[locale];
+    assert.match(
+      exporterSource,
+      new RegExp(`from ['"]@clerk/localizations/${modulePath}['"]`, 'u'),
+      `${locale} must be exported from the matching Clerk dictionary`,
+    );
+    const requests: string[] = [];
+    const localization = await loadClerkLocalization(locale, {
+      fetcher: async (input) => {
+        requests.push(input);
+        return new Response(JSON.stringify({ locale: resolvedLocale }), { status: 200 });
+      },
+      retryDelayMs: 0,
+    });
+    assert.equal(localization.locale, resolvedLocale);
+    assert.deepEqual(requests, [`/localization/clerk/${locale}.json`]);
+  }
+});
+
+test('Clerk localization loading retries once and then fails closed', async () => {
+  let transientAttempts = 0;
+  const recovered = await loadClerkLocalization('en', {
+    fetcher: async () => {
+      transientAttempts += 1;
+      return transientAttempts === 1
+        ? new Response(null, { status: 503 })
+        : new Response(JSON.stringify({ locale: 'en-US' }), { status: 200 });
+    },
+    retryDelayMs: 0,
+  });
+  assert.equal(recovered.locale, 'en-US');
+  assert.equal(transientAttempts, 2);
+
+  let permanentAttempts = 0;
+  await assert.rejects(
+    loadClerkLocalization('en', {
+      fetcher: async () => {
+        permanentAttempts += 1;
+        return new Response(null, { status: 503 });
+      },
+      retryDelayMs: 0,
+    }),
+    /Unable to load Clerk localization after two attempts/u,
+  );
+  assert.equal(permanentAttempts, 2);
+});
+
+test('Clerk localization loading times out hanging requests and response bodies', async () => {
+  let timeoutAttempts = 0;
+  await assert.rejects(
+    loadClerkLocalization('en', {
+      fetcher: () => {
+        timeoutAttempts += 1;
+        return new Promise<Response>(() => undefined);
+      },
+      retryDelayMs: 0,
+      timeoutMs: 5,
+    }),
+    /Unable to load Clerk localization after two attempts/u,
+  );
+  assert.equal(timeoutAttempts, 2);
+
+  let bodyAttempts = 0;
+  const bodySignals: AbortSignal[] = [];
+  await assert.rejects(
+    loadClerkLocalization('en', {
+      fetcher: async (_input, init) => {
+        bodyAttempts += 1;
+        bodySignals.push(init.signal as AbortSignal);
+        return new Response(new ReadableStream({ start: () => undefined }), { status: 200 });
+      },
+      retryDelayMs: 0,
+      timeoutMs: 5,
+    }),
+    (error: unknown) => {
+      assert.match(
+        error instanceof Error ? error.message : '',
+        /Unable to load Clerk localization after two attempts/u,
+      );
+      assert.match(
+        error instanceof Error && error.cause instanceof Error ? error.cause.message : '',
+        /Localization request timed out/u,
+      );
+      return true;
+    },
+  );
+  assert.equal(bodyAttempts, 2);
+  assert.equal(bodySignals.length, 2);
+  assert.ok(bodySignals.every((signal) => signal.aborted));
+});
+
+test('Clerk localization loading preserves unmount cancellation without retrying', async () => {
+  const controller = new AbortController();
+  let abortedAttempts = 0;
+  const abortedLoad = loadClerkLocalization('en', {
+    fetcher: () => {
+      abortedAttempts += 1;
+      return new Promise<Response>(() => undefined);
+    },
+    retryDelayMs: 0,
+    signal: controller.signal,
+    timeoutMs: 1_000,
+  });
+  controller.abort();
+  await assert.rejects(abortedLoad, { name: 'AbortError' });
+  assert.equal(abortedAttempts, 1);
+});
+
+test('Turbo caching tracks the generators and restores every generated public localization asset', () => {
+  const turbo = JSON.parse(
+    readFileSync(new URL('../../../../turbo.json', import.meta.url), 'utf8'),
+  ) as {
+    globalDependencies?: string[];
+    tasks?: { build?: { outputs?: string[] } };
+  };
+  const outputs = turbo.tasks?.build?.outputs ?? [];
+
+  assert.ok(turbo.globalDependencies?.includes('scripts/export-card-content-asset.ts'));
+  assert.ok(turbo.globalDependencies?.includes('scripts/export-clerk-localization-assets.ts'));
+  assert.ok(outputs.includes('public/localization/card-content.json'));
+  assert.ok(outputs.includes('public/localization/clerk/**'));
 });
 
 function variants(message: MessageValue): string[] {

@@ -296,7 +296,11 @@ jobs:
           done
 
       - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          if ! pnpm exec playwright install --with-deps chromium; then
+            echo "::warning::System dependency refresh failed; retrying the browser-only install against runner-provided dependencies."
+            pnpm exec playwright install chromium
+          fi
 
       - name: Browser smoke test preview
         env:
