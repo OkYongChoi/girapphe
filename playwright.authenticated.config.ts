@@ -11,6 +11,9 @@ if (!baseURL) {
 }
 
 export default defineConfig({
+  // Git author identities are unrelated to product evidence and must not be
+  // persisted in authenticated CI artifacts.
+  captureGitInfo: { commit: false, diff: false },
   testDir: './apps/web/e2e-authenticated',
   fullyParallel: false,
   forbidOnly: true,
@@ -30,7 +33,9 @@ export default defineConfig({
     // Authenticated traces can retain session headers. Keep the durable
     // evidence to synthetic screenshots and numeric JSON instead.
     trace: 'off',
-    screenshot: 'only-on-failure',
+    // Tests capture only explicit post-success screenshots after any transient
+    // secret has been revoked and cleared.
+    screenshot: 'off',
     video: 'off',
   },
   projects: [

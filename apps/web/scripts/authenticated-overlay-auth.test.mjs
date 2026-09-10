@@ -71,6 +71,14 @@ test('fixture PAT reset uses the same explicit Preview mutation gate', async () 
     setupSource,
     /resetMcpAccessTokens: clerkAuthMode === AUTHENTICATED_OVERLAY_AUTH_MODES\.testingToken/,
   );
+  assert.match(
+    setupSource,
+    /import \{[\s\S]*ensureAuthenticatedOverlayFixture,[\s\S]*normalizeSyntheticEmail,[\s\S]*\} from ['"]\.\.\/scripts\/authenticated-overlay-fixture\.mjs['"]/,
+  );
+  assert.doesNotMatch(
+    setupSource,
+    /await import\(['"]\.\.\/scripts\/authenticated-overlay-fixture\.mjs['"]\)/,
+  );
 });
 
 test('each authenticated browser context can refresh Clerk testing sessions', async () => {
@@ -272,6 +280,10 @@ test('provider PAT evidence gates on the same resolved Clerk auth mode as setup'
   assert.match(source, /navigator\.clipboard\.writeText\(['"]['"]\)[\s\S]*navigator\.clipboard\.readText\(\)/);
   assert.match(source, /revokeExactAuthenticatedOverlayMcpToken\(\{[\s\S]*rawToken,[\s\S]*connectionLabel,[\s\S]*runMarker,/);
   assert.match(source, /verifyExactAuthenticatedOverlayMcpTokenInactive\(\{[\s\S]*remainingActive/);
+  assert.doesNotMatch(
+    source,
+    /await import\([\s\S]{0,120}authenticated-overlay-fixture\.mjs/,
+  );
 });
 
 test('provider PAT route fault proves exact fallback and original error identity', async () => {
@@ -306,11 +318,11 @@ test('provider PAT route fault proves exact fallback and original error identity
   const firstUiPath = source.indexOf("getByRole('button', { name: 'Revoke' })", armFault);
   const secondUiPath = source.indexOf('await page.reload({', firstUiPath);
   const fallback = source.indexOf(
-    '? await fixture.revokeExactAuthenticatedOverlayMcpToken({',
+    '? await revokeExactAuthenticatedOverlayMcpToken({',
     secondUiPath,
   );
   const markerFallback = source.indexOf(
-    ': await fixture.revokeExactAuthenticatedOverlayMcpTokenByMarker({',
+    ': await revokeExactAuthenticatedOverlayMcpTokenByMarker({',
     fallback,
   );
   const originalRethrow = source.indexOf('if (originalError) throw originalError', markerFallback);
@@ -338,6 +350,10 @@ test('provider PAT route fault proves exact fallback and original error identity
   );
   assert.match(source, /rawToken,[\s\S]*connectionLabel,[\s\S]*runMarker,/);
   assert.match(source, /remainingActiveAfterFallback = fallback\.remainingActive/);
+  assert.doesNotMatch(
+    source,
+    /await import\([\s\S]{0,120}authenticated-overlay-fixture\.mjs/,
+  );
   assert.match(source, /expect\(observedError\)\.toBe\(originalSentinel\)/);
   assert.match(source, /expect\(routeFaultedRequestCount\)\.toBeGreaterThan\(0\)/);
   assert.match(source, /clipboardEmptyAfterTest = await clearClipboardAndReadBack\(page\)/);
@@ -352,10 +368,11 @@ test('provider PAT route fault proves exact fallback and original error identity
   );
 });
 
-test('authenticated evidence disables automatic private-page failure captures', async () => {
-  const [configSource, packageSource] = await Promise.all([
+test('authenticated evidence disables private failure captures and identity metadata', async () => {
+  const [configSource, packageSource, workflowSource] = await Promise.all([
     fs.readFile(new URL('../../../playwright.authenticated.config.ts', import.meta.url), 'utf8'),
     fs.readFile(new URL('../../../package.json', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../../../.github/workflows/authenticated-performance.yml', import.meta.url), 'utf8'),
   ]);
   const packageJson = JSON.parse(packageSource);
   const runScript = packageJson.scripts['browser:authenticated-overlay'];
@@ -367,6 +384,20 @@ test('authenticated evidence disables automatic private-page failure captures', 
   assert.match(
     runScript,
     /^PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test --config=playwright\.authenticated\.config\.ts/,
+  );
+  assert.match(configSource, /captureGitInfo: \{ commit: false, diff: false \}/);
+  assert.match(configSource, /screenshot: ['"]off['"]/);
+  assert.match(
+    workflowSource,
+    /Remove private failure context before diagnostic upload[\s\S]*find test-results\/authenticated-overlay-performance[\s\S]*-name ['"]error-context\.md['"][\s\S]*-name ['"]\*\.png['"][\s\S]*-delete/,
+  );
+  assert.match(
+    workflowSource,
+    /Upload successful authenticated overlay evidence[\s\S]*success\(\)[\s\S]*playwright-report\/authenticated-overlay\//,
+  );
+  assert.match(
+    workflowSource,
+    /Upload sanitized authenticated overlay failure diagnostics[\s\S]*failure\(\)[\s\S]*path: test-results\/authenticated-overlay-performance\//,
   );
 });
 

@@ -1,5 +1,4 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
 import { createClerkClient } from '@clerk/backend';
 import pg from 'pg';
 import {
@@ -1349,9 +1348,12 @@ export async function ensureAuthenticatedOverlayFixture({
   }
 }
 
-const isMain = process.argv[1]
-  ? import.meta.url === pathToFileURL(process.argv[1]).href
-  : false;
+// Keep this module statically loadable from Playwright's TypeScript workers.
+// Those workers compile imported .mjs modules to CommonJS, where import.meta
+// is unavailable. The CLI filename is unique to this script.
+const isMain = /(?:^|[/\\\\])authenticated-overlay-fixture\.mjs$/.test(
+  String(process.argv[1] ?? ''),
+);
 
 if (isMain) {
   ensureAuthenticatedOverlayFixture()

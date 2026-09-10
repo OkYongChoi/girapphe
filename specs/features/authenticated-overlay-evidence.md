@@ -80,6 +80,11 @@ Out of scope:
   multiple errors are preserved together. The runner attempts the aggregate
   summary even after Playwright fails while retaining the original failure
   status.
+- [x] `AC-09`: Authenticated artifacts omit Git author identity and automatic
+  failure screenshots. A successful run may retain only explicit post-cleanup
+  screenshots, sanitized JSON, and its HTML report. A failed run removes
+  Playwright error context and all image, trace, and video files before
+  uploading diagnostics, and never uploads its HTML report.
 
 The deployment workflow attaches the revision to the Worker version upload. It
 does not update the production revision in the earlier bulk-secret step, so a
@@ -112,6 +117,7 @@ written to the repository or Playwright artifacts.
 | `AC-06` | `apps/web/src/lib/knowledge-ingestion.test.ts` lightweight-payload regression and `getKnowledgeGraphOverlayForUser()` projection/query. |
 | `AC-07` | `apps/web/e2e-authenticated/authenticated-mobile-api.spec.ts`, `apps/web/scripts/authenticated-mobile-api-fixture.test.mjs`, and the exact-head Preview artifact's Mobile API section. |
 | `AC-08` | `apps/web/scripts/authenticated-mobile-api-source.test.mjs`, `apps/web/scripts/authenticated-overlay-results.test.mjs`, and `pnpm browser:authenticated-overlay`. |
+| `AC-09` | `apps/web/scripts/authenticated-overlay-auth.test.mjs`, `playwright.authenticated.config.ts`, and `.github/workflows/authenticated-performance.yml`. |
 
 Preview workflow run
 [`33466410279`](https://github.com/OkYongChoi/girapphe/actions/runs/33466410279)

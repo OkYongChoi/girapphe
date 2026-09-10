@@ -8,6 +8,10 @@ import {
 import {
   isAuthenticatedOverlayMcpPatMutationPreview,
 } from '../scripts/authenticated-overlay-auth.mjs';
+import {
+  revokeExactAuthenticatedOverlayMcpToken,
+  verifyExactAuthenticatedOverlayMcpTokenInactive,
+} from '../scripts/authenticated-overlay-fixture.mjs';
 
 const RAW_PAT_PATTERN = /girapphe_mcp_[A-Za-z0-9_-]{20,}/u;
 const RAW_PAT_SHAPE = /^girapphe_mcp_[A-Za-z0-9_-]{43}$/u;
@@ -382,9 +386,6 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
 
     if (uiCleanupErrors.length === 2 && rawTokenHasExpectedShape) {
       try {
-        const { revokeExactAuthenticatedOverlayMcpToken } = await import(
-          '../scripts/authenticated-overlay-fixture.mjs'
-        );
         const databaseCleanup = await revokeExactAuthenticatedOverlayMcpToken({
           rawToken,
           connectionLabel,
@@ -398,9 +399,6 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
       }
     } else if (rawTokenHasExpectedShape) {
       try {
-        const { verifyExactAuthenticatedOverlayMcpTokenInactive } = await import(
-          '../scripts/authenticated-overlay-fixture.mjs'
-        );
         const verification = await verifyExactAuthenticatedOverlayMcpTokenInactive({
           rawToken,
           connectionLabel,

@@ -8,6 +8,10 @@ import {
 import {
   isAuthenticatedOverlayMcpPatMutationPreview,
 } from '../scripts/authenticated-overlay-auth.mjs';
+import {
+  revokeExactAuthenticatedOverlayMcpToken,
+  revokeExactAuthenticatedOverlayMcpTokenByMarker,
+} from '../scripts/authenticated-overlay-fixture.mjs';
 
 const RAW_PAT_CAPTURE_PATTERN = /girapphe_mcp_[A-Za-z0-9_-]{43}/gu;
 const RAW_PAT_SHAPE = /^girapphe_mcp_[A-Za-z0-9_-]{43}$/u;
@@ -158,14 +162,13 @@ test('falls back to exact database revocation after both UI cleanup paths fault'
         // discriminator. Run it after every create attempt, using the hash
         // when captured or the random label marker when capture itself fails.
         try {
-          const fixture = await import('../scripts/authenticated-overlay-fixture.mjs');
           const fallback = RAW_PAT_SHAPE.test(rawToken)
-            ? await fixture.revokeExactAuthenticatedOverlayMcpToken({
+            ? await revokeExactAuthenticatedOverlayMcpToken({
               rawToken,
               connectionLabel,
               runMarker,
             })
-            : await fixture.revokeExactAuthenticatedOverlayMcpTokenByMarker({
+            : await revokeExactAuthenticatedOverlayMcpTokenByMarker({
               connectionLabel,
               runMarker,
             });

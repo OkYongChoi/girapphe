@@ -151,8 +151,11 @@ omitting the captured value, clears the clipboard with readback, revokes the
 PAT in Settings, reloads, and verifies the locked exact database row has zero
 active matches before any durable success screenshot. The PAT specs disable
 Playwright's automatic failure screenshots, and the authenticated runner
-disables automatic AI-oriented accessibility error snapshots; only explicit
-post-revocation screenshots and sanitized JSON are retained.
+disables automatic screenshots, AI-oriented accessibility page snapshots, and
+Git author metadata. Tests retain only explicit post-revocation success
+screenshots and sanitized JSON. If the suite fails, CI removes Playwright error
+context and any image, trace, or video before uploading a diagnostics-only
+artifact; it does not upload the HTML report for that failed run.
 
 A separate Preview-only fault check lets the create POST commit, captures and
 redacts the PAT from the fulfilled response, then faults both UI cleanup paths.
@@ -218,7 +221,7 @@ pnpm browser:authenticated-overlay
 ```
 
 The command uses fresh browser contexts and writes per-run JSON, explicit
-post-cleanup success screenshots, non-PAT failure screenshots, and `summary.md` under
+post-cleanup success screenshots, and `summary.md` under
 `test-results/authenticated-overlay-performance/`. The summary reports median
 and worst Graph-click-to-canvas time, overlay request-to-response-headers time,
 and decoded/transfer bytes received through canvas display. CDP collects those

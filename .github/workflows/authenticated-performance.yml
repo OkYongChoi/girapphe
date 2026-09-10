@@ -180,14 +180,35 @@ jobs:
             cat test-results/authenticated-overlay-performance/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload authenticated overlay evidence
-        if: ${{ always() }}
+      - name: Remove private failure context before diagnostic upload
+        if: ${{ failure() }}
+        run: |
+          if [ -d test-results/authenticated-overlay-performance ]; then
+            find test-results/authenticated-overlay-performance -type f \( \
+              -name 'error-context.md' -o \
+              -name '*.png' -o \
+              -name '*.zip' -o \
+              -name '*.webm' \
+            \) -delete
+          fi
+
+      - name: Upload successful authenticated overlay evidence
+        if: ${{ success() }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: authenticated-overlay-preview-pr-${{ github.event.pull_request.number || inputs.preview_pr_number }}
           path: |
             playwright-report/authenticated-overlay/
             test-results/authenticated-overlay-performance/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload sanitized authenticated overlay failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: authenticated-overlay-preview-pr-${{ github.event.pull_request.number || inputs.preview_pr_number }}-failed
+          path: test-results/authenticated-overlay-performance/
           if-no-files-found: warn
           retention-days: 14
 
@@ -247,13 +268,34 @@ jobs:
             cat test-results/authenticated-overlay-performance/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload authenticated overlay evidence
-        if: ${{ always() }}
+      - name: Remove private failure context before diagnostic upload
+        if: ${{ failure() }}
+        run: |
+          if [ -d test-results/authenticated-overlay-performance ]; then
+            find test-results/authenticated-overlay-performance -type f \( \
+              -name 'error-context.md' -o \
+              -name '*.png' -o \
+              -name '*.zip' -o \
+              -name '*.webm' \
+            \) -delete
+          fi
+
+      - name: Upload successful authenticated overlay evidence
+        if: ${{ success() }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: authenticated-overlay-production-${{ github.run_id }}
           path: |
             playwright-report/authenticated-overlay/
             test-results/authenticated-overlay-performance/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload sanitized authenticated overlay failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: authenticated-overlay-production-${{ github.run_id }}-failed
+          path: test-results/authenticated-overlay-performance/
           if-no-files-found: warn
           retention-days: 14
