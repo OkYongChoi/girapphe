@@ -6,6 +6,7 @@ import knowledgeIngestionModule from '../src/lib/knowledge-ingestion.ts';
 
 const {
   classifyMemoryKnowledgeItemCreateAdmission,
+  commitSynchronousMemoryKnowledgeItemCreate,
   readKnowledgeItemCreateDatabaseResult,
   toMobileNoteCreateHttpResult,
 } = createResultModule;
@@ -81,6 +82,80 @@ test('memory admission never consumes a request id for a quota rejection', () =>
   assert.equal(hasMemoryCreateRequest(userId, requestId), true);
 });
 
+test('deferred guest creates synchronously admit only one item at the final quota slot', async () => {
+  let activeCount = 99;
+  let totalCount = 99;
+  let rateClaims = 0;
+  const seenRequests = new Set();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+
+  const attempt = async (requestId) => {
+    await gate;
+    return commitSynchronousMemoryKnowledgeItemCreate({
+      requestAlreadySeen: () => seenRequests.has(requestId),
+      isGuest: true,
+      activeCount: () => activeCount,
+      totalCount: () => totalCount,
+      guestLimit: 100,
+      accountLimit: 50_000,
+      claimGuestWrite: () => { rateClaims += 1; },
+      createItem: () => {
+        activeCount += 1;
+        totalCount += 1;
+        return { id: `item-${requestId}` };
+      },
+      recordRequest: () => { seenRequests.add(requestId); },
+    }).result;
+  };
+
+  const first = attempt('first-request');
+  const second = attempt('second-request');
+  release();
+  const results = await Promise.all([first, second]);
+
+  assert.deepEqual(results.map((result) => result.outcome).sort(), [
+    'inserted',
+    'quota_exceeded',
+  ]);
+  assert.equal(activeCount, 100);
+  assert.equal(totalCount, 100);
+  assert.equal(rateClaims, 1);
+  assert.equal(seenRequests.size, 1);
+  const rejectedRequest = results[0].outcome === 'quota_exceeded'
+    ? 'first-request'
+    : 'second-request';
+  assert.equal(seenRequests.has(rejectedRequest), false);
+});
+
+test('a replay consumes neither a second rate claim nor a second item', () => {
+  let activeCount = 99;
+  let totalCount = 99;
+  let rateClaims = 0;
+  const seenRequests = new Set();
+  const attempt = () => commitSynchronousMemoryKnowledgeItemCreate({
+    requestAlreadySeen: () => seenRequests.has('stable-request'),
+    isGuest: true,
+    activeCount: () => activeCount,
+    totalCount: () => totalCount,
+    guestLimit: 100,
+    accountLimit: 50_000,
+    claimGuestWrite: () => { rateClaims += 1; },
+    createItem: () => {
+      activeCount += 1;
+      totalCount += 1;
+      return { id: 'item-stable-request' };
+    },
+    recordRequest: () => { seenRequests.add('stable-request'); },
+  }).result;
+
+  assert.equal(attempt().outcome, 'inserted');
+  assert.equal(attempt().outcome, 'replayed');
+  assert.equal(activeCount, 100);
+  assert.equal(totalCount, 100);
+  assert.equal(rateClaims, 1);
+});
+
 test('mobile create maps only a new insert to 201 and makes quota actionable', () => {
   assert.deepEqual(
     toMobileNoteCreateHttpResult({ outcome: 'inserted', itemId: 'item-1' }),
@@ -122,8 +197,15 @@ test('the create transaction claims an idempotency key only after quota admissio
     createBlock.indexOf('if (!process.env.DATABASE_URL)'),
     createBlock.indexOf('await ensureSchema()'),
   );
-  assert.ok(memoryCreate.indexOf('classifyMemoryKnowledgeItemCreateAdmission') < memoryCreate.indexOf('createMemoryKnowledgeItemForUser'));
-  assert.ok(memoryCreate.indexOf('createMemoryKnowledgeItemForUser') < memoryCreate.indexOf('recordMemoryCreateRequest'));
+  assert.ok(memoryCreate.indexOf('await getGuestRateScope') < memoryCreate.indexOf('commitSynchronousMemoryKnowledgeItemCreate'));
+  assert.match(memoryCreate, /commitSynchronousMemoryKnowledgeItemCreate\(\{[\s\S]*?createItem:[\s\S]*?createMemoryKnowledgeItemForUser[\s\S]*?recordRequest:/);
+  assert.doesNotMatch(
+    memoryCreate.slice(
+      memoryCreate.indexOf('commitSynchronousMemoryKnowledgeItemCreate'),
+      memoryCreate.indexOf('if (committed.result.outcome'),
+    ),
+    /await /,
+  );
 });
 
 test('the mobile route returns the explicit create outcome instead of unconditional 201', () => {

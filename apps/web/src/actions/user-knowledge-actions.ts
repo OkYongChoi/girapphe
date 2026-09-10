@@ -52,7 +52,7 @@ import {
   MAX_KNOWLEDGE_ITEMS_PER_USER,
 } from '@/lib/knowledge-ingestion';
 import {
-  classifyMemoryKnowledgeItemCreateAdmission,
+  commitSynchronousMemoryKnowledgeItemCreate,
   readKnowledgeItemCreateDatabaseResult,
   type KnowledgeItemCreateDatabaseRow,
   type KnowledgeItemCreateResult,
@@ -531,37 +531,44 @@ export async function createKnowledgeItemWithOutcome(
   }
 
   if (!process.env.DATABASE_URL) {
+    const guestRateScope = user.isGuest ? await getGuestRateScope(user.id) : null;
     purgeMemoryKnowledgeItemsForUser(user.id);
-    const memoryItems = getMemoryKnowledgeItemsForUser(user.id);
-    const admission = classifyMemoryKnowledgeItemCreateAdmission({
-      requestAlreadySeen: Boolean(requestId && hasMemoryCreateRequest(user.id, requestId)),
+    const committed = commitSynchronousMemoryKnowledgeItemCreate({
+      requestAlreadySeen: () => Boolean(
+        requestId && hasMemoryCreateRequest(user.id, requestId)
+      ),
       isGuest: user.isGuest,
-      activeCount: memoryItems.filter((item) => !item.deleted_at).length,
-      totalCount: memoryItems.length,
+      activeCount: () => getMemoryKnowledgeItemsForUser(user.id)
+        .filter((item) => !item.deleted_at).length,
+      totalCount: () => getMemoryKnowledgeItemsForUser(user.id).length,
       guestLimit: GUEST_KNOWLEDGE_ITEM_LIMIT,
       accountLimit: MAX_KNOWLEDGE_ITEMS_PER_USER,
+      claimGuestWrite: guestRateScope
+        ? () => claimMemoryGuestWrite(guestRateScope)
+        : undefined,
+      createItem: () => {
+        const item = createMemoryKnowledgeItemForUser(user.id, {
+          title, summary, content, topic, tags,
+          knowledgeType: bundle?.knowledge_type ?? null,
+          centralQuestion: bundle?.central_question ?? null,
+          structuredContent: bundle?.structured_content ?? null,
+          bundleSchemaVersion: bundle?.bundle_schema_version ?? null,
+        }, { syncGraph });
+        if (user.isGuest) {
+          item.purge_at = new Date(
+            Date.now() + GUEST_KNOWLEDGE_RETENTION_DAYS * 24 * 60 * 60 * 1000
+          ).toISOString();
+        }
+        return item;
+      },
+      recordRequest: requestId
+        ? () => recordMemoryCreateRequest(user.id, requestId)
+        : undefined,
     });
-    if (admission === 'replayed') {
-      return { outcome: 'replayed', itemId: null };
+    if (committed.result.outcome !== 'inserted' || committed.item === null) {
+      return committed.result;
     }
-    if (admission === 'guest_quota_exceeded') {
-      return { outcome: 'quota_exceeded', itemId: null, limit: 'guest' };
-    }
-    if (admission === 'account_quota_exceeded') {
-      return { outcome: 'quota_exceeded', itemId: null, limit: 'account' };
-    }
-    if (user.isGuest) claimMemoryGuestWrite(await getGuestRateScope(user.id));
-    const item = createMemoryKnowledgeItemForUser(user.id, {
-      title, summary, content, topic, tags,
-      knowledgeType: bundle?.knowledge_type ?? null,
-      centralQuestion: bundle?.central_question ?? null,
-      structuredContent: bundle?.structured_content ?? null,
-      bundleSchemaVersion: bundle?.bundle_schema_version ?? null,
-    }, { syncGraph });
-    if (user.isGuest) {
-      item.purge_at = new Date(Date.now() + GUEST_KNOWLEDGE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
-    }
-    if (requestId) recordMemoryCreateRequest(user.id, requestId);
+    const item = committed.item;
     if (syncGraph && relatedNodeId) {
       await createPrivateKnowledgeEdgeForUser(user.id, `personal:${item.id}`, relatedNodeId,
         isKnowledgeRelationType(relationType)
@@ -572,7 +579,7 @@ export async function createKnowledgeItemWithOutcome(
     revalidatePath('/my-notes');
     revalidatePath('/grid');
     revalidatePath('/knowledge');
-    return { outcome: 'inserted', itemId: item.id };
+    return committed.result;
   }
 
   await ensureSchema();

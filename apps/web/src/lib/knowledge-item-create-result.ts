@@ -29,6 +29,47 @@ export function classifyMemoryKnowledgeItemCreateAdmission(input: {
   return 'admitted';
 }
 
+export function commitSynchronousMemoryKnowledgeItemCreate<T extends { id: string }>(input: {
+  requestAlreadySeen: () => boolean;
+  isGuest: boolean;
+  activeCount: () => number;
+  totalCount: () => number;
+  guestLimit: number;
+  accountLimit: number;
+  claimGuestWrite?: () => void;
+  createItem: () => T;
+  recordRequest?: () => void;
+}): { result: KnowledgeItemCreateResult; item: T | null } {
+  const admission = classifyMemoryKnowledgeItemCreateAdmission({
+    requestAlreadySeen: input.requestAlreadySeen(),
+    isGuest: input.isGuest,
+    activeCount: input.activeCount(),
+    totalCount: input.totalCount(),
+    guestLimit: input.guestLimit,
+    accountLimit: input.accountLimit,
+  });
+  if (admission === 'replayed') {
+    return { result: { outcome: 'replayed', itemId: null }, item: null };
+  }
+  if (admission === 'guest_quota_exceeded') {
+    return {
+      result: { outcome: 'quota_exceeded', itemId: null, limit: 'guest' },
+      item: null,
+    };
+  }
+  if (admission === 'account_quota_exceeded') {
+    return {
+      result: { outcome: 'quota_exceeded', itemId: null, limit: 'account' },
+      item: null,
+    };
+  }
+
+  input.claimGuestWrite?.();
+  const item = input.createItem();
+  input.recordRequest?.();
+  return { result: { outcome: 'inserted', itemId: item.id }, item };
+}
+
 export type MobileNoteCreateHttpResult = {
   status: number;
   body:
