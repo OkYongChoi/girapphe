@@ -24,7 +24,7 @@ const routeSource = readFileSync(
   'utf8',
 );
 
-test('database create rows expose inserted, replayed, and both quota outcomes', () => {
+test('database create rows expose inserted, replayed, quota, and guest-rate outcomes', () => {
   assert.deepEqual(
     readKnowledgeItemCreateDatabaseResult({ outcome: 'inserted', id: 'item-1' }),
     { outcome: 'inserted', itemId: 'item-1' },
@@ -40,6 +40,10 @@ test('database create rows expose inserted, replayed, and both quota outcomes', 
   assert.deepEqual(
     readKnowledgeItemCreateDatabaseResult({ outcome: 'guest_quota_exceeded', id: null }),
     { outcome: 'quota_exceeded', itemId: null, limit: 'guest' },
+  );
+  assert.deepEqual(
+    readKnowledgeItemCreateDatabaseResult({ outcome: 'guest_write_rate_limited', id: null }),
+    { outcome: 'rate_limited', itemId: null, limit: 'guest_write' },
   );
   assert.throws(
     () => readKnowledgeItemCreateDatabaseResult({ outcome: 'inserted', id: null }),
@@ -99,7 +103,10 @@ test('deferred guest creates synchronously admit only one item at the final quot
       totalCount: () => totalCount,
       guestLimit: 100,
       accountLimit: 50_000,
-      claimGuestWrite: () => { rateClaims += 1; },
+      claimGuestWrite: () => {
+        rateClaims += 1;
+        return true;
+      },
       createItem: () => {
         activeCount += 1;
         totalCount += 1;
@@ -140,7 +147,10 @@ test('a replay consumes neither a second rate claim nor a second item', () => {
     totalCount: () => totalCount,
     guestLimit: 100,
     accountLimit: 50_000,
-    claimGuestWrite: () => { rateClaims += 1; },
+    claimGuestWrite: () => {
+      rateClaims += 1;
+      return true;
+    },
     createItem: () => {
       activeCount += 1;
       totalCount += 1;
@@ -154,6 +164,35 @@ test('a replay consumes neither a second rate claim nor a second item', () => {
   assert.equal(activeCount, 100);
   assert.equal(totalCount, 100);
   assert.equal(rateClaims, 1);
+});
+
+test('a guest rate denial creates no item and consumes no request id', () => {
+  let createCalls = 0;
+  let recordCalls = 0;
+
+  const committed = commitSynchronousMemoryKnowledgeItemCreate({
+    requestAlreadySeen: () => false,
+    isGuest: true,
+    activeCount: () => 0,
+    totalCount: () => 0,
+    guestLimit: 100,
+    accountLimit: 50_000,
+    claimGuestWrite: () => false,
+    createItem: () => {
+      createCalls += 1;
+      return { id: 'must-not-be-created' };
+    },
+    recordRequest: () => {
+      recordCalls += 1;
+    },
+  });
+
+  assert.deepEqual(committed, {
+    result: { outcome: 'rate_limited', itemId: null, limit: 'guest_write' },
+    item: null,
+  });
+  assert.equal(createCalls, 0);
+  assert.equal(recordCalls, 0);
 });
 
 test('mobile create maps only a new insert to 201 and makes quota actionable', () => {
@@ -182,16 +221,22 @@ test('the create transaction claims an idempotency key only after quota admissio
     actionSource.indexOf('export async function createKnowledgeItem('),
   );
   assert.match(createBlock, /WITH admission AS MATERIALIZED/);
+  assert.ok(createBlock.indexOf('existing_request AS MATERIALIZED') < createBlock.indexOf('rate_claim AS'));
   assert.match(
     createBlock,
-    /INSERT INTO user_knowledge_create_requests[\s\S]*?SELECT \$1, \$2[\s\S]*?account_quota_available AND guest_quota_available[\s\S]*?NOT EXISTS \(SELECT 1 FROM existing_request\)/,
+    /rate_claim AS \([\s\S]*?INSERT INTO guest_knowledge_write_limits[\s\S]*?NOT EXISTS \(SELECT 1 FROM existing_request\)[\s\S]*?request_count < \$23/,
+  );
+  assert.match(
+    createBlock,
+    /INSERT INTO user_knowledge_create_requests[\s\S]*?SELECT \$1, \$2[\s\S]*?account_quota_available AND guest_quota_available[\s\S]*?EXISTS \(SELECT 1 FROM rate_claim\)[\s\S]*?NOT EXISTS \(SELECT 1 FROM existing_request\)/,
   );
   assert.match(createBlock, /WHEN EXISTS \(SELECT 1 FROM inserted_item\) THEN 'inserted'/);
   assert.match(createBlock, /WHEN EXISTS \(SELECT 1 FROM existing_request\) THEN 'replayed'/);
   assert.match(
     createBlock,
-    /THEN 'guest_quota_exceeded'[\s\S]*?THEN 'account_quota_exceeded'/,
+    /WHEN EXISTS \(SELECT 1 FROM existing_request\) THEN 'replayed'[\s\S]*?THEN 'guest_quota_exceeded'[\s\S]*?THEN 'account_quota_exceeded'[\s\S]*?THEN 'guest_write_rate_limited'/,
   );
+  assert.match(createBlock, /guest-knowledge-rate:\$\{guestRateScope\}/);
 
   const memoryCreate = createBlock.slice(
     createBlock.indexOf('if (!process.env.DATABASE_URL)'),
@@ -215,6 +260,8 @@ test('the mobile route returns the explicit create outcome instead of unconditio
     routeSource.indexOf("if (!id) return invalid", createStart),
   );
   assert.match(routeBlock, /createKnowledgeItemWithOutcome/);
+  assert.match(routeBlock, /result\.outcome === 'rate_limited'/);
+  assert.match(routeBlock, /guest-only rate limit/);
   assert.match(routeBlock, /toMobileNoteCreateHttpResult\(result\)/);
   assert.match(routeBlock, /status: response\.status/);
   assert.doesNotMatch(routeBlock, /status: 201/);

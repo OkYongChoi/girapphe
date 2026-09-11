@@ -397,6 +397,7 @@ export const HI_MESSAGES = {
   "knowledge.editPersonalHint": "यह निजी कार्ड केवल आपको दिखाई देता है।",
   "knowledge.savePrivateCopy": "निजी कॉपी सहेजें",
   "knowledge.saveError": "यह कार्ड सहेजा नहीं जा सका। कृपया फिर से कोशिश करें।",
+  "knowledge.guestWriteRateLimited": "इस नेटवर्क से अतिथि के रूप में सहेजने की प्रति घंटे की सीमा पूरी हो गई है। एक घंटे के भीतर फिर प्रयास करें।",
   "knowledge.titleRequired": "सहेजने से पहले शीर्षक दर्ज करें।",
   "knowledge.summaryLabel": "सारांश",
   "knowledge.tagsLabel": "टैग",

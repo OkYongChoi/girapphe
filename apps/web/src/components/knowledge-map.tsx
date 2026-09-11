@@ -21,7 +21,7 @@ import {
 import { getCardLevelMeta } from '@stem-brain/graph-engine';
 import { formatDomainLabel } from '@stem-brain/graph-engine';
 import {
-  createKnowledgeItem,
+  createKnowledgeItemWithOutcome,
   deleteKnowledgeItem,
   getUserKnowledgeItems,
   updateKnowledgeItem,
@@ -77,6 +77,8 @@ type EditableCardValues = {
   content: string;
   tags: string;
 };
+
+type SaveCardOutcome = 'saved' | 'guest_write_rate_limited';
 
 type Props = {
   initialCards: (KnowledgeCard & { status: CardStatus | null })[];
@@ -457,10 +459,15 @@ export default function KnowledgeMap({
       const result = await updateKnowledgeItem(formData);
       if (!result.updated) throw new Error('The private knowledge item changed before this edit was saved.');
     } else {
-      await createKnowledgeItem(formData);
+      const result = await createKnowledgeItemWithOutcome(formData);
+      if (result.outcome === 'rate_limited') return 'guest_write_rate_limited';
+      if (result.outcome !== 'inserted' && result.outcome !== 'replayed') {
+        throw new Error('The private knowledge copy could not be saved.');
+      }
     }
 
     setCurrentPersonalItems(await getUserKnowledgeItems());
+    return 'saved';
   }, [personalItemById]);
 
   return (
@@ -789,7 +796,7 @@ function ConceptCardGrid({
 }: {
   cards: MapCard[];
   testId?: string;
-  onSave: (card: MapCard, values: EditableCardValues) => Promise<void>;
+  onSave: (card: MapCard, values: EditableCardValues) => Promise<SaveCardOutcome>;
 }) {
   return (
     <div data-testid={testId} className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
@@ -805,7 +812,7 @@ function KnowledgeCardItem({
   onSave,
 }: {
   card: MapCard;
-  onSave: (card: MapCard, values: EditableCardValues) => Promise<void>;
+  onSave: (card: MapCard, values: EditableCardValues) => Promise<SaveCardOutcome>;
 }) {
   const levelMeta = getCardLevelMeta(card.level);
   const { t } = useI18n();
@@ -852,7 +859,11 @@ function KnowledgeCardItem({
     setSaveError(null);
     startSaving(async () => {
       try {
-        await onSave(card, values);
+        const result = await onSave(card, values);
+        if (result === 'guest_write_rate_limited') {
+          setSaveError(t('knowledge.guestWriteRateLimited'));
+          return;
+        }
         setEditing(false);
       } catch {
         setSaveError(t('knowledge.saveError'));
@@ -963,7 +974,7 @@ function KnowledgeCardItem({
             {t('knowledge.tagsLabel')}
             <input name="tags" defaultValue={card.tags?.join(', ') ?? ''} maxLength={599} className="min-h-11 rounded border bg-white px-3 py-2 text-sm" />
           </label>
-          {saveError ? <p role="alert" className="text-xs text-red-700">{saveError}</p> : null}
+          {saveError ? <p role="alert" data-testid="concept-card-save-alert" className="text-xs text-red-700">{saveError}</p> : null}
           <div className="flex flex-wrap gap-2">
             <button
               type="submit"

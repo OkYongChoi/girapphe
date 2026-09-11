@@ -2,6 +2,7 @@ export type KnowledgeItemCreateResult =
   | { outcome: 'inserted'; itemId: string }
   | { outcome: 'replayed'; itemId: null }
   | { outcome: 'quota_exceeded'; itemId: null; limit: 'account' | 'guest' }
+  | { outcome: 'rate_limited'; itemId: null; limit: 'guest_write' }
   | { outcome: 'invalid'; itemId: null };
 
 export type KnowledgeItemCreateDatabaseRow = {
@@ -36,7 +37,7 @@ export function commitSynchronousMemoryKnowledgeItemCreate<T extends { id: strin
   totalCount: () => number;
   guestLimit: number;
   accountLimit: number;
-  claimGuestWrite?: () => void;
+  claimGuestWrite?: () => boolean;
   createItem: () => T;
   recordRequest?: () => void;
 }): { result: KnowledgeItemCreateResult; item: T | null } {
@@ -64,7 +65,12 @@ export function commitSynchronousMemoryKnowledgeItemCreate<T extends { id: strin
     };
   }
 
-  input.claimGuestWrite?.();
+  if (input.claimGuestWrite?.() === false) {
+    return {
+      result: { outcome: 'rate_limited', itemId: null, limit: 'guest_write' },
+      item: null,
+    };
+  }
   const item = input.createItem();
   input.recordRequest?.();
   return { result: { outcome: 'inserted', itemId: item.id }, item };
@@ -92,11 +98,14 @@ export function readKnowledgeItemCreateDatabaseResult(
   if (row?.outcome === 'guest_quota_exceeded') {
     return { outcome: 'quota_exceeded', itemId: null, limit: 'guest' };
   }
+  if (row?.outcome === 'guest_write_rate_limited') {
+    return { outcome: 'rate_limited', itemId: null, limit: 'guest_write' };
+  }
   throw new Error('Unexpected knowledge item create result.');
 }
 
 export function toMobileNoteCreateHttpResult(
-  result: KnowledgeItemCreateResult,
+  result: Exclude<KnowledgeItemCreateResult, { outcome: 'rate_limited' }>,
 ): MobileNoteCreateHttpResult {
   if (result.outcome === 'inserted') {
     return { status: 201, body: { success: true, outcome: 'inserted' } };

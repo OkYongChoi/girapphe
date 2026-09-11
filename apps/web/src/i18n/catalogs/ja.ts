@@ -383,6 +383,7 @@ export const JA_MESSAGES = {
   "knowledge.editPersonalHint": "このプライベートカードはあなただけに表示されます。",
   "knowledge.savePrivateCopy": "プライベートコピーを保存",
   "knowledge.saveError": "このカードを保存できませんでした。もう一度お試しください。",
+  "knowledge.guestWriteRateLimited": "このネットワークからのゲスト保存は1時間あたりの上限に達しました。1時間以内にもう一度お試しください。",
   "knowledge.titleRequired": "保存する前にタイトルを入力してください。",
   "knowledge.summaryLabel": "要約",
   "knowledge.tagsLabel": "タグ",

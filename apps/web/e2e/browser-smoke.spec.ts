@@ -3,7 +3,16 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 const toleratedConsoleErrors = [
   /favicon\.ico/i,
 ];
-const usesDeployedPreview = Boolean(process.env.PLAYWRIGHT_BASE_URL);
+const configuredBaseUrl = process.env.PLAYWRIGHT_BASE_URL;
+const usesDeployedPreview = Boolean(
+  configuredBaseUrl
+  && !['127.0.0.1', 'localhost', '::1'].includes(new URL(configuredBaseUrl).hostname),
+);
+const allowsDeployedGuestMutations =
+  process.env.PLAYWRIGHT_ALLOW_DEPLOYED_GUEST_MUTATIONS === 'true';
+
+const deployedGuestMutationSkipReason =
+  'Deployed anonymous writes share the production IP rate bucket. Set PLAYWRIGHT_ALLOW_DEPLOYED_GUEST_MUTATIONS=true only for a deliberate operator evidence run.';
 
 const authEntrypointOrConfigFallback = /Sign in|Sign up|Authentication is (?:unavailable|not available)|Clerk keys are missing|Live Clerk keys cannot be used/i;
 const errorRecoveryMarkup = `
@@ -698,6 +707,10 @@ test.describe('browser smoke', () => {
   });
 
   test('concept cards save public edits as a private copy', async ({ page }) => {
+    test.skip(
+      usesDeployedPreview && !allowsDeployedGuestMutations,
+      deployedGuestMutationSkipReason,
+    );
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
 
     await page.goto('/grid');
@@ -814,6 +827,10 @@ test.describe('browser smoke', () => {
   });
 
   test('structured knowledge exposes all ten editors and round-trips a procedure', async ({ page }) => {
+    test.skip(
+      usesDeployedPreview && !allowsDeployedGuestMutations,
+      deployedGuestMutationSkipReason,
+    );
     test.slow();
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
     const title = `Typed release procedure ${Date.now()}`;
@@ -917,6 +934,10 @@ test.describe('browser smoke', () => {
   });
 
   test('flow and timeline blocks preview and round-trip as safe accessible visuals', async ({ page }, testInfo) => {
+    test.skip(
+      usesDeployedPreview && !allowsDeployedGuestMutations,
+      deployedGuestMutationSkipReason,
+    );
     test.slow();
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
     const unsafeRequests: string[] = [];
@@ -1079,6 +1100,10 @@ test.describe('browser smoke', () => {
   });
 
   test('explicit legacy-note conversion preserves the original body', async ({ page }) => {
+    test.skip(
+      usesDeployedPreview && !allowsDeployedGuestMutations,
+      deployedGuestMutationSkipReason,
+    );
     const assertNoBrowserFailures = attachBrowserFailureGuards(page);
     const title = `Legacy conversion ${Date.now()}`;
     const legacyBody = 'Keep this user-authored body during conversion.';
