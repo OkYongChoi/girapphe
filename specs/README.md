@@ -26,7 +26,11 @@ required.
 3. Map every criterion to a test, inspection, or deployment check in
    `Verification`.
 4. Keep criteria unchecked until their evidence passes. An `Implemented` spec
-   must have every criterion checked.
+   must have every criterion checked and no required repository or release
+   evidence gate open. A spec may remain `Active` with checked criteria while a
+   named rollout evidence gate is outstanding. Explicitly out-of-scope
+   provider, device, or store activation remains in `Rollout`; it is not
+   implementation evidence.
 5. Record migrations, compatibility, activation, and rollback boundaries in
    `Rollout`.
 

@@ -2,6 +2,10 @@
 
 Status: Active
 
+The repository-owned implementation and web/mobile release evidence are
+complete. The spec remains Active until real-device Expo DOM sizing and
+screen-reader behavior pass their separate device evidence gate.
+
 ## User outcome
 
 A user can write a directed flow or ordered timeline inside an existing
@@ -110,7 +114,7 @@ card-internal presentation; it is not canonical graph evidence.
 | --- | --- |
 | `AC-01` | `apps/web/src/lib/knowledge-text.test.ts` covers directive boundaries, code precedence, mixed cell notation, unmatched openers, and a 30,000-opener scan. |
 | `AC-02` | `apps/web/src/lib/knowledge-text.test.ts` covers tuple shapes, row/source/cell limits, control characters, exact source, punctuation, and atomic literal fallback. |
-| `AC-03` | `apps/web/e2e/browser-smoke.spec.ts` exercises the live editor at desktop and mobile widths, checks semantic rows, captions, nested notation, invalid-source fallback, reload non-persistence, unsafe elements, external requests, console errors, and geometry; the full browser harness passes 88 tests. |
+| `AC-03` | `apps/web/e2e/browser-smoke.spec.ts` exercises the live editor at desktop and mobile widths, checks semantic rows, captions, nested notation, invalid-source fallback, reload non-persistence, unsafe elements, external requests, console errors, and geometry. Exact head `b6ccfa5879cfbaa6170423fe7ac779e8ddc3e75f` passed PR #164 CI/Preview run `33712857045`. |
 | `AC-04` | `apps/mobile/src/knowledge-bundle-notation.test.ts`, `apps/mobile/src/knowledge-bundle-ui.test.ts`, and `apps/mobile/scripts/export-release-bundle.mjs` verify detection, source-derived accessibility, one aggregate DOM boundary, responsive markup, and iOS/Android release exports with local notation assets. |
 | `AC-05` | Six web catalogs and six mobile help entries are validated by web/mobile tests; the focused Playwright scenario proves both directives through the existing live editor and exact source after reload. |
 | `AC-06` | `apps/web/src/lib/content-translation-guards.test.ts` proves byte-for-byte directive preservation, while `pnpm harness:ci`, `pnpm harness:browser`, and `pnpm harness:deploy` preserve the existing bundle, privacy, graph, build, and release contracts. |
@@ -120,7 +124,9 @@ card-internal presentation; it is not canonical graph evidence.
 There is no migration, backfill, feature flag, provider activation, or new
 runtime dependency. Older clients continue to show the stored directive source
 as text. Rollback removes only the enhanced presentation because the same plain
-source remains readable and editable. Preview and production smoke must prove a
-flow, a timeline, invalid-source fallback, responsive layout, zero unsafe
-resource creation, and an unchanged ordinary-text path. Real-device Expo DOM
-sizing and screen-reader behavior remain separate device evidence.
+source remains readable and editable. Head
+`b6ccfa5879cfbaa6170423fe7ac779e8ddc3e75f` passed PR #164 CI/Preview run
+`33712857045`, then its identical tree merged as
+`f041d9665b6324c3eb4489653b32e204d2cfde5b` and passed production deployment
+and smoke run `33713433984`. Real-device Expo DOM sizing and screen-reader
+behavior remain separate device evidence.
