@@ -1,6 +1,6 @@
 # MCP revoked-token cleanup
 
-Status: Active
+Status: Implemented
 
 ## User outcome
 
@@ -87,15 +87,18 @@ removes it.
 | `AC-03` | `apps/web/src/lib/knowledge-ingestion.test.ts` covers foreign-owner and active-token no-ops, exact memory cleanup, and the locked database query's owner/revoked/rate predicates. |
 | `AC-04` | `knowledge-ingestion.test.ts` performs 20 create/revoke/delete cycles, covers the rolling-day boundary, and rejects over-limit creation; `apps/web/src/lib/billing/account-deletion-source.test.ts` requires purge coverage for all bucket scopes. |
 | `AC-05` | `apps/web/src/i18n/messages.test.ts`, web lint/typecheck, source inspection, and authenticated desktop/mobile RTL coverage. |
-| `AC-06` | The exact-head `authenticated-performance.yml` Preview gate creates and revokes one marker-owned PAT, verifies immediate raw-secret removal, default-hidden and explicitly revealed revoked state, permanent deletion, reload absence, zero remaining active rows in both UI and route-fault cleanup paths, an empty clipboard, and sanitized JSON plus post-delete screenshots. |
+| `AC-06` | The exact-head `authenticated-performance.yml` Preview gate creates and revokes one marker-owned PAT, verifies immediate raw-secret removal, default-hidden and explicitly revealed revoked state, permanent deletion, reload absence, zero remaining active rows in both UI and route-fault cleanup paths, an empty clipboard, and sanitized JSON plus post-delete screenshots. At head `adbf13a63cb79f102c1af4709342df26a303e11c`, authenticated run `34551607599` passed 22 tests with one expected mobile PAT-mutation skip; artifact `10181104649` has SHA-256 `23edd4de3a00450481ad49c357738a712e7b95e7f8ca43c662ad20730ecf28be`. |
 
 ## Rollout
 
 No new table, column, Worker binding, secret, or provider activation is needed.
 Migration `0026_mcp_token_creation_rate_buckets.sql` adds the partial cleanup
-index to the existing generic MCP rate table and must precede Worker activation.
-The Preview database and exact deployed revision must pass the authenticated
-flow before merge. Rollback may remove the UI and delete action while leaving
-non-secret buckets in place until a later lifecycle action or account deletion. A real
-ChatGPT or Claude connection and first tool call remain external activation
-evidence rather than proof supplied by this repository change.
+index to the existing generic MCP rate table and preceded Worker activation.
+Exact-head CI/Preview run `34550904041` and authenticated run `34551607599`
+passed before the identical tree merged as
+`c6037b3df1bda6669c2f51bd417f8c3e3abc9cb1`; production run `34552662077`
+succeeded at that merge. Rollback may remove the UI and delete action while
+leaving non-secret buckets in place until a later lifecycle action or account
+deletion. A real ChatGPT or Claude connection and first tool call remain
+external activation evidence rather than proof supplied by this repository
+change.

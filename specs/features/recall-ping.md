@@ -264,12 +264,31 @@ same advisory lock, then commits the winner. The discard transaction must use a
 fresh Read Committed statement snapshot, observe the newly committed Recall
 state, and leave no schedule or active attempt behind (`AC-11`).
 
+Manual R1 head `7ac8deb2129a23425fcbe53d6375a534974e70f4`
+passed exact-head CI/Preview run `34558822373`, including the live PostgreSQL
+semantics and deployed browser gate. Authenticated Preview run `34559421528`
+passed 24 tests with one expected skip and one Recall lifecycle on each of
+desktop and mobile: exact single-owner allowlist, four ordered 200 actions,
+draft omission, hidden-before-reveal content, D+7 completion, 44px/RTL checks,
+zero browser errors, three PNGs per device, and zero fixture rows after cleanup.
+Artifact `10183882755` has SHA-256
+`9c086817b88b3b833587b8ff2110f939e8aefcdc95e3fcb65517eb6112953091`.
+The identical tree squash-merged as
+`62300344fe8551725f96ea08c71d0808ad02c16b`; production run `34560141606`
+deployed that exact revision and its `/api/health` response reported the
+database connected. A separate operator-run
+`PLAYWRIGHT_BASE_URL=https://www.girapphe.com pnpm browser:smoke` then passed 89
+rendered tests with 11 expected skips; it was not part of the deployment
+workflow. This closes only `R1-01` through `R1-08`; the overall spec remains
+Draft and the future mobile, notification, memory-cue, research-consent, and
+physical-device scope remains open.
+
 | Criterion | Evidence |
 | --- | --- |
 | `AC-01` | `apps/web/src/lib/recall-persistence.test.ts` exercises a separate owner-scoped predicate for current-version typed items, approved current-conversation drafts/batches, matching conversation provenance, lifecycle exclusions, and content-free results. Manual R1 wires explicit per-item enrollment through the same predicate; automatic approval enrollment remains planned. |
 | `AC-02` | Planned mobile settings tests cover consent-before-OS-permission, timezone selection, preview, snooze, disable, and device revocation; real-device permission denial and recovery remain rollout evidence. |
 | `AC-03` | Notification payload and deep-link coverage remain planned. Manual R1 has no delivery payload and requires authentication before its owner-scoped route read. |
-| `AC-04` | `recall-runtime.test.ts` proves the pre-reveal SQL projection and response omit approved content, detailed provenance, source URL, selectors, and next interval. It also verifies the client sends no recall text and includes the `I don't know` path. Authenticated rendered-browser evidence remains a release gate. |
+| `AC-04` | `recall-runtime.test.ts` proves the pre-reveal SQL projection and response omit approved content, detailed provenance, source URL, selectors, and next interval. It also verifies the client sends no recall text and includes the `I don't know` path. Manual R1 authenticated desktop/mobile rendered evidence passed in run `34559421528`; the full type-native mobile scope remains planned. |
 | `AC-05` | Planned shared activity-builder tests cover all three bundle types and missing-field fallback; mobile accessibility tests plus VoiceOver/TalkBack inspection cover non-drag ordering and non-color meaning. |
 | `AC-06` | Migration `0022_recall_ping_persistence.sql` and ingestion tests bind every newly created conversation source to its exact immutable item revision while leaving historical sources null. Manual R1 reveals only an exact current-revision source, selector count, sanitized link, and `not recorded` independent-verification label. Edited-after-source history remains planned. |
 | `AC-07` | `recall-action-input.test.ts` and `recall-runtime.test.ts` prove Manual R1 free-response text has no action field and never enters its requests; the component clears that local state at session boundaries. Optional persisted memory cues and their lifecycle tests remain planned. |

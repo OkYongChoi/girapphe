@@ -2,9 +2,9 @@
 
 Status: Active
 
-The repository-owned implementation is complete. The spec remains Active until
-current provider compatibility and the expanded credentialed release evidence
-pass their separate gates.
+The repository-owned implementation and expanded credentialed Preview evidence
+are complete. The spec remains Active until current ChatGPT export compatibility
+passes against an authorized provider export fixture.
 
 ## Product thesis
 
@@ -196,7 +196,7 @@ Out of scope:
 - [ ] `AC-01`: A supported ChatGPT export is validated and parsed locally into
   a selectable conversation/date/topic preview; no raw message content leaves
   the browser before the user confirms a bounded selection.
-- [ ] `AC-02`: Import consent states what will be processed, retained, and
+- [x] `AC-02`: Import consent states what will be processed, retained, and
   deleted. Cancelling before confirmation creates no import job. Ignoring a
   candidate or discarding a batch removes it from active review but retains the
   structured candidate in the owner-scoped import record and export until
@@ -206,11 +206,11 @@ Out of scope:
   file in application storage, logs, analytics, traces, or error reports. The
   deterministic first release has no model call, background job, or timeout
   state.
-- [ ] `AC-03`: Processing creates only owner-scoped pending bundles with a
+- [x] `AC-03`: Processing creates only owner-scoped pending bundles with a
   central question, typed structured content, date metadata when available,
   and selector-only provenance. It does not alter private canonical knowledge,
   mastery, ranking, or public/private graph state before approval.
-- [ ] `AC-04`: The first-value view presents candidate topics, chronology, and
+- [x] `AC-04`: The first-value view presents candidate topics, chronology, and
   proposed relationships with a visible pending state and direct entry into
   review; a user can trace every displayed candidate insight to its selected
   source location.
@@ -224,10 +224,10 @@ Out of scope:
   signal is private, bounded, uncertainty-labelled, and backed by at least two
   eligible approved knowledge items or revisions where the signal type
   requires comparison. Unsupported signals fail closed and are not shown.
-- [ ] `AC-07`: A user can inspect evidence, dismiss a false signal, and open the
+- [x] `AC-07`: A user can inspect evidence, dismiss a false signal, and open the
   underlying approved knowledge without exposing another owner's content or
   raw transcript text.
-- [ ] `AC-08`: A user can explicitly select surfaced approved knowledge and
+- [x] `AC-08`: A user can explicitly select surfaced approved knowledge and
   create a bounded JSON, Markdown, or YAML context pack that can be copied or
   downloaded, contains no pending/archived/foreign item, and records a reuse
   activity for each included item.
@@ -240,7 +240,7 @@ Out of scope:
   exported context, or archive filename. After a failed best-effort finalization,
   the exact canonical-request retry converges on the same four deterministic
   import events; a new duplicate-only session does not claim candidates ready.
-- [ ] `AC-11`: A user can export all approved Girapphe knowledge and delete the
+- [x] `AC-11`: A user can export all approved Girapphe knowledge and delete the
   import job, pending candidates, intelligence feedback, reuse records, and
   approved private knowledge they own; deletion behavior and any recovery
   window are visible before confirmation.
@@ -344,25 +344,28 @@ provider credentials, raw archive names, and content never enter analytics.
 
 | Criterion | Evidence |
 | --- | --- |
-| `AC-01` | `chatgpt-export.test.mjs` covers the supported single-file parser and fail-closed active-branch traversal. The expanded authenticated browser test requires zero same-origin POSTs and zero import-event rows both before consent and before submission, inspects every outbound request URL/body for selected and raw markers, then uploads only two selected synthetic exchanges. It still needs a credentialed Preview run and a current authorized provider export fixture before this criterion can close. |
-| `AC-02` | Parser, event, ingestion, migration, and live PostgreSQL tests cover transient input, content-free analytics, idempotent submission telemetry, deletion/retry ordering, and account purge. The expanded authenticated test asserts that the raw filename and unselected message never cross the boundary, verifies the four post-consent import events once each, then verifies explicit import deletion removes retained selected candidate content from the full export. Its credentialed run is still required; application logs and traces must remain disabled or separately inspected without retaining private input. |
-| `AC-03` | Unit tests cover owner-scoped pending bundles, hashed selectors, dates, and approval-only promotion. `chatgpt-export-postgres.test.mjs` now asserts zero canonical knowledge, graph, mastery, and ranking rows immediately before approval; a new isolated Preview PostgreSQL run is required for that assertion. |
-| `AC-04` | `DraftReviewPanel` implements pending labels, topic/timeline grouping, source evidence, relationship counts, and direct review. The expanded desktop/mobile authenticated path exercises those elements but has not yet run against a deployed commit. |
+| `AC-01` | `chatgpt-export.test.mjs` covers the supported single-file parser and fail-closed active-branch traversal. The expanded authenticated browser test requires zero same-origin POSTs and zero import-event rows both before consent and before submission, inspects every outbound request URL/body for selected and raw markers, then uploads only two selected synthetic exchanges. Exact-head CI/Preview run `34493710131` and authenticated run `34495242696` passed at `300b72966e41420deb1652e0edee598eef16735d`; a current authorized provider export fixture is still required before this criterion can close. |
+| `AC-02` | Parser, event, ingestion, migration, and live PostgreSQL tests cover transient input, content-free analytics, idempotent submission telemetry, deletion/retry ordering, and account purge. Exact-head authenticated run `34495242696` passed the desktop/mobile assertions that the raw filename and unselected message never cross the boundary, the four post-consent import events appear once each, and explicit import deletion removes retained selected candidate content from the full export. Source and test inspection remain the evidence that application logs, traces, and error fields cannot retain private input. |
+| `AC-03` | Unit tests cover owner-scoped pending bundles, hashed selectors, dates, and approval-only promotion. `chatgpt-export-postgres.test.mjs` asserts zero canonical knowledge, graph, mastery, and ranking rows immediately before approval; exact-head isolated Preview PostgreSQL run `34493710131` passed that assertion. |
+| `AC-04` | `DraftReviewPanel` implements pending labels, topic/timeline grouping, source evidence, relationship counts, and direct review. Exact-head authenticated run `34495242696` passed the deployed desktop and mobile path. |
 | `AC-05` | Knowledge lifecycle and selected-export tests cover edit, save as new, merge/update, individual ignore, whole-import discard, atomic approval, provenance, revisions, and valid relationships. Import work is synchronous: ignore/discard marks candidates rejected and removes them from active review; explicit import deletion removes their retained owner-scoped content. |
 | `AC-06` | `packages/shared/src/ai-thinking-history.test.mjs` exercises material revisions, confirmed contradiction/connection relations, rediscovery relevance, bounds, and fail-closed unsupported contradiction; `knowledge-intelligence.ts` limits the corpus to owner-scoped active graph items. |
-| `AC-07` | Source and event tests validate owner-scoped evidence and opaque feedback. Authenticated Preview run `34038249111` established the prior private evidence surface; the expanded test adds underlying-knowledge navigation and dismiss/removal assertions and still needs a new credentialed run. |
-| `AC-08` | The context endpoint revalidates explicit selection, signal and active Topic Hub membership, payload size, and per-item reuse recording. Run `34038249111` established Markdown download; the expanded test asserts JSON, YAML, and Markdown copy plus download content, and still needs a new credentialed run. |
+| `AC-07` | Source and event tests validate owner-scoped evidence and opaque feedback. Exact-head authenticated Preview run `34495242696` passed underlying-knowledge navigation plus signal view, evidence-open, and dismiss/removal assertions on desktop and mobile. |
+| `AC-08` | The context endpoint revalidates explicit selection, signal and active Topic Hub membership, payload size, and per-item reuse recording. Exact-head authenticated Preview run `34495242696` passed JSON, YAML, and Markdown copy/download content and the six-step context API flow on desktop and mobile. |
 | `AC-09` | `SelectedConversationImportResult` is consumed by the provider-neutral batch builder; shared tests pass a synthetic provider through the same contract and reject raw archive fields. No second provider is claimed or enabled. |
 | `AC-10` | Event-schema, migration, memory-store, and metric tests reject content fields, keep opaque owner-scoped subjects, recompute activation, meaningful return, and reuse metrics, and exercise failed-finalization recovery through actual memory and live-PostgreSQL ingestion retries without a false duplicate-only `candidates_ready` event. |
-| `AC-11` | The account surface exports owner-scoped data and separates immediate import deletion, 14-day knowledge Trash, and irreversible account deletion. Live PostgreSQL run `34305134986` established selected-export lifecycle coverage; the expanded authenticated test adds pre/post deletion export assertions and still needs a new credentialed run. |
+| `AC-11` | The account surface exports owner-scoped data and separates immediate import deletion, 14-day knowledge Trash, and irreversible account deletion. Live PostgreSQL run `34305134986` established selected-export lifecycle coverage; exact-head authenticated Preview run `34495242696` passed the expanded pre/post deletion export assertions. |
 | `AC-12` | Parser and ingestion tests cover hard limits, collision-free identities, idempotent retries, owner isolation, active-source deduplication, durable tombstones, mixed-version races, and bounded retry guards. The first release makes no model call, and selected-export creation is one serialized transaction, so model cost is zero and there is no partial background job or unbounded retry loop. Preview PostgreSQL run `34305134986` passed the live concurrency/deletion fixture. |
 
-Before the expanded closeout gate can be marked passed, run the focused tests,
-`pnpm harness`, browser-visible coverage, and Cloudflare/runtime coverage on the
-exact commit. The authenticated import/intelligence flow requires a deployed
-Preview plus the isolated synthetic Clerk/Database fixture, and the new
-pre-approval database assertions require an isolated Preview database. Local
-fallback is not production evidence.
+Head `300b72966e41420deb1652e0edee598eef16735d` passed CI/Preview run
+`34493710131` and authenticated desktop/mobile Preview run `34495242696` with
+21 tests passed and zero Thinking History browser errors. Sanitized artifact
+`10159624678` has SHA-256
+`2dd77c3a6f2e63115fc894d394e22033d7f3d8bab76a39df983350de0328c6a9`.
+The identical tree merged as `8447a879e4c4c2b790bee2c91276c7d6b712e013`
+and production run `34495859608` succeeded. `AC-01` remains open because
+synthetic local or Preview evidence does not prove the current provider export
+contract.
 
 ## Rollout
 
