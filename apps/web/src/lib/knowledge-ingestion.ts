@@ -34,6 +34,7 @@ export const MCP_REQUESTS_PER_USER_PER_MINUTE = 300;
 export const MCP_CREDENTIAL_RATE_LIMIT_RETENTION_MS = 60 * 60 * 1000;
 export const MCP_CREDENTIAL_RATE_LIMIT_CLEANUP_BATCH_SIZE = 64;
 export const MCP_ACTIVE_TOKEN_LIMIT = 10;
+export const MCP_ACCESS_TOKEN_LIST_LIMIT = 50;
 export const MCP_TOKEN_CREATION_LIMIT_PER_DAY = 20;
 export const MCP_TOKEN_CREATION_WINDOW_MS = 86_400_000;
 export const MCP_TOKEN_CREATION_BUCKET_MS = 60_000;
@@ -353,6 +354,24 @@ export type McpAccessToken = {
   expires_at: string;
   revoked_at: string | null;
 };
+
+function isMcpAccessTokenActiveAt(
+  token: Pick<McpAccessToken, 'expires_at' | 'revoked_at'>,
+  nowMs: number,
+): boolean {
+  return !token.revoked_at && new Date(token.expires_at).getTime() > nowMs;
+}
+
+function compareMcpAccessTokensForListing(
+  left: McpAccessToken,
+  right: McpAccessToken,
+  nowMs: number,
+): number {
+  const activeOrder = Number(isMcpAccessTokenActiveAt(right, nowMs))
+    - Number(isMcpAccessTokenActiveAt(left, nowMs));
+  if (activeOrder !== 0) return activeOrder;
+  return right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id);
+}
 
 export type AuthenticatedMcpToken = {
   userId: string;
@@ -2528,7 +2547,7 @@ export async function createMcpAccessTokenForUser(
   const tokenHash = hashToken(rawToken);
   if (!process.env.DATABASE_URL) {
     const userTokens = Array.from(memoryTokens.values()).filter((token) => token.user_id === userId);
-    const activeTokens = userTokens.filter((token) => !token.revoked_at && new Date(token.expires_at).getTime() > now.getTime());
+    const activeTokens = userTokens.filter((token) => isMcpAccessTokenActiveAt(token, now.getTime()));
     const createdInLastDay = userTokens.filter((token) => now.getTime() - new Date(token.created_at).getTime() < 86_400_000);
     if (activeTokens.length >= MCP_ACTIVE_TOKEN_LIMIT
       || createdInLastDay.length >= MCP_TOKEN_CREATION_LIMIT_PER_DAY
@@ -2652,6 +2671,7 @@ export async function createMcpAccessTokenForUser(
 
 export async function getMcpAccessTokensForUser(userId: string): Promise<McpAccessToken[]> {
   if (!process.env.DATABASE_URL) {
+    const nowMs = Date.now();
     return Array.from(memoryTokens.values())
       .filter((token) => token.user_id === userId)
       .map((token) => ({
@@ -2664,13 +2684,19 @@ export async function getMcpAccessTokensForUser(userId: string): Promise<McpAcce
         expires_at: token.expires_at,
         revoked_at: token.revoked_at,
       }))
-      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      .sort((left, right) => compareMcpAccessTokensForListing(left, right, nowMs))
+      .slice(0, MCP_ACCESS_TOKEN_LIST_LIMIT);
   }
   await ensureKnowledgeIngestionSchema();
   const result = await pool.query<Record<string, unknown>>(
     `SELECT id, label, scopes, last_four, created_at::text, last_used_at::text, expires_at::text, revoked_at::text
-     FROM mcp_access_tokens WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
-    [userId]
+     FROM mcp_access_tokens
+     WHERE user_id = $1
+     ORDER BY (revoked_at IS NULL AND expires_at > NOW()) DESC,
+       created_at DESC NULLS LAST,
+       id DESC
+     LIMIT $2::integer`,
+    [userId, MCP_ACCESS_TOKEN_LIST_LIMIT]
   );
   return result.rows.map((row) => ({
     id: String(row.id),

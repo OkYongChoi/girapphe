@@ -33,6 +33,8 @@ import {
   hasSelectedExportIdempotencyCapacity,
   MAX_KNOWLEDGE_BATCHES_PER_USER,
   MAX_SELECTED_EXPORT_IDEMPOTENCY_SLOTS_PER_USER,
+  MCP_ACCESS_TOKEN_LIST_LIMIT,
+  MCP_ACTIVE_TOKEN_LIMIT,
   MCP_CONTEXT_READ_SCOPE,
   MCP_CREDENTIAL_RATE_LIMIT_CLEANUP_BATCH_SIZE,
   MCP_CREDENTIAL_RATE_LIMIT_RETENTION_MS,
@@ -1754,6 +1756,85 @@ test('issues only explicitly requested MCP knowledge scopes', async () => {
     createMcpAccessTokenForUser(`user_unknown_scope_${crypto.randomUUID()}`, 'Unknown access', ['knowledge:everything']),
     /supported MCP scope/i,
   );
+});
+
+test('keeps an older active MCP token ahead of more than 50 newer inactive records', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalDateNow = Date.now;
+  const dayMs = 86_400_000;
+  const activeCreatedAt = Date.UTC(2030, 0, 1, 0, 0, 0);
+  const userId = `user_token_active_first_${crypto.randomUUID()}`;
+
+  context.after(() => {
+    Date.now = originalDateNow;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+  delete process.env.DATABASE_URL;
+
+  Date.now = () => activeCreatedAt - 100 * dayMs;
+  const expired = await createMcpAccessTokenForUser(userId, 'Expired before active token');
+  Date.now = () => activeCreatedAt;
+  const active = await createMcpAccessTokenForUser(userId, 'Older active token');
+  const newerRevokedIds: string[] = [];
+  for (let index = 1; index <= MCP_ACCESS_TOKEN_LIST_LIMIT + 1; index += 1) {
+    Date.now = () => activeCreatedAt + index * dayMs;
+    const newer = await createMcpAccessTokenForUser(userId, `Newer revoked token ${index}`);
+    newerRevokedIds.push(newer.record.id);
+    await revokeMcpAccessTokenForUser(userId, newer.record.id);
+  }
+
+  assert.ok(MCP_ACTIVE_TOKEN_LIMIT < MCP_ACCESS_TOKEN_LIST_LIMIT);
+  assert.ok(new Date(expired.record.expires_at).getTime() <= Date.now());
+  const listed = await getMcpAccessTokensForUser(userId);
+  assert.equal(listed.length, MCP_ACCESS_TOKEN_LIST_LIMIT);
+  assert.equal(listed[0]?.id, active.record.id);
+  assert.equal(listed.filter((token) => (
+    !token.revoked_at && new Date(token.expires_at).getTime() > Date.now()
+  )).length, 1);
+  assert.equal(listed.slice(1).every((token) => token.revoked_at !== null), true);
+  assert.equal(listed.some((token) => token.id === expired.record.id), false);
+  assert.equal(listed.some((token) => token.id === newerRevokedIds.at(-1)), true);
+});
+
+test('database MCP token listing is active-first, owner-scoped, and bounded', async (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const originalQuery = db.query;
+  const userId = 'user_token_listing_owner';
+  let listingQueryCount = 0;
+
+  context.after(() => {
+    db.query = originalQuery;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  process.env.DATABASE_URL = 'postgresql://mock.invalid/girapphe';
+  db.query = (async (text: string, params?: unknown[]) => {
+    if (/^\s*(?:ALTER TABLE|CREATE TABLE|CREATE(?: UNIQUE)? INDEX)/.test(text)) return { rows: [] };
+    assert.match(text, /FROM mcp_access_tokens\s+WHERE user_id = \$1/);
+    assert.match(
+      text,
+      /ORDER BY \(revoked_at IS NULL AND expires_at > NOW\(\)\) DESC,\s+created_at DESC NULLS LAST,\s+id DESC\s+LIMIT \$2::integer/,
+    );
+    assert.deepEqual(params, [userId, MCP_ACCESS_TOKEN_LIST_LIMIT]);
+    listingQueryCount += 1;
+    return {
+      rows: [{
+        id: 'active-token',
+        label: 'Active token',
+        scopes: [MCP_DRAFT_CREATE_SCOPE],
+        last_four: 'live',
+        created_at: '2030-01-01T00:00:00.000Z',
+        last_used_at: null,
+        expires_at: '2030-04-01T00:00:00.000Z',
+        revoked_at: null,
+      }],
+    };
+  }) as typeof db.query;
+
+  assert.equal((await getMcpAccessTokensForUser(userId))[0]?.id, 'active-token');
+  assert.equal(listingQueryCount, 1);
 });
 
 test('permanently deletes only revoked MCP tokens and their memory rate state', async () => {
