@@ -118,16 +118,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       'a Clerk live publishable key',
     );
     requireProductionPattern(
-      'EXPO_PUBLIC_SUPERWALL_IOS_API_KEY',
-      /^pk_[A-Za-z0-9_-]{8,}$/,
-      'a Superwall public iOS SDK key',
-    );
-    requireProductionPattern(
-      'EXPO_PUBLIC_SUPERWALL_ANDROID_API_KEY',
-      /^pk_[A-Za-z0-9_-]{8,}$/,
-      'a Superwall public Android SDK key',
-    );
-    requireProductionPattern(
       'EXPO_PUBLIC_MOBILE_BILLING_ACQUISITION_ENABLED',
       /^(true|false)$/,
       'the explicit boolean mobile acquisition gate',
@@ -159,6 +149,16 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       throw new Error('Production iOS and Android NativeAd unit IDs must be distinct.');
     }
     if (mobileAcquisitionGate === 'true') {
+      requireProductionPattern(
+        'EXPO_PUBLIC_SUPERWALL_IOS_API_KEY',
+        /^pk_[A-Za-z0-9_-]{8,}$/,
+        'a Superwall public iOS SDK key',
+      );
+      requireProductionPattern(
+        'EXPO_PUBLIC_SUPERWALL_ANDROID_API_KEY',
+        /^pk_[A-Za-z0-9_-]{8,}$/,
+        'a Superwall public Android SDK key',
+      );
       for (const [name, value] of Object.entries(superwallProductIds)) {
         if (!value) {
           throw new Error(`Production mobile acquisition requires the Superwall purchase identifier ${name}.`);

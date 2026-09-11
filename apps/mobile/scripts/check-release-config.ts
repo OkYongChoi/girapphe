@@ -114,6 +114,18 @@ assert.doesNotThrow(() => withProductionEnvironment(
     EXPO_PUBLIC_SUPERWALL_ANDROID_ANNUAL_PURCHASE_IDENTIFIER: undefined,
   },
 ), 'Disabling acquisition must not disable existing subscriber lifecycle configuration.');
+assert.doesNotThrow(() => withProductionEnvironment(
+  () => appConfig({ config: appJson.expo } as never),
+  {
+    EXPO_PUBLIC_MOBILE_BILLING_ACQUISITION_ENABLED: 'false',
+    EXPO_PUBLIC_SUPERWALL_IOS_API_KEY: undefined,
+    EXPO_PUBLIC_SUPERWALL_ANDROID_API_KEY: undefined,
+    EXPO_PUBLIC_SUPERWALL_IOS_MONTHLY_PURCHASE_IDENTIFIER: undefined,
+    EXPO_PUBLIC_SUPERWALL_IOS_ANNUAL_PURCHASE_IDENTIFIER: undefined,
+    EXPO_PUBLIC_SUPERWALL_ANDROID_MONTHLY_PURCHASE_IDENTIFIER: undefined,
+    EXPO_PUBLIC_SUPERWALL_ANDROID_ANNUAL_PURCHASE_IDENTIFIER: undefined,
+  },
+), 'A provider-optional production build must not require Superwall configuration when acquisition is disabled.');
 assert.throws(() => withProductionEnvironment(
   () => appConfig({ config: appJson.expo } as never),
   { EXPO_PUBLIC_SUPERWALL_IOS_ANNUAL_PURCHASE_IDENTIFIER: undefined },

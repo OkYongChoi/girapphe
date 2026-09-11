@@ -33,10 +33,11 @@ production profile can select real unit IDs.
 
 Configure these public build values in the `development`, `preview`, and `production` EAS
 Environments as appropriate. They are identifiers or public SDK keys, not server secrets.
-The production config fails closed unless the canonical API origin, live Clerk key, both
-Superwall platform keys, an explicit acquisition gate, both AdMob app/unit IDs, and final legal
-URLs are present and valid. Store product identifiers are additionally required when acquisition
-is enabled.
+The production config fails closed unless the canonical API origin, live Clerk key, an explicit
+acquisition gate, both AdMob app/unit IDs, and final legal URLs are present and valid. Superwall
+platform keys and store product identifiers are additionally required only when mobile acquisition
+is enabled. A provider-optional production build may keep the gate `false` and omit all Superwall
+values; free access remains available and native purchase actions stay disabled.
 
 | Name | Required for | Notes |
 |---|---|---|
@@ -46,8 +47,8 @@ is enabled.
 | `EXPO_PUBLIC_SUPPORT_URL` | Account support | Canonical public support page; production is pinned to `https://www.girapphe.com/support`. |
 | `EXPO_PUBLIC_ACCOUNT_DELETION_URL` | Store deletion disclosure and fallback | Direct verified web deletion path; production is pinned to `https://www.girapphe.com/account/delete`. |
 | `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` | Sign-in and account linking | Use the matching Clerk test/live instance for the EAS environment. |
-| `EXPO_PUBLIC_SUPERWALL_IOS_API_KEY` | iOS subscription lifecycle | Superwall public iOS SDK key; required even while new acquisition is disabled so restore and status continue. |
-| `EXPO_PUBLIC_SUPERWALL_ANDROID_API_KEY` | Android subscription lifecycle | Superwall public Android SDK key; required even while new acquisition is disabled so restore and status continue. |
+| `EXPO_PUBLIC_SUPERWALL_IOS_API_KEY` | iOS subscription lifecycle when configured | Superwall public iOS SDK key; optional for a provider-optional build with acquisition disabled. |
+| `EXPO_PUBLIC_SUPERWALL_ANDROID_API_KEY` | Android subscription lifecycle when configured | Superwall public Android SDK key; optional for a provider-optional build with acquisition disabled. |
 | `EXPO_PUBLIC_SUPERWALL_IOS_MONTHLY_PURCHASE_IDENTIFIER` | iOS monthly purchase | Exact App Store product identifier; required when acquisition is enabled. |
 | `EXPO_PUBLIC_SUPERWALL_IOS_ANNUAL_PURCHASE_IDENTIFIER` | iOS annual purchase | Exact App Store product identifier; required when acquisition is enabled. |
 | `EXPO_PUBLIC_SUPERWALL_ANDROID_MONTHLY_PURCHASE_IDENTIFIER` | Android monthly purchase | Exact `product:base-plan:sw-none` selector. `sw-none` is mandatory so Billing V1 never auto-selects an introductory offer; the raw product segment must equal the server's distinct monthly `SUPERWALL_ANDROID_MONTHLY_PRODUCT_ID`. |
