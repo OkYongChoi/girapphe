@@ -2623,7 +2623,7 @@ export async function createMcpAccessTokenForUser(
        FULL OUTER JOIN recent_rate_buckets rates USING (bucket_started_at)
      ), creation_rate AS (
        INSERT INTO mcp_request_rate_limits (scope_key, window_started_at, request_count, updated_at)
-       SELECT $13, $14::timestamptz, 1, NOW()
+       SELECT $13, $14::timestamptz, 1, $14::timestamptz
        FROM account_state, token_counts, effective_creation_rate
        WHERE account_active
          AND active_count < $8
@@ -2631,7 +2631,7 @@ export async function createMcpAccessTokenForUser(
          AND retained_count < $10
        ON CONFLICT (scope_key) DO UPDATE SET
          request_count = mcp_request_rate_limits.request_count + 1,
-         updated_at = NOW()
+         updated_at = EXCLUDED.window_started_at
        RETURNING scope_key
      ), inserted_token AS (
        INSERT INTO mcp_access_tokens
@@ -2776,7 +2776,7 @@ export async function deleteRevokedMcpAccessTokenForUser(userId: string, tokenId
        ), preserved_creation_rates AS (
          INSERT INTO mcp_request_rate_limits (scope_key, window_started_at, request_count, updated_at)
          SELECT $3 || ':' || ((EXTRACT(EPOCH FROM bucket_started_at) * 1000)::bigint)::text,
-           bucket_started_at, request_count, NOW()
+           bucket_started_at, request_count, bucket_started_at
          FROM recent_token_creation_buckets
          WHERE (SELECT COUNT(*) FROM stale_creation_rates) >= 0
          ON CONFLICT (scope_key) DO UPDATE SET
@@ -2784,7 +2784,7 @@ export async function deleteRevokedMcpAccessTokenForUser(userId: string, tokenId
              mcp_request_rate_limits.request_count,
              EXCLUDED.request_count
            ),
-           updated_at = NOW()
+           updated_at = EXCLUDED.window_started_at
          RETURNING scope_key
        ), deleted_rate AS (
          DELETE FROM mcp_request_rate_limits rate

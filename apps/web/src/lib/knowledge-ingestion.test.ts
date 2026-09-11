@@ -1903,6 +1903,7 @@ test('deleted MCP token creations remain bounded across a rolling-day boundary',
 
   Date.now = () => startedAt;
   const first = await createMcpAccessTokenForUser(userId, 'Rolling first');
+  Date.now = () => startedAt + 2 * MCP_TOKEN_CREATION_BUCKET_MS + 27_000;
   await revokeMcpAccessTokenForUser(userId, first.record.id);
   await deleteRevokedMcpAccessTokenForUser(userId, first.record.id);
 
@@ -1981,6 +1982,13 @@ test('database token deletion is owner scoped, revoked only, and removes only it
   assert.match(deletion.text, /scope_key LIKE 'token-creation:%'/);
   assert.match(deletion.text, /window_started_at <= NOW\(\) - INTERVAL '1 day'/);
   assert.match(deletion.text, /SELECT \$3 \|\| ':' \|\|/);
+  assert.match(
+    deletion.text,
+    /bucket_started_at, request_count, bucket_started_at\s+FROM recent_token_creation_buckets/,
+  );
+  assert.match(deletion.text, /updated_at = EXCLUDED\.window_started_at/);
+  assert.doesNotMatch(deletion.text, /request_count, NOW\(\)/);
+  assert.doesNotMatch(deletion.text, /updated_at = NOW\(\)/);
   assert.match(deletion.text, /scope_key = 'token:' \|\| selected\.id/);
   assert.match(
     deletion.text,
@@ -2353,6 +2361,13 @@ test('database MCP draft, token, and reuse writers lock then reject post-delete 
   assert.match(tokenTransaction!.calls[2]!.text, /stale_creation_rates AS/);
   assert.match(tokenTransaction!.calls[2]!.text, /creation_rate AS/);
   assert.match(tokenTransaction!.calls[2]!.text, /INSERT INTO mcp_request_rate_limits/);
+  assert.match(
+    tokenTransaction!.calls[2]!.text,
+    /SELECT \$13, \$14::timestamptz, 1, \$14::timestamptz/,
+  );
+  assert.match(tokenTransaction!.calls[2]!.text, /updated_at = EXCLUDED\.window_started_at/);
+  assert.doesNotMatch(tokenTransaction!.calls[2]!.text, /1, NOW\(\)/);
+  assert.doesNotMatch(tokenTransaction!.calls[2]!.text, /updated_at = NOW\(\)/);
   assert.equal(tokenTransaction!.calls[2]!.params?.[10], scopeKey);
   assert.equal(
     tokenTransaction!.calls[2]!.params?.[11],
