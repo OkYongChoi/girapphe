@@ -22,6 +22,11 @@ import {
   normalizeKnowledgeSourceUrl,
 } from '@/lib/knowledge-source-url';
 import { sanitizeKnowledgeTags } from '@/lib/knowledge-tag-normalization';
+import {
+  buildRecallLifecycleLockQuery,
+  buildRecallProvenanceBatchCleanupQuery,
+  buildStaleRecallEnrollmentCleanupQuery,
+} from '@/lib/recall-lifecycle-cleanup';
 
 export { sanitizeKnowledgeTags } from '@/lib/knowledge-tag-normalization';
 
@@ -4714,10 +4719,15 @@ export async function discardKnowledgeDraftBatchForUser(userId: string, batchId:
   }
   await ensureKnowledgeIngestionSchema();
   const sql = getTransactionSql();
+  const recallCleanup = buildRecallProvenanceBatchCleanupQuery(userId, batchId, 'discard');
+  // A Recall writer may commit while this operation waits on the account lock.
+  // Read Committed lets the cleanup statements observe that lock winner instead
+  // of retaining a Serializable snapshot taken before the wait.
   await sql.transaction((tx) => [
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
     tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-ingestion:${userId}`]),
+    tx.query(recallCleanup.text, recallCleanup.params),
     tx.query(
       `WITH discarded AS (
          UPDATE knowledge_ingestion_batches SET status = 'discarded', discarded_at = NOW(), updated_at = NOW()
@@ -4727,7 +4737,7 @@ export async function discardKnowledgeDraftBatchForUser(userId: string, batchId:
        WHERE batch_id IN (SELECT id FROM discarded) AND user_id = $2 AND status = 'pending'`,
       [batchId, userId],
     ),
-  ], { isolationLevel: 'Serializable' });
+  ], { isolationLevel: 'ReadCommitted' });
 }
 
 export async function deleteKnowledgeImportBatchForUser(
@@ -4778,11 +4788,13 @@ export async function deleteKnowledgeImportBatchForUser(
   await ensureKnowledgeIngestionSchema();
   const sql = getTransactionSql();
   const batchSubjectHash = knowledgeProductEventSubjectHash(userId, batchId);
+  const recallCleanup = buildRecallProvenanceBatchCleanupQuery(userId, batchId, 'delete');
   const resultSets = await sql.transaction((tx) => [
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
     tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-ingestion:${userId}`]),
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-import:${userId}:${batchId}`]),
+    tx.query(recallCleanup.text, recallCleanup.params),
     tx.query(
       `WITH owned_batch AS MATERIALIZED (
          SELECT id, scope, provider, request_id FROM knowledge_ingestion_batches
@@ -4851,7 +4863,10 @@ export async function deleteKnowledgeImportBatchForUser(
       [batchId, userId, batchSubjectHash],
     ),
   ], { isolationLevel: 'ReadCommitted' });
-  const row = (resultSets[4] as Array<{ deleted: boolean; approved_knowledge_preserved: number }>)[0];
+  const row = (resultSets.at(-1) as Array<{
+    deleted: boolean;
+    approved_knowledge_preserved: number;
+  }> | undefined)?.[0];
   return {
     deleted: row?.deleted === true,
     approvedKnowledgePreserved: Number(row?.approved_knowledge_preserved ?? 0),
@@ -5490,10 +5505,14 @@ export async function resolveKnowledgeDraftForUser(
         ),
       ];
       if (input.action !== 'create') {
-        queries.push(tx.query(
-          'SELECT pg_advisory_xact_lock(hashtext($1))',
-          [`knowledge-item:${userId}:${itemId}`],
-        ));
+        const recallLock = buildRecallLifecycleLockQuery(userId, itemId);
+        queries.push(
+          tx.query(recallLock.text, recallLock.params),
+          tx.query(
+            'SELECT pg_advisory_xact_lock(hashtext($1))',
+            [`knowledge-item:${userId}:${itemId}`],
+          ),
+        );
       } else {
         queries.push(
           tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-items:${userId}`]),
@@ -5572,6 +5591,8 @@ export async function resolveKnowledgeDraftForUser(
             sanitizedPayload.review_at !== undefined,
           ],
         ));
+        const recallCleanup = buildStaleRecallEnrollmentCleanupQuery(userId, itemId);
+        queries.push(tx.query(recallCleanup.text, recallCleanup.params));
       }
       queries.push(
         tx.query(
@@ -5742,9 +5763,12 @@ export async function verifyKnowledgeItemForUser(
   await ensureKnowledgeIngestionSchema();
   try {
     const sql = getTransactionSql();
+    const recallLock = buildRecallLifecycleLockQuery(userId, itemId);
+    const recallCleanup = buildStaleRecallEnrollmentCleanupQuery(userId, itemId);
     await sql.transaction((tx) => [
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
       tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
+      tx.query(recallLock.text, recallLock.params),
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-item:${userId}:${itemId}`]),
       tx.query(
         `SELECT 1 / CASE WHEN EXISTS (
@@ -5778,6 +5802,7 @@ export async function verifyKnowledgeItemForUser(
          RETURNING id`,
         [itemId, userId, normalizedReviewAt ?? null, normalizedReviewAt !== undefined, expectedVersion],
       ),
+      tx.query(recallCleanup.text, recallCleanup.params),
       tx.query(
         `INSERT INTO knowledge_item_revisions
            (id, user_id, knowledge_item_id, version, snapshot, change_reason)
@@ -5855,9 +5880,12 @@ async function setKnowledgeArchivedStateForUser(
   await ensureKnowledgeIngestionSchema();
   try {
     const sql = getTransactionSql();
+    const recallLock = buildRecallLifecycleLockQuery(userId, itemId);
+    const recallCleanup = buildStaleRecallEnrollmentCleanupQuery(userId, itemId);
     await sql.transaction((tx) => [
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
       tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
+      tx.query(recallLock.text, recallLock.params),
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-item:${userId}:${itemId}`]),
       tx.query(
         `SELECT 1 / CASE WHEN EXISTS (
@@ -5892,6 +5920,7 @@ async function setKnowledgeArchivedStateForUser(
          RETURNING id`,
         [itemId, userId, expectedVersion, archive],
       ),
+      tx.query(recallCleanup.text, recallCleanup.params),
       tx.query(
         `INSERT INTO knowledge_item_revisions
            (id, user_id, knowledge_item_id, version, snapshot, change_reason)
@@ -6020,6 +6049,8 @@ export async function supersedeKnowledgeItemForUser(
 
   await ensureKnowledgeIngestionSchema();
   const supersessionId = randomUUID();
+  const recallLock = buildRecallLifecycleLockQuery(userId, supersededItemId);
+  const recallCleanup = buildStaleRecallEnrollmentCleanupQuery(userId, supersededItemId);
   try {
     const sql = getTransactionSql();
     await sql.transaction((tx) => {
@@ -6027,6 +6058,7 @@ export async function supersedeKnowledgeItemForUser(
       return [
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
       tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
+      tx.query(recallLock.text, recallLock.params),
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-item:${userId}:${firstItemId}`]),
       tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`knowledge-item:${userId}:${secondItemId}`]),
       tx.query(
@@ -6079,6 +6111,7 @@ export async function supersedeKnowledgeItemForUser(
          RETURNING id`,
         [supersededItemId, userId, expectedVersion],
       ),
+      tx.query(recallCleanup.text, recallCleanup.params),
       tx.query(
         `INSERT INTO knowledge_item_revisions
            (id, user_id, knowledge_item_id, version, snapshot, change_reason)

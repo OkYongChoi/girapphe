@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -297,6 +298,399 @@ export function renderAuthenticatedMcpProviderSummary(summary) {
   ].join('\n');
 }
 
+const RECALL_EVIDENCE_KIND = 'manual_recall_closeout';
+const RECALL_ACTION_STAGES = ['start', 'confidence', 'reveal', 'complete'];
+const RECALL_PROJECTS_BY_ARTIFACT = {
+  'authenticated-desktop.json': 'authenticated-desktop',
+  'authenticated-mobile.json': 'authenticated-mobile',
+};
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const RECALL_ROOT_FIELDS = [
+  'actionDecodedBytesTotal',
+  'actionFlow',
+  'actionResponseHeadersTotalMs',
+  'actionTransferredBytesTotal',
+  'artifactName',
+  'browserErrorCount',
+  'cleanup',
+  'durationMs',
+  'evidenceKind',
+  'persisted',
+  'project',
+  'rendered',
+  'rollout',
+  'route',
+  'routeHtmlBytes',
+  'routeReadyMs',
+  'routeStatus',
+  'rtlRouteStatus',
+  'schemaVersion',
+  'screenshots',
+  'serverActionRequestCount',
+];
+const RECALL_ROLLOUT_FIELDS = [
+  'distinctCandidateDenied',
+  'enabled',
+  'exactSingleAllowedOwner',
+  'mode',
+];
+const RECALL_RENDERED_FIELDS = [
+  'completionVisible',
+  'localDraftAbsentFromActions',
+  'localDraftVisibleAfterReveal',
+  'measuredTouchTargetCount',
+  'minimumTouchTargetPx',
+  'postRevealAnswerVisible',
+  'preRevealAnswerHidden',
+  'privateQuestionVisible',
+  'rtlContained',
+  'rtlDirection',
+];
+const RECALL_ACTION_FIELDS = [
+  'decodedBytesAtSettledUi',
+  'requestBytes',
+  'responseHeadersMs',
+  'stage',
+  'status',
+  'transferredBytesAtSettledUi',
+];
+const RECALL_PERSISTED_FIELDS = [
+  'attemptCount',
+  'attemptLifecycleState',
+  'confidence',
+  'dueMatchesAttempt',
+  'hintUsed',
+  'outcome',
+  'practiceStatus',
+  'scheduleState',
+  'scheduleVersion',
+];
+const RECALL_CLEANUP_FIELDS = [
+  'attempts',
+  'batches',
+  'drafts',
+  'evidence',
+  'items',
+  'revisions',
+  'schedules',
+  'sources',
+];
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasExactFields(value, fields) {
+  if (!isPlainObject(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...fields].sort();
+  return actual.length === expected.length
+    && actual.every((field, index) => field === expected[index]);
+}
+
+function isFiniteNonNegative(value) {
+  return Number.isFinite(value) && value >= 0;
+}
+
+function isSafeNonNegativeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function recallScreenshotNamesForProject(project) {
+  return [
+    `${project}-pre-reveal.png`,
+    `${project}-post-reveal.png`,
+    `${project}-completed.png`,
+  ];
+}
+
+async function assertExactRecallScreenshotFiles(recallDirectory, metrics) {
+  const expectedNames = metrics
+    .flatMap((metric) => metric.screenshots)
+    .sort();
+  let entries = [];
+  try {
+    entries = await fs.readdir(recallDirectory, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  const pngEntries = entries
+    .filter((entry) => /\.png$/i.test(entry.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const actualNames = pngEntries.map((entry) => entry.name);
+  if (
+    actualNames.length !== expectedNames.length
+    || actualNames.some((name, index) => name !== expectedNames[index])
+  ) {
+    throw new Error(
+      'Authenticated Recall screenshot evidence is incomplete or contains unexpected PNG files.',
+    );
+  }
+
+  for (const entry of pngEntries) {
+    if (!entry.isFile()) {
+      throw new Error('Authenticated Recall screenshots must be regular PNG files.');
+    }
+    const screenshotPath = path.join(recallDirectory, entry.name);
+    const handle = await fs.open(screenshotPath, 'r');
+    try {
+      const stats = await handle.stat();
+      if (!stats.isFile() || stats.size <= PNG_SIGNATURE.length) {
+        throw new Error('Authenticated Recall screenshots must be nonempty regular PNG files.');
+      }
+      const signature = Buffer.alloc(PNG_SIGNATURE.length);
+      const { bytesRead } = await handle.read(signature, 0, signature.length, 0);
+      if (bytesRead !== PNG_SIGNATURE.length || !signature.equals(PNG_SIGNATURE)) {
+        throw new Error('Authenticated Recall screenshot evidence has an invalid PNG signature.');
+      }
+    } finally {
+      await handle.close();
+    }
+  }
+}
+
+function isExactRecallEvidence(metric) {
+  if (!hasExactFields(metric, RECALL_ROOT_FIELDS)) return false;
+  const expectedProject = Object.hasOwn(RECALL_PROJECTS_BY_ARTIFACT, metric.artifactName)
+    ? RECALL_PROJECTS_BY_ARTIFACT[metric.artifactName]
+    : null;
+  const expectedScreenshots = expectedProject
+    ? recallScreenshotNamesForProject(expectedProject)
+    : [];
+  return metric.schemaVersion === 1
+    && metric.evidenceKind === RECALL_EVIDENCE_KIND
+    && metric.route === '/en/recall'
+    && Boolean(expectedProject)
+    && metric.project === expectedProject
+    && hasExactFields(metric.rollout, RECALL_ROLLOUT_FIELDS)
+    && ['off', 'allowlist', 'all'].includes(metric.rollout.mode)
+    && typeof metric.rollout.enabled === 'boolean'
+    && typeof metric.rollout.exactSingleAllowedOwner === 'boolean'
+    && typeof metric.rollout.distinctCandidateDenied === 'boolean'
+    && hasExactFields(metric.rendered, RECALL_RENDERED_FIELDS)
+    && [
+      'privateQuestionVisible',
+      'preRevealAnswerHidden',
+      'localDraftAbsentFromActions',
+      'localDraftVisibleAfterReveal',
+      'postRevealAnswerVisible',
+      'completionVisible',
+      'rtlContained',
+    ].every((field) => typeof metric.rendered[field] === 'boolean')
+    && isSafeNonNegativeInteger(metric.rendered.measuredTouchTargetCount)
+    && isFiniteNonNegative(metric.rendered.minimumTouchTargetPx)
+    && ['ltr', 'rtl'].includes(metric.rendered.rtlDirection)
+    && Number.isSafeInteger(metric.rtlRouteStatus)
+    && Number.isSafeInteger(metric.routeStatus)
+    && isFiniteNonNegative(metric.routeReadyMs)
+    && isSafeNonNegativeInteger(metric.routeHtmlBytes)
+    && isSafeNonNegativeInteger(metric.serverActionRequestCount)
+    && Array.isArray(metric.actionFlow)
+    && metric.actionFlow.length === RECALL_ACTION_STAGES.length
+    && metric.actionFlow.every((action, index) => (
+      hasExactFields(action, RECALL_ACTION_FIELDS)
+      && action.stage === RECALL_ACTION_STAGES[index]
+      && Number.isSafeInteger(action.status)
+      && isFiniteNonNegative(action.responseHeadersMs)
+      && isSafeNonNegativeInteger(action.requestBytes)
+      && isSafeNonNegativeInteger(action.decodedBytesAtSettledUi)
+      && (
+        action.transferredBytesAtSettledUi === null
+        || isSafeNonNegativeInteger(action.transferredBytesAtSettledUi)
+      )
+    ))
+    && isFiniteNonNegative(metric.actionResponseHeadersTotalMs)
+    && isSafeNonNegativeInteger(metric.actionDecodedBytesTotal)
+    && (
+      metric.actionTransferredBytesTotal === null
+      || isSafeNonNegativeInteger(metric.actionTransferredBytesTotal)
+    )
+    && hasExactFields(metric.persisted, RECALL_PERSISTED_FIELDS)
+    && isSafeNonNegativeInteger(metric.persisted.attemptCount)
+    && [
+      'prepared',
+      'confidence_selected',
+      'revealed',
+      'completed',
+      'invalidated',
+    ].includes(metric.persisted.attemptLifecycleState)
+    && ['low', 'medium', 'high'].includes(metric.persisted.confidence)
+    && ['remembered', 'partial', 'missed'].includes(metric.persisted.outcome)
+    && typeof metric.persisted.hintUsed === 'boolean'
+    && ['d1_pending', 'd1_retry', 'd7_pending', 'ordinary_practice']
+      .includes(metric.persisted.scheduleState)
+    && isSafeNonNegativeInteger(metric.persisted.scheduleVersion)
+    && ['known', 'saved'].includes(metric.persisted.practiceStatus)
+    && typeof metric.persisted.dueMatchesAttempt === 'boolean'
+    && isSafeNonNegativeInteger(metric.browserErrorCount)
+    && isFiniteNonNegative(metric.durationMs)
+    && Array.isArray(metric.screenshots)
+    && metric.screenshots.length === expectedScreenshots.length
+    && metric.screenshots.every((screenshot, index) => screenshot === expectedScreenshots[index])
+    && hasExactFields(metric.cleanup, RECALL_CLEANUP_FIELDS)
+    && RECALL_CLEANUP_FIELDS.every((field) => (
+      isSafeNonNegativeInteger(metric.cleanup[field])
+    ));
+}
+
+function isRecallCloseoutPassed(metric) {
+  if (!isExactRecallEvidence(metric)) return false;
+  const responseHeadersTotal = metric.actionFlow.reduce(
+    (total, action) => total + action.responseHeadersMs,
+    0,
+  );
+  const decodedBytesTotal = metric.actionFlow.reduce(
+    (total, action) => total + action.decodedBytesAtSettledUi,
+    0,
+  );
+  const transferredValues = metric.actionFlow
+    .map((action) => action.transferredBytesAtSettledUi)
+    .filter((value) => value !== null);
+  const expectedTransferredTotal = transferredValues.length === metric.actionFlow.length
+    ? transferredValues.reduce((total, value) => total + value, 0)
+    : null;
+  return metric.rollout.mode === 'allowlist'
+    && metric.rollout.enabled === true
+    && metric.rollout.exactSingleAllowedOwner === true
+    && metric.rollout.distinctCandidateDenied === true
+    && metric.routeStatus === 200
+    && metric.rtlRouteStatus === 200
+    && metric.routeReadyMs > 0
+    && metric.routeHtmlBytes > 0
+    && metric.serverActionRequestCount === 4
+    && metric.actionFlow.every((action) => (
+      action.status === 200
+      && action.responseHeadersMs > 0
+      && action.requestBytes > 0
+      && action.decodedBytesAtSettledUi > 0
+    ))
+    && Math.abs(metric.actionResponseHeadersTotalMs - responseHeadersTotal) < 0.11
+    && metric.actionDecodedBytesTotal === decodedBytesTotal
+    && metric.actionTransferredBytesTotal === expectedTransferredTotal
+    && metric.rendered.privateQuestionVisible === true
+    && metric.rendered.preRevealAnswerHidden === true
+    && metric.rendered.localDraftAbsentFromActions === true
+    && metric.rendered.localDraftVisibleAfterReveal === true
+    && metric.rendered.postRevealAnswerVisible === true
+    && metric.rendered.completionVisible === true
+    && metric.rendered.measuredTouchTargetCount > 0
+    && metric.rendered.minimumTouchTargetPx >= 44
+    && metric.rendered.rtlDirection === 'rtl'
+    && metric.rendered.rtlContained === true
+    && metric.persisted.attemptCount === 1
+    && metric.persisted.attemptLifecycleState === 'completed'
+    && metric.persisted.confidence === 'high'
+    && metric.persisted.outcome === 'remembered'
+    && metric.persisted.hintUsed === false
+    && metric.persisted.scheduleState === 'd7_pending'
+    && metric.persisted.scheduleVersion === 2
+    && metric.persisted.practiceStatus === 'known'
+    && metric.persisted.dueMatchesAttempt === true
+    && metric.browserErrorCount === 0
+    && metric.durationMs > 0
+    && RECALL_CLEANUP_FIELDS.every((field) => metric.cleanup[field] === 0);
+}
+
+export function buildAuthenticatedRecallSummary(metrics) {
+  if (!Array.isArray(metrics) || metrics.some((metric) => !isExactRecallEvidence(metric))) {
+    throw new Error('Authenticated Recall evidence is malformed or contains unknown fields.');
+  }
+  const byProject = Map.groupBy(metrics, (metric) => metric.project);
+  const projects = Object.fromEntries([...byProject.entries()].map(([project, rows]) => {
+    const transferred = rows
+      .map((row) => row.actionTransferredBytesTotal)
+      .filter((value) => Number.isFinite(value));
+    return [project, {
+      runs: rows.length,
+      routeStatuses: [...new Set(rows.map((row) => row.routeStatus))],
+      routeReadyMs: summarize(rows.map((row) => row.routeReadyMs)),
+      routeHtmlBytes: summarize(rows.map((row) => row.routeHtmlBytes)),
+      serverActionRequests: summarize(rows.map((row) => row.serverActionRequestCount)),
+      actionFlows: [...new Set(rows.map((row) => (
+        row.actionFlow.map((action) => `${action.stage}:${action.status}`).join(' -> ')
+      )))],
+      actionResponseHeadersTotalMs: summarize(
+        rows.map((row) => row.actionResponseHeadersTotalMs),
+      ),
+      actionDecodedBytesTotal: summarize(rows.map((row) => row.actionDecodedBytesTotal)),
+      actionTransferredBytesTotal: transferred.length > 0 ? summarize(transferred) : null,
+      rolloutContractEveryRun: rows.every((row) => (
+        row.rollout.mode === 'allowlist'
+        && row.rollout.enabled === true
+        && row.rollout.exactSingleAllowedOwner === true
+        && row.rollout.distinctCandidateDenied === true
+      )),
+      privateQuestionVisibleEveryRun: rows.every((row) => row.rendered.privateQuestionVisible),
+      preRevealAnswerHiddenEveryRun: rows.every((row) => row.rendered.preRevealAnswerHidden),
+      localDraftAbsentFromActionsEveryRun: rows.every(
+        (row) => row.rendered.localDraftAbsentFromActions,
+      ),
+      localDraftVisibleAfterRevealEveryRun: rows.every(
+        (row) => row.rendered.localDraftVisibleAfterReveal,
+      ),
+      postRevealAnswerVisibleEveryRun: rows.every((row) => row.rendered.postRevealAnswerVisible),
+      completionVisibleEveryRun: rows.every((row) => row.rendered.completionVisible),
+      measuredTouchTargetMinimum: Math.min(
+        ...rows.map((row) => row.rendered.minimumTouchTargetPx),
+      ),
+      touchTargetsAtLeast44EveryRun: rows.every(
+        (row) => row.rendered.measuredTouchTargetCount > 0
+          && row.rendered.minimumTouchTargetPx >= 44,
+      ),
+      rtlRouteStatuses: [...new Set(rows.map((row) => row.rtlRouteStatus))],
+      rtlDirectionEveryRun: rows.every((row) => row.rendered.rtlDirection === 'rtl'),
+      rtlContainedEveryRun: rows.every((row) => row.rendered.rtlContained === true),
+      completedDbStateEveryRun: rows.every((row) => (
+        row.persisted.attemptCount === 1
+        && row.persisted.attemptLifecycleState === 'completed'
+        && row.persisted.confidence === 'high'
+        && row.persisted.outcome === 'remembered'
+        && row.persisted.hintUsed === false
+        && row.persisted.scheduleState === 'd7_pending'
+        && row.persisted.scheduleVersion === 2
+        && row.persisted.practiceStatus === 'known'
+        && row.persisted.dueMatchesAttempt === true
+      )),
+      browserErrorCount: rows.reduce((total, row) => total + row.browserErrorCount, 0),
+      cleanupZeroEveryRun: rows.every((row) => (
+        RECALL_CLEANUP_FIELDS.every((field) => row.cleanup[field] === 0)
+      )),
+      closeoutPassed: rows.every(isRecallCloseoutPassed),
+      durationMs: summarize(rows.map((row) => row.durationMs)),
+      screenshotMinimum: Math.min(...rows.map((row) => row.screenshots.length)),
+    }];
+  }));
+  return { projects, runs: metrics };
+}
+
+export function assertRequiredRecallCloseoutEvidence(
+  metrics,
+  summary,
+  sourceArtifactNames = metrics.map((metric) => metric?.artifactName),
+) {
+  const expectedArtifactNames = Object.keys(RECALL_PROJECTS_BY_ARTIFACT).sort();
+  const actualArtifactNames = metrics.map((metric) => metric?.artifactName).sort();
+  const actualSourceNames = [...sourceArtifactNames].sort();
+  const expectedProjects = Object.values(RECALL_PROJECTS_BY_ARTIFACT).sort();
+  const actualProjects = Object.keys(summary?.projects ?? {}).sort();
+  if (
+    metrics.length !== 2
+    || metrics.some((metric) => !isRecallCloseoutPassed(metric))
+    || actualArtifactNames.join(',') !== expectedArtifactNames.join(',')
+    || actualSourceNames.join(',') !== expectedArtifactNames.join(',')
+    || sourceArtifactNames.some((name, index) => name !== metrics[index]?.artifactName)
+    || actualProjects.join(',') !== expectedProjects.join(',')
+    || expectedProjects.some((project) => (
+      summary?.projects?.[project]?.runs !== 1
+      || summary.projects[project].closeoutPassed !== true
+    ))
+  ) {
+    throw new Error(
+      'Required Preview Recall closeout evidence is incomplete: expected one exact successful desktop artifact and one exact successful mobile artifact after zero-residue cleanup.',
+    );
+  }
+}
+
 export function renderAuthenticatedThinkingHistorySummary(summary) {
   if (!summary) {
     return [
@@ -345,11 +739,53 @@ export function renderAuthenticatedMobileApiSummary(summary) {
   ].join('\n');
 }
 
+export function renderAuthenticatedRecallSummary(summary) {
+  if (!summary) {
+    return [
+      '## Recall private review path',
+      '',
+      'Not enabled for this run. Recall enrollment stays production-default-off; rendered evidence requires the allowlisted Preview synthetic owner.',
+      '',
+    ].join('\n');
+  }
+
+  return [
+    '## Recall private review path',
+    '',
+    '| Project | Runs | Route status; ready median / worst; HTML bytes | Server Action requests median / worst; status flow | Action headers total median / worst | Decoded median / worst | Transfer median / worst | Privacy/render gates | Persisted completion | Browser errors | Total duration median / worst | Screenshots minimum |',
+    '| --- | ---: | --- | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |',
+    ...Object.entries(summary.projects).map(([project, value]) => {
+      const transfer = value.actionTransferredBytesTotal
+        ? `${formatBytes(value.actionTransferredBytesTotal.median)} / ${formatBytes(value.actionTransferredBytesTotal.worst)}`
+        : 'n/a';
+      const renderGates = value.rolloutContractEveryRun
+        && value.privateQuestionVisibleEveryRun
+        && value.preRevealAnswerHiddenEveryRun
+        && value.localDraftAbsentFromActionsEveryRun
+        && value.localDraftVisibleAfterRevealEveryRun
+        && value.postRevealAnswerVisibleEveryRun
+        && value.completionVisibleEveryRun
+        && value.touchTargetsAtLeast44EveryRun
+        && value.rtlDirectionEveryRun
+        && value.rtlContainedEveryRun
+        && value.rtlRouteStatuses.every((status) => status === 200)
+        && value.cleanupZeroEveryRun
+        ? `exact allowlist; draft not sent; hidden -> revealed -> complete; targets >= ${value.measuredTouchTargetMinimum}px; RTL contained; cleanup zero`
+        : 'failed';
+      return `| ${project} | ${value.runs} | ${value.routeStatuses.join(', ')}; ${value.routeReadyMs.median} ms / ${value.routeReadyMs.worst} ms; ${formatBytes(value.routeHtmlBytes.median)} / ${formatBytes(value.routeHtmlBytes.worst)} | ${value.serverActionRequests.median} / ${value.serverActionRequests.worst}; ${value.actionFlows.join(', ')} | ${value.actionResponseHeadersTotalMs.median} ms / ${value.actionResponseHeadersTotalMs.worst} ms | ${formatBytes(value.actionDecodedBytesTotal.median)} / ${formatBytes(value.actionDecodedBytesTotal.worst)} | ${transfer} | ${renderGates} | ${value.completedDbStateEveryRun ? 'completed; D+7; due matched' : 'failed'} | ${value.browserErrorCount} | ${value.durationMs.median} ms / ${value.durationMs.worst} ms | ${value.screenshotMinimum} |`;
+    }),
+    '',
+    'Synthetic owner-and-ID-scoped Preview evidence. The deployed route must report exact single-owner allowlist mode, four explicit Server Actions must remain 200, the browser-local draft must be absent from every request, and the artifact is written only after cleanup verifies zero deterministic fixture rows.',
+    '',
+  ].join('\n');
+}
+
 export function renderAuthenticatedOverlaySummary(
   summary,
   thinkingHistory = null,
   mobileApi = null,
   mcpProvider = null,
+  recall = null,
 ) {
   const projectEntries = Object.entries(summary.projects);
   const overlay = projectEntries.length === 0
@@ -374,13 +810,14 @@ export function renderAuthenticatedOverlaySummary(
       'Synthetic Playwright measurements. Overlay timing ends at response headers, and byte counts include data received through canvas display so streaming RSC responses do not block the evidence run. These are not production user telemetry.',
       '',
     ].join('\n');
-  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}\n${renderAuthenticatedMobileApiSummary(mobileApi)}\n${renderAuthenticatedMcpProviderSummary(mcpProvider)}`;
+  return `${overlay}\n${renderAuthenticatedThinkingHistorySummary(thinkingHistory)}\n${renderAuthenticatedMobileApiSummary(mobileApi)}\n${renderAuthenticatedMcpProviderSummary(mcpProvider)}\n${renderAuthenticatedRecallSummary(recall)}`;
 }
 
 export async function summarizeAuthenticatedOverlayResults(
   resultsDirectory = path.resolve('test-results/authenticated-overlay-performance'),
   {
     requireMcpPatCloseout = process.env.E2E_REQUIRE_MCP_PAT_CLOSEOUT === 'true',
+    requireRecallCloseout = process.env.E2E_REQUIRE_RECALL_CLOSEOUT === 'true',
   } = {},
 ) {
   const metricsDirectory = path.join(resultsDirectory, 'metrics');
@@ -418,6 +855,15 @@ export async function summarizeAuthenticatedOverlayResults(
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error;
   }
+  const recallDirectory = path.join(resultsDirectory, 'recall');
+  let recallNames = [];
+  try {
+    recallNames = (await fs.readdir(recallDirectory))
+      .filter((name) => name.endsWith('.json'))
+      .sort();
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
   const mobileApiMetrics = await Promise.all(mobileApiNames.map(async (name) => (
     JSON.parse(await fs.readFile(path.join(mobileApiDirectory, name), 'utf8'))
   )));
@@ -440,28 +886,47 @@ export async function summarizeAuthenticatedOverlayResults(
   const mcpProvider = mcpProviderMetrics.length > 0
     ? buildAuthenticatedMcpProviderSummary(mcpProviderMetrics)
     : null;
+  const recallMetrics = await Promise.all(recallNames.map(async (name) => {
+    const metric = JSON.parse(await fs.readFile(path.join(recallDirectory, name), 'utf8'));
+    if (metric?.artifactName !== name) {
+      throw new Error('Authenticated Recall evidence filename does not match its artifact contract.');
+    }
+    return metric;
+  }));
+  const recall = recallMetrics.length > 0
+    ? buildAuthenticatedRecallSummary(recallMetrics)
+    : null;
+  if (requireMcpPatCloseout) {
+    assertRequiredMcpPatCloseoutEvidence(mcpProviderMetrics, mcpProvider);
+  }
+  if (requireRecallCloseout) {
+    assertRequiredRecallCloseoutEvidence(recallMetrics, recall, recallNames);
+  }
+  if (recallMetrics.length > 0) {
+    await assertExactRecallScreenshotFiles(recallDirectory, recallMetrics);
+  }
   if (
     metrics.length === 0
     && thinkingHistoryMetrics.length === 0
     && mobileApiMetrics.length === 0
     && mcpProviderMetrics.length === 0
+    && recallMetrics.length === 0
   ) {
     throw new Error(`No authenticated evidence metrics found at ${resultsDirectory}.`);
-  }
-  if (requireMcpPatCloseout) {
-    assertRequiredMcpPatCloseoutEvidence(mcpProviderMetrics, mcpProvider);
   }
   const summary = {
     ...buildAuthenticatedOverlaySummary(metrics),
     thinkingHistory,
     mobileApi,
     mcpProvider,
+    recall,
   };
   const markdown = renderAuthenticatedOverlaySummary(
     summary,
     thinkingHistory,
     mobileApi,
     mcpProvider,
+    recall,
   );
 
   await fs.mkdir(resultsDirectory, { recursive: true });

@@ -121,6 +121,7 @@ Core routes:
 - `/signup` (alias: `/register`)
 - `/login`
 - `/practice`
+- `/recall` (signed-in, default-off manual Recall Review)
 - `/saved`
 - `/knowledge`
 - `/my-notes` (legacy `/my-knowledge` URLs redirect here)

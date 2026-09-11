@@ -12,7 +12,8 @@
   "preview_urls": false,
   "vars": {
     "APP_ENV": "base",
-    "AI_THINKING_HISTORY_ROLLOUT": "off"
+    "AI_THINKING_HISTORY_ROLLOUT": "off",
+    "RECALL_RUNTIME_ROLLOUT": "off"
   },
   "assets": {
     "directory": ".open-next/assets",
@@ -28,7 +29,8 @@
       "preview_urls": true,
       "vars": {
         "APP_ENV": "preview",
-        "AI_THINKING_HISTORY_ROLLOUT": "all"
+        "AI_THINKING_HISTORY_ROLLOUT": "all",
+        "RECALL_RUNTIME_ROLLOUT": "allowlist"
       },
       "ai": {
         "binding": "AI"
@@ -49,7 +51,8 @@
       ],
       "vars": {
         "APP_ENV": "prod",
-        "AI_THINKING_HISTORY_ROLLOUT": "allowlist"
+        "AI_THINKING_HISTORY_ROLLOUT": "allowlist",
+        "RECALL_RUNTIME_ROLLOUT": "off"
       },
       "ai": {
         "binding": "AI"

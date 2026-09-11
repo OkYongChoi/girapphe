@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
   AUTHENTICATED_OVERLAY_DRAFT_PROBE_TITLE_PREFIX,
+  AUTHENTICATED_RECALL_FIXTURE,
   AUTHENTICATED_OVERLAY_SYNTHETIC_PURPOSE,
   assertPendingAuthenticatedOverlayImportIsInertWithClient,
   deleteExactAuthenticatedOverlayImportWithClient,
+  cleanupAuthenticatedRecallFixtureWithClient,
   ensureSyntheticClerkUser,
   findExistingAuthenticatedOverlaySyntheticUser,
   fixtureIdsForUser,
@@ -14,8 +18,10 @@ import {
   readAuthenticatedOverlayPublishedStateWithClient,
   revokeExactAuthenticatedOverlayMcpTokenByMarkerWithClient,
   revokeExactAuthenticatedOverlayMcpTokenWithClient,
-  seedAuthenticatedOverlayFixtureWithClient,
   verifyExactAuthenticatedOverlayMcpTokenInactiveWithClient,
+  resetAuthenticatedRecallFixtureWithClient,
+  seedAuthenticatedOverlayFixtureWithClient,
+  writeRecallRuntimeUserIdToGitHubEnv,
 } from './authenticated-overlay-fixture.mjs';
 
 const SYNTHETIC_EMAIL = 'qa+clerk_test_girapphe_overlay_e2e@example.com';
@@ -121,6 +127,8 @@ test('fixture IDs are deterministic, owner-specific, and do not expose Clerk IDs
   assert.deepEqual(first, repeated);
   assert.notDeepEqual(first, other);
   assert.equal(JSON.stringify(first).includes('user_private_owner_a'), false);
+  assert.match(first.recall.itemId, /^e2e_recall_item_[0-9a-f]{20}$/);
+  assert.notEqual(first.recall.itemId, other.recall.itemId);
 });
 
 test('Clerk setup creates a marked synthetic user once and reuses only that user', async () => {
@@ -1017,4 +1025,132 @@ test('database fixture refuses a nonzero pre-consent import-event baseline', asy
   );
   assert.equal(calls.some((call) => call.text === 'COMMIT'), false);
   assert.equal(calls.some((call) => call.text === 'ROLLBACK'), true);
+});
+
+test('Recall fixture resets one deterministic due schedule and no foreign owner rows', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('AS attempt_count')) {
+        return {
+          rows: [{
+            status: null,
+            knowledge_state: null,
+            progress_state: null,
+            due_at: '2026-09-10T01:00:00.000Z',
+            last_seen: null,
+            recall_enrolled_at: '2026-09-09T01:00:00.000Z',
+            recall_item_version: 1,
+            recall_schedule_state: 'd1_pending',
+            recall_d1_finalized_incomplete: false,
+            recall_d7_outcome: null,
+            recall_schedule_version: 1,
+            attempt_lifecycle_state: null,
+            eligible_item_count: 1,
+            attempt_count: 0,
+          }],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const first = await resetAuthenticatedRecallFixtureWithClient(client, 'user_synthetic');
+  const second = await resetAuthenticatedRecallFixtureWithClient(client, 'user_synthetic');
+  assert.deepEqual(first, second);
+  assert.deepEqual(first.counts, { eligibleItems: 1, dueSchedules: 1, attempts: 0 });
+  assert.equal(first.state.eligibleItemCount, 1);
+  assert.equal(first.state.schedule.state, 'd1_pending');
+  assert.equal(first.state.attemptCount, 0);
+  assert.equal(calls.filter((call) => call.text === 'BEGIN').length, 2);
+  assert.equal(calls.filter((call) => call.text === 'COMMIT').length, 2);
+  assert.equal(calls.some((call) => call.text === 'ROLLBACK'), false);
+
+  const mutations = calls.filter((call) => (
+    call.text.startsWith('INSERT INTO') || call.text.startsWith('DELETE FROM')
+  ));
+  assert.ok(mutations.length >= 18);
+  assert.ok(mutations.every((call) => !call.text.includes('user_synthetic')));
+  assert.ok(mutations.every((call) => call.values.includes('user_synthetic')));
+  assert.ok(mutations.every((call) => (
+    call.values.some((value) => Object.values(fixtureIdsForUser('user_synthetic').recall).includes(value))
+  )));
+  assert.ok(mutations.filter((call) => call.text.startsWith('INSERT INTO'))
+    .every((call) => call.text.includes('ON CONFLICT')));
+  const scheduleMutation = mutations.find((call) => (
+    call.text.startsWith('INSERT INTO user_private_card_states')
+  ));
+  assert.ok(scheduleMutation);
+  assert.match(scheduleMutation.text, /due_at = \$3::timestamptz/);
+  assert.match(scheduleMutation.text, /recall_enrolled_at = \$4::timestamptz/);
+  assert.match(scheduleMutation.values[2], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  assert.match(scheduleMutation.values[3], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  assert.equal(
+    Date.parse(scheduleMutation.values[2]) - Date.parse(scheduleMutation.values[3]),
+    24 * 60 * 60 * 1_000,
+  );
+  assert.equal(
+    mutations.some((call) => call.text.includes(AUTHENTICATED_RECALL_FIXTURE.definition)),
+    false,
+  );
+});
+
+test('Recall cleanup deletes and verifies only the synthetic owner and deterministic IDs', async () => {
+  const calls = [];
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text, values });
+      if (text.includes('AS schedules') && text.includes('AS attempts')) {
+        return {
+          rows: [{
+            items: 0,
+            revisions: 0,
+            batches: 0,
+            drafts: 0,
+            sources: 0,
+            evidence: 0,
+            schedules: 0,
+            attempts: 0,
+          }],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const ids = fixtureIdsForUser('user_synthetic').recall;
+  const result = await cleanupAuthenticatedRecallFixtureWithClient(client, 'user_synthetic');
+  assert.deepEqual(result, {
+    items: 0,
+    revisions: 0,
+    batches: 0,
+    drafts: 0,
+    sources: 0,
+    evidence: 0,
+    schedules: 0,
+    attempts: 0,
+  });
+  const deletes = calls.filter((call) => call.text.startsWith('DELETE FROM'));
+  assert.equal(deletes.length, 8);
+  assert.ok(deletes.every((call) => /user_id = \$1/.test(call.text)));
+  assert.ok(deletes.every((call) => call.values[0] === 'user_synthetic'));
+  assert.ok(deletes.every((call) => call.values.some((value) => Object.values(ids).includes(value))));
+  assert.equal(calls.some((call) => call.text === 'ROLLBACK'), false);
+});
+
+test('Recall Preview allowlist output accepts only a safe synthetic Clerk ID', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'girapphe-recall-allowlist-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const githubEnv = path.join(root, 'github-env');
+
+  await writeRecallRuntimeUserIdToGitHubEnv('user_synthetic-123', githubEnv);
+  assert.equal(
+    await fs.readFile(githubEnv, 'utf8'),
+    'RECALL_RUNTIME_USER_IDS=user_synthetic-123\n',
+  );
+  await assert.rejects(
+    () => writeRecallRuntimeUserIdToGitHubEnv('user_synthetic\nFOREIGN=value', githubEnv),
+    /unsafe for GitHub environment output/,
+  );
 });

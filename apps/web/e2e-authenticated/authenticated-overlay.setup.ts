@@ -11,12 +11,14 @@ import {
 } from '../scripts/authenticated-overlay-auth.mjs';
 import {
   ensureAuthenticatedOverlayFixture,
+  fixtureIdsForUser,
   normalizeSyntheticEmail,
 } from '../scripts/authenticated-overlay-fixture.mjs';
 
 setup.describe.configure({ mode: 'serial' });
 
 const authFile = path.resolve('playwright/.clerk/authenticated-overlay-user.json');
+const fixtureFile = path.resolve('playwright/.clerk/authenticated-overlay-fixture.json');
 let syntheticEmail = '';
 let syntheticClerkUserId = '';
 let clerkAuthMode = '';
@@ -34,8 +36,17 @@ setup('prepare Clerk testing token and owner-scoped fixture', async () => {
     }),
   });
   syntheticClerkUserId = result.user.id;
+  const recallFixture = process.env.E2E_REQUIRE_RECALL_CLOSEOUT === 'true'
+    ? { itemId: fixtureIdsForUser(result.user.id).recall.itemId }
+    : null;
+  await fs.mkdir(path.dirname(fixtureFile), { recursive: true });
+  await fs.writeFile(fixtureFile, `${JSON.stringify({
+    userId: result.user.id,
+    recall: recallFixture,
+  }, null, 2)}\n`, { mode: 0o600 });
   console.log(JSON.stringify({
     authenticatedOverlayFixture: result.fixture.counts,
+    authenticatedRecallFixture: recallFixture ? { perDeviceReset: true } : null,
     clerkAuthMode,
     createdClerkUser: result.createdClerkUser,
   }));

@@ -15,7 +15,11 @@ import {
 } from '@stem-brain/shared';
 import db from '@/lib/db';
 import { strictRecallEligibilityPredicate } from '@/lib/recall-eligibility-sql';
-import { recallScheduleLockKey } from '@/lib/recall-schedule-lock';
+import {
+  MAX_ACTIVE_RECALL_SCHEDULES,
+  recallEnrollmentCapacityLockKey,
+  recallScheduleLockKey,
+} from '@/lib/recall-schedule-lock';
 
 export type PersistedRecallPractice = {
   status: 'known' | 'saved' | null;
@@ -34,7 +38,7 @@ export type PersistedRecallSchedule = {
 
 export type RecallEnrollmentPersistenceResult =
   | { kind: 'enrolled' | 'unchanged'; schedule: PersistedRecallSchedule }
-  | { kind: 'ineligible'; schedule: null };
+  | { kind: 'capacity_reached' | 'ineligible'; schedule: null };
 
 export type RecallDecisionPersistenceResult =
   | { kind: 'applied' | 'unchanged'; schedule: PersistedRecallSchedule }
@@ -73,6 +77,11 @@ type RecallCancellationRow = Omit<Partial<RecallScheduleRow>, 'knowledge_item_id
   retained_practice?: boolean;
 };
 
+type RecallEnrollmentProbeRow = {
+  is_eligible: boolean;
+  at_capacity: boolean;
+};
+
 const RECALL_SCHEDULE_COLUMNS = `
   s.knowledge_item_id,
   s.recall_item_version AS item_version,
@@ -104,6 +113,21 @@ function recallScheduleReadQuery(versionExpression: string): string {
       AND ${strictRecallEligibilityPredicate(versionExpression)}
     LIMIT 1
   `;
+}
+
+function activeRecallScheduleCountQuery(): string {
+  return `SELECT COUNT(*)
+    FROM user_private_card_states active_schedule
+    JOIN user_knowledge_items i
+      ON i.id = active_schedule.knowledge_item_id
+     AND i.user_id = active_schedule.user_id
+    WHERE active_schedule.user_id = $1
+      AND active_schedule.recall_enrolled_at IS NOT NULL
+      AND active_schedule.recall_item_version IS NOT NULL
+      AND active_schedule.recall_schedule_version IS NOT NULL
+      AND active_schedule.recall_schedule_state IN ('d1_pending', 'd1_retry', 'd7_pending')
+      AND active_schedule.recall_item_version = i.version
+      AND ${strictRecallEligibilityPredicate('active_schedule.recall_item_version')}`;
 }
 
 function requirePositiveInteger(value: number, field: string): void {
@@ -407,7 +431,14 @@ export async function enrollApprovedRecallScheduleForUser(
   requirePositiveInteger(expectedItemVersion, 'expectedItemVersion');
   const decision = createRecallEnrollmentSchedule(enrolledAt, firstDeliveryAt);
   const snapshot = normalizeSnapshot(decision.snapshot);
-  const [, inserted, current] = await db.accountTransaction<RecallScheduleRow>(userId, [
+  const activeScheduleCount = activeRecallScheduleCountQuery();
+  const [, , inserted, current, probe] = await db.accountTransaction<
+    RecallScheduleRow & RecallEnrollmentProbeRow
+  >(userId, [
+    {
+      text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
+      params: [recallEnrollmentCapacityLockKey(userId)],
+    },
     {
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
       params: [recallScheduleLockKey(userId, knowledgeItemId)],
@@ -445,6 +476,7 @@ export async function enrollApprovedRecallScheduleForUser(
       FROM user_knowledge_items i
       WHERE i.id = $2
         AND ${strictRecallEligibilityPredicate('$3::integer')}
+        AND (${activeScheduleCount}) < $6::integer
       ON CONFLICT (user_id, knowledge_item_id)
       DO UPDATE SET
         due_at = EXCLUDED.due_at,
@@ -456,11 +488,29 @@ export async function enrollApprovedRecallScheduleForUser(
         recall_schedule_version = EXCLUDED.recall_schedule_version
       WHERE s.recall_enrolled_at IS NULL
       RETURNING ${RECALL_SCHEDULE_COLUMNS}`,
-      params: [userId, knowledgeItemId, expectedItemVersion, snapshot.enrolledAt, snapshot.dueAt],
+      params: [
+        userId,
+        knowledgeItemId,
+        expectedItemVersion,
+        snapshot.enrolledAt,
+        snapshot.dueAt,
+        MAX_ACTIVE_RECALL_SCHEDULES,
+      ],
     },
     {
       text: recallScheduleReadQuery('$3::integer'),
       params: [userId, knowledgeItemId, expectedItemVersion],
+    },
+    {
+      text: `SELECT
+        EXISTS (
+          SELECT 1
+          FROM user_knowledge_items i
+          WHERE i.id = $2
+            AND ${strictRecallEligibilityPredicate('$3::integer')}
+        ) AS is_eligible,
+        (${activeScheduleCount}) >= $4::integer AS at_capacity`,
+      params: [userId, knowledgeItemId, expectedItemVersion, MAX_ACTIVE_RECALL_SCHEDULES],
     },
   ]);
 
@@ -469,6 +519,9 @@ export async function enrollApprovedRecallScheduleForUser(
   }
   if (current.rows[0]) {
     return { kind: 'unchanged', schedule: mapRecallScheduleRow(current.rows[0]) };
+  }
+  if (probe.rows[0]?.is_eligible && probe.rows[0].at_capacity) {
+    return { kind: 'capacity_reached', schedule: null };
   }
   return { kind: 'ineligible', schedule: null };
 }
@@ -633,10 +686,40 @@ export async function cancelRecallScheduleForItem(
   requirePositiveInteger(expected.itemVersion, 'expected.itemVersion');
   requirePositiveInteger(expected.scheduleVersion, 'expected.scheduleVersion');
   const expectedEnrolledAt = normalizeInstant(expected.enrolledAt, 'expected.enrolledAt');
-  const [, deleted, cleared, probe] = await db.accountTransaction<RecallCancellationRow>(userId, [
+  const [, , deleted, cleared, probe] = await db.accountTransaction<RecallCancellationRow>(userId, [
     {
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
       params: [recallScheduleLockKey(userId, knowledgeItemId)],
+    },
+    {
+      text: `UPDATE recall_attempts a
+      SET lifecycle_state = 'invalidated',
+          invalidated_at = NOW(),
+          invalidation_reason = 'item_removed',
+          updated_at = NOW()
+      WHERE a.user_id = $1
+        AND a.knowledge_item_id = $2
+        AND a.item_version = $3
+        AND a.schedule_version = $4
+        AND a.recall_enrolled_at = $5::timestamptz
+        AND a.lifecycle_state IN ('prepared', 'confidence_selected', 'revealed')
+        AND EXISTS (
+          SELECT 1
+          FROM user_private_card_states s
+          WHERE s.user_id = a.user_id
+            AND s.knowledge_item_id = a.knowledge_item_id
+            AND s.recall_item_version = a.item_version
+            AND s.recall_schedule_version = a.schedule_version
+            AND s.recall_enrolled_at = a.recall_enrolled_at
+        )
+      RETURNING a.id`,
+      params: [
+        userId,
+        knowledgeItemId,
+        expected.itemVersion,
+        expected.scheduleVersion,
+        expectedEnrolledAt,
+      ],
     },
     {
       text: `DELETE FROM user_private_card_states s
