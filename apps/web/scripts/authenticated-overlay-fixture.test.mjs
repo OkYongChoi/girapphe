@@ -1078,6 +1078,18 @@ test('Recall fixture resets one deterministic due schedule and no foreign owner 
   )));
   assert.ok(mutations.filter((call) => call.text.startsWith('INSERT INTO'))
     .every((call) => call.text.includes('ON CONFLICT')));
+  const scheduleMutation = mutations.find((call) => (
+    call.text.startsWith('INSERT INTO user_private_card_states')
+  ));
+  assert.ok(scheduleMutation);
+  assert.match(scheduleMutation.text, /due_at = \$3::timestamptz/);
+  assert.match(scheduleMutation.text, /recall_enrolled_at = \$4::timestamptz/);
+  assert.match(scheduleMutation.values[2], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  assert.match(scheduleMutation.values[3], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  assert.equal(
+    Date.parse(scheduleMutation.values[2]) - Date.parse(scheduleMutation.values[3]),
+    24 * 60 * 60 * 1_000,
+  );
   assert.equal(
     mutations.some((call) => call.text.includes(AUTHENTICATED_RECALL_FIXTURE.definition)),
     false,

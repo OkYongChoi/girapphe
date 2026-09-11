@@ -1184,6 +1184,12 @@ export async function resetAuthenticatedRecallFixtureWithClient(client, userIdIn
   const userId = requireValue(userIdInput, 'Clerk user ID');
   const ids = fixtureIdsForUser(userId);
   const { recall } = ids;
+  // Production enrollment instants cross the JavaScript boundary and therefore
+  // have millisecond precision. Keep the synthetic schedule on that same
+  // contract so its full-snapshot CAS can round-trip through pg's Date values.
+  const fixtureNow = Date.now();
+  const dueAt = new Date(fixtureNow - 60 * 60 * 1_000).toISOString();
+  const enrolledAt = new Date(fixtureNow - 25 * 60 * 60 * 1_000).toISOString();
   const structuredContent = {
     type: 'concept',
     definition: AUTHENTICATED_RECALL_FIXTURE.definition,
@@ -1420,22 +1426,22 @@ export async function resetAuthenticatedRecallFixtureWithClient(client, userIdIn
          recall_d7_outcome, recall_schedule_version
        ) VALUES (
          $1, $2, NULL, NULL, NULL,
-         NOW() - INTERVAL '1 hour', NULL, NOW() - INTERVAL '25 hours', 1,
+         $3::timestamptz, NULL, $4::timestamptz, 1,
          'd1_pending', FALSE, NULL, 1
        )
        ON CONFLICT (user_id, knowledge_item_id) DO UPDATE SET
          status = NULL,
          knowledge_state = NULL,
          progress_state = NULL,
-         due_at = NOW() - INTERVAL '1 hour',
+         due_at = $3::timestamptz,
          last_seen = NULL,
-         recall_enrolled_at = NOW() - INTERVAL '25 hours',
+         recall_enrolled_at = $4::timestamptz,
          recall_item_version = 1,
          recall_schedule_state = 'd1_pending',
          recall_d1_finalized_incomplete = FALSE,
          recall_d7_outcome = NULL,
          recall_schedule_version = 1`,
-      [userId, recall.itemId],
+      [userId, recall.itemId, dueAt, enrolledAt],
     );
 
     const state = await readAuthenticatedRecallFixtureStateWithClient(client, userId);
