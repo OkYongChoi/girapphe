@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createConfiguredSuperwallClient } from './superwall-loader';
 import {
   createSuperwallClient,
   establishSuperwallIdentity,
@@ -8,6 +9,24 @@ import {
   superwallStatusHasAdFree,
   type SuperwallNativeModule,
 } from './superwall-contract';
+
+test('does not load Superwall for web or an unconfigured native build', () => {
+  let loadCount = 0;
+  const unavailableLoader = () => {
+    loadCount += 1;
+    throw new Error('native_module_unavailable');
+  };
+  const configuration = {
+    apiKey: 'pk_test',
+    store: 'app_store' as const,
+    monthlyProductId: 'monthly',
+    annualProductId: 'annual',
+  };
+
+  assert.equal(createConfiguredSuperwallClient('web', configuration, unavailableLoader), null);
+  assert.equal(createConfiguredSuperwallClient('ios', null, unavailableLoader), null);
+  assert.equal(loadCount, 0);
+});
 
 test('maps monthly and annual products using store-localized prices', () => {
   assert.deepEqual(mapConfiguredProducts(

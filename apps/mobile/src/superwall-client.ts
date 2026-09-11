@@ -1,13 +1,8 @@
-import {
-  DefaultSuperwallOptions,
-  SuperwallExpoModule,
-} from 'expo-superwall';
 import { Platform } from 'react-native';
 import {
-  createSuperwallClient,
-  type SuperwallNativeModule,
   type SuperwallPlatformConfiguration,
 } from './superwall-contract';
+import { createConfiguredSuperwallClient } from './superwall-loader';
 
 export * from './superwall-contract';
 
@@ -32,31 +27,4 @@ export function getSuperwallPlatformConfiguration(): SuperwallPlatformConfigurat
 }
 
 const configuration = getSuperwallPlatformConfiguration();
-const nativeOptions: Record<string, unknown> = {
-  ...DefaultSuperwallOptions,
-  paywalls: {
-    ...DefaultSuperwallOptions.paywalls,
-    shouldPreload: false,
-  },
-  logging: {
-    ...DefaultSuperwallOptions.logging,
-    level: __DEV__ ? 'debug' : 'info',
-  },
-  // Infrastructure events are required for subscription status and webhooks;
-  // Girapphe does not send unrelated app analytics or use paywall campaigns.
-  eventTrackingBehavior: 'superwallOnly',
-  manualPurchaseManagement: false,
-  passIdentifiersToPlayStore: true,
-  shouldObservePurchases: false,
-  // Real StoreKit / Play sandbox transactions are required for activation;
-  // dashboard test purchases must not masquerade as provider verification.
-  testModeBehavior: 'never',
-};
-
-export const superwallClient = configuration
-  ? createSuperwallClient(
-      SuperwallExpoModule as unknown as SuperwallNativeModule,
-      configuration,
-      nativeOptions,
-    )
-  : null;
+export const superwallClient = createConfiguredSuperwallClient(Platform.OS, configuration);
