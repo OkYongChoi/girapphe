@@ -559,6 +559,9 @@ export async function POST(request: NextRequest) {
     const result = await createKnowledgeItemWithOutcome(toFormData({ title, summary, content, topic, tags: tags.join(','), request_id: requestId,
       knowledge_type: bundle.knowledgeType, central_question: bundle.centralQuestion, structured_content: bundle.structuredContent,
       bundle_schema_version: bundle.knowledgeType ? '1' : '' }));
+    if (result.outcome === 'rate_limited') {
+      throw new Error('Authenticated mobile note creation returned a guest-only rate limit.');
+    }
     const response = toMobileNoteCreateHttpResult(result);
     return privateJson(response.body, { status: response.status });
   }

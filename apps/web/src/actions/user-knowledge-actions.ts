@@ -5,9 +5,11 @@ import { recordKnowledgeProductEventForUser } from '@/lib/knowledge-product-even
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import pool from '@/lib/db';
-import type { KnowledgeBundleContent, KnowledgeBundleType } from '@stem-brain/shared';
+import { localizePathname, type KnowledgeBundleContent, type KnowledgeBundleType } from '@stem-brain/shared';
 import { requireCurrentActor } from '@/lib/auth';
+import { getServerLocale } from '@/i18n/locale-server';
 import {
   GUEST_KNOWLEDGE_ITEM_LIMIT,
   GUEST_KNOWLEDGE_RETENTION_DAYS,
@@ -256,35 +258,13 @@ function claimMemoryGuestWrite(scopeKey: string) {
   const existing = memoryGuestWriteWindows.get(scopeKey);
   if (!existing || now - existing.startedAt >= 60 * 60 * 1000) {
     memoryGuestWriteWindows.set(scopeKey, { startedAt: now, count: 1 });
-    return;
+    return true;
   }
   if (existing.count >= GUEST_KNOWLEDGE_WRITES_PER_HOUR) {
-    throw new Error('guest_knowledge_rate_limited');
+    return false;
   }
   existing.count += 1;
-}
-
-async function claimDatabaseGuestWrite(scopeKey: string) {
-  const result = await pool.query<{ scope_key: string }>(
-    `INSERT INTO guest_knowledge_write_limits (scope_key, window_started_at, request_count, updated_at)
-     VALUES ($1, NOW(), 1, NOW())
-     ON CONFLICT (scope_key)
-     DO UPDATE SET
-       window_started_at = CASE
-         WHEN guest_knowledge_write_limits.window_started_at <= NOW() - INTERVAL '1 hour' THEN NOW()
-         ELSE guest_knowledge_write_limits.window_started_at
-       END,
-       request_count = CASE
-         WHEN guest_knowledge_write_limits.window_started_at <= NOW() - INTERVAL '1 hour' THEN 1
-         ELSE guest_knowledge_write_limits.request_count + 1
-       END,
-       updated_at = NOW()
-     WHERE guest_knowledge_write_limits.window_started_at <= NOW() - INTERVAL '1 hour'
-        OR guest_knowledge_write_limits.request_count < $2
-     RETURNING scope_key`,
-    [scopeKey, GUEST_KNOWLEDGE_WRITES_PER_HOUR],
-  );
-  if (result.rows.length === 0) throw new Error('guest_knowledge_rate_limited');
+  return true;
 }
 
 async function ensureSchema() {
@@ -588,7 +568,7 @@ export async function createKnowledgeItemWithOutcome(
   }
 
   await ensureSchema();
-  if (user.isGuest) await claimDatabaseGuestWrite(await getGuestRateScope(user.id));
+  const guestRateScope = user.isGuest ? await getGuestRateScope(user.id) : null;
   const itemId = randomUUID();
   const nodeId = randomUUID();
   const revisionId = randomUUID();
@@ -606,11 +586,33 @@ export async function createKnowledgeItemWithOutcome(
          SELECT 1
          FROM user_knowledge_create_requests
          WHERE $2::text IS NOT NULL AND user_id = $1 AND request_id = $2
+       ), rate_claim AS (
+         INSERT INTO guest_knowledge_write_limits
+           (scope_key, window_started_at, request_count, updated_at)
+         SELECT $22::text, NOW(), 1, NOW()
+         WHERE $11::boolean
+           AND (SELECT account_quota_available AND guest_quota_available FROM admission)
+           AND NOT EXISTS (SELECT 1 FROM existing_request)
+         ON CONFLICT (scope_key)
+         DO UPDATE SET
+           window_started_at = CASE
+             WHEN guest_knowledge_write_limits.window_started_at <= NOW() - INTERVAL '1 hour' THEN NOW()
+             ELSE guest_knowledge_write_limits.window_started_at
+           END,
+           request_count = CASE
+             WHEN guest_knowledge_write_limits.window_started_at <= NOW() - INTERVAL '1 hour' THEN 1
+             ELSE guest_knowledge_write_limits.request_count + 1
+           END,
+           updated_at = NOW()
+         WHERE guest_knowledge_write_limits.window_started_at <= NOW() - INTERVAL '1 hour'
+            OR guest_knowledge_write_limits.request_count < $23
+         RETURNING scope_key
        ), claimed AS (
          INSERT INTO user_knowledge_create_requests (user_id, request_id)
          SELECT $1, $2
          WHERE $2::text IS NOT NULL
            AND (SELECT account_quota_available AND guest_quota_available FROM admission)
+           AND (NOT $11::boolean OR EXISTS (SELECT 1 FROM rate_claim))
            AND NOT EXISTS (SELECT 1 FROM existing_request)
          ON CONFLICT DO NOTHING
          RETURNING 1
@@ -620,6 +622,7 @@ export async function createKnowledgeItemWithOutcome(
          SELECT $3, $1, $4, $9, $5, $6, $8::jsonb, $14, $15, $16::jsonb, $17,
            $18, CASE WHEN $11::boolean THEN NOW() + ($12::int * INTERVAL '1 day') ELSE NULL END
          WHERE (SELECT account_quota_available AND guest_quota_available FROM admission)
+           AND (NOT $11::boolean OR EXISTS (SELECT 1 FROM rate_claim))
            AND ($2::text IS NULL OR EXISTS (SELECT 1 FROM claimed))
          RETURNING *
        ), inserted_revision AS (
@@ -644,6 +647,7 @@ export async function createKnowledgeItemWithOutcome(
            WHEN EXISTS (SELECT 1 FROM existing_request) THEN 'replayed'
            WHEN NOT (SELECT guest_quota_available FROM admission) THEN 'guest_quota_exceeded'
            WHEN NOT (SELECT account_quota_available FROM admission) THEN 'account_quota_exceeded'
+           WHEN $11::boolean AND NOT EXISTS (SELECT 1 FROM rate_claim) THEN 'guest_write_rate_limited'
            ELSE 'replayed'
          END AS outcome,
          (SELECT id FROM inserted_item LIMIT 1) AS id`;
@@ -669,6 +673,8 @@ export async function createKnowledgeItemWithOutcome(
     revisionId,
     activityId,
     MAX_KNOWLEDGE_ITEMS_PER_USER,
+    guestRateScope,
+    GUEST_KNOWLEDGE_WRITES_PER_HOUR,
   ];
   const transactionQueries = [
     {
@@ -678,6 +684,10 @@ export async function createKnowledgeItemWithOutcome(
     ...(user.isGuest ? [{
       text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
       params: [`guest-knowledge:${user.id}`],
+    }] : []),
+    ...(guestRateScope ? [{
+      text: 'SELECT pg_advisory_xact_lock(hashtext($1))',
+      params: [`guest-knowledge-rate:${guestRateScope}`],
     }] : []),
     { text: insertQuery, params: insertParams },
   ];
@@ -699,6 +709,10 @@ export async function createKnowledgeItemWithOutcome(
 
 export async function createKnowledgeItem(formData: FormData): Promise<void> {
   const result = await createKnowledgeItemWithOutcome(formData);
+  if (result.outcome === 'rate_limited') {
+    const notesPath = localizePathname('/my-notes', await getServerLocale());
+    redirect(`${notesPath}?createStatus=guest_write_rate_limited`);
+  }
   if (result.outcome === 'quota_exceeded' && result.limit === 'guest') {
     throw new Error('guest_knowledge_item_limit');
   }

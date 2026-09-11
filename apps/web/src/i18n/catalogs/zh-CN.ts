@@ -396,6 +396,7 @@ export const ZH_CN_MESSAGES = {
   "knowledge.editPersonalHint": "只有你能看到这张私人卡片。",
   "knowledge.savePrivateCopy": "保存私人副本",
   "knowledge.saveError": "无法保存此卡片，请重试。",
+  "knowledge.guestWriteRateLimited": "此网络的访客保存已达到每小时上限。请在一小时内重试。",
   "knowledge.titleRequired": "请先输入标题再保存。",
   "knowledge.summaryLabel": "摘要",
   "knowledge.tagsLabel": "标签",

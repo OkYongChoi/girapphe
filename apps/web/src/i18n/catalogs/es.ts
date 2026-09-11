@@ -397,6 +397,7 @@ export const ES_MESSAGES = {
   "knowledge.editPersonalHint": "Esta tarjeta privada solo es visible para ti.",
   "knowledge.savePrivateCopy": "Guardar copia privada",
   "knowledge.saveError": "No se pudo guardar esta tarjeta. Inténtalo de nuevo.",
+  "knowledge.guestWriteRateLimited": "Se alcanzó el límite por hora para guardar como invitado desde esta red. Inténtalo de nuevo dentro de una hora.",
   "knowledge.titleRequired": "Introduce un título antes de guardar.",
   "knowledge.summaryLabel": "Resumen",
   "knowledge.tagsLabel": "Etiquetas",

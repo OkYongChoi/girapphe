@@ -397,6 +397,7 @@ export const AR_MESSAGES = {
   "knowledge.editPersonalHint": "هذه البطاقة الخاصة مرئية لك فقط.",
   "knowledge.savePrivateCopy": "حفظ نسخة خاصة",
   "knowledge.saveError": "تعذر حفظ هذه البطاقة. يُرجى المحاولة مرة أخرى.",
+  "knowledge.guestWriteRateLimited": "بلغ الحفظ كضيف من هذه الشبكة الحد المسموح به لكل ساعة. حاول مرة أخرى خلال ساعة كحد أقصى.",
   "knowledge.titleRequired": "أدخل عنوانًا قبل الحفظ.",
   "knowledge.summaryLabel": "الملخص",
   "knowledge.tagsLabel": "الوسوم",

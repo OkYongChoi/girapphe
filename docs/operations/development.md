@@ -118,6 +118,25 @@ pnpm browser:smoke
 pnpm harness:browser
 ```
 
+The ordinary deployed-browser run is read-only for anonymous knowledge. When
+`PLAYWRIGHT_BASE_URL` points at Preview or production, scenarios that create a
+guest note or a private copy are skipped unless an operator deliberately sets
+`PLAYWRIGHT_ALLOW_DEPLOYED_GUEST_MUTATIONS=true`. Guest writes are limited by a
+hashed Cloudflare client-IP scope, so parallel or repeated deployed runs share
+the same 20-write hourly bucket even when Playwright rotates browser cookies.
+Do not bypass that protection, weaken the production limit, or treat an
+expected denial as a successful mutation.
+
+The isolated local in-memory browser suite owns anonymous mutation and
+rate-limit UI regressions. Authenticated Preview evidence owns routine deployed
+knowledge mutations. Use the deployed guest opt-in only for one bounded,
+operator-approved proof of the real anonymous path after confirming bucket
+capacity; retain the report and clean up marker-named knowledge created by that
+run. A rate-limited response must remain an inline, localized state that keeps
+the hydrated draft available for retry. The no-JavaScript fallback redirects
+with only the `createStatus=guest_write_rate_limited` enum and must never put
+draft text, tags, client IPs, or hashed rate scopes in the URL.
+
 ### Authenticated graph overlay evidence
 
 The authenticated overlay suite is deliberately separate from `browser:smoke`,

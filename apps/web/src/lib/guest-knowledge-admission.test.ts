@@ -35,7 +35,12 @@ test('guest knowledge admission bounds identifiers, writes, rows, and retention'
 
   const source = readFileSync(new URL('../actions/user-knowledge-actions.ts', import.meta.url), 'utf8');
   assert.match(source, /guest_knowledge_write_limits/);
-  assert.match(source, /request_count < \$2/);
+  assert.match(source, /request_count < \$23\b/);
+  assert.match(source, /rate_claim AS \(/);
+  assert.match(source, /NOT EXISTS \(SELECT 1 FROM existing_request\)/);
+  assert.match(source, /guest_write_rate_limited/);
+  assert.match(source, /guest-knowledge-rate:\$\{guestRateScope\}/);
+  assert.doesNotMatch(source, /guest_knowledge_rate_limited/);
   assert.match(source, /GUEST_KNOWLEDGE_ITEM_LIMIT/);
   assert.match(source, /GUEST_KNOWLEDGE_RETENTION_DAYS/);
   assert.match(source, /cf-connecting-ip/);

@@ -397,6 +397,7 @@ export const EN_MESSAGES = {
   "knowledge.editPersonalHint": "This private card is visible only to you.",
   "knowledge.savePrivateCopy": "Save private copy",
   "knowledge.saveError": "Could not save this card. Please try again.",
+  "knowledge.guestWriteRateLimited": "Guest saving from this network has reached its hourly limit. Try again in up to an hour.",
   "knowledge.titleRequired": "Enter a title before saving.",
   "knowledge.summaryLabel": "Summary",
   "knowledge.tagsLabel": "Tags",

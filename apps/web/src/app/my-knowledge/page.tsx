@@ -13,6 +13,7 @@ import {
 } from '@/actions/user-knowledge-actions';
 import { PERSONAL_CARD_RETENTION_DAYS } from '@/lib/personal-knowledge';
 import ConfirmDeleteButton from '@/components/confirm-delete-button';
+import KnowledgeCreateForm from '@/components/knowledge-create-form';
 import SubmitButton from '@/components/submit-button';
 import { getCurrentActor } from '@/lib/auth';
 import {
@@ -51,6 +52,7 @@ type MyKnowledgePageProps = {
     linkStatus?: 'created' | 'invalid' | 'cycle_or_duplicate';
     editStatus?: 'stale' | 'missing';
     archiveStatus?: 'stale';
+    createStatus?: 'guest_write_rate_limited';
     type?: string;
   }>;
 };
@@ -252,6 +254,12 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
           </div>
         ) : null}
 
+        {actor.isGuest && params.createStatus === 'guest_write_rate_limited' ? (
+          <div role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950">
+            {t('knowledge.guestWriteRateLimited')}
+          </div>
+        ) : null}
+
         <div className="mt-4 flex items-center gap-2 text-sm">
           <LocalizedLink href="/my-notes" className={`rounded-lg border px-3 py-1.5 ${isActive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.title')}</LocalizedLink>
           {!actor.isGuest ? <LocalizedLink href="/my-notes?view=archive" className={`rounded-lg border px-3 py-1.5 ${isArchive ? 'bg-slate-900 text-white' : 'bg-white text-gray-700'}`}>{t('notes.archive')}</LocalizedLink> : null}
@@ -389,7 +397,14 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
           </datalist>
         ) : null}
 
-        {isActive && <form action={createKnowledgeItem} className="mt-6 rounded-xl border bg-white p-4 md:p-6">
+        {isActive && <KnowledgeCreateForm
+          fallbackAction={createKnowledgeItem}
+          className="mt-6 rounded-xl border bg-white p-4 md:p-6"
+          submitLabel={t('notes.saveItem')}
+          savingLabel={t('common.saving')}
+          rateLimitMessage={t('knowledge.guestWriteRateLimited')}
+          saveErrorMessage={t('knowledge.saveError')}
+        >
           <input type="hidden" name="request_id" value={createRequestId} />
           <h2 className="text-base font-semibold">{t('notes.addHeading')}</h2>
           <p className="mt-1 text-xs text-gray-500">{t('notes.addHelp')}</p>
@@ -502,14 +517,7 @@ export default async function MyKnowledgePage({ searchParams }: MyKnowledgePageP
               </p>
             )}
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <SubmitButton
-              label={t('notes.saveItem')}
-              loadingLabel={t('common.saving')}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            />
-          </div>
-        </form>}
+        </KnowledgeCreateForm>}
 
         {/* Items list */}
         <div className="mt-6 grid gap-4">

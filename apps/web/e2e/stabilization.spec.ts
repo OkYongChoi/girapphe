@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
+import { GUEST_KNOWLEDGE_WRITES_PER_HOUR } from '../src/lib/guest-knowledge-admission';
 
-const usesDeployedPreview = Boolean(process.env.PLAYWRIGHT_BASE_URL);
+const configuredBaseUrl = process.env.PLAYWRIGHT_BASE_URL;
+const usesDeployedPreview = Boolean(
+  configuredBaseUrl
+  && !['127.0.0.1', 'localhost', '::1'].includes(new URL(configuredBaseUrl).hostname),
+);
 
 test.describe('main stabilization regressions', () => {
   test('clearing filters in My Notes trash keeps the trash view', async ({ page }) => {
@@ -36,6 +41,91 @@ test.describe('main stabilization regressions', () => {
     await expect(privateCard).toContainText('Private card');
     await expect(privateCard).toContainText('Machine Learning');
     await expect(privateCard).toContainText('#optimization');
+  });
+
+  test('guest hourly write denial stays inline and preserves the retry draft', async ({ page, browser }, testInfo) => {
+    test.skip(
+      usesDeployedPreview,
+      'The bounded hourly-limit saturation regression runs only against isolated local memory.',
+    );
+
+    const rateMessage = 'Guest saving from this network has reached its hourly limit. Try again in up to an hour.';
+    await page.goto('/my-notes');
+
+    const createForm = page.getByTestId('knowledge-create-form');
+    const titleInput = page.locator('#new-title');
+    const requestIdInput = createForm.locator('input[name="request_id"]');
+
+    for (let index = 0; index < GUEST_KNOWLEDGE_WRITES_PER_HOUR; index += 1) {
+      const requestId = await requestIdInput.inputValue();
+      await titleInput.fill(`Rate admission ${testInfo.project.name} ${index + 1}`);
+      await createForm.getByRole('button', { name: 'Save item' }).click();
+      await expect(titleInput).toHaveValue('');
+      await expect.poll(() => requestIdInput.inputValue()).not.toBe(requestId);
+    }
+
+    const blockedTitle = `Blocked retry draft ${testInfo.project.name}`;
+    const blockedRequestId = await requestIdInput.inputValue();
+    await titleInput.fill(blockedTitle);
+    await page.locator('#new-topic').fill('rate-limit-proof');
+    await page.locator('#new-summary').fill('This summary must remain editable.');
+    await page.locator('#new-content').fill('Private draft content must not enter the URL.');
+    await page.locator('#new-tags').fill('draft-preserved');
+    await page.locator('#new-tags').press('Enter');
+    await createForm.locator('select[name="knowledge_type"]').selectOption('concept');
+    await createForm.locator('input[name="central_question"]').fill('What survives a rate denial?');
+    await createForm.getByLabel('Definition').fill('Every hydrated draft field.');
+    await createForm.getByRole('button', { name: 'Save item' }).click();
+
+    await expect(createForm.getByTestId('knowledge-create-alert')).toHaveText(rateMessage);
+    await expect(titleInput).toHaveValue(blockedTitle);
+    await expect(page.locator('#new-topic')).toHaveValue('rate-limit-proof');
+    await expect(page.locator('#new-summary')).toHaveValue('This summary must remain editable.');
+    await expect(page.locator('#new-content')).toHaveValue('Private draft content must not enter the URL.');
+    await expect(createForm.locator('#new-tags-value')).toHaveValue('draft-preserved');
+    await expect(createForm.locator('select[name="knowledge_type"]')).toHaveValue('concept');
+    await expect(createForm.locator('input[name="central_question"]')).toHaveValue('What survives a rate denial?');
+    await expect(createForm.getByLabel('Definition')).toHaveValue('Every hydrated draft field.');
+    await expect(requestIdInput).toHaveValue(blockedRequestId);
+    await expect(page.getByRole('heading', { name: blockedTitle, level: 3 })).toHaveCount(0);
+
+    const storageState = await page.context().storageState();
+    const noJavaScriptContext = await browser.newContext({
+      javaScriptEnabled: false,
+      storageState,
+    });
+    try {
+      const noJavaScriptPage = await noJavaScriptContext.newPage();
+      const urlSecret = `url-secret-${Date.now()}`;
+      await noJavaScriptPage.goto('/my-notes');
+      await noJavaScriptPage.locator('#new-title').fill(urlSecret);
+      await noJavaScriptPage.locator('#new-content').fill('must-never-appear-in-the-url');
+      await Promise.all([
+        noJavaScriptPage.waitForURL(/createStatus=guest_write_rate_limited/),
+        noJavaScriptPage.getByTestId('knowledge-create-form').evaluate((form) => {
+          (form as HTMLFormElement).requestSubmit();
+        }),
+      ]);
+      const fallbackUrl = new URL(noJavaScriptPage.url());
+      expect(fallbackUrl.searchParams.toString()).toBe('createStatus=guest_write_rate_limited');
+      expect(noJavaScriptPage.url()).not.toContain(urlSecret);
+      expect(noJavaScriptPage.url()).not.toContain('must-never-appear-in-the-url');
+      await expect(noJavaScriptPage.getByRole('alert')).toHaveText(rateMessage);
+    } finally {
+      await noJavaScriptContext.close();
+    }
+
+    await page.goto('/grid');
+    const publicCard = page.getByTestId('concept-card').first();
+    await publicCard.getByRole('button', { name: /^Edit / }).click();
+    const editor = publicCard.getByTestId('concept-card-editor');
+    const privateCopyTitle = `Blocked private copy ${testInfo.project.name}`;
+    await editor.getByLabel('Title').fill(privateCopyTitle);
+    await editor.getByRole('button', { name: 'Save private copy' }).click();
+    await expect(editor.getByTestId('concept-card-save-alert')).toHaveText(rateMessage);
+    await expect(editor).toBeVisible();
+    await expect(editor.getByLabel('Title')).toHaveValue(privateCopyTitle);
+    await expect(page.getByRole('heading', { name: privateCopyTitle, level: 3 })).toHaveCount(0);
   });
 
   test('My Notes keeps the complete tag list natively editable before hydration', async ({ browser }, testInfo) => {
