@@ -4720,6 +4720,9 @@ export async function discardKnowledgeDraftBatchForUser(userId: string, batchId:
   await ensureKnowledgeIngestionSchema();
   const sql = getTransactionSql();
   const recallCleanup = buildRecallProvenanceBatchCleanupQuery(userId, batchId, 'discard');
+  // A Recall writer may commit while this operation waits on the account lock.
+  // Read Committed lets the cleanup statements observe that lock winner instead
+  // of retaining a Serializable snapshot taken before the wait.
   await sql.transaction((tx) => [
     tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deriveMcpAccountAdvisoryLockKey(userId)]),
     tx.query(ACTIVE_ACCOUNT_MARKER_ASSERTION_SQL, [deriveMcpDeletedAccountScopeKey(userId)]),
@@ -4734,7 +4737,7 @@ export async function discardKnowledgeDraftBatchForUser(userId: string, batchId:
        WHERE batch_id IN (SELECT id FROM discarded) AND user_id = $2 AND status = 'pending'`,
       [batchId, userId],
     ),
-  ], { isolationLevel: 'Serializable' });
+  ], { isolationLevel: 'ReadCommitted' });
 }
 
 export async function deleteKnowledgeImportBatchForUser(

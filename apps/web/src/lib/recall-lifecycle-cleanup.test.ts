@@ -112,6 +112,8 @@ test('every knowledge-item lifecycle or version mutation holds the Recall lock a
   assert.match(discard, /buildRecallProvenanceBatchCleanupQuery\(userId, batchId, 'discard'\)/);
   assert.ok(discard.indexOf('`knowledge-ingestion:${userId}`') < discard.indexOf('tx.query(recallCleanup.text'));
   assert.ok(discard.indexOf('tx.query(recallCleanup.text') < discard.indexOf('WITH discarded AS'));
+  assert.match(discard, /\], \{ isolationLevel: 'ReadCommitted' \}\);/);
+  assert.doesNotMatch(discard, /isolationLevel: 'Serializable'/);
   assert.match(importDeletion, /buildRecallProvenanceBatchCleanupQuery\(userId, batchId, 'delete'\)/);
   assert.ok(importDeletion.indexOf('`knowledge-ingestion:${userId}`') < importDeletion.indexOf('`knowledge-import:${userId}:${batchId}`'));
   assert.ok(importDeletion.indexOf('`knowledge-import:${userId}:${batchId}`') < importDeletion.indexOf('tx.query(recallCleanup.text'));

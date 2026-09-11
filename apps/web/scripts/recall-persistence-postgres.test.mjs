@@ -43,7 +43,7 @@ async function assertRejectsInSavepoint(client, operation, expected) {
   }
 }
 
-async function installRepositoryPgAdapter(pool) {
+async function installRepositoryPgAdapter(pool, hooks = {}) {
   const importedDb = await import('../src/lib/db.ts');
   const repositoryDb = importedDb.default ?? importedDb;
   const importedAccountLifecycle = await import('../src/lib/account-lifecycle.ts');
@@ -58,9 +58,10 @@ async function installRepositoryPgAdapter(pool) {
     try {
       await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
       const results = [];
-      for (const query of queries) {
+      for (const [queryIndex, query] of queries.entries()) {
         const result = await client.query(query.text, query.params ?? []);
         results.push({ rows: result.rows });
+        await hooks.afterQuery?.({ client, query, queryIndex, result });
       }
       await client.query('COMMIT');
       return results;
@@ -2941,6 +2942,571 @@ test('batch discard without an active attempt and import deletion clean only sch
       });
     });
     await collectCleanupFailure(cleanupFailures, 'close provenance cleanup database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});
+
+test('batch discard sees concurrent Recall enrollment and attempt-start winners after waiting on the account lock', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const importedRecall = await import('../src/lib/recall-persistence.ts');
+  const recall = importedRecall.default ?? importedRecall;
+  const importedAttempts = await import('../src/lib/recall-attempts.ts');
+  const attempts = importedAttempts.default ?? importedAttempts;
+  const importedKnowledge = await import('../src/lib/knowledge-ingestion.ts');
+  const knowledge = importedKnowledge.default ?? importedKnowledge;
+  const pool = new Pool({ connectionString: databaseUrl, max: 6 });
+  const fixturePrefix = `live-recall-discard-race-${crypto.randomUUID()}`;
+  const userId = `${fixturePrefix}-owner`;
+  const fixtures = ['enrollment', 'attempt'].map((name) => ({
+    name,
+    itemId: `${fixturePrefix}-${name}-item`,
+    batchId: `${fixturePrefix}-${name}-batch`,
+    draftId: `${fixturePrefix}-${name}-draft`,
+    sourceId: `${fixturePrefix}-${name}-source`,
+  }));
+  const allItemIds = fixtures.map(({ itemId }) => itemId);
+  const allBatchIds = fixtures.map(({ batchId }) => batchId);
+  const allDraftIds = fixtures.map(({ draftId }) => draftId);
+  const allSourceIds = fixtures.map(({ sourceId }) => sourceId);
+  const now = Date.now();
+  const enrolledAt = new Date(now - 25 * 60 * 60 * 1_000).toISOString();
+  const firstDueAt = new Date(now - 30 * 60 * 1_000).toISOString();
+  const outstandingOperations = [];
+  const openGates = new Set();
+  let activeGate = null;
+  let bodyCompleted = false;
+
+  const deferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+  };
+
+  const repositoryAdapter = await installRepositoryPgAdapter(pool, {
+    async afterQuery({ client, query, queryIndex }) {
+      const gate = activeGate;
+      if (!gate
+        || queryIndex !== 0
+        || !query.text.includes('pg_advisory_xact_lock')) return;
+      activeGate = null;
+      const holderPid = (await client.query(
+        'SELECT pg_backend_pid()::integer AS pid',
+      )).rows[0]?.pid;
+      gate.lockHeld.resolve(holderPid);
+      await gate.release.promise;
+    },
+  });
+
+  const runKnowledgeTransaction = async (buildQueries, options = {}) => {
+    const client = await pool.connect();
+    const isolationLevel = options.isolationLevel === 'Serializable'
+      ? 'SERIALIZABLE'
+      : 'READ COMMITTED';
+    try {
+      await client.query(`BEGIN ISOLATION LEVEL ${isolationLevel}`);
+      let queryChain = Promise.resolve();
+      const queries = buildQueries({
+        query: (text, params = []) => {
+          const result = queryChain.then(async () => (await client.query(text, params)).rows);
+          queryChain = result.then(() => undefined);
+          return result;
+        },
+      });
+      const results = await Promise.all(queries);
+      await client.query('COMMIT');
+      return results;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
+  const waitForAccountLockWaiter = async (holderPid) => {
+    assert.equal(Number.isInteger(holderPid), true);
+    for (let probe = 0; probe < 200; probe += 1) {
+      const waiting = (await pool.query(
+        `SELECT EXISTS (
+           SELECT 1
+           FROM pg_locks holder
+           JOIN pg_locks waiter
+             ON waiter.locktype = holder.locktype
+            AND waiter.database IS NOT DISTINCT FROM holder.database
+            AND waiter.classid IS NOT DISTINCT FROM holder.classid
+            AND waiter.objid IS NOT DISTINCT FROM holder.objid
+            AND waiter.objsubid IS NOT DISTINCT FROM holder.objsubid
+            AND waiter.mode = holder.mode
+           WHERE holder.pid = $1
+             AND holder.locktype = 'advisory'
+             AND holder.granted
+             AND waiter.pid <> holder.pid
+             AND NOT waiter.granted
+         ) AS waiting`,
+        [holderPid],
+      )).rows[0]?.waiting;
+      if (waiting) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.fail('Discard never became an advisory-lock waiter behind the Recall winner.');
+  };
+
+  const raceDiscardAfterWinner = async (fixture, operation) => {
+    const gate = { lockHeld: deferred(), release: deferred() };
+    openGates.add(gate);
+    activeGate = gate;
+    const winnerPromise = operation();
+    outstandingOperations.push(winnerPromise);
+    let discardPromise = null;
+    try {
+      const holderPid = await Promise.race([
+        gate.lockHeld.promise,
+        winnerPromise.then(
+          () => Promise.reject(new Error('Recall winner committed before its lock gate was observed.')),
+          (error) => Promise.reject(error),
+        ),
+      ]);
+      discardPromise = knowledge.discardKnowledgeDraftBatchForUser(userId, fixture.batchId);
+      outstandingOperations.push(discardPromise);
+      await Promise.race([
+        waitForAccountLockWaiter(holderPid),
+        discardPromise.then(
+          () => Promise.reject(new Error('Discard finished without waiting on the Recall winner.')),
+          (error) => Promise.reject(error),
+        ),
+      ]);
+    } finally {
+      gate.release.resolve();
+      openGates.delete(gate);
+      if (activeGate === gate) activeGate = null;
+    }
+    const [winner] = await Promise.all([winnerPromise, discardPromise]);
+    return winner;
+  };
+
+  knowledge.setKnowledgeTransactionSqlForTesting({
+    query: async (text, params = []) => (await pool.query(text, params)).rows,
+    transaction: runKnowledgeTransaction,
+  });
+
+  try {
+    for (const [index, fixture] of fixtures.entries()) {
+      await pool.query(
+        `INSERT INTO user_knowledge_items (
+           id, user_id, title, summary, content, topic, tags, knowledge_type,
+           central_question, structured_content, bundle_schema_version, version
+         ) VALUES (
+           $1, $2, $3, '', '', 'recall-live', '[]'::jsonb, 'concept',
+           'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1, 1
+         )`,
+        [fixture.itemId, userId, `Recall discard race fixture ${index + 1}`],
+      );
+      await pool.query(
+        `INSERT INTO knowledge_item_revisions
+           (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+         VALUES ($1, $2, $3, 1, '{}'::jsonb, 'confirmed')`,
+        [`${fixturePrefix}-${fixture.name}-revision`, userId, fixture.itemId],
+      );
+      await pool.query(
+        `INSERT INTO knowledge_ingestion_batches (
+           id, user_id, source_type, provider, scope, request_id, status, committed_at
+         ) VALUES (
+           $1, $2, 'conversation', 'chatgpt', 'current_conversation', $3, 'partial', NOW()
+         )`,
+        [fixture.batchId, userId, `${fixturePrefix}-${fixture.name}-request`],
+      );
+      await pool.query(
+        `INSERT INTO knowledge_card_drafts (
+           id, batch_id, user_id, client_card_id, title, knowledge_type,
+           central_question, structured_content, bundle_schema_version,
+           status, knowledge_item_id, approved_at
+         ) VALUES (
+           $1, $2, $3, $4, 'Recall discard race fixture', 'concept',
+           'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1,
+           'approved', $5, NOW()
+         )`,
+        [
+          fixture.draftId,
+          fixture.batchId,
+          userId,
+          `${fixturePrefix}-${fixture.name}-card`,
+          fixture.itemId,
+        ],
+      );
+      await pool.query(
+        `INSERT INTO knowledge_card_sources (
+           id, user_id, knowledge_item_id, batch_id, draft_id, source_type,
+           provider, conversation_ref, supported_item_version, confirmed_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, 'conversation', 'chatgpt', $6, 1, NOW()
+         )`,
+        [
+          fixture.sourceId,
+          userId,
+          fixture.itemId,
+          fixture.batchId,
+          fixture.draftId,
+          `${fixturePrefix}-${fixture.name}-conversation`,
+        ],
+      );
+    }
+
+    const enrollmentFixture = fixtures[0];
+    const enrollment = await raceDiscardAfterWinner(
+      enrollmentFixture,
+      () => recall.enrollApprovedRecallScheduleForUser(
+        userId,
+        enrollmentFixture.itemId,
+        1,
+        enrolledAt,
+        firstDueAt,
+      ),
+    );
+    assert.equal(enrollment.kind, 'enrolled');
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM user_private_card_states
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, enrollmentFixture.itemId],
+    )).rows[0]?.count, 0);
+
+    const attemptFixture = fixtures[1];
+    const attemptEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      attemptFixture.itemId,
+      1,
+      enrolledAt,
+      firstDueAt,
+    );
+    assert.equal(attemptEnrollment.kind, 'enrolled');
+    const started = await raceDiscardAfterWinner(
+      attemptFixture,
+      () => attempts.startOrResumeRecallAttemptForUser(userId, attemptFixture.itemId),
+    );
+    assert.equal(started.kind, 'started');
+    assert.ok(started.attempt);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM user_private_card_states
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, attemptFixture.itemId],
+    )).rows[0]?.count, 0);
+    assert.deepEqual((await pool.query(
+      `SELECT lifecycle_state, invalidation_reason
+       FROM recall_attempts
+       WHERE id = $1 AND user_id = $2 AND knowledge_item_id = $3`,
+      [started.attempt.id, userId, attemptFixture.itemId],
+    )).rows, [{ lifecycle_state: 'invalidated', invalidation_reason: 'stale_context' }]);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM recall_attempts
+       WHERE user_id = $1
+         AND knowledge_item_id = ANY($2::text[])
+         AND lifecycle_state IN ('prepared', 'confidence_selected', 'revealed')`,
+      [userId, allItemIds],
+    )).rows[0]?.count, 0);
+    assert.deepEqual((await pool.query(
+      `SELECT id, status
+       FROM knowledge_ingestion_batches
+       WHERE user_id = $1 AND id = ANY($2::text[])
+       ORDER BY id`,
+      [userId, allBatchIds],
+    )).rows, allBatchIds.sort().map((id) => ({ id, status: 'discarded' })));
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    for (const gate of openGates) gate.release.resolve();
+    activeGate = null;
+    if (outstandingOperations.length > 0) {
+      await collectCleanupFailure(cleanupFailures, 'settle discard race operations', async () => {
+        const settlements = await Promise.allSettled(outstandingOperations);
+        const rejected = settlements.filter(({ status }) => status === 'rejected');
+        if (bodyCompleted && rejected.length > 0) {
+          throw new AggregateError(rejected.map(({ reason }) => reason));
+        }
+      });
+    }
+    knowledge.setKnowledgeTransactionSqlForTesting(null);
+    repositoryAdapter.restore();
+    await collectCleanupFailure(cleanupFailures, 'delete discard race knowledge items', () => (
+      pool.query(
+        `DELETE FROM user_knowledge_items WHERE id = ANY($1::text[]) AND user_id = $2`,
+        [allItemIds, userId],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete discard race ingestion batches', () => (
+      pool.query(
+        `DELETE FROM knowledge_ingestion_batches WHERE id = ANY($1::text[]) AND user_id = $2`,
+        [allBatchIds, userId],
+      )
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify discard race fixture removal', async () => {
+      const remaining = (await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::integer FROM user_knowledge_items WHERE id = ANY($1::text[])) AS items,
+           (SELECT COUNT(*)::integer FROM knowledge_ingestion_batches WHERE id = ANY($2::text[])) AS batches,
+           (SELECT COUNT(*)::integer FROM knowledge_card_drafts WHERE id = ANY($3::text[])) AS drafts,
+           (SELECT COUNT(*)::integer FROM knowledge_card_sources WHERE id = ANY($4::text[])) AS sources,
+           (SELECT COUNT(*)::integer FROM user_private_card_states WHERE knowledge_item_id = ANY($1::text[])) AS states,
+           (SELECT COUNT(*)::integer FROM recall_attempts WHERE knowledge_item_id = ANY($1::text[])) AS attempts`,
+        [allItemIds, allBatchIds, allDraftIds, allSourceIds],
+      )).rows[0];
+      assert.deepEqual(remaining, {
+        items: 0,
+        batches: 0,
+        drafts: 0,
+        sources: 0,
+        states: 0,
+        attempts: 0,
+      });
+    });
+    await collectCleanupFailure(cleanupFailures, 'close discard race database pool', () => pool.end());
+    surfaceCleanupFailures(bodyCompleted, cleanupFailures);
+  }
+});
+
+test('D+1 rollover invalidates the replaced attempt and permits same-item D+1 restart after cancellation', {
+  skip: databaseUrl ? false : 'set LIVE_POSTGRES_TEST_DATABASE_URL for the real PostgreSQL Recall test',
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const importedRecall = await import('../src/lib/recall-persistence.ts');
+  const recall = importedRecall.default ?? importedRecall;
+  const importedAttempts = await import('../src/lib/recall-attempts.ts');
+  const attempts = importedAttempts.default ?? importedAttempts;
+  const importedRuntime = await import('../src/lib/recall-runtime.ts');
+  const runtime = importedRuntime.default ?? importedRuntime;
+  const pool = new Pool({ connectionString: databaseUrl, max: 4 });
+  const repositoryAdapter = await installRepositoryPgAdapter(pool);
+  const fixturePrefix = `live-recall-rollover-restart-${crypto.randomUUID()}`;
+  const userId = `${fixturePrefix}-owner`;
+  const itemId = `${fixturePrefix}-item`;
+  const batchId = `${fixturePrefix}-batch`;
+  const draftId = `${fixturePrefix}-draft`;
+  const sourceId = `${fixturePrefix}-source`;
+  const revisionId = `${fixturePrefix}-revision`;
+  const now = Date.now();
+  const firstEnrolledAt = new Date(now - 26 * 60 * 60 * 1_000).toISOString();
+  const firstDueAt = new Date(now - 60 * 60 * 1_000).toISOString();
+  const d7At = new Date(new Date(firstEnrolledAt).getTime() + 169 * 60 * 60 * 1_000).toISOString();
+  const replacementEnrolledAt = new Date(now - 25 * 60 * 60 * 1_000).toISOString();
+  const replacementDueAt = new Date(now - 30 * 60 * 1_000).toISOString();
+  let bodyCompleted = false;
+
+  try {
+    await pool.query(
+      `INSERT INTO user_knowledge_items (
+         id, user_id, title, summary, content, topic, tags, knowledge_type,
+         central_question, structured_content, bundle_schema_version, version
+       ) VALUES (
+         $1, $2, 'Recall rollover restart fixture', '', '', 'recall-live', '[]'::jsonb,
+         'concept', 'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1, 1
+       )`,
+      [itemId, userId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_item_revisions
+         (id, user_id, knowledge_item_id, version, snapshot, change_reason)
+       VALUES ($1, $2, $3, 1, '{}'::jsonb, 'confirmed')`,
+      [revisionId, userId, itemId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_ingestion_batches (
+         id, user_id, source_type, provider, scope, request_id, status, committed_at
+       ) VALUES (
+         $1, $2, 'conversation', 'chatgpt', 'current_conversation', $3, 'approved', NOW()
+       )`,
+      [batchId, userId, `${fixturePrefix}-request`],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_card_drafts (
+         id, batch_id, user_id, client_card_id, title, knowledge_type,
+         central_question, structured_content, bundle_schema_version,
+         status, knowledge_item_id, approved_at
+       ) VALUES (
+         $1, $2, $3, $4, 'Recall rollover restart fixture', 'concept',
+         'What should be reconstructed?', '{"type":"concept"}'::jsonb, 1,
+         'approved', $5, NOW()
+       )`,
+      [draftId, batchId, userId, `${fixturePrefix}-card`, itemId],
+    );
+    await pool.query(
+      `INSERT INTO knowledge_card_sources (
+         id, user_id, knowledge_item_id, batch_id, draft_id, source_type,
+         provider, conversation_ref, supported_item_version, confirmed_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, 'conversation', 'chatgpt', $6, 1, NOW()
+       )`,
+      [sourceId, userId, itemId, batchId, draftId, `${fixturePrefix}-conversation`],
+    );
+
+    const firstEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      itemId,
+      1,
+      firstEnrolledAt,
+      firstDueAt,
+    );
+    assert.equal(firstEnrollment.kind, 'enrolled');
+    assert.equal(firstEnrollment.schedule.scheduleVersion, 1);
+    assert.equal(firstEnrollment.schedule.snapshot.state, 'd1_pending');
+
+    const firstStart = await attempts.startOrResumeRecallAttemptForUser(userId, itemId);
+    assert.equal(firstStart.kind, 'started');
+    assert.ok(firstStart.attempt);
+    assert.equal(firstStart.attempt.state, 'prepared');
+    assert.equal(firstStart.attempt.milestone, 'd1');
+    assert.equal(firstStart.attempt.itemVersion, 1);
+    assert.equal(firstStart.attempt.scheduleVersion, 1);
+    assert.equal(firstStart.attempt.enrolledAt, firstEnrollment.schedule.snapshot.enrolledAt);
+
+    await runtime.reconcileActiveRecallSchedulesForUser(userId, d7At);
+    const rolledSchedule = await recall.getRecallScheduleForUser(userId, itemId);
+    assert.ok(rolledSchedule);
+    assert.equal(rolledSchedule.itemVersion, 1);
+    assert.equal(rolledSchedule.scheduleVersion, 2);
+    assert.equal(rolledSchedule.snapshot.enrolledAt, firstEnrollment.schedule.snapshot.enrolledAt);
+    assert.equal(rolledSchedule.snapshot.state, 'd7_pending');
+    assert.equal(rolledSchedule.snapshot.dueAt, d7At);
+    assert.equal(rolledSchedule.snapshot.d1FinalizedIncomplete, true);
+    assert.equal(rolledSchedule.snapshot.d7Outcome, null);
+    assert.deepEqual((await pool.query(
+      `SELECT
+         lifecycle_state,
+         invalidation_reason,
+         invalidated_at IS NOT NULL AS invalidated_at_recorded
+       FROM recall_attempts
+       WHERE id = $1 AND user_id = $2 AND knowledge_item_id = $3`,
+      [firstStart.attempt.id, userId, itemId],
+    )).rows, [{
+      lifecycle_state: 'invalidated',
+      invalidation_reason: 'stale_context',
+      invalidated_at_recorded: true,
+    }]);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM recall_attempts
+       WHERE user_id = $1
+         AND knowledge_item_id = $2
+         AND item_version = 1
+         AND milestone = 'd1'
+         AND lifecycle_state IN ('prepared', 'confidence_selected', 'revealed')`,
+      [userId, itemId],
+    )).rows[0]?.count, 0);
+
+    assert.deepEqual(await recall.cancelRecallScheduleForItem(
+      userId,
+      itemId,
+      cancellationExpectation(rolledSchedule),
+    ), { kind: 'cancelled', retainedPractice: false });
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM user_private_card_states
+       WHERE user_id = $1 AND knowledge_item_id = $2`,
+      [userId, itemId],
+    )).rows[0]?.count, 0);
+
+    const replacementEnrollment = await recall.enrollApprovedRecallScheduleForUser(
+      userId,
+      itemId,
+      1,
+      replacementEnrolledAt,
+      replacementDueAt,
+    );
+    assert.equal(replacementEnrollment.kind, 'enrolled');
+    assert.equal(replacementEnrollment.schedule.itemVersion, 1);
+    assert.equal(replacementEnrollment.schedule.scheduleVersion, 1);
+    assert.equal(replacementEnrollment.schedule.snapshot.state, 'd1_pending');
+    assert.equal(replacementEnrollment.schedule.snapshot.enrolledAt, replacementEnrolledAt);
+
+    const replacementStart = await attempts.startOrResumeRecallAttemptForUser(userId, itemId);
+    assert.equal(replacementStart.kind, 'started');
+    assert.ok(replacementStart.attempt);
+    assert.notEqual(replacementStart.attempt.id, firstStart.attempt.id);
+    assert.equal(replacementStart.attempt.state, 'prepared');
+    assert.equal(replacementStart.attempt.milestone, 'd1');
+    assert.equal(replacementStart.attempt.itemVersion, 1);
+    assert.equal(replacementStart.attempt.scheduleVersion, 1);
+    assert.equal(replacementStart.attempt.enrolledAt, replacementEnrolledAt);
+
+    assert.deepEqual((await pool.query(
+      `SELECT
+         id,
+         lifecycle_state,
+         invalidation_reason,
+         item_version,
+         schedule_version,
+         milestone
+       FROM recall_attempts
+       WHERE user_id = $1 AND knowledge_item_id = $2
+       ORDER BY CASE WHEN id = $3 THEN 0 ELSE 1 END`,
+      [userId, itemId, firstStart.attempt.id],
+    )).rows, [
+      {
+        id: firstStart.attempt.id,
+        lifecycle_state: 'invalidated',
+        invalidation_reason: 'stale_context',
+        item_version: 1,
+        schedule_version: 1,
+        milestone: 'd1',
+      },
+      {
+        id: replacementStart.attempt.id,
+        lifecycle_state: 'prepared',
+        invalidation_reason: null,
+        item_version: 1,
+        schedule_version: 1,
+        milestone: 'd1',
+      },
+    ]);
+    assert.equal((await pool.query(
+      `SELECT COUNT(*)::integer AS count
+       FROM recall_attempts
+       WHERE user_id = $1
+         AND knowledge_item_id = $2
+         AND item_version = 1
+         AND milestone = 'd1'
+         AND lifecycle_state IN ('prepared', 'confidence_selected', 'revealed')`,
+      [userId, itemId],
+    )).rows[0]?.count, 1);
+    bodyCompleted = true;
+  } finally {
+    const cleanupFailures = [];
+    repositoryAdapter.restore();
+    await collectCleanupFailure(cleanupFailures, 'delete rollover restart knowledge item', () => (
+      pool.query('DELETE FROM user_knowledge_items WHERE id = $1 AND user_id = $2', [itemId, userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'delete rollover restart ingestion batch', () => (
+      pool.query('DELETE FROM knowledge_ingestion_batches WHERE id = $1 AND user_id = $2', [batchId, userId])
+    ));
+    await collectCleanupFailure(cleanupFailures, 'verify rollover restart fixture removal', async () => {
+      const remaining = (await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::integer FROM user_knowledge_items WHERE id = $1) AS items,
+           (SELECT COUNT(*)::integer FROM knowledge_item_revisions WHERE id = $2) AS revisions,
+           (SELECT COUNT(*)::integer FROM knowledge_ingestion_batches WHERE id = $3) AS batches,
+           (SELECT COUNT(*)::integer FROM knowledge_card_drafts WHERE id = $4) AS drafts,
+           (SELECT COUNT(*)::integer FROM knowledge_card_sources WHERE id = $5) AS sources,
+           (SELECT COUNT(*)::integer FROM user_private_card_states WHERE knowledge_item_id = $1) AS states,
+           (SELECT COUNT(*)::integer FROM recall_attempts WHERE knowledge_item_id = $1) AS attempts`,
+        [itemId, revisionId, batchId, draftId, sourceId],
+      )).rows[0];
+      assert.deepEqual(remaining, {
+        items: 0,
+        revisions: 0,
+        batches: 0,
+        drafts: 0,
+        sources: 0,
+        states: 0,
+        attempts: 0,
+      });
+    });
+    await collectCleanupFailure(cleanupFailures, 'close rollover restart database pool', () => pool.end());
     surfaceCleanupFailures(bodyCompleted, cleanupFailures);
   }
 });

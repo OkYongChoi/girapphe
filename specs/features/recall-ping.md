@@ -28,7 +28,7 @@ can still finish or cancel the existing owner-scoped lifecycle.
 | --- | --- |
 | `R1-01` | Only an explicitly selected eligible item can be enrolled. The server re-checks ownership, current revision, active lifecycle, approved current-conversation provenance, and supported type. One owner may have at most 100 active schedules; enrollment serializes the owner-scoped capacity check and returns a stable capacity result without stranding existing schedules. |
 | `R1-02` | The manual route starts or resumes a due D+1/D+7 attempt; rollout controls new enrollment only. |
-| `R1-03` | On route/start, stale unresolved D+1 moves to D+7 at 168 hours and unresolved D+1/D+7 moves to ordinary Practice at 192 hours through schedule CAS. |
+| `R1-03` | On route/start, stale unresolved D+1 moves to D+7 at 168 hours and unresolved D+1/D+7 moves to ordinary Practice at 192 hours through schedule CAS. The rollover invalidates any active attempt from the replaced schedule generation in the same database statement. |
 | `R1-04` | Before reveal, the SQL projection, Server Action result, and DOM omit approved structured content, detailed provenance, source URL, selectors, and next interval. |
 | `R1-05` | Free-recall text remains component-local, has no form field name, and is absent from every Server Action request. Confidence is required before reveal. |
 | `R1-06` | Reveal re-checks owner, item revision, schedule generation, enrollment anchor, due window, lifecycle, and provenance before returning the current approved bundle and safe source details. |
@@ -251,12 +251,18 @@ Manual R1 evidence:
 | --- | --- |
 | `R1-01` | `recall-action-input.test.ts` rejects caller identity and extra fields; `recall-persistence.test.ts` proves exact owner/version eligibility, content-free enrollment, ordered owner-capacity/item locking, the same 100-active-schedule predicate used by the bounded route, and a stable content-free capacity result. |
 | `R1-02` | `recall-actions.ts` exposes authenticated start/resume while `recall-runtime.test.ts` proves only new enrollment is rollout-gated. |
-| `R1-03` | `recall-runtime.test.ts`, `recall-persistence.test.ts`, and `packages/shared/src/recall-schedule.test.mjs` cover the 168/192-hour rollover decisions and full-snapshot CAS. |
+| `R1-03` | `recall-runtime.test.ts`, `recall-persistence.test.ts`, `recall-persistence-postgres.test.mjs`, and `packages/shared/src/recall-schedule.test.mjs` cover the 168/192-hour rollover decisions, full-snapshot CAS, atomic invalidation of the replaced attempt generation, cancellation, and same-version re-enrollment without an active-attempt uniqueness conflict. |
 | `R1-04` | `recall-runtime.test.ts` inspects the pre-reveal SQL projection and serialized result for approved-answer, source-detail, selector, URL, and next-interval absence. `authenticated-recall.spec.ts` asserts the synthetic approved definition is absent from rendered HTML before reveal and visible afterward on desktop and mobile. |
 | `R1-05` | `recall-action-input.test.ts` rejects recalled text and `recall-runtime.test.ts` proves the unnamed local textarea value is absent from all action invocations. `authenticated-recall.spec.ts` enters a unique browser-local sentence and proves it is absent from the start, confidence, reveal, and completion request bodies. |
 | `R1-06` | `recall-attempts.test.ts` and `recall-runtime.test.ts` cover reveal authorization, stale invalidation, exact current provenance, sanitized URL, and content release only after reveal. |
-| `R1-07` | `recall-attempts.test.ts`, `recall-persistence.test.ts`, and `recall-runtime.test.ts` cover server-owned due computation, forced no-hint completion, generation CAS, and transactional attempt invalidation on cancellation. The authenticated Preview spec re-reads the exact owner/item row and requires one completed, high-confidence, remembered, no-hint attempt whose resulting due instant matches the D+7 schedule. |
+| `R1-07` | `recall-attempts.test.ts`, `recall-persistence.test.ts`, `recall-runtime.test.ts`, and `recall-persistence-postgres.test.mjs` cover server-owned due computation, forced no-hint completion, generation CAS, transactional attempt invalidation on cancellation, and rollover invalidation before same-version restart. The authenticated Preview spec re-reads the exact owner/item row and requires one completed, high-confidence, remembered, no-hint attempt whose resulting due instant matches the D+7 schedule. |
 | `R1-08` | `messages.test.ts` checks all six catalogs; `recall-runtime.test.ts` checks logical-direction classes and 44px controls. `authenticated-recall.spec.ts` is the desktop/mobile rendered Preview gate: it reads safe rollout attributes from the deployed route, requires exact single-owner `allowlist` mode with a distinct candidate denied, asserts measured 44px control bounds plus Arabic RTL direction/containment, and records zero browser errors, action timing/size metrics, and three screenshots per device. The versioned result loader accepts exactly one desktop and one mobile artifact with exact top-level and nested fields, only after deterministic fixture cleanup reports zero remaining rows, and requires all six declared screenshots to be nonempty regular files with PNG signatures and no extra PNG siblings. |
+
+The live PostgreSQL gate also pauses a Recall enrollment or attempt-start winner
+while it holds the owner account lock, proves batch discard is waiting on that
+same advisory lock, then commits the winner. The discard transaction must use a
+fresh Read Committed statement snapshot, observe the newly committed Recall
+state, and leave no schedule or active attempt behind (`AC-11`).
 
 | Criterion | Evidence |
 | --- | --- |

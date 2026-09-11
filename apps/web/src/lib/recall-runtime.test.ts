@@ -180,7 +180,7 @@ test('manual rollover gives D+7 precedence and closes stale milestones into Prac
   assert.equal(closedD7?.snapshot.d7Outcome, 'unassessed');
 });
 
-test('stale reconciliation uses one owner transaction and one bounded lock-and-update query', async (context) => {
+test('stale reconciliation atomically rolls schedules and invalidates their replaced attempt generation', async (context) => {
   withDatabase(context);
   const original = db.accountTransaction;
   let transactionCalls = 0;
@@ -223,8 +223,13 @@ test('stale reconciliation uses one owner transaction and one bounded lock-and-u
   assert.match(update.text, /locked_stale_recall_schedule_batch AS MATERIALIZED/);
   assert.match(update.text, /ARRAY_AGG\(locked\.knowledge_item_id ORDER BY locked\.knowledge_item_id\)/);
   assert.match(update.text, /BOOL_AND\(locked\.item_lock IS NOT NULL\) AS all_item_locks_acquired/);
+  assert.match(
+    update.text,
+    /FROM locked_stale_recall_schedules locked\s+\),\s+rolled_recall_schedules AS MATERIALIZED/,
+    'the lock barrier and rollover data-modifying CTE must be comma-delimited',
+  );
 
-  assert.match(update.text, /UPDATE user_private_card_states s/);
+  assert.match(update.text, /rolled_recall_schedules AS MATERIALIZED \(\s*UPDATE user_private_card_states s/);
   assert.match(update.text, /FROM locked_stale_recall_schedule_batch locked_batch, user_knowledge_items i/);
   assert.match(update.text, /WHERE locked_batch\.all_item_locks_acquired/);
   assert.match(update.text, /s\.knowledge_item_id = ANY\(locked_batch\.knowledge_item_ids\)/);
@@ -238,6 +243,46 @@ test('stale reconciliation uses one owner transaction and one bounded lock-and-u
   assert.equal(
     update.text.match(/recall_schedule_version = s\.recall_schedule_version \+ 1/g)?.length,
     1,
+  );
+
+  assert.match(
+    update.text,
+    /RETURNING\s+s\.user_id,\s+s\.knowledge_item_id,\s+s\.recall_item_version AS item_version,\s+s\.recall_schedule_version - 1 AS replaced_schedule_version,\s+s\.recall_enrolled_at/,
+  );
+  assert.match(
+    update.text,
+    /invalidated_replaced_recall_attempts AS MATERIALIZED \(\s*UPDATE recall_attempts a/,
+  );
+  assert.match(update.text, /SET lifecycle_state = 'invalidated'/);
+  assert.match(update.text, /invalidation_reason = 'stale_context'/);
+  assert.match(update.text, /a\.user_id = rolled\.user_id/);
+  assert.match(update.text, /a\.knowledge_item_id = rolled\.knowledge_item_id/);
+  assert.match(update.text, /a\.item_version = rolled\.item_version/);
+  assert.match(update.text, /a\.schedule_version = rolled\.replaced_schedule_version/);
+  assert.match(update.text, /a\.recall_enrolled_at = rolled\.recall_enrolled_at/);
+  assert.match(
+    update.text,
+    /a\.lifecycle_state IN \('prepared', 'confidence_selected', 'revealed'\)/,
+  );
+  assert.match(
+    update.text,
+    /SELECT COUNT\(\*\)::integer AS invalidated_attempt_count\s+FROM invalidated_replaced_recall_attempts/,
+    'the returned rollover rows must consume the invalidation CTE in the same statement',
+  );
+
+  const rolledAt = update.text.indexOf('rolled_recall_schedules AS MATERIALIZED');
+  const invalidatedAt = update.text.indexOf('invalidated_replaced_recall_attempts AS MATERIALIZED');
+  const resultAt = update.text.lastIndexOf('SELECT\n        rolled.knowledge_item_id');
+  assert.ok(rolledAt >= 0 && invalidatedAt > rolledAt && resultAt > invalidatedAt);
+
+  const migration = readFileSync(
+    new URL('../../drizzle/migrations/0024_recall_prepared_attempts.sql', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    migration,
+    /idx_recall_attempts_one_active_milestone[\s\S]*\("user_id", "knowledge_item_id", "item_version", "milestone"\)[\s\S]*WHERE "lifecycle_state" IN \('prepared', 'confidence_selected', 'revealed'\)/,
+    'invalidating the replaced D+1 generation releases the active-attempt key before stop, re-enrollment, and a new D+1 start',
   );
 
   const setStart = update.text.indexOf('SET ');

@@ -341,49 +341,79 @@ export async function reconcileActiveRecallSchedulesForUser(
             AS knowledge_item_ids,
           BOOL_AND(locked.item_lock IS NOT NULL) AS all_item_locks_acquired
         FROM locked_stale_recall_schedules locked
+      ),
+      rolled_recall_schedules AS MATERIALIZED (
+        UPDATE user_private_card_states s
+        SET due_at = CASE
+              WHEN $2::timestamptz >= s.recall_enrolled_at + INTERVAL '192 hours'
+                THEN s.recall_enrolled_at + INTERVAL '192 hours'
+              ELSE $2::timestamptz
+            END,
+            recall_schedule_state = CASE
+              WHEN $2::timestamptz >= s.recall_enrolled_at + INTERVAL '192 hours'
+                THEN 'ordinary_practice'
+              ELSE 'd7_pending'
+            END,
+            recall_d1_finalized_incomplete = CASE
+              WHEN s.recall_schedule_state IN ('d1_pending', 'd1_retry') THEN TRUE
+              ELSE s.recall_d1_finalized_incomplete
+            END,
+            recall_d7_outcome = CASE
+              WHEN $2::timestamptz >= s.recall_enrolled_at + INTERVAL '192 hours'
+                THEN 'unassessed'
+              ELSE NULL
+            END,
+            recall_schedule_version = s.recall_schedule_version + 1
+        FROM locked_stale_recall_schedule_batch locked_batch, user_knowledge_items i
+        WHERE locked_batch.all_item_locks_acquired
+          AND s.user_id = $1
+          AND s.knowledge_item_id = ANY(locked_batch.knowledge_item_ids)
+          AND i.id = s.knowledge_item_id
+          AND i.user_id = s.user_id
+          AND s.recall_item_version = i.version
+          AND s.recall_schedule_state IN ('d1_pending', 'd1_retry', 'd7_pending')
+          AND (
+            (
+              s.recall_schedule_state IN ('d1_pending', 'd1_retry')
+              AND $2::timestamptz >= s.recall_enrolled_at + INTERVAL '168 hours'
+              AND $2::timestamptz < s.recall_enrolled_at + INTERVAL '192 hours'
+            )
+            OR (
+              s.recall_schedule_state IN ('d1_pending', 'd1_retry', 'd7_pending')
+              AND $2::timestamptz >= s.recall_enrolled_at + INTERVAL '192 hours'
+            )
+          )
+          AND ${strictRecallEligibilityPredicate('s.recall_item_version')}
+        RETURNING
+          s.user_id,
+          s.knowledge_item_id,
+          s.recall_item_version AS item_version,
+          s.recall_schedule_version - 1 AS replaced_schedule_version,
+          s.recall_enrolled_at
+      ),
+      invalidated_replaced_recall_attempts AS MATERIALIZED (
+        UPDATE recall_attempts a
+        SET lifecycle_state = 'invalidated',
+            invalidated_at = NOW(),
+            invalidation_reason = 'stale_context',
+            updated_at = NOW()
+        FROM rolled_recall_schedules rolled
+        WHERE a.user_id = rolled.user_id
+          AND a.knowledge_item_id = rolled.knowledge_item_id
+          AND a.item_version = rolled.item_version
+          AND a.schedule_version = rolled.replaced_schedule_version
+          AND a.recall_enrolled_at = rolled.recall_enrolled_at
+          AND a.lifecycle_state IN ('prepared', 'confidence_selected', 'revealed')
+        RETURNING a.id
       )
-      UPDATE user_private_card_states s
-      SET due_at = CASE
-            WHEN $2::timestamptz >= s.recall_enrolled_at + INTERVAL '192 hours'
-              THEN s.recall_enrolled_at + INTERVAL '192 hours'
-            ELSE $2::timestamptz
-          END,
-          recall_schedule_state = CASE
-            WHEN $2::timestamptz >= s.recall_enrolled_at + INTERVAL '192 hours'
-              THEN 'ordinary_practice'
-            ELSE 'd7_pending'
-          END,
-          recall_d1_finalized_incomplete = CASE
-            WHEN s.recall_schedule_state IN ('d1_pending', 'd1_retry') THEN TRUE
-            ELSE s.recall_d1_finalized_incomplete
-          END,
-          recall_d7_outcome = CASE
-            WHEN $2::timestamptz >= s.recall_enrolled_at + INTERVAL '192 hours'
-              THEN 'unassessed'
-            ELSE NULL
-          END,
-          recall_schedule_version = s.recall_schedule_version + 1
-      FROM locked_stale_recall_schedule_batch locked_batch, user_knowledge_items i
-      WHERE locked_batch.all_item_locks_acquired
-        AND s.user_id = $1
-        AND s.knowledge_item_id = ANY(locked_batch.knowledge_item_ids)
-        AND i.id = s.knowledge_item_id
-        AND i.user_id = s.user_id
-        AND s.recall_item_version = i.version
-        AND s.recall_schedule_state IN ('d1_pending', 'd1_retry', 'd7_pending')
-        AND (
-          (
-            s.recall_schedule_state IN ('d1_pending', 'd1_retry')
-            AND $2::timestamptz >= s.recall_enrolled_at + INTERVAL '168 hours'
-            AND $2::timestamptz < s.recall_enrolled_at + INTERVAL '192 hours'
-          )
-          OR (
-            s.recall_schedule_state IN ('d1_pending', 'd1_retry', 'd7_pending')
-            AND $2::timestamptz >= s.recall_enrolled_at + INTERVAL '192 hours'
-          )
-        )
-        AND ${strictRecallEligibilityPredicate('s.recall_item_version')}
-      RETURNING s.knowledge_item_id`,
+      SELECT
+        rolled.knowledge_item_id,
+        invalidated.invalidated_attempt_count
+      FROM rolled_recall_schedules rolled
+      CROSS JOIN (
+        SELECT COUNT(*)::integer AS invalidated_attempt_count
+        FROM invalidated_replaced_recall_attempts
+      ) invalidated`,
     params: [userId, normalizedAt, RECALL_SCHEDULE_LOCK_PREFIX],
   }]);
 }
