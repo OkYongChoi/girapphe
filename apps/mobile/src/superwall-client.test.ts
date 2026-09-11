@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createConfiguredSuperwallClient,
+  getSuperwallPlatformConfiguration,
+} from './superwall-loader';
+import {
   createSuperwallClient,
   establishSuperwallIdentity,
   mapConfiguredProducts,
@@ -8,6 +12,43 @@ import {
   superwallStatusHasAdFree,
   type SuperwallNativeModule,
 } from './superwall-contract';
+
+test('does not load Superwall for web or an unconfigured native build', () => {
+  let loadCount = 0;
+  const unavailableLoader = () => {
+    loadCount += 1;
+    throw new Error('native_module_unavailable');
+  };
+  const configuration = {
+    apiKey: 'pk_test',
+    store: 'app_store' as const,
+    monthlyProductId: 'monthly',
+    annualProductId: 'annual',
+  };
+
+  const names = [
+    'EXPO_PUBLIC_SUPERWALL_IOS_API_KEY',
+    'EXPO_PUBLIC_SUPERWALL_ANDROID_API_KEY',
+    'EXPO_PUBLIC_SUPERWALL_IOS_MONTHLY_PURCHASE_IDENTIFIER',
+    'EXPO_PUBLIC_SUPERWALL_IOS_ANNUAL_PURCHASE_IDENTIFIER',
+    'EXPO_PUBLIC_SUPERWALL_ANDROID_MONTHLY_PURCHASE_IDENTIFIER',
+    'EXPO_PUBLIC_SUPERWALL_ANDROID_ANNUAL_PURCHASE_IDENTIFIER',
+  ];
+  const previous = new Map(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names) delete process.env[name];
+    const iosConfiguration = getSuperwallPlatformConfiguration('ios');
+    assert.equal(iosConfiguration, null);
+    assert.equal(createConfiguredSuperwallClient('ios', iosConfiguration, unavailableLoader), null);
+    assert.equal(createConfiguredSuperwallClient('web', configuration, unavailableLoader), null);
+    assert.equal(loadCount, 0);
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
 
 test('maps monthly and annual products using store-localized prices', () => {
   assert.deepEqual(mapConfiguredProducts(

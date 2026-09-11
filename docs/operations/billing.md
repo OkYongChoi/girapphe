@@ -27,6 +27,14 @@ During this sequence, deployment leaves any existing Stripe, RevenueCat, and
 Toss Worker secret bindings untouched. Omission from the new Worker does not
 authorize deletion of those values.
 
+A provider-optional build is supported. If Creem or Superwall configuration is
+missing, or its acquisition gate is not exactly `true`, the subscription page
+and mobile app must remain usable with free access, while new checkout and
+native purchase actions stay disabled. The mobile adapter must also tolerate a
+missing native Superwall bridge without preventing the rest of the app from
+starting. Do not enable an acquisition gate until the corresponding provider
+configuration and external activation evidence are complete.
+
 The mixed-version Worker retains signed Stripe and RevenueCat webhook handlers,
 authoritative legacy reconciliation, Stripe portal/account-deletion cleanup,
 and Toss cancellation/recovery. Stripe checkout creation is hard-disabled and
