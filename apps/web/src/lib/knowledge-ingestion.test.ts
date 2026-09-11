@@ -44,6 +44,7 @@ import {
   MCP_TOKEN_CREATION_LIMIT_PER_DAY,
   MCP_TOKEN_CREATION_RATE_CLEANUP_BATCH_SIZE,
   MCP_TOKEN_CREATION_WINDOW_MS,
+  MCP_TOTAL_TOKEN_RECORD_LIMIT,
   McpDeletedAccountError,
   McpRequestRateLimitError,
   normalizeKnowledgeTopic,
@@ -1758,7 +1759,7 @@ test('issues only explicitly requested MCP knowledge scopes', async () => {
   );
 });
 
-test('keeps an older active MCP token ahead of more than 50 newer inactive records', async (context) => {
+test('lists every retained MCP token beyond the old 50-row window with active tokens first', async (context) => {
   const previousDatabaseUrl = process.env.DATABASE_URL;
   const originalDateNow = Date.now;
   const dayMs = 86_400_000;
@@ -1776,24 +1777,33 @@ test('keeps an older active MCP token ahead of more than 50 newer inactive recor
   const expired = await createMcpAccessTokenForUser(userId, 'Expired before active token');
   Date.now = () => activeCreatedAt;
   const active = await createMcpAccessTokenForUser(userId, 'Older active token');
+  const newerInactiveCount = 51;
   const newerRevokedIds: string[] = [];
-  for (let index = 1; index <= MCP_ACCESS_TOKEN_LIST_LIMIT + 1; index += 1) {
+  for (let index = 1; index <= newerInactiveCount; index += 1) {
     Date.now = () => activeCreatedAt + index * dayMs;
     const newer = await createMcpAccessTokenForUser(userId, `Newer revoked token ${index}`);
     newerRevokedIds.push(newer.record.id);
     await revokeMcpAccessTokenForUser(userId, newer.record.id);
   }
 
+  assert.equal(MCP_ACCESS_TOKEN_LIST_LIMIT, MCP_TOTAL_TOKEN_RECORD_LIMIT);
   assert.ok(MCP_ACTIVE_TOKEN_LIMIT < MCP_ACCESS_TOKEN_LIST_LIMIT);
   assert.ok(new Date(expired.record.expires_at).getTime() <= Date.now());
   const listed = await getMcpAccessTokensForUser(userId);
-  assert.equal(listed.length, MCP_ACCESS_TOKEN_LIST_LIMIT);
-  assert.equal(listed[0]?.id, active.record.id);
+  assert.equal(listed.length, newerInactiveCount + 2);
+  assert.ok(listed.length <= MCP_TOTAL_TOKEN_RECORD_LIMIT);
+  assert.deepEqual(
+    listed.map((token) => token.id),
+    [active.record.id, ...[...newerRevokedIds].reverse(), expired.record.id],
+  );
   assert.equal(listed.filter((token) => (
     !token.revoked_at && new Date(token.expires_at).getTime() > Date.now()
   )).length, 1);
-  assert.equal(listed.slice(1).every((token) => token.revoked_at !== null), true);
-  assert.equal(listed.some((token) => token.id === expired.record.id), false);
+  assert.equal(listed.slice(1).every((token) => (
+    token.revoked_at !== null || new Date(token.expires_at).getTime() <= Date.now()
+  )), true);
+  assert.equal(listed.some((token) => token.id === newerRevokedIds[0]), true);
+  assert.equal(listed.some((token) => token.id === expired.record.id), true);
   assert.equal(listed.some((token) => token.id === newerRevokedIds.at(-1)), true);
 });
 

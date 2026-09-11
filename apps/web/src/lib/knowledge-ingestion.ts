@@ -34,12 +34,12 @@ export const MCP_REQUESTS_PER_USER_PER_MINUTE = 300;
 export const MCP_CREDENTIAL_RATE_LIMIT_RETENTION_MS = 60 * 60 * 1000;
 export const MCP_CREDENTIAL_RATE_LIMIT_CLEANUP_BATCH_SIZE = 64;
 export const MCP_ACTIVE_TOKEN_LIMIT = 10;
-export const MCP_ACCESS_TOKEN_LIST_LIMIT = 50;
+export const MCP_TOTAL_TOKEN_RECORD_LIMIT = 500;
+export const MCP_ACCESS_TOKEN_LIST_LIMIT = MCP_TOTAL_TOKEN_RECORD_LIMIT;
 export const MCP_TOKEN_CREATION_LIMIT_PER_DAY = 20;
 export const MCP_TOKEN_CREATION_WINDOW_MS = 86_400_000;
 export const MCP_TOKEN_CREATION_BUCKET_MS = 60_000;
 export const MCP_TOKEN_CREATION_RATE_CLEANUP_BATCH_SIZE = 64;
-export const MCP_TOTAL_TOKEN_RECORD_LIMIT = 500;
 export const MCP_DRAFTS_PER_TOKEN_PER_HOUR = 250;
 export const MCP_DRAFTS_PER_USER_PER_HOUR = 500;
 export const MAX_PENDING_KNOWLEDGE_DRAFTS_PER_USER = 500;
@@ -1500,6 +1500,9 @@ export async function ensureKnowledgeIngestionSchema(): Promise<void> {
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_mcp_request_rate_limits_stale_credentials
         ON mcp_request_rate_limits(updated_at, scope_key)
         WHERE scope_key LIKE 'credential:%'`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_mcp_request_rate_limits_stale_token_creations
+        ON mcp_request_rate_limits(window_started_at, scope_key)
+        WHERE scope_key LIKE 'token-creation:%'`);
     })().catch((error) => {
       ingestionSchemaPromise = null;
       throw error;

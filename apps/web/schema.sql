@@ -1002,6 +1002,9 @@ ON mcp_access_tokens(token_hash) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_mcp_request_rate_limits_stale_credentials
 ON mcp_request_rate_limits(updated_at, scope_key)
 WHERE scope_key LIKE 'credential:%';
+CREATE INDEX IF NOT EXISTS idx_mcp_request_rate_limits_stale_token_creations
+ON mcp_request_rate_limits(window_started_at, scope_key)
+WHERE scope_key LIKE 'token-creation:%';
 
 -- Transitional legacy billing state remains available until provider-dashboard
 -- evidence proves that every Stripe/Toss lifecycle can be retired safely.
