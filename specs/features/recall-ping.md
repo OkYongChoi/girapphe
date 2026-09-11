@@ -275,11 +275,13 @@ Artifact `10183882755` has SHA-256
 `9c086817b88b3b833587b8ff2110f939e8aefcdc95e3fcb65517eb6112953091`.
 The identical tree squash-merged as
 `62300344fe8551725f96ea08c71d0808ad02c16b`; production run `34560141606`
-deployed that exact revision, `/api/health` reported the database connected,
-and live production browser smoke passed 89 tests with 11 expected skips. This
-closes only `R1-01` through `R1-08`; the overall spec remains Draft and the
-future mobile, notification, memory-cue, research-consent, and physical-device
-scope remains open.
+deployed that exact revision and its `/api/health` response reported the
+database connected. A separate operator-run
+`PLAYWRIGHT_BASE_URL=https://www.girapphe.com pnpm browser:smoke` then passed 89
+rendered tests with 11 expected skips; it was not part of the deployment
+workflow. This closes only `R1-01` through `R1-08`; the overall spec remains
+Draft and the future mobile, notification, memory-cue, research-consent, and
+physical-device scope remains open.
 
 | Criterion | Evidence |
 | --- | --- |
