@@ -913,6 +913,8 @@ export const mcpRequestRateLimits = pgTable("mcp_request_rate_limits", {
 }, (t) => [
   index("idx_mcp_request_rate_limits_stale_credentials").on(t.updatedAt, t.scopeKey)
     .where(sql`${t.scopeKey} LIKE 'credential:%'`),
+  index("idx_mcp_request_rate_limits_stale_token_creations").on(t.windowStartedAt, t.scopeKey)
+    .where(sql`${t.scopeKey} LIKE 'token-creation:%'`),
   check("mcp_request_rate_limits_count_check", sql`${t.requestCount} >= 0`),
 ]);
 

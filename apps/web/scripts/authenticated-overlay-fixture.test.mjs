@@ -847,6 +847,9 @@ test('database fixture is owner-bound and repeatable', async () => {
   const tokenResets = calls.filter((call) => (
     call.text === 'DELETE FROM mcp_access_tokens WHERE user_id = $1'
   ));
+  const tokenCreationRateResets = calls.filter((call) => (
+    call.text.trimStart().startsWith('DELETE FROM mcp_request_rate_limits')
+  ));
   assert.ok(calls.some((call) => (
     call.text === 'DELETE FROM user_card_states WHERE user_id = $1'
     && call.values[0] === SYNTHETIC_USER.id
@@ -854,6 +857,13 @@ test('database fixture is owner-bound and repeatable', async () => {
   assert.equal(tokenResets.length, 2);
   assert.ok(tokenResets.every((call) => (
     call.values.length === 1 && call.values[0] === SYNTHETIC_USER.id
+  )));
+  assert.equal(tokenCreationRateResets.length, 2);
+  assert.ok(tokenCreationRateResets.every((call) => (
+    call.values.length === 1
+    && call.values[0] === SYNTHETIC_USER.id
+    && call.text.includes("'token-creation:' || public.derive_account_lifecycle_scope_key($1)")
+    && call.text.includes("SELECT 'token:' || id FROM mcp_access_tokens WHERE user_id = $1")
   )));
   const accountLocks = calls
     .map((call, index) => ({ call, index }))
@@ -868,13 +878,18 @@ test('database fixture is owner-bound and repeatable', async () => {
     .map((call, index) => ({ call, index }))
     .filter(({ call }) => call.text === 'DELETE FROM mcp_access_tokens WHERE user_id = $1')
     .map(({ index }) => index);
+  const tokenCreationRateResetIndexes = calls
+    .map((call, index) => ({ call, index }))
+    .filter(({ call }) => call.text.trimStart().startsWith('DELETE FROM mcp_request_rate_limits'))
+    .map(({ index }) => index);
   assert.equal(accountLocks.length, 2);
   assert.equal(activeAccountGuards.length, 2);
   assert.equal(tokenLocks.length, 2);
   for (const [runIndex, resetIndex] of tokenResetIndexes.entries()) {
     assert.ok(accountLocks[runIndex].index < activeAccountGuards[runIndex].index);
     assert.ok(activeAccountGuards[runIndex].index < tokenLocks[runIndex].index);
-    assert.ok(tokenLocks[runIndex].index < resetIndex);
+    assert.ok(tokenLocks[runIndex].index < tokenCreationRateResetIndexes[runIndex]);
+    assert.ok(tokenCreationRateResetIndexes[runIndex] < resetIndex);
   }
   for (const tokenReset of tokenResets) {
     const resetIndex = calls.indexOf(tokenReset);
@@ -948,6 +963,10 @@ test('database fixture remains valid when a schema-only preview has no public no
   });
   assert.equal(
     calls.some((call) => call.text === 'DELETE FROM mcp_access_tokens WHERE user_id = $1'),
+    false,
+  );
+  assert.equal(
+    calls.some((call) => call.text.trimStart().startsWith('DELETE FROM mcp_request_rate_limits')),
     false,
   );
   assert.equal(calls.filter((call) => call.text.startsWith('INSERT INTO user_graph_edges')).length, 2);

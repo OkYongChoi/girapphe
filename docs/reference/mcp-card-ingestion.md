@@ -61,6 +61,17 @@ upgraded when a new scope becomes available; create a new token when the
 additional permission is needed. An account may keep up to 10 active tokens
 and create up to 20 in a day (500 retained token records total).
 
+Revoked connections are hidden from the default Settings list. The
+revoked-connection view can permanently delete a revoked token record and its
+token-specific rate-limit state. This removes the stored hash, final-four hint,
+label, and lifecycle timestamps; it does not restore the credential, and past
+ingestion batches retain their opaque originating token ID. A separate
+domain-separated owner fingerprint and minute bucket retain only timestamps
+and aggregate counts, so deleting credentials cannot reset or weaken the
+rolling 20-per-day creation ceiling. Expired buckets are cleaned on the next
+token create or permanent-delete action, and full account deletion removes
+every bucket.
+
 This path remains useful for programmatic or local clients that can attach a
 custom authorization header. OAuth and Girapphe PATs are distinguished before
 authentication; an invalid Girapphe-prefixed token never falls through to the

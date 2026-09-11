@@ -143,6 +143,33 @@ async function revokeExactConnectionAfterReload(
   const tokenRow = page.getByRole('listitem').filter({
     has: page.getByText(connectionLabel, { exact: true }),
   });
+  const showRevokedButton = page.getByRole('button', { name: 'Show revoked connections' });
+  await expect(showRevokedButton).toBeVisible({
+    timeout: cleanupTimeout(
+      deadlineMs,
+      MCP_CLEANUP_OPERATION_MS,
+      'MCP_CLEANUP_SHOW_REVOKED_VISIBLE_TIMEOUT',
+    ),
+  });
+  const showRevokedBox = await showRevokedButton.boundingBox();
+  expect(showRevokedBox?.width).toBeGreaterThanOrEqual(44);
+  expect(showRevokedBox?.height).toBeGreaterThanOrEqual(44);
+  await showRevokedButton.focus();
+  await expect(showRevokedButton).toBeFocused();
+  await expect(tokenRow, 'revoked connections stay out of the default list').toHaveCount(0, {
+    timeout: cleanupTimeout(
+      deadlineMs,
+      MCP_CLEANUP_OPERATION_MS,
+      'MCP_CLEANUP_REVOKED_HIDDEN_TIMEOUT',
+    ),
+  });
+  await showRevokedButton.click({
+    timeout: cleanupTimeout(
+      deadlineMs,
+      MCP_CLEANUP_OPERATION_MS,
+      'MCP_CLEANUP_SHOW_REVOKED_TIMEOUT',
+    ),
+  });
   const rowVisible = await tokenRow.first().waitFor({
     state: 'visible',
     timeout: cleanupTimeout(
@@ -256,8 +283,11 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   let renderedGuideOmitsAnyRawPat = false;
   let overflowsViewport = true;
   let revokedAfterReload = false;
+  let revokedHiddenImmediately = false;
   let rawSurfaceAbsentImmediatelyAfterRevoke = false;
   let rawSurfaceAbsentAfterReload = false;
+  let deletedPermanently = false;
+  let absentAfterDeleteReload = false;
   let normalUiRemainingActive = -1;
   let originalEvidenceFailed = false;
   let originalEvidenceError: unknown = null;
@@ -395,11 +425,11 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
             'MCP_CLEANUP_IMMEDIATE_REVOKE_CLICK_TIMEOUT',
           ),
         });
-        await expect(tokenRow.getByText('Revoked', { exact: true })).toBeVisible({
+        await expect(tokenRow).toHaveCount(0, {
           timeout: cleanupTimeout(
             immediateCleanupDeadlineMs,
             MCP_CLEANUP_OPERATION_MS,
-            'MCP_CLEANUP_IMMEDIATE_REVOKED_EXPECT_TIMEOUT',
+            'MCP_CLEANUP_IMMEDIATE_REVOKED_HIDDEN_TIMEOUT',
           ),
         });
         await expect(rawTokenCode).toHaveCount(0, {
@@ -407,6 +437,21 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
             immediateCleanupDeadlineMs,
             MCP_CLEANUP_OPERATION_MS,
             'MCP_CLEANUP_IMMEDIATE_RAW_CLEAR_TIMEOUT',
+          ),
+        });
+        revokedHiddenImmediately = true;
+        await page.getByRole('button', { name: 'Show revoked connections' }).click({
+          timeout: cleanupTimeout(
+            immediateCleanupDeadlineMs,
+            MCP_CLEANUP_OPERATION_MS,
+            'MCP_CLEANUP_IMMEDIATE_SHOW_REVOKED_TIMEOUT',
+          ),
+        });
+        await expect(tokenRow.getByText('Revoked', { exact: true })).toBeVisible({
+          timeout: cleanupTimeout(
+            immediateCleanupDeadlineMs,
+            MCP_CLEANUP_OPERATION_MS,
+            'MCP_CLEANUP_IMMEDIATE_REVOKED_EXPECT_TIMEOUT',
           ),
         });
         rawSurfaceAbsentImmediatelyAfterRevoke = true;
@@ -506,6 +551,31 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
     if (cleanupEvidenceError) throw cleanupEvidenceError;
   }
 
+  const revokedTokenRow = page.getByRole('listitem').filter({
+    has: page.getByText(connectionLabel, { exact: true }),
+  });
+  const permanentDeleteButton = revokedTokenRow.getByRole('button', {
+    name: 'Delete permanently',
+  });
+  const permanentDeleteBox = await permanentDeleteButton.boundingBox();
+  expect(permanentDeleteBox?.width).toBeGreaterThanOrEqual(44);
+  expect(permanentDeleteBox?.height).toBeGreaterThanOrEqual(44);
+  await permanentDeleteButton.focus();
+  await expect(permanentDeleteButton).toBeFocused();
+  page.once('dialog', (dialog) => dialog.accept());
+  await permanentDeleteButton.click();
+  await expect(revokedTokenRow).toHaveCount(0);
+  deletedPermanently = true;
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const showRevokedAfterDelete = page.getByRole('button', { name: 'Show revoked connections' });
+  await expect(page.getByRole('heading', { name: 'Existing connections' })).toBeVisible();
+  if (await showRevokedAfterDelete.isVisible()) await showRevokedAfterDelete.click();
+  await expect(page.getByRole('listitem').filter({
+    has: page.getByText(connectionLabel, { exact: true }),
+  })).toHaveCount(0);
+  absentAfterDeleteReload = true;
+
   expect(rawTokenHasExpectedShape).toBe(true);
   expect(openAiSnippetChecks).toEqual({
     configurationShape: true,
@@ -525,9 +595,12 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
   expect(renderedGuideOmitsCapturedPat).toBe(true);
   expect(renderedGuideOmitsAnyRawPat).toBe(true);
   expect(revokedAfterReload).toBe(true);
+  expect(revokedHiddenImmediately).toBe(true);
   expect(rawSurfaceAbsentImmediatelyAfterRevoke).toBe(true);
   expect(normalUiRemainingActive).toBe(0);
   expect(rawSurfaceAbsentAfterReload).toBe(true);
+  expect(deletedPermanently).toBe(true);
+  expect(absentAfterDeleteReload).toBe(true);
   expect(overflowsViewport).toBe(false);
   expect(browserErrors.length === 0).toBe(true);
 
@@ -545,8 +618,11 @@ test('switches between ChatGPT and Claude setup without exposing a PAT', async (
     createdOneTimePat: true,
     copiedWithoutRawPat: true,
     revokedBeforeScreenshot: revokedAfterReload,
+    revokedHiddenByDefault: revokedHiddenImmediately,
     clearedOneTimePatImmediatelyOnRevoke: rawSurfaceAbsentImmediatelyAfterRevoke,
     remainingActiveAfterUiRevoke: normalUiRemainingActive,
+    deletedPermanentlyBeforeScreenshot: deletedPermanently,
+    absentAfterDeleteReload,
     clipboardEmptyAfterTest: true,
     browserErrorCount: browserErrors.length,
     pageOverflow: overflowsViewport,

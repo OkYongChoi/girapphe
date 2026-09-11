@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { deriveMcpTokenCreationRateScopeKey } from '@/lib/account-lifecycle';
+
 export function buildPrivateProductPurgeQuery(userId: string) {
   return {
     text: `WITH
@@ -85,6 +87,8 @@ export function buildPrivateProductPurgeQuery(userId: string) {
        deleted_mcp_rate_limits AS (
          DELETE FROM mcp_request_rate_limits
          WHERE scope_key = 'user:' || $1
+            OR scope_key = $2
+            OR scope_key LIKE $2 || ':%'
             OR scope_key IN (SELECT 'token:' || id FROM selected_mcp_tokens)
          -- credential:* fingerprints are non-reversible and remain subject to bounded stale cleanup.
          RETURNING scope_key
@@ -132,6 +136,6 @@ export function buildPrivateProductPurgeQuery(userId: string) {
        (SELECT COUNT(*) FROM deleted_card_states) AS deleted_card_states,
        (SELECT COUNT(*) FROM deleted_toss_limits) AS deleted_toss_limits,
        (SELECT COUNT(*) FROM deleted_billing_limits) AS deleted_billing_limits`,
-    params: [userId],
+    params: [userId, deriveMcpTokenCreationRateScopeKey(userId)],
   };
 }

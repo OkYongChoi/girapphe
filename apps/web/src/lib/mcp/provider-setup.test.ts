@@ -203,3 +203,59 @@ test('Settings renders the provider guide without receiving the raw PAT', () => 
     /try \{\s+await revokeMcpAccessToken\(formData\);\s+setRawToken\(\(current\) => current\?\.id === token\.id \? null : current\);\s+router\.refresh\(\);\s+\} catch \{\s+setError\(t\('mcp\.revokeError'\)\);/u,
   );
 });
+
+test('revoked connection cleanup stays localized, accessible, and Settings-aware', () => {
+  const connectionsSource = readFileSync(
+    new URL('../../components/draft-review-mcp-connections.tsx', import.meta.url),
+    'utf8',
+  );
+  const actionsSource = readFileSync(
+    new URL('../../actions/knowledge-ingestion-actions.ts', import.meta.url),
+    'utf8',
+  );
+  const lifecycleKeys = [
+    'mcp.showRevoked',
+    'mcp.hideRevoked',
+    'mcp.revokedHiddenEmpty',
+    'mcp.deletePermanently',
+    'mcp.deletePermanentlyConfirm',
+    'mcp.deleteError',
+  ] as const satisfies readonly MessageKey[];
+
+  assert.equal(SUPPORTED_LOCALES.length, 6);
+  for (const locale of SUPPORTED_LOCALES) {
+    for (const key of lifecycleKeys) {
+      assert.ok(message(locale, key).trim(), `${locale}.${key} must not be blank`);
+      if (locale !== 'en') {
+        assert.notEqual(
+          message(locale, key),
+          message('en', key),
+          `${locale}.${key} must be localized`,
+        );
+      }
+    }
+  }
+
+  assert.match(
+    connectionsSource,
+    /const visibleTokens = showRevoked \? tokens : tokens\.filter\(\(token\) => !token\.revoked_at\);/u,
+  );
+  assert.match(
+    connectionsSource,
+    /aria-pressed=\{showRevoked\}[\s\S]{0,300}className="min-h-11[^"]*focus:ring-2/u,
+  );
+  assert.match(
+    connectionsSource,
+    /label=\{t\('mcp\.deletePermanently'\)\}[\s\S]{0,300}className="min-h-11[^"]*focus:ring-2/u,
+  );
+
+  const deleteActionStart = actionsSource.indexOf(
+    'export async function deleteRevokedMcpAccessToken',
+  );
+  assert.ok(deleteActionStart >= 0);
+  const deleteAction = actionsSource.slice(deleteActionStart);
+  assert.match(deleteAction, /const user = await requireCurrentUser\(\);/u);
+  assert.match(deleteAction, /deleteRevokedMcpAccessTokenForUser\(user\.id, tokenId\)/u);
+  assert.match(deleteAction, /revalidatePath\('\/knowledge-inbox'\)/u);
+  assert.match(deleteAction, /revalidatePath\('\/settings'\)/u);
+});

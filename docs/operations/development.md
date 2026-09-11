@@ -138,9 +138,11 @@ Preview Thinking History default when that surface is enabled, checks Arabic
 RTL/mobile containment and 44 px interaction targets, and saves synthetic
 success screenshots. Only when the testing-token auth mode, marker-owned email,
 PR Preview Worker hostname, and `E2E_REQUIRE_MCP_PAT_CLOSEOUT=true` all match,
-fixture setup deletes `mcp_access_tokens` rows for the validated synthetic owner
-inside the same fixture transaction. It acquires the account-lifecycle and MCP
-token advisory locks in application order before that reset. The desktop project
+fixture setup deletes `mcp_access_tokens` rows, their token-specific rate rows,
+and the derived aggregate MCP-token creation buckets for the validated
+synthetic owner inside the same fixture transaction. It acquires the
+account-lifecycle and MCP token advisory locks in application order before that
+reset. The desktop project
 runs each PAT-mutating provider
 test once; mobile and Arabic provider coverage remain read-only. Each created
 token label embeds
@@ -148,8 +150,10 @@ token label embeds
 the one-time value and immediately hides that surface,
 proves the copied OpenAI and Claude snippets retain `GIRAPPHE_MCP_TOKEN` while
 omitting the captured value, clears the clipboard with readback, revokes the
-PAT in Settings, reloads, and verifies the locked exact database row has zero
-active matches before any durable success screenshot. If the normal create
+PAT in Settings, proves revoked rows are hidden until explicitly revealed,
+reloads, and verifies the locked exact database row has zero active matches.
+It then permanently deletes that exact revoked row, reloads to prove absence,
+and only then captures a durable success screenshot. If the normal create
 attempt commits but the one-time value cannot be captured, the locked exact
 owner/label/random-marker fallback revokes that row and the run still fails
 without accepted evidence. Before Create, the test extends its enclosing
@@ -158,10 +162,15 @@ original 60-second budget, so exhausting evidence time cannot prevent the
 `finally` cleanup from starting. The PAT specs disable
 Playwright's automatic failure screenshots, and the authenticated runner
 disables automatic screenshots, AI-oriented accessibility page snapshots, and
-Git author metadata. Tests retain only explicit post-revocation success
+Git author metadata. Tests retain only explicit post-deletion success
 screenshots and sanitized JSON. If the suite fails, CI removes Playwright error
 context and any image, trace, or video before uploading a diagnostics-only
 artifact; it does not upload the HTML report for that failed run.
+
+The rolling token-creation guard depends on migration
+`0026_mcp_token_creation_rate_buckets.sql`. It adds only the partial stale-bucket
+cleanup index; Preview and production migration steps must apply it before the
+Worker version that writes `token-creation:*` buckets is activated.
 
 A separate Preview-only fault check ignores Clerk and other background traffic,
 then intercepts only the exact same-origin Settings Server Action POST whose
@@ -295,8 +304,9 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    and token locks before provider evidence. The same explicit Preview closeout
    gate is shared by setup and both PAT tests.
    The desktop PAT tests each run once regardless of the overlay measurement
-   count; normal UI revocation and the deterministic route-fault fallback both
-   finish at zero active exact matches. Mobile and Arabic provider checks do not
+   count; the normal UI path finishes with exact permanent deletion, while the
+   deterministic route-fault fallback finishes at zero active exact matches.
+   Mobile and Arabic provider checks do not
    mutate PATs. The mobile API mutation journey is testing-token Preview-only,
    and its summary is deployed browser evidence, not physical-device,
    accessibility, signed-binary, or store-release evidence.
@@ -310,7 +320,7 @@ Prefer the manual **Authenticated overlay performance** GitHub workflow:
    rejects every other ref before exposing production credentials. Desktop and
    mobile each run once against `https://www.girapphe.com`, after its health
    revision matches the checked-out `main` SHA. This sign-in-token path does not
-   reset, create, or revoke MCP tokens.
+   reset, create, revoke, or permanently delete MCP tokens.
 
 The deployment workflow attaches `GIRAPPHE_REVISION` atomically to each uploaded
 Worker version. Production bulk-secret synchronization intentionally excludes

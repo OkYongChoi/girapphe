@@ -13,6 +13,28 @@ test('local development retains schema bootstrap support', () => {
   assert.equal(canRunRuntimeSchemaBootstrap({ NODE_ENV: 'development' }), true);
 });
 
+test('token-creation cleanup index stays aligned across every schema source', () => {
+  const sqlSources = [
+    '../../drizzle/migrations/0026_mcp_token_creation_rate_buckets.sql',
+    '../../schema.sql',
+    './knowledge-ingestion.ts',
+  ];
+  for (const source of sqlSources) {
+    const text = readFileSync(new URL(source, import.meta.url), 'utf8');
+    assert.match(
+      text,
+      /idx_mcp_request_rate_limits_stale_token_creations[\s\S]{0,160}ON\s+(?:"mcp_request_rate_limits"|mcp_request_rate_limits)\s*\(\s*(?:"window_started_at"|window_started_at)\s*,\s*(?:"scope_key"|scope_key)\s*\)[\s\S]{0,80}WHERE\s+(?:"scope_key"|scope_key)\s+LIKE\s+'token-creation:%'/i,
+      source,
+    );
+  }
+
+  const drizzleSchema = readFileSync(new URL('../../drizzle/schema.ts', import.meta.url), 'utf8');
+  assert.match(
+    drizzleSchema,
+    /idx_mcp_request_rate_limits_stale_token_creations[\s\S]{0,120}\.on\(t\.windowStartedAt, t\.scopeKey\)[\s\S]{0,80}\.where\(sql`\$\{t\.scopeKey\} LIKE 'token-creation:%'`\)/,
+  );
+});
+
 test('ingestion inserts remain compatible while their uniqueness key expands', () => {
   const source = readFileSync(new URL('./knowledge-ingestion.ts', import.meta.url), 'utf8');
   const createStart = source.indexOf('export async function createKnowledgeDraftBatchForUser(');

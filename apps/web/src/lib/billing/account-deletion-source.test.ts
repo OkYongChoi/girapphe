@@ -72,8 +72,10 @@ test('account deletion clears reversible MCP rate-limit identities before deleti
   );
   assert.match(
     source,
-    /DELETE FROM mcp_request_rate_limits[\s\S]{0,240}scope_key = 'user:' \|\| \$1[\s\S]{0,240}scope_key IN \(SELECT 'token:' \|\| id FROM selected_mcp_tokens\)/,
+    /DELETE FROM mcp_request_rate_limits[\s\S]{0,240}scope_key = 'user:' \|\| \$1[\s\S]{0,120}scope_key = \$2[\s\S]{0,120}scope_key LIKE \$2 \|\| ':%'[\s\S]{0,240}scope_key IN \(SELECT 'token:' \|\| id FROM selected_mcp_tokens\)/,
   );
+  assert.match(source, /deriveMcpTokenCreationRateScopeKey\(userId\)/);
+  assert.match(source, /params: \[userId, deriveMcpTokenCreationRateScopeKey\(userId\)\]/);
   assert.match(
     source,
     /deleted_tokens AS \(\s*DELETE FROM mcp_access_tokens\s*WHERE user_id = \$1\s*AND \(SELECT COUNT\(\*\) FROM deleted_mcp_rate_limits\) >= 0/,

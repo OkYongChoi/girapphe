@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
   PREVIEW_BILLING_ENVIRONMENT_STATEMENTS,
@@ -9,6 +9,30 @@ import {
   parseLegacyBillingUpgradeMigration,
   parsePreviewMigration,
 } from './apply-preview-schema.mjs';
+
+test('production Drizzle journal registers every managed SQL migration', async () => {
+  const migrationDirectory = new URL('../drizzle/migrations/', import.meta.url);
+  const journal = JSON.parse(await readFile(
+    new URL('meta/_journal.json', migrationDirectory),
+    'utf8',
+  ));
+  const journalTags = new Set(journal.entries.map((entry) => entry.tag));
+  // These historical scripts already sit outside the Drizzle journal. Keep
+  // that legacy exception explicit without requiring optional snapshots or
+  // allowing newer checked-in SQL migrations to be silently skipped.
+  const legacyUnjournaledTags = new Set([
+    '0001_clerk_migration',
+    '0003_add_knowledge_evidence_layer',
+    '0004_expand_card_domains_cleanup_ads',
+  ]);
+  const missingJournalEntries = (await readdir(migrationDirectory, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && /^\d{4}_.+\.sql$/u.test(entry.name))
+    .map((entry) => entry.name.slice(0, -'.sql'.length))
+    .filter((tag) => !legacyUnjournaledTags.has(tag) && !journalTags.has(tag))
+    .sort();
+
+  assert.deepEqual(missingJournalEntries, []);
+});
 
 test('preview schema update contains only bounded idempotent statements', async () => {
   const migrations = [
@@ -28,6 +52,7 @@ test('preview schema update contains only bounded idempotent statements', async 
     ['0023_knowledge_ingestion_request_tombstones.sql', 21, parsePreviewMigration],
     ['0024_recall_prepared_attempts.sql', 4, parsePreviewMigration],
     ['0025_mobile_practice_owner_cursor.sql', 2, parsePreviewMigration],
+    ['0026_mcp_token_creation_rate_buckets.sql', 1, parsePreviewMigration],
   ];
   for (const [name, expectedCount, parse] of migrations) {
     const sql = await readFile(new URL(`../drizzle/migrations/${name}`, import.meta.url), 'utf8');
