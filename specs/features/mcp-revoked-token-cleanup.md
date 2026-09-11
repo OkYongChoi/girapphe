@@ -54,7 +54,7 @@ Out of scope:
 - [x] `AC-05`: All lifecycle labels, confirmations, empty and error states are
   present in the six locale catalogs, and every new interactive control keeps
   a visible focus treatment and at least a 44 CSS pixel target.
-- [ ] `AC-06`: An exact-head authenticated Preview run creates one marker-owned
+- [x] `AC-06`: An exact-head authenticated Preview run creates one marker-owned
   PAT, proves immediate revoke redaction, proves revoked rows are hidden then
   explicitly revealed, permanently deletes that exact row, reloads Settings,
   and emits only sanitized JSON and post-delete screenshots.
@@ -87,7 +87,7 @@ removes it.
 | `AC-03` | `apps/web/src/lib/knowledge-ingestion.test.ts` covers foreign-owner and active-token no-ops, exact memory cleanup, and the locked database query's owner/revoked/rate predicates. |
 | `AC-04` | `knowledge-ingestion.test.ts` performs 20 create/revoke/delete cycles, covers the rolling-day boundary, and rejects over-limit creation; `apps/web/src/lib/billing/account-deletion-source.test.ts` requires purge coverage for all bucket scopes. |
 | `AC-05` | `apps/web/src/i18n/messages.test.ts`, web lint/typecheck, source inspection, and authenticated desktop/mobile RTL coverage. |
-| `AC-06` | Pending exact-head `authenticated-performance.yml` Preview artifact review. |
+| `AC-06` | The exact-head `authenticated-performance.yml` Preview gate creates and revokes one marker-owned PAT, verifies immediate raw-secret removal, default-hidden and explicitly revealed revoked state, permanent deletion, reload absence, zero remaining active rows in both UI and route-fault cleanup paths, an empty clipboard, and sanitized JSON plus post-delete screenshots. |
 
 ## Rollout
 
